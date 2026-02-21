@@ -41,6 +41,11 @@ export async function saveDatabaseSettings(url: string) {
 
         await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2));
         console.log("Database configuration saved to:", CONFIG_FILE);
+
+        // Refresh the shared DB instance immediately
+        const { refreshDb } = await import("@/db");
+        refreshDb();
+
         return { success: true };
     } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : String(error);
