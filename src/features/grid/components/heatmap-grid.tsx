@@ -225,7 +225,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
             enableSorting: false,
             cell: ({ row }) => <AiInsightBlock row={row.original} />,
         },
-    ], [draftChanges, setDraftGamme]);
+    ], [draftChanges, setDraftGamme, MONTHS_12]);
 
     const table = useReactTable({
         data: rows,

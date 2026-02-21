@@ -6,7 +6,7 @@ import { sql } from "drizzle-orm";
 async function diagnose() {
     console.log("Checking DB connection...");
     try {
-        const result = await db.execute(sql`SELECT 1`);
+        await db.execute(sql`SELECT 1`);
         console.log("DB Connection OK.");
 
         console.log("Checking table 'ventes_produits'...");

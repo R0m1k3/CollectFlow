@@ -6,11 +6,6 @@ interface FinancialCellProps {
     tauxMarge: number;
 }
 
-function getMarginColor(pct: number): string {
-    if (pct >= 45) return "#10b981"; // emerald-500
-    if (pct >= 20) return "#f59e0b"; // amber-500
-    return "#f43f5e";               // rose-500
-}
 
 export function FinancialCell({ totalCa, totalMarge, tauxMarge }: FinancialCellProps) {
     const isHighMargin = tauxMarge >= 45;

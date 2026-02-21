@@ -2,7 +2,7 @@
 
 import { db } from "@/db";
 import { ventesProduits } from "@/db/schema";
-import { eq, and, ne, sql } from "drizzle-orm";
+import { eq, and, ne } from "drizzle-orm";
 import type { ProductRow, GammeCode } from "@/types/grid";
 import { computeProductScores } from "@/lib/score-engine";
 

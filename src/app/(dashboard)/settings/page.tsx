@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Save, Eye, EyeOff, CheckCircle, AlertCircle, Loader2, RefreshCw, Sun, Moon, BarChart3, RotateCcw } from "lucide-react";
+import { Save, Eye, EyeOff, CheckCircle, AlertCircle, Loader2, RefreshCw, Sun, Moon, RotateCcw } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { useScoreSettingsStore } from "@/features/score/store/use-score-settings-store";
@@ -71,11 +71,6 @@ export default function SettingsPage() {
         getDatabaseUrl
     } = useDbSettingsStore();
 
-    useEffect(() => {
-        setIsMounted(true);
-        reloadFromServer();
-    }, []);
-
     const fetchModels = useCallback(async (key: string) => {
         if (!key.trim()) return;
         setModelsStatus("loading");
@@ -90,7 +85,7 @@ export default function SettingsPage() {
         }
     }, []);
 
-    const reloadFromServer = async () => {
+    const reloadFromServer = useCallback(async () => {
         const config = await getSavedDatabaseConfig();
         if (config) {
             if (config.url) {
@@ -115,7 +110,12 @@ export default function SettingsPage() {
                 setSelectedModel(config.openRouterModel);
             }
         }
-    };
+    }, [fetchModels, setApiKey, setDatabase, setHost, setPassword, setPort, setSelectedModel, setSsl, setUser]);
+
+    useEffect(() => {
+        setIsMounted(true);
+        reloadFromServer();
+    }, [reloadFromServer]);
 
     const testDb = async () => {
         setDbStatus("testing");

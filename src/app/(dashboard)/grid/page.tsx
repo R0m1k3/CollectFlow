@@ -1,7 +1,6 @@
 import { getFournisseurs, getGridData, getMagasins } from "@/features/grid/actions";
 import { GridClient } from "@/features/grid/components/grid-client";
 import { SupplierSelectionLanding } from "@/features/grid/components/supplier-selection-landing";
-import { Suspense } from "react";
 
 interface GridPageProps {
     searchParams: Promise<{ fournisseur?: string; magasin?: string }>;
