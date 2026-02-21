@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+import { getSavedDatabaseConfig } from "@/features/settings/actions";
 
 // Schema for the incoming request
 const BatchAnalyzeSchema = z.object({
-    rayon: z.string(), // Context for the LLM
+    rayon: z.string(),
     products: z.array(z.object({
         codein: z.string(),
         gtin: z.string().nullable().optional(),
@@ -16,8 +15,14 @@ const BatchAnalyzeSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-    if (!OPENROUTER_API_KEY) {
-        return NextResponse.json({ error: "Clé API OpenRouter manquante." }, { status: 500 });
+    // Read the API key from DB config (same pattern as /api/ai/analyze)
+    const config = await getSavedDatabaseConfig();
+    const apiKey = process.env.OPENROUTER_API_KEY || config?.openRouterKey;
+    const model = config?.openRouterModel || "meta-llama/llama-3.3-70b-instruct:free";
+
+    if (!apiKey) {
+        console.error("[batch-analyze] API key manquante.");
+        return NextResponse.json({ error: "Clé API OpenRouter manquante. Configurez-la dans les Paramètres." }, { status: 500 });
     }
 
     try {
@@ -60,7 +65,7 @@ Format attendu:
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
             method: "POST",
             headers: {
-                "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+                "Authorization": `Bearer ${apiKey}`,
                 "Content-Type": "application/json",
             },
             body: JSON.stringify({
