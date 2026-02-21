@@ -16,7 +16,6 @@ import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { GammeSelect } from "@/features/grid/components/gamme-select";
 import { HeatmapCell } from "@/features/grid/components/heatmap-cell";
-import { FinancialCell } from "@/features/grid/components/financial-cell";
 import type { ProductRow, GammeCode } from "@/types/grid";
 import { cn } from "@/lib/utils";
 import { AiInsightBlock } from "@/features/ai-copilot/components/ai-insight-block";
@@ -182,15 +181,30 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
             ),
         },
         {
-            id: "financial",
-            header: () => <div className="text-center w-full">CA / Marge</div>,
-            size: 160,
+            accessorKey: "totalCa",
+            header: () => <div className="text-center w-full">CA</div>,
+            size: 90,
+            cell: ({ getValue }) => (
+                <div className="text-center font-mono-nums text-[13px] font-bold" style={{ color: "var(--text-primary)" }}>
+                    {Math.round(getValue<number>()).toLocaleString("fr-FR")}&nbsp;€
+                </div>
+            ),
+        },
+        {
+            accessorKey: "totalMarge",
+            header: () => <div className="text-center w-full">Marge</div>,
+            size: 110,
             cell: ({ row }) => (
-                <FinancialCell
-                    totalCa={row.original.totalCa}
-                    totalMarge={row.original.totalMarge}
-                    tauxMarge={row.original.tauxMarge}
-                />
+                <div className="flex flex-col items-center justify-center">
+                    <span className="font-mono-nums text-[13px] font-bold" style={{ color: "var(--text-primary)" }}>
+                        {Math.round(row.original.totalMarge).toLocaleString("fr-FR")}&nbsp;€
+                    </span>
+                    <span className="font-mono-nums text-[10px] font-bold opacity-70" style={{
+                        color: row.original.tauxMarge >= 40 ? "var(--accent-success)" : row.original.tauxMarge >= 25 ? "var(--accent-warning)" : "var(--accent-error)"
+                    }}>
+                        {row.original.tauxMarge.toFixed(1)}%
+                    </span>
+                </div>
             ),
         },
         {
@@ -281,7 +295,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                         <tr key={headerGroup.id} className="flex w-full">
                             {headerGroup.headers.map((header) => {
                                 const isFlexible = header.column.id === "libelle1" || header.column.id === "ai" || header.column.id === "libelle3";
-                                const isCenter = header.column.id === "totalQuantite" || header.column.id === "financial" || header.column.id.startsWith("month_") || header.column.id === "gammeInitial" || header.column.id === "score" || header.column.id === "gamme";
+                                const isCenter = header.column.id === "totalQuantite" || header.column.id === "totalCa" || header.column.id === "totalMarge" || header.column.id.startsWith("month_") || header.column.id === "gammeInitial" || header.column.id === "score" || header.column.id === "gamme";
                                 const size = header.getSize();
                                 return (
                                     <th
@@ -336,7 +350,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                             >
                                 {row.getVisibleCells().map((cell) => {
                                     const isFlexible = cell.column.id === "libelle1" || cell.column.id === "ai" || cell.column.id === "libelle3";
-                                    const isCenter = cell.column.id === "totalQuantite" || cell.column.id === "financial" || cell.column.id.startsWith("month_") || cell.column.id === "gammeInitial" || cell.column.id === "score";
+                                    const isCenter = cell.column.id === "totalQuantite" || cell.column.id === "totalCa" || cell.column.id === "totalMarge" || cell.column.id.startsWith("month_") || cell.column.id === "gammeInitial" || cell.column.id === "score" || cell.column.id === "gamme";
                                     const size = cell.column.getSize();
                                     return (
                                         <td
