@@ -35,7 +35,9 @@ export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins
     const [selectedCodeins, setSelectedCodeins] = useState<string[]>([]);
     const [isPending, startTransition] = useTransition();
     const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle");
-    const { save, hasDrafts, count } = useSaveDrafts(magasin);
+
+    const visibleCodeins = initialRows.map(r => r.codein);
+    const { save, hasDrafts, count } = useSaveDrafts(magasin, visibleCodeins);
 
     const [isMounted, setIsMounted] = useState(false);
 

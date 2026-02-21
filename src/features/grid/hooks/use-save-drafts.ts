@@ -7,13 +7,20 @@ import { GammeCode } from "@/types/grid";
 
 /**
  * Builds the payload from Zustand draftChanges and calls the Server Action.
- * Returns a cleanup function called after successful save.
+ * Filters changes to only include those in the provided codeins list (e.g. current supplier).
  */
-export function useSaveDrafts(magasin: string) {
-    const { draftChanges, resetDrafts } = useGridStore();
+export function useSaveDrafts(magasin: string, filterCodeins?: string[]) {
+    const { draftChanges, resetDrafts, clearDrafts } = useGridStore();
+
+    // Only consider changes that are in the filter list (if provided)
+    const activeDrafts = filterCodeins
+        ? Object.fromEntries(Object.entries(draftChanges).filter(([codein]) => filterCodeins.includes(codein)))
+        : draftChanges;
+
+    const count = Object.keys(activeDrafts).length;
 
     const save = useCallback(async () => {
-        const changes = Object.entries(draftChanges).map(([codein, codeGamme]) => ({
+        const changes = Object.entries(activeDrafts).map(([codein, codeGamme]) => ({
             codein,
             magasin,
             codeGamme: codeGamme as GammeCode,
@@ -22,9 +29,17 @@ export function useSaveDrafts(magasin: string) {
         if (changes.length === 0) return { success: true, saved: 0 };
 
         const result = await saveDraftChanges({ changes });
-        if (result.success) resetDrafts();
-        return result;
-    }, [draftChanges, magasin, resetDrafts]);
 
-    return { save, hasDrafts: Object.keys(draftChanges).length > 0, count: Object.keys(draftChanges).length };
+        if (result.success) {
+            if (filterCodeins) {
+                // Clear ONLY the ones we just saved
+                clearDrafts(Object.keys(activeDrafts));
+            } else {
+                resetDrafts();
+            }
+        }
+        return result;
+    }, [activeDrafts, magasin, resetDrafts, clearDrafts, filterCodeins]);
+
+    return { save, hasDrafts: count > 0, count };
 }

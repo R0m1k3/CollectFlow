@@ -19,6 +19,8 @@ interface GridState {
     setRows: (rows: ProductRow[]) => void;
     setDraftGamme: (codein: string, gamme: GammeCode) => void;
     resetDrafts: () => void;
+    /** Clear specific draft changes by codein */
+    clearDrafts: (codeins: string[]) => void;
     setFilter: (key: keyof GridFilters, value: string | null) => void;
     setDisplayDensity: (density: "compact" | "normal" | "comfortable") => void;
     setActiveGridQuery: (query: string) => void;
@@ -76,7 +78,11 @@ export const useGridStore = create<GridState>()(
             resetDrafts: () => {
                 set({ draftChanges: {}, summary: computeSummary(get().rows, {}) });
             },
-
+            clearDrafts: (codeins) => {
+                const draftChanges = { ...get().draftChanges };
+                codeins.forEach((id) => delete draftChanges[id]);
+                set({ draftChanges, summary: computeSummary(get().rows, draftChanges) });
+            },
             setFilter: (key, value) => {
                 set((state) => ({ ...state, filters: { ...state.filters, [key]: value } }));
             },
