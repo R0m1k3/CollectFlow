@@ -82,6 +82,7 @@ export const useGridStore = create<GridState>()(
             partialize: (state) => ({
                 filters: state.filters,
                 displayDensity: state.displayDensity,
+                draftChanges: state.draftChanges,
             }),
         }
     )

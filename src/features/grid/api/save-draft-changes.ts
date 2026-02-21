@@ -5,6 +5,8 @@ import { ventesProduits } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 
+import { revalidatePath } from "next/cache";
+
 const SaveDraftsSchema = z.object({
     changes: z.array(
         z.object({
@@ -26,21 +28,23 @@ export async function saveDraftChanges(
     const { changes } = parsed.data;
 
     try {
-        // Batch update all rows for given codein × magasin
+        // Batch update all rows for given codein. 
+        // If magasin is "TOTAL", update ALL stores for that product.
         await Promise.all(
-            changes.map(({ codein, magasin, codeGamme }) =>
-                db
+            changes.map(({ codein, magasin, codeGamme }) => {
+                const whereClause = [eq(ventesProduits.codein, codein)];
+                if (magasin !== "TOTAL") {
+                    whereClause.push(eq(ventesProduits.magasin, magasin));
+                }
+
+                return db
                     .update(ventesProduits)
                     .set({ codeGamme })
-                    .where(
-                        and(
-                            eq(ventesProduits.codein, codein),
-                            eq(ventesProduits.magasin, magasin)
-                        )
-                    )
-            )
+                    .where(and(...whereClause));
+            })
         );
 
+        revalidatePath("/grid");
         return { success: true, saved: changes.length };
     } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
