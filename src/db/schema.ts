@@ -14,10 +14,6 @@ export const ventesProduits = pgTable("ventes_produits", {
 
   // Gamme & Nomenclature
   codeGamme: varchar("code_gamme", { length: 20 }),
-  code1: varchar("code1", { length: 20 }),
-  libelleNiveau1: varchar("libelle_niveau1", { length: 500 }),
-  code2: varchar("code2", { length: 20 }),
-  libelleNiveau2: varchar("libelle_niveau2", { length: 500 }),
   code3: varchar("code3", { length: 20 }),
   libelle3: varchar("libelle3", { length: 500 }),
 

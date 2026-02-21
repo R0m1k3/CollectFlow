@@ -73,6 +73,19 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             existing.totalMarge += marge;
             existing.tauxMarge = existing.totalCa > 0 ? (existing.totalMarge / existing.totalCa) * 100 : 0;
         } else {
+            const c3 = row.code3 || "";
+            const c1 = c3.slice(0, 2);
+            const c2 = c3.slice(0, 4);
+
+            const L1_LABELS: Record<string, string> = {
+                "30": "ÉPICERIE",
+                "31": "CRÉMERIE / FRAIS",
+                "32": "LIQUIDES",
+                "33": "DPH",
+                "34": "BAZAR",
+                "35": "TEXTILE",
+            };
+
             productMap.set(codein, {
                 codein,
                 codeFournisseur: row.codeFournisseur ?? "",
@@ -80,11 +93,11 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
                 libelle1: row.libelle1 ?? "",
                 gtin: row.gtin ?? "",
                 reference: row.reference ?? "",
-                code1: (row.code3 ?? "").slice(0, 2),
-                libelleNiveau1: "Niv. 1", // À mapper plus tard
-                code2: (row.code3 ?? "").slice(0, 4),
-                libelleNiveau2: "Niv. 2", // À mapper plus tard
-                code3: row.code3 ?? "",
+                code1: c1,
+                libelleNiveau1: L1_LABELS[c1] || `Secteur ${c1}`,
+                code2: c2,
+                libelleNiveau2: `Rayon ${c2}`,
+                code3: c3,
                 libelle3: row.libelle3 ?? "",
                 codeGamme: (row.codeGamme as GammeCode | null),
                 codeGammeDraft: null,

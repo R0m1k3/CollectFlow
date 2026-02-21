@@ -13,10 +13,6 @@ export interface VenteProduit {
     gtin: string | null;
     reference: string | null;
     codeGamme: GammeCode | null;
-    code1: string | null;
-    libelleNiveau1: string | null;
-    code2: string | null;
-    libelleNiveau2: string | null;
     code3: string | null;
     libelle3: string | null;
     magasin: string;
