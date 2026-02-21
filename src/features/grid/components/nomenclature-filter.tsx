@@ -72,8 +72,8 @@ export function NomenclatureFilter({ hierarchy, className }: NomenclatureFilterP
             <select
                 value={currentValue}
                 onChange={(e) => updateFilter(e.target.value)}
-                className="apple-input pl-10 pr-12 appearance-none w-full min-w-[240px]"
-                style={{ fontSize: "12px", height: "36px" }}
+                className="apple-input pr-12 appearance-none w-full min-w-[240px]"
+                style={{ fontSize: "12px", height: "36px", paddingLeft: "36px" }}
             >
                 <option value="">Toute la nomenclature</option>
                 {options.map((opt, idx) => (
