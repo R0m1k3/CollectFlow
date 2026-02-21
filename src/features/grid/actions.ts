@@ -1,41 +1,59 @@
 "use server";
 
-import { FOURNISSEURS, generateMockRows } from "@/lib/mock-data";
+import { db } from "@/db";
+import { ventesProduits } from "@/db/schema";
+import { getProductRows } from "./api/get-product-rows";
 import type { ProductRow } from "@/types/grid";
 
 /**
- * Get the list of all unique suppliers (Mocked for now).
+ * Get the list of all unique suppliers from the database.
  */
 export async function getFournisseurs() {
-    // Simulating a database latency
-    await new Promise((r) => setTimeout(r, 100));
-    return FOURNISSEURS;
+    try {
+        const results = await db
+            .selectDistinct({
+                code: ventesProduits.codeFournisseur,
+                nom: ventesProduits.nomFournisseur,
+            })
+            .from(ventesProduits)
+            .orderBy(ventesProduits.nomFournisseur);
+
+        return results.map(r => ({
+            code: r.code ?? "UNKNOWN",
+            nom: r.nom ?? "Fournisseur Inconnu"
+        }));
+    } catch (error) {
+        console.error("Error fetching suppliers:", error);
+        return [];
+    }
 }
 
 /**
- * Get the list of all magasins (Mocked).
+ * Get the list of all magasins (stores) from the database.
  */
 export async function getMagasins() {
-    await new Promise((r) => setTimeout(r, 50));
-    return [
-        { code: "M001", nom: "BORDEAUX LAC" },
-        { code: "M002", nom: "TOULOUSE BLAGNAC" },
-        { code: "M003", nom: "NANTES BEAUJOIRE" },
-        { code: "M004", nom: "LILLE FLANDRES" },
-        { code: "M005", nom: "MARSEILLE VALENTINE" },
-    ];
+    try {
+        const results = await db
+            .selectDistinct({
+                code: ventesProduits.magasin,
+                nom: ventesProduits.magasin, // Using code as name as no name column exists
+            })
+            .from(ventesProduits)
+            .orderBy(ventesProduits.magasin);
+
+        return results.map(r => ({
+            code: r.code,
+            nom: r.nom
+        }));
+    } catch (error) {
+        console.error("Error fetching stores:", error);
+        return [];
+    }
 }
 
 /**
- * Get grid data for a specific supplier and store (Mocked for now).
- * In SQL:
- * - If magasin === "TOTAL": SELECT SUM(quantite), AVG(marge)... GROUP BY produit_id
- * - If magasin === "M001": SELECT quantite, marge... WHERE magasin_id = 'M001'
+ * Get real product data for a specific supplier and store.
  */
 export async function getGridData(codeFournisseur: string, magasin: string = "TOTAL"): Promise<ProductRow[]> {
-    // Simulating a database latency
-    await new Promise((r) => setTimeout(r, 300));
-
-    // Use the existing mock generator - passing magasin to see how it affects data
-    return generateMockRows(codeFournisseur, 85);
+    return getProductRows({ codeFournisseur, magasin });
 }
