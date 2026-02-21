@@ -58,7 +58,8 @@ export function BulkAiAnalyzer() {
                     marge: r.totalMarge ? parseFloat(((r.totalMarge / (r.totalCa || 1)) * 100).toFixed(1)) : 0,
                     score: r.score || 0,
                     codeGamme: r.codeGamme || "N/A",
-                    sales12m: r.sales12m || {}, // Send raw object for better AI analysis
+                    sales12m: r.sales12m || {},
+                    storeCount: r.workingStores?.length || 1,
                     nomenclature: `${r.libelleNiveau1 || ""} > ${r.libelleNiveau2 || ""} > ${r.libelle3 || ""}`
                 }));
 

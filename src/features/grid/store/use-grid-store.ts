@@ -71,8 +71,21 @@ export const useGridStore = create<GridState>()(
             },
 
             setDraftGamme: (codein, gamme) => {
-                const draftChanges = { ...get().draftChanges, [codein]: gamme };
-                set({ draftChanges, summary: computeSummary(get().rows, draftChanges) });
+                const { rows, draftChanges: oldDrafts } = get();
+                const originalRow = rows.find(r => r.codein === codein);
+                const originalGamme = originalRow?.codeGamme;
+
+                const draftChanges = { ...oldDrafts };
+
+                if (gamme === originalGamme) {
+                    // If the new value matches initial, remove it from drafts
+                    delete draftChanges[codein];
+                } else {
+                    // Otherwise, record the change
+                    draftChanges[codein] = gamme;
+                }
+
+                set({ draftChanges, summary: computeSummary(rows, draftChanges) });
             },
 
             resetDrafts: () => {

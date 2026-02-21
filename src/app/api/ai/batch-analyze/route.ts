@@ -16,6 +16,7 @@ const BatchAnalyzeSchema = z.object({
         score: z.number().nullable().optional(),
         codeGamme: z.string().nullable().optional(),
         sales12m: z.record(z.string(), z.number()).nullable().optional(),
+        storeCount: z.number().optional().default(1),
         nomenclature: z.string().nullable().optional(),
     })),
 });
@@ -56,24 +57,26 @@ ${supplierMetricsContext}
 
 MÉTHODOLOGIE D'ANALYSE (APPROCHE PERFORMANCE-FIRST) :
 
-1. CRITÈRE PRINCIPAL - LA SANTÉ (SCORE) :
+1. ANALYSE DU POTENTIEL (RÈGLE DU MULTI-MAGASIN) :
+   - Note le \`storeCount\` de chaque produit. 
+   - La majorité des produits sont présents dans 2 magasins. Si un produit a \`storeCount = 1\`, ses données (CA, Ventes, Marge) sont mécaniquement plus faibles car il ne travaille que sur une partie du réseau.
+   - **RÈGLE CRITIQUE** : Pour un produit mono-magasin (\`storeCount = 1\`), multiplie mentalement ses indicateurs par **1.7x** pour évaluer son potentiel réel s'il était déployé partout. Compare-le aux autres produits APRES cette extrapolation.
+
+2. CRITÈRE PRINCIPAL - LA SANTÉ (SCORE) :
    - Le Score (0-100) est ton indicateur de performance combiné (rotation, rentabilité relative, tendance).
    - Score > 70 : Produit performant, Gamme A par défaut.
-   - Score < 30 : Produit en difficulté, cible prioritaire pour la Gamme Z.
+   - Score < 30 : Produit en difficulté, cible prioritaire pour la Gamme Z (sauf si mono-magasin avec fort potentiel extrapolé).
 
-2. LE POIDS COMME BOUCLIER (PROTECTION DES PILIERS) :
-   - Le poids (CA et Marge du produit par rapport aux totaux du fournisseur) n'est PAS un critère automatique de maintien.
-   - Si un produit a un MAUVAIS SCORE (< 40), tu ne le gardes en Gamme A QUE s'il est un pilier indispensable :
-     - Il porte une part substantielle du business du fournisseur (poids CA ou Marge élevé par rapport aux autres).
-     - OU il génère un flux de volume (unités) massif indispensable au rayon.
-   - IMPORTANT : Dans un catalogue de milliers de produits, un "pilier" peut avoir un faible pourcentage absolu (ex: 0.1%). Dans un petit catalogue, il doit peser lourd. Sois agnostique à la taille du fournisseur.
+3. LE POIDS COMME BOUCLIER (PROTECTION DES PILIERS) :
+   - Un produit avec un MAUVAIS SCORE (< 40) ne reste en Gamme A QUE s'il est un pilier indispensable :
+     - Son poids CA/Marge (extrapolé si mono-magasin) est substantiel par rapport au business du fournisseur.
+     - OU il génère un flux de volume massif indispensable.
 
-3. ARBITRAGE POUR LA SORTIE (GAMME Z) :
+4. ARBITRAGE POUR LA SORTIE (GAMME Z) :
    - Propose la Gamme Z si le produit cumule :
      - Score faible (< 40).
-     - ET Contribution négligeable au business global (ne "déplace pas l'aiguille" du CA ou de la Marge du fournisseur).
-     - ET Ventes sporadiques ou inexistantes sur les derniers mois.
-   - GARDE-FOU : Si Score < 20 ET que le produit n'est manifestement pas un top contributeur, le passage en Z est impératif.
+     - ET Contribution négligeable au business global (même après extrapolation 1.7x si mono-magasin).
+     - ET Ventes sporadiques.
 
 DÉFINITION DES GAMMES :
 - A (Permanent) : Produits sains (Score élevé) OU Piliers business indispensables (gros volume/CA malgré score moyen).
@@ -81,7 +84,7 @@ DÉFINITION DES GAMMES :
 - Z (Sortie) : Produits non performants et non stratégiques.
 
 IMPORTANT : RÉPONDS UNIQUEMENT EN JSON VALIDE.
-Ta justification doit expliquer POURQUOI le produit est maintenu ou sorti en croisant Score et Contribution Réelle au business global. Mentionne le poids CA fournisseur explicitement.
+Ta justification doit expliquer POURQUOI le produit est maintenu ou sorti. Mentionne explicitement si le produit est pénalisé par sa présence dans un seul magasin (ex: "Mono-magasin : potentiel extrapolé de X€, pilier stratégique").
 
 Format:
 {
