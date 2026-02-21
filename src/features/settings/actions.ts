@@ -64,7 +64,9 @@ export async function getSavedDatabaseConfig(): Promise<DbConfig | null> {
             return null;
         }
         const data = await fs.readFile(CONFIG_FILE, "utf-8");
-        return JSON.parse(data);
+        const config = JSON.parse(data);
+        console.log(`[Settings] Config read from ${CONFIG_FILE}. Key present: ${!!config.openRouterKey}, Model: ${config.openRouterModel || "default"}`);
+        return config;
     } catch (error) {
         console.error(`[Settings] Error reading config from ${CONFIG_FILE}:`, error);
         return null;

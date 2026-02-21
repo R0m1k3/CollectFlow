@@ -90,10 +90,6 @@ export default function SettingsPage() {
         }
     }, []);
 
-    if (!isMounted) {
-        return null;
-    }
-
     const reloadFromServer = async () => {
         const config = await getSavedDatabaseConfig();
         if (config) {
@@ -146,6 +142,10 @@ export default function SettingsPage() {
             alert("Erreur lors de la sauvegarde : " + res.error);
         }
     };
+
+    if (!isMounted) {
+        return null;
+    }
 
     return (
         <div className="space-y-6 max-w-xl">
