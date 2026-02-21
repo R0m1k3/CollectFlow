@@ -11,7 +11,7 @@ services:
       - NODE_ENV=production
       - AUTH_TRUST_HOST=true
       - AUTH_SECRET=my-super-secret-key-that-should-be-changed-in-production
-      # L'URL de la base de données peut être passée ici si nécessaire (ex: postgres://user:pass@host:5432/db)
+      - DATABASE_URL=postgres://postgres:MOT_DE_PASSE_ICI@postgresbase:5432/collectflow
       # Mais comme CollectFlow permet de le configurer depuis l'interface (settings), ce n'est pas strictement obligatoire au lancement.
     restart: unless-stopped
     networks:
