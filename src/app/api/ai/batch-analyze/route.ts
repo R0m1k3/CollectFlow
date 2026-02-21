@@ -44,8 +44,8 @@ export async function POST(req: NextRequest) {
 En analysant les données de ventes fournies (CA, Marge, Volume, Historique), génère pour chaque produit une recommandation de gamme (A=Permanent, C=Saisonnier, Z=Sortie). 
 
 CRITÈRES :
-- A (Permanent) : Produit permanent avec une rotation régulière et satisfaisante.
-- C (Saisonnier) : Produit dont les ventes sont concentrées sur des périodes spécifiques (pics saisonniers).
+- A (Permanent) : Produit permanent avec une rotation régulière et satisfaisante sur toute l'année.
+- C (Saisonnier) : Produit dont les ventes sont concentrées sur des périodes spécifiques. Détecte les pics dans l' 'historique' (ex: ventes en 202412 mais rien ailleurs). Aide-toi de la 'nomenclature' et du 'nom' pour confirmer l'usage saisonnier.
 - Z (Sortie) : Produit à arrêter car les ventes sont quasi nulles ou la rotation est insuffisante.
 
 DÉTECTION :

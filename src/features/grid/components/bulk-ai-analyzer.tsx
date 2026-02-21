@@ -55,8 +55,10 @@ export function BulkAiAnalyzer() {
                     ventes: r.totalQuantite || 0,
                     marge: r.totalMarge ? parseFloat(((r.totalMarge / (r.totalCa || 1)) * 100).toFixed(1)) : 0,
                     gammeInit: r.codeGammeInit || "N/A",
-                    // Simplified history: last 12 values joined (e.g., "5,0,10...")
-                    historique: Object.values(r.sales12m || {}).join(","),
+                    // Detailed history: "YYYYMM: Qty, YYYYMM: Qty..." to help AI see seasonality
+                    historique: Object.entries(r.sales12m || {})
+                        .map(([month, qty]) => `${month}:${qty}`)
+                        .join(", "),
                     // Contextual nomenclature
                     nomenclature: `${r.libelleNiveau1 || ""} > ${r.libelleNiveau2 || ""} > ${r.libelle3 || ""}`
                 }));
