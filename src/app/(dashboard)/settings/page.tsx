@@ -5,6 +5,9 @@ import { Save, Eye, EyeOff, CheckCircle, AlertCircle, Loader2, RefreshCw, Sun, M
 import { useTheme } from "next-themes";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { useScoreSettingsStore } from "@/features/score/store/use-score-settings-store";
+import { useDbSettingsStore } from "@/features/settings/store/use-db-settings-store";
+import { testDatabaseConnection, saveDatabaseSettings, getSavedDatabaseConfig } from "@/features/settings/actions";
+import { useEffect } from "react";
 
 interface OpenRouterModel { id: string; name: string; free: boolean; }
 
@@ -50,10 +53,44 @@ export default function SettingsPage() {
     const [showKey, setShowKey] = useState(false);
     const [apiKey, setApiKey] = useState("");
     const [dbStatus, setDbStatus] = useState<"idle" | "testing" | "ok" | "error">("idle");
-    const [saveStatus, setSaveStatus] = useState<"idle" | "saved">("idle");
+    const [dbError, setDbError] = useState<string | null>(null);
+    const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
     const [models, setModels] = useState<OpenRouterModel[]>([]);
     const [selectedModel, setSelectedModel] = useState("google/gemini-flash-1.5");
     const [modelsStatus, setModelsStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
+
+    const {
+        host, setHost,
+        port, setPort,
+        database, setDatabase,
+        user, setUser,
+        password, setPassword,
+        ssl, setSsl,
+        getDatabaseUrl
+    } = useDbSettingsStore();
+
+    useEffect(() => {
+        // Optionnel : On pourrait charger la config serveur au montage si on veut écraser le localStorage
+        // Pour l'instant on laisse le localStorage faire son travail, mais on offre une fonction de reset
+    }, []);
+
+    const reloadFromServer = async () => {
+        const config = await getSavedDatabaseConfig();
+        if (config && config.url) {
+            // Parser l'URL pour remettre dans le store
+            try {
+                const url = new URL(config.url.replace("postgres://", "http://")); // URL parser helper
+                setHost(url.hostname);
+                setPort(url.port || "5432");
+                setDatabase(url.pathname.slice(1).split("?")[0]);
+                setUser(url.username);
+                setPassword(decodeURIComponent(url.password));
+                setSsl(config.url.includes("sslmode=require"));
+            } catch (e) {
+                console.error("Failed to parse saved URL", e);
+            }
+        }
+    };
 
     const fetchModels = useCallback(async (key: string) => {
         if (!key.trim()) return;
@@ -69,10 +106,30 @@ export default function SettingsPage() {
         }
     }, []);
 
-    const testConnection = async () => {
+    const testDb = async () => {
         setDbStatus("testing");
-        await new Promise((r) => setTimeout(r, 1200));
-        setDbStatus("error");
+        setDbError(null);
+        const url = getDatabaseUrl();
+        const res = await testDatabaseConnection(url);
+        if (res.success) {
+            setDbStatus("ok");
+        } else {
+            setDbStatus("error");
+            setDbError(res.error || "Erreur de connexion inconnue");
+        }
+    };
+
+    const handleSave = async () => {
+        setSaveStatus("saving");
+        const url = getDatabaseUrl();
+        const res = await saveDatabaseSettings(url);
+        if (res.success) {
+            setSaveStatus("saved");
+            setTimeout(() => setSaveStatus("idle"), 2500);
+        } else {
+            setSaveStatus("idle");
+            alert("Erreur lors de la sauvegarde : " + res.error);
+        }
     };
 
     return (
@@ -85,38 +142,90 @@ export default function SettingsPage() {
             {/* PostgreSQL */}
             <Section title="PostgreSQL" subtitle="Connexion à votre instance Docker ou distante">
                 <Field label="Hôte / Nom du container" hint="Ex: localhost, 192.168.1.10, ou nom du service Docker (ex: postgres, db)">
-                    <input type="text" placeholder="localhost" className="apple-input font-mono" />
+                    <input
+                        type="text"
+                        placeholder="localhost"
+                        value={host}
+                        onChange={(e) => setHost(e.target.value)}
+                        className="apple-input font-mono"
+                    />
                 </Field>
                 <div className="grid grid-cols-2 gap-3">
                     <Field label="Port">
-                        <input type="text" placeholder="5432" defaultValue="5432" className="apple-input font-mono" />
+                        <input
+                            type="text"
+                            placeholder="5432"
+                            value={port}
+                            onChange={(e) => setPort(e.target.value)}
+                            className="apple-input font-mono"
+                        />
                     </Field>
                     <Field label="Base de données">
-                        <input type="text" placeholder="collectflow" className="apple-input font-mono" />
+                        <input
+                            type="text"
+                            placeholder="collectflow"
+                            value={database}
+                            onChange={(e) => setDatabase(e.target.value)}
+                            className="apple-input font-mono"
+                        />
                     </Field>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                     <Field label="Utilisateur">
-                        <input type="text" placeholder="postgres" className="apple-input font-mono" />
+                        <input
+                            type="text"
+                            placeholder="postgres"
+                            value={user}
+                            onChange={(e) => setUser(e.target.value)}
+                            className="apple-input font-mono"
+                        />
                     </Field>
                     <Field label="Mot de passe">
-                        <input type="password" placeholder="••••••••" className="apple-input font-mono" />
+                        <input
+                            type="password"
+                            placeholder="••••••••"
+                            value={password || ""}
+                            onChange={(e) => setPassword(e.target.value)}
+                            className="apple-input font-mono"
+                        />
                     </Field>
                 </div>
                 <div className="flex items-center gap-2.5">
-                    <input type="checkbox" id="ssl" className="w-3.5 h-3.5 rounded accent-teal-500 cursor-pointer" />
+                    <input
+                        type="checkbox"
+                        id="ssl"
+                        checked={ssl}
+                        onChange={(e) => setSsl(e.target.checked)}
+                        className="w-3.5 h-3.5 rounded accent-teal-500 cursor-pointer"
+                    />
                     <label htmlFor="ssl" className="text-[12px] cursor-pointer" style={{ color: "var(--text-secondary)" }}>Connexion SSL</label>
                 </div>
                 <div className="flex items-center gap-3">
-                    <button onClick={testConnection} disabled={dbStatus === "testing"} className="apple-btn-secondary">
+                    <button onClick={testDb} disabled={dbStatus === "testing"} className="apple-btn-secondary">
                         {dbStatus === "testing" && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                         {dbStatus === "ok" && <CheckCircle className="w-3.5 h-3.5 text-teal-500" />}
                         {dbStatus === "error" && <AlertCircle className="w-3.5 h-3.5 text-red-400" />}
                         Tester la connexion
                     </button>
                     {dbStatus === "error" && (
-                        <span className="text-[12px]" style={{ color: "var(--text-secondary)" }}>Connexion refusée — vérifiez les paramètres</span>
+                        <div className="flex flex-col">
+                            <span className="text-[12px] text-red-400 font-medium">Connexion refusée</span>
+                            {dbError && <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>{dbError}</span>}
+                        </div>
                     )}
+                    {dbStatus === "ok" && (
+                        <span className="text-[12px] text-teal-500 font-medium">Connexion réussie !</span>
+                    )}
+                </div>
+                <div className="pt-2">
+                    <button
+                        onClick={reloadFromServer}
+                        className="flex items-center gap-2 text-[12px] font-medium transition-colors hover:text-emerald-500"
+                        style={{ color: "var(--text-secondary)" }}
+                    >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        Recharger la configuration enregistrée sur le serveur
+                    </button>
                 </div>
             </Section>
 
@@ -281,12 +390,13 @@ export default function SettingsPage() {
             {/* Save */}
             <div className="flex items-center gap-3">
                 <button
-                    onClick={() => { setSaveStatus("saved"); setTimeout(() => setSaveStatus("idle"), 2500); }}
+                    onClick={handleSave}
+                    disabled={saveStatus === "saving"}
                     className="apple-btn-primary"
                     style={{ background: "var(--accent)" }}
                 >
-                    {saveStatus === "saved" ? <CheckCircle className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-                    {saveStatus === "saved" ? "Sauvegardé !" : "Sauvegarder"}
+                    {saveStatus === "saving" ? <Loader2 className="w-4 h-4 animate-spin" /> : saveStatus === "saved" ? <CheckCircle className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                    {saveStatus === "saving" ? "Enregistrement..." : saveStatus === "saved" ? "Sauvegardé !" : "Sauvegarder la configuration"}
                 </button>
             </div>
         </div>
