@@ -52,17 +52,22 @@ export function FloatingSummaryBar() {
             <div className="flex space-x-3 items-center">
                 <button
                     onClick={async () => {
-                        if (!hasDrafts) {
+                        // Fetch the absolute latest state from the store at the moment of the click
+                        const currentState = useGridStore.getState();
+                        const currentDrafts = currentState.draftChanges;
+                        const currentRows = currentState.rows;
+
+                        if (Object.keys(currentDrafts).length === 0) {
                             alert("Aucune gamme n'a été modifiée. L'export Excel ne concerne que les modifications en cours.");
                             return;
                         }
 
-                        // Prepare payload
-                        const modifiedRows = useGridStore.getState().rows.filter(r => draftChanges[r.codein]);
+                        // Prepare payload using fresh state
+                        const modifiedRows = currentRows.filter(r => currentDrafts[r.codein]);
                         const changes = modifiedRows.map(r => ({
                             codein: r.codein,
                             gtin: r.gtin,
-                            gamme: draftChanges[r.codein] as string,
+                            gamme: currentDrafts[r.codein] as string,
                         }));
 
                         // Extract supplier name from the first row (or a generic name)
