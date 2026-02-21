@@ -4,6 +4,8 @@ import { LayoutGrid, Camera, FileDown, Settings, Package, BarChart3 } from "luci
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { useGridStore } from "@/features/grid/store/use-grid-store";
+import { useEffect, useState } from "react";
 
 const NAV_ITEMS = [
     { icon: LayoutGrid, label: "Grille", href: "/grid" },
@@ -15,6 +17,12 @@ const NAV_ITEMS = [
 
 export function Sidebar() {
     const pathname = usePathname();
+    const activeGridQuery = useGridStore((s) => s.activeGridQuery);
+    const [isMounted, setIsMounted] = useState(false);
+
+    useEffect(() => {
+        setIsMounted(true);
+    }, []);
 
     return (
         <aside
@@ -37,10 +45,17 @@ export function Sidebar() {
             <nav className="px-2 pt-2.5 space-y-0.5">
                 {NAV_ITEMS.map(({ icon: Icon, label, href }) => {
                     const isActive = pathname.startsWith(href);
+
+                    // Restore grid context if navigating back to the grid
+                    let resolvedHref = href;
+                    if (href === "/grid" && isMounted && activeGridQuery) {
+                        resolvedHref = `/grid${activeGridQuery}`;
+                    }
+
                     return (
                         <Link
                             key={href}
-                            href={href}
+                            href={resolvedHref}
                             style={{
                                 color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
                                 background: isActive ? "var(--bg-elevated)" : "transparent",

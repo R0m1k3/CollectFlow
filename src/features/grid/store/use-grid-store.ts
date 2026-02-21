@@ -12,6 +12,8 @@ interface GridState {
     filters: GridFilters;
     summary: GridSummary;
     displayDensity: "compact" | "normal" | "comfortable";
+    /** The active URL search parameters (e.g. ?fournisseur=123&magasin=TOTAL) */
+    activeGridQuery: string;
 
     // Actions
     setRows: (rows: ProductRow[]) => void;
@@ -19,6 +21,7 @@ interface GridState {
     resetDrafts: () => void;
     setFilter: (key: keyof GridFilters, value: string | null) => void;
     setDisplayDensity: (density: "compact" | "normal" | "comfortable") => void;
+    setActiveGridQuery: (query: string) => void;
 }
 
 function computeSummary(rows: ProductRow[], drafts: Record<string, GammeCode>): GridSummary {
@@ -59,6 +62,7 @@ export const useGridStore = create<GridState>()(
                 tauxMargeGlobal: 0,
             },
             displayDensity: "normal",
+            activeGridQuery: "",
 
             setRows: (rows) => {
                 set({ rows, summary: computeSummary(rows, get().draftChanges) });
@@ -74,17 +78,19 @@ export const useGridStore = create<GridState>()(
             },
 
             setFilter: (key, value) => {
-                set((state) => ({ filters: { ...state.filters, [key]: value } }));
+                set((state) => ({ ...state, filters: { ...state.filters, [key]: value } }));
             },
             setDisplayDensity: (density) => set({ displayDensity: density }),
+            setActiveGridQuery: (query) => set({ activeGridQuery: query }),
         }),
         {
             name: "collectflow-grid-storage",
-            // Only persist filters and display density, do not persist data rows and drafts
+            // Only persist filters, display density, drafts, and active grid query
             partialize: (state) => ({
                 filters: state.filters,
                 displayDensity: state.displayDensity,
                 draftChanges: state.draftChanges,
+                activeGridQuery: state.activeGridQuery,
             }),
         }
     )

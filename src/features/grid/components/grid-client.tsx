@@ -11,6 +11,7 @@ import type { ProductRow } from "@/types/grid";
 import { CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 
 import { useScoreSettingsStore } from "@/features/score/store/use-score-settings-store";
+import { useSearchParams } from "next/navigation";
 import { computeProductScores } from "@/lib/score-engine";
 
 interface GridClientProps {
@@ -25,6 +26,9 @@ interface GridClientProps {
 
 export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins, magasin, nomenclature }: GridClientProps) {
     const setRows = useGridStore((s) => s.setRows);
+    const setActiveGridQuery = useGridStore((s) => s.setActiveGridQuery);
+    const searchParams = useSearchParams();
+
     const seuilAxeFort = useScoreSettingsStore((s) => s.seuilAxeFort);
     const bonusParAxe = useScoreSettingsStore((s) => s.bonusParAxe);
 
@@ -36,9 +40,16 @@ export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins
     const [isMounted, setIsMounted] = useState(false);
 
     useEffect(() => {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setIsMounted(true);
     }, []);
+
+    // Sync active search params to the store
+    useEffect(() => {
+        if (!isMounted) return;
+        const currentQueryString = searchParams.toString();
+        // Set the active query, ensuring it starts with ? if not empty
+        setActiveGridQuery(currentQueryString ? `?${currentQueryString}` : "");
+    }, [searchParams, setActiveGridQuery, isMounted]);
 
     useEffect(() => {
         if (!isMounted) return;
