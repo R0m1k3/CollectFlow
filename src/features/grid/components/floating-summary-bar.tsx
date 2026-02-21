@@ -2,6 +2,8 @@
 
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 
+import { BulkAiAnalyzer } from "./bulk-ai-analyzer";
+
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
     // Determine color based on label to match the prototype
     const valColor = label.includes("CA") || label.includes("Marge") ? "text-emerald-600 dark:text-emerald-400" : "text-slate-900 dark:text-white";
@@ -50,6 +52,8 @@ export function FloatingSummaryBar() {
             </div>
 
             <div className="flex space-x-3 items-center">
+                <BulkAiAnalyzer />
+
                 <button
                     onClick={async () => {
                         // Fetch the absolute latest state from the store at the moment of the click
