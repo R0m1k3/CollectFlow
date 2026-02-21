@@ -1,5 +1,5 @@
 ---
-stepsCompleted: ['step-01-init', 'step-02-discovery', 'step-02b-vision', 'step-02c-executive-summary', 'step-03-success', 'step-04-journeys', 'step-05-domain', 'step-06-innovation', 'step-07-project-type']
+stepsCompleted: ['step-01-init', 'step-02-discovery', 'step-02b-vision', 'step-02c-executive-summary', 'step-03-success', 'step-04-journeys', 'step-05-domain', 'step-06-innovation', 'step-07-project-type', 'step-08-scoping', 'step-09-functional', 'step-10-nonfunctional', 'step-11-polish']
 inputDocuments: []
 documentCounts:
   briefs: 0
@@ -31,12 +31,12 @@ CollectFlow se distingue par son approche paramétrique adaptative couplée à u
 - **Paramétrage Dynamique par Fournisseur :** Contrairement aux systèmes rigides, la capacité des gammes (A, B, C) n'est pas fixe. L'utilisateur définit le volume de références cibles par fournisseur et par magasin (ex: 400 références pour la Gamme A chez le Fournisseur X).
 - **Intelligence du Cycle de Vie (Gamme Z) :** Au lieu de simplement supprimer les produits non performants, l'application les classe en "Gamme Z" (abandon). Cela permet de conserver l'historique d'analyse pour éviter de reproduire de mauvais choix d'achat futurs, tout en nettoyant les vues actives. Le système inclut un export natif au format Excel pour les gammes cibles, permettant la réintégration fluide et immédiate des décisions d'assortiment dans le logiciel de gestion de magasin existant.
 
-## Project Classification
-
-- **Project Type:** Web Application
-- **Domain:** Retail Analytics & Inventory Management
-- **Complexity:** Medium (Nécessite des agrégations de données poussées, vues matérialisées PostgreSQL, architecture multi-magasins/multi-fournisseurs)
-- **Project Context:** Greenfield (Nouveau projet)
+## Project Characteristics
+- **Type:** Web Application (Single Page Application - SPA)
+- **Domain:** Retail Analytics & Inventory Management (B2B Internal)
+- **Environment:** Docker-orchestrated, Google Chrome (Desktop) optimized
+- **Complexity:** Medium (Data aggregation via PostgreSQL materialized views, multi-store architecture, OpenRouter AI integration). *Note: The core data structure is defined in [`docs/database-schema.sql`](file:///c:/Users/Michael/Git/CollectFlow/docs/database-schema.sql).*
+- **Context:** Greenfield
 
 ## Success Criteria
 
@@ -134,15 +134,88 @@ Pour valider cette approche, il faudra tester l'interface avec l'acheteur repré
 Le risque principal d'une vue tabulaire métier est la surcharge visuelle (le syndrome de "l'usine à gaz") au fur et à mesure de l'ajout de nouvelles données (N-1, indicateurs supplémentaires).
 *Mitigation :* Maintenir une discipline de conception stricte (Progressive Disclosure). Les informations secondaires doivent n'être révélées qu'à la demande (ex: clic sur une ligne pour voir le détail des 12 mois) afin de conserver un tableau principal ultra-épuré et dédié à l'action.
 
-## Web Application Specific Requirements
 
-### Project-Type Overview
+## Project Scoping & Phased Development
 
-CollectFlow est conçue comme une **Single Page Application (SPA)** interne. Ce format garantit une expérience analytique fluide et sans rechargement pour l'Acheteur.
+### MVP Strategy & Philosophy
 
-### Technical Architecture Considerations
+**MVP Approach:** Problem-Solving MVP (Se concentrer sur la résolution du problème principal : trier rapidement l'assortiment avec des données fiables et générer un fichier d'export actionnable immédiatement, sans perturber le système existant plus que nécessaire). L'approche est minimaliste sur le front-end mais robuste sur le back-end.
 
-- **Single Page Application (SPA) :** L'architecture front-end doit permettre la manipulation immédiate (tris, actions par lot, modifications de gammes en ligne) d'un large volume de données sans latence ni rafraîchissement global de l'écran.
-- **Cible Navigateur :** Le développement et le support sont optimisés exclusivement pour **Google Chrome (Desktop)**, reflétant les standards des postes de travail des équipes d'achat.
-- **Data en Temps Réel :** Contrairement aux systèmes de batching nocturnes locaux, l'application doit s'appuyer sur des bases de données de caisse "en live" ou synchronisées en temps réel pour afficher l'état instantané des encaissements lorsqu'une collection est révisée.
-- **Stratégie SEO & Accessibilité :** S'agissant d'un outil fermé B2B, le référencement (SEO) est inactif. L'interface (UI/UX) doit toutefois obéir à des règles de fort contraste pour éviter la fatigue visuelle face à la densité des tableaux de bord (Accessibilité Cognitive).
+**Resource Requirements:** Une petite équipe technique (1 Développeur Full-Stack maîtrisant React/PostgreSQL) avec l'Acheteur en tant qu'expert métier pour valider l'UX et les règles de gestion (1 à 2 jours par semaine d'implication).
+
+### MVP Feature Set (Phase 1)
+
+**Core User Journeys Supported:**
+- La Revue Stratégique de Collection (Filtrage Périmètre/Fournisseur, Affichage des performances sur 6 mois, Modification en ligne des gammes (A, B, C, Z), Forçage manuel).
+- Export Différentiel vers Excel (Uniquement les modifications).
+
+**Must-Have Capabilities:**
+- Interface tabulaire "Zero-Learning" avec édition "inline" des menus déroulants.
+- Algorithme de tri basique (Score Volume + Marge).
+- Gestion de session simple pour identifier le "Delta" (Snapshotting) lors de l'export.
+- Connexion sécurisée de base (B2B).
+
+### Post-MVP Features
+
+**Phase 2 (Growth):**
+- Historisation sur 12 mois glissants et l'ajout de la comparaison N-1.
+- Actions en masse (Bulk Actions) avancées (ex: appliquer une gamme à toute une catégorie de produits d'un coup).
+- Raffinement de l'algorithme de calcul des vues matérialisées pour des temps de réponse sub-secondes si le volume de données augmente.
+
+**Phase 3 (Expansion):**
+- Analyse quantitative de l'"effet de Halo" et de la cannibalisation (intelligence analytique plus poussée).
+- API de synchronisation bidirectionnelle directe avec le logiciel de gestion cible (éliminer l'export Excel).
+
+### Risk Mitigation Strategy
+
+**Technical Risks:** La performance du rendu du grand tableau côté client (SPA) et la génération de l'export Excel complexe. Mitigation : Utiliser la virtualisation (ex: react-window) pour le front-end. Créer des Preuves de Concept (PoC) précoces pour l'export Excel.
+**Market Risks:** Rejet par l'Acheteur face à une nouvelle interface, même simple. Mitigation : Tests d'utilisabilité en continu dès les premières maquettes filaires. Validation stricte du "Zero-Learning".
+**Resource Risks:** Indisponibilité de l'expert métier (Acheteur) pour valider les règles de l'IA. Mitigation : Développer avec des jeux de données d'essai anonymisés massifs dès le départ pour une validation asynchrone sécurisée.
+
+## Functional Requirements
+
+### 1. Perimeter & Context Selection
+- **FR1**: L'Acheteur peut sélectionner le périmètre d'analyse (Magasin 1, Magasin 2, ou Global).
+- **FR2**: L'Acheteur peut sélectionner le fournisseur à analyser.
+
+### 2. Performance Dashboard
+- **FR3**: L'Acheteur peut consulter la liste complète des produits actifs pour le périmètre et fournisseur sélectionnés, issue de la base PostgreSQL.
+- **FR4**: L'Acheteur peut visualiser la quantité vendue, le Chiffre d'Affaires et la marge générée par mois (jusqu'à 6 mois d'historique) pour chaque produit.
+- **FR5**: L'Acheteur peut identifier visuellement un premier score de performance "Basique" (Volume vs Marge) pré-calculé sans IA.
+
+### 3. AI-Assisted Tactical Management
+- **FR6**: L'Acheteur peut définir la capacité cible (nombre d'articles) pour chaque gamme (A, B, C) par fournisseur et magasin.
+- **FR7**: **L'Acheteur peut déclencher manuellement une analyse IA via un bouton d'action dédié.**
+- **FR8**: L'Application soumet les KPIs (Quantité, CA, Marge) au modèle IA (via OpenRouter) suite à ce déclenchement, et affiche la proposition de gamme (A, B, C, Z) pour chaque produit.
+- **FR9**: L'Acheteur peut visualiser de façon comparative la gamme actuelle et la proposition algorithmique/IA pour chaque produit.
+- **FR10**: L'Acheteur peut attribuer manuellement de façon individuelle (surcharge) la gamme finale d'un produit (A, B, C, Z).
+- **FR11**: L'Acheteur peut attribuer une gamme spécifique en masse (Bulk Action) à une sélection de produits.
+- **FR12**: **L'Acheteur peut annuler les modifications non sauvegardées de sa session en cours et revenir au dernier état validé.**
+
+### 4. Export & Integration
+- **FR13**: **L'Acheteur peut prévisualiser un résumé global des changements de gammes (le delta) avant de confirmer.**
+- **FR14**: L'Acheteur peut enregistrer et valider définitivement les choix de gammes effectués. (Création d'un Snapshot persistant en base).
+- **FR15**: L'Acheteur peut générer un fichier d'export au format Excel des données validées. Ce fichier contient *uniquement* le delta par rapport à la session précédente.
+- **FR16**: Le système formate techniquement l'export Excel selon la structure syntaxique attendue par le logiciel de gestion de magasin cible.
+
+### 5. System & Configuration (Infrastructure)
+- **FR17**: L'Application peut être déployée et exécutée dans un environnement **Docker**.
+- **FR18**: L'Administrateur peut configurer les paramètres de connexion à la base de données PostgreSQL via des variables d'environnement.
+- **FR19**: L'Administrateur peut configurer la connexion à l'IA (Clé API OpenRouter, Modèle) via des variables d'environnement.
+- **FR20**: L'Utilisateur peut s'authentifier de manière sécurisée (connexion B2B).
+
+## Non-Functional Requirements
+
+### Performance
+- **NFR-PERF-1 :** Le tableau de bord initial (liste des produits d'un fournisseur) doit s'afficher en moins de 3 secondes pour un jeu de données contenant jusqu'à 10 000 lignes.
+- **NFR-PERF-2 :** Les modifications de gamme "en ligne" (inline editing) par l'Acheteur doivent être répercutées visuellement dans l'interface en moins de 100 millisecondes (ressenti immédiat).
+- **NFR-PERF-3 :** Les réponses de l'IA (via OpenRouter) suite à une demande d'analyse de gamme doivent s'afficher en moins de 10 secondes.
+
+### Security
+- **NFR-SEC-1 :** L'authentification de l'Acheteur nécessite des mots de passe forts (minimum 12 caractères, incluant majuscules, minuscules, chiffres, caractères spéciaux).
+- **NFR-SEC-2 :** Les clés de l'API OpenRouter et les identifiants de la base de données PostgreSQL ne doivent jamais être exposés côté client (SPA) et doivent être gardés exclusivement côté serveur via des variables d'environnement.
+- **NFR-SEC-3 :** L'ensemble du trafic entre le client et le serveur doit utiliser une connexion sécurisée (HTTPS/TLS 1.2 minimum).
+
+### Integration & Reliability
+- **NFR-INT-1 :** Le fichier d'export Excel produit *doit* respecter strictement l'encodage (ex: UTF-8) et le nommage de colonnes (sans coquille) imposés par les contraintes du logiciel cible.
+- **NFR-REL-1 :** Le système de `Snapshot` (FR14) doit garantir que lors d'un crash du navigateur ou d'une perte réseau, l'utilisateur ne perde que les actions de sa session active (non validées), sans altération des états historiques.

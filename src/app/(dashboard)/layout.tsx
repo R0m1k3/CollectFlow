@@ -1,0 +1,16 @@
+import { Sidebar } from "@/components/shared/sidebar";
+import { Header } from "@/components/shared/header";
+
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+    return (
+        <div className="flex h-screen w-full overflow-hidden" style={{ background: "var(--bg-base)" }}>
+            <Sidebar />
+            <main className="flex-1 ml-60 flex flex-col h-full overflow-hidden">
+                <Header />
+                <div className="flex-1 overflow-hidden">
+                    {children}
+                </div>
+            </main>
+        </div>
+    );
+}

@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="fr" class="light">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CollectFlow - UX Full Width UI (Mode Final)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+        }
+
+        .dark body {
+            background-color: #0f172a;
+        }
+
+        .font-mono-nums {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Grid definitions for full-width fluid layout */
+        .data-grid {
+            display: grid;
+            grid-template-columns: 2.5fr 1fr minmax(400px, 4fr) 0.6fr 0.8fr 1fr 0.4fr 0.6fr 3fr 1.2fr;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        .dark ::-webkit-scrollbar-thumb {
+            background: #475569;
+        }
+    </style>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { extend: { colors: { brand: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#0ea5e9', 600: '#0284c7', 900: '#0c4a6e' } } } }
+        }
+        function toggleTheme() { document.documentElement.classList.toggle('dark'); }
+    </script>
+</head>
+
+<body class="text-slate-900 dark:text-slate-200 h-screen flex flex-col transition-colors duration-200 overflow-hidden">
+
+    <!-- Header Navigation -->
+    <header
+        class="bg-white dark:bg-slate-950 border-b border-gray-200 dark:border-slate-800 p-4 flex justify-between items-center shrink-0">
+        <div class="flex items-center space-x-6">
+            <h1 class="text-xl font-semibold tracking-tight">CollectFlow <span
+                    class="text-slate-400 text-sm font-normal uppercase tracking-widest">Génération Assortiment</span>
+            </h1>
+            <span
+                class="text-xs text-brand-600 dark:text-brand-400 font-bold px-3 py-1 bg-brand-50 dark:bg-brand-900/30 rounded-full border border-brand-200 dark:border-brand-800 shadow-sm">
+                Direction Validée • Ultra-Dense 32"
+            </span>
+        </div>
+        <button onclick="toggleTheme()"
+            class="p-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+            <svg class="w-5 h-5 dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
+            </svg>
+            <svg class="w-5 h-5 hidden dark:block text-yellow-300" fill="none" stroke="currentColor"
+                viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z">
+                </path>
+            </svg>
+        </button>
+    </header>
+
+    <main class="flex-1 flex flex-col p-4 space-y-4 overflow-hidden">
+
+        <!-- Context Header -->
+        <div class="flex justify-between items-end w-full">
+            <div
+                class="flex space-x-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-lg shadow-sm items-center w-full max-w-5xl">
+                <span
+                    class="text-sm text-slate-500 uppercase tracking-widest border-r border-slate-200 dark:border-slate-700 pr-4">Fournisseur
+                    Actif:</span>
+                <span
+                    class="text-lg font-bold text-brand-700 dark:text-brand-400 border-r border-slate-200 dark:border-slate-700 pr-4">NIKE
+                    EUROPE BV</span>
+                <span
+                    class="text-sm text-slate-500 font-medium flex items-center pr-4 border-r border-slate-200 dark:border-slate-700">
+                    <svg class="w-5 h-5 mr-2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z">
+                        </path>
+                    </svg>
+                    Toutes Familles (Vue Globale)
+                </span>
+                <span class="text-sm bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-md font-mono-nums font-bold">1 240
+                    Réf.</span>
+            </div>
+
+            <button
+                class="text-sm bg-brand-600 text-white px-5 py-2.5 rounded-lg shadow-md hover:bg-brand-500 transition font-bold active:scale-95">
+                + Créer un Groupe Famille
+            </button>
+        </div>
+
+        <!-- Table Container -->
+        <div
+            class="flex-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg shadow-sm flex flex-col w-full overflow-hidden">
+
+            <!-- Header Grid -->
+            <div
+                class="data-grid border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-3 text-[11px] font-bold text-slate-500 tracking-widest items-end uppercase shrink-0">
+                <div class="px-2 pb-1 hover:text-brand-600 dark:hover:text-brand-400 cursor-pointer transition-colors">
+                    Produit & Ref <span>▼</span></div>
+                <div
+                    class="px-2 pb-1 border-l border-slate-200 dark:border-slate-700 hover:text-brand-600 dark:hover:text-brand-400 cursor-pointer transition-colors">
+                    Famille <span>▼</span></div>
+
+                <div class="px-2">
+                    <div
+                        class="text-center border-b border-slate-200 dark:border-slate-700 pb-1 mb-1 text-[9px] text-slate-400 font-bold uppercase tracking-[0.2em]">
+                        Quantités Mensuelles</div>
+                    <div class="grid grid-cols-12 gap-1 text-center text-[10px] leading-tight">
+                        <div title="Mars 2024">Mar<br>24</div>
+                        <div title="Avril 2024">Avr<br>24</div>
+                        <div title="Mai 2024">Mai<br>24</div>
+                        <div title="Juin 2024">Jui<br>24</div>
+                        <div title="Juillet 2024">Jul<br>24</div>
+                        <div title="Août 2024">Aoû<br>24</div>
+                        <div title="Septembre 2024">Sep<br>24</div>
+                        <div title="Octobre 2024">Oct<br>24</div>
+                        <div title="Novembre 2024">Nov<br>24</div>
+                        <div title="Décembre 2024">Déc<br>24</div>
+                        <div title="Janvier 2025">Jan<br>25</div>
+                        <div class="text-brand-600 dark:text-brand-400 font-black">Fév<br>25</div>
+                    </div>
+                </div>
+
+                <div
+                    class="text-center px-1 pb-1 border-l border-slate-200 dark:border-slate-700 hover:text-brand-600 dark:hover:text-brand-400 cursor-pointer transition-colors">
+                    Tot. 12m<span>▼</span></div>
+                <div
+                    class="text-center px-1 pb-1 hover:text-brand-600 dark:hover:text-brand-400 cursor-pointer transition-colors">
+                    CA (€)<span>▼</span></div>
+                <div
+                    class="text-center px-2 pb-1 bg-slate-100 dark:bg-slate-800/80 rounded-t pt-2 border-x border-t border-slate-200 dark:border-slate-700 hover:text-brand-600 dark:hover:text-brand-400 cursor-pointer transition-colors">
+                    Marge (€/%)<span>▼</span></div>
+
+                <div class="text-center px-1 pb-1 border-l border-slate-200 dark:border-slate-700">Init.</div>
+                <div
+                    class="text-center px-1 pb-1 hover:text-brand-600 dark:hover:text-brand-400 cursor-pointer transition-colors">
+                    Score<span>▼</span></div>
+                <div class="px-2 pb-1">Analyse IA</div>
+                <div
+                    class="text-center px-2 pb-1 text-brand-700 dark:text-brand-400 font-bold border-l border-slate-200 dark:border-slate-700">
+                    Action Arbitrage</div>
+            </div>
+
+            <div class="flex-1 overflow-y-auto w-full">
+                <!-- Row 1 -->
+                <div
+                    class="data-grid border-b border-slate-100 dark:border-slate-800/50 p-2 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors">
+                    <div class="px-2 min-w-0">
+                        <div class="font-bold text-sm truncate" title="T-Shirt Essential Basic">T-Shirt Essential Basic
+                        </div>
+                        <div class="text-[11px] text-slate-500 font-mono-nums mt-0.5 tracking-tight">REF-892345</div>
+                    </div>
+                    <div class="px-2 min-w-0">
+                        <span
+                            class="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-800 text-[10px] px-2 py-1 rounded truncate block text-center uppercase font-bold shadow-sm">T-Shirts
+                            H</span>
+                    </div>
+                    <div class="grid grid-cols-12 gap-1 px-2 font-mono-nums">
+                        <div
+                            class="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-900 dark:text-indigo-200 text-xs text-center py-1.5 rounded-sm">
+                            41</div>
+                        <div
+                            class="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-900 dark:text-indigo-200 text-xs text-center py-1.5 rounded-sm font-bold">
+                            95</div>
+                        <div class="bg-indigo-600 text-white text-xs text-center py-1.5 rounded-sm font-bold shadow-sm">
+                            120</div>
+                        <div
+                            class="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-900 dark:text-indigo-200 text-xs text-center py-1.5 rounded-sm">
+                            64</div>
+                        <div
+                            class="bg-slate-50 dark:bg-slate-800/40 text-slate-500 dark:text-slate-400 text-xs text-center py-1.5 rounded-sm">
+                            22</div>
+                        <div
+                            class="bg-slate-50 dark:bg-slate-800/40 text-slate-500 dark:text-slate-400 text-xs text-center py-1.5 rounded-sm">
+                            18</div>
+                        <div
+                            class="bg-slate-50 dark:bg-slate-800/40 text-slate-500 dark:text-slate-400 text-xs text-center py-1.5 rounded-sm">
+                            15</div>
+                        <div
+                            class="bg-slate-50 dark:bg-slate-800/40 text-slate-500 dark:text-slate-400 text-xs text-center py-1.5 rounded-sm">
+                            12</div>
+                        <div
+                            class="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-900 dark:text-indigo-200 text-xs text-center py-1.5 rounded-sm">
+                            45</div>
+                        <div
+                            class="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-900 dark:text-indigo-200 text-xs text-center py-1.5 rounded-sm font-bold">
+                            88</div>
+                        <div
+                            class="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-900 dark:text-indigo-200 text-xs text-center py-1.5 rounded-sm">
+                            54</div>
+                        <div
+                            class="bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-300 text-xs text-center py-1.5 rounded-sm font-black border-2 border-brand-500/30">
+                            30</div>
+                    </div>
+                    <div
+                        class="text-center px-1 font-mono-nums text-sm font-black text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/30 py-1.5 rounded-md border border-indigo-100 dark:border-indigo-800">
+                        604</div>
+                    <div class="text-center px-1 font-mono-nums text-sm font-bold tracking-tight">12 450</div>
+                    <div
+                        class="text-center px-2 flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-800/30 rounded-md py-1 border border-slate-100 dark:border-slate-800 shadow-inner">
+                        <span class="font-mono-nums text-xs font-black text-emerald-700 dark:text-emerald-400">5 602
+                            €</span>
+                        <span
+                            class="font-mono-nums text-[11px] text-white bg-emerald-600 px-2 mt-1 rounded-full font-bold">45.0%</span>
+                    </div>
+                    <div class="text-center px-1 font-black text-xs text-slate-400">A</div>
+                    <div class="text-center px-1">
+                        <span
+                            class="inline-flex items-center justify-center px-2 py-1.5 rounded-lg text-xs font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 border-2 border-emerald-200 dark:border-emerald-700 w-full shadow-sm">92</span>
+                    </div>
+                    <div class="px-2 text-xs text-slate-600 dark:text-slate-300 leading-snug font-medium italic">
+                        Saisonnier été (M2-M4). Très bonne rentabilité absolue. Excellente récurrence. Maintien Fort
+                        préconisé par l'algorithme.</div>
+                    <div class="text-center px-2 min-w-0">
+                        <select
+                            class="w-full text-xs font-black border-2 border-brand-500 dark:border-brand-400 bg-white dark:bg-slate-800 rounded-lg py-2 px-2 focus:ring-4 focus:ring-brand-500/20 outline-none cursor-pointer text-brand-900 dark:text-brand-200 shadow-md">
+                            <option selected>A - Cœur</option>
+                            <option>B - Standard</option>
+                            <option>C - Optionnel</option>
+                            <option>Z - Sortie</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Row 2 (Alerte) -->
+                <div
+                    class="data-grid border-b border-rose-100 dark:border-rose-900/30 bg-rose-50/50 dark:bg-rose-950/20 p-2 hover:bg-rose-50 dark:hover:bg-rose-900/40 transition-colors relative">
+                    <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-amber-500"></div>
+                    <div class="px-2 pl-4 min-w-0">
+                        <div class="font-bold text-sm truncate" title="Polo Piqué Summer Ed.">Polo Piqué Summer Ed.
+                        </div>
+                        <div class="text-[11px] text-slate-500 font-mono-nums mt-0.5 tracking-tight">REF-744111</div>
+                    </div>
+                    <div class="px-2 min-w-0">
+                        <span
+                            class="bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 border border-orange-100 dark:border-orange-800 text-[10px] px-2 py-1 rounded truncate block text-center uppercase font-bold shadow-sm">Polos
+                            H</span>
+                    </div>
+                    <div class="grid grid-cols-12 gap-1 px-2 font-mono-nums">
+                        <div
+                            class="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-900 text-xs text-center py-1.5 rounded-sm">
+                            32</div>
+                        <div
+                            class="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-900 text-xs text-center py-1.5 rounded-sm">
+                            45</div>
+                        <div
+                            class="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-900 text-xs text-center py-1.5 rounded-sm font-bold">
+                            78</div>
+                        <div class="bg-indigo-500 text-white text-xs text-center py-1.5 rounded-sm font-bold shadow-sm">
+                            102</div>
+                        <div
+                            class="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-900 text-xs text-center py-1.5 rounded-sm font-bold">
+                            88</div>
+                        <div
+                            class="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-900 text-xs text-center py-1.5 rounded-sm">
+                            54</div>
+                        <div
+                            class="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-900 text-xs text-center py-1.5 rounded-sm">
+                            41</div>
+                        <div
+                            class="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-900 text-xs text-center py-1.5 rounded-sm">
+                            33</div>
+                        <div
+                            class="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-900 text-xs text-center py-1.5 rounded-sm">
+                            21</div>
+                        <div
+                            class="bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-400 font-black text-xs text-center py-1.5 rounded-sm shadow-inner">
+                            0</div>
+                        <div
+                            class="bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-400 font-black text-xs text-center py-1.5 rounded-sm shadow-inner">
+                            0</div>
+                        <div
+                            class="bg-amber-600 text-white font-black text-xs text-center py-1.5 rounded-sm border-2 border-amber-400 shadow-md transform scale-110 z-10">
+                            0</div>
+                    </div>
+                    <div
+                        class="text-center px-1 font-mono-nums text-sm font-black text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 py-1.5 rounded-md border border-amber-200 dark:border-amber-800">
+                        494</div>
+                    <div class="text-center px-1 font-mono-nums text-sm font-bold tracking-tight">8 215</div>
+                    <div
+                        class="text-center px-2 flex flex-col items-center justify-center bg-rose-50 dark:bg-rose-900/20 rounded-md py-1 border border-rose-100 dark:border-rose-800 shadow-inner">
+                        <span class="font-mono-nums text-xs font-black text-rose-700 dark:text-rose-400">1 478 €</span>
+                        <span
+                            class="font-mono-nums text-[11px] text-white bg-rose-600 px-2 mt-1 rounded-full font-bold">18.0%</span>
+                    </div>
+                    <div class="text-center px-1 font-black text-xs text-slate-500">B</div>
+                    <div class="text-center px-1">
+                        <span
+                            class="inline-flex items-center justify-center px-2 py-1.5 rounded-lg text-xs font-black bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300 border-2 border-amber-200 dark:border-amber-700 w-full shadow-sm">65</span>
+                    </div>
+                    <div class="px-2 text-xs text-amber-800 dark:text-amber-300 font-bold leading-snug">⚠️ ALERTE :
+                        Arrêt brutal des ventes (M11, M12, Now). Carence fournisseur ou obsolescence ? Marge
+                        insuffisante.</div>
+                    <div class="text-center px-2 min-w-0">
+                        <select
+                            class="w-full text-xs font-black border-2 border-rose-600 dark:border-rose-500 bg-rose-50 dark:bg-rose-900/50 text-rose-900 dark:text-rose-100 rounded-lg py-2 px-2 focus:ring-4 focus:ring-rose-500/20 outline-none cursor-pointer shadow-md">
+                            <option>A - Cœur</option>
+                            <option>B - Standard</option>
+                            <option>C - Optionnel</option>
+                            <option selected>Z - Sortie</option>
+                        </select>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Summary Bar -->
+            <div
+                class="bg-slate-900 dark:bg-black text-white p-4 flex justify-between items-center shadow-2xl border-t border-slate-800 shrink-0">
+                <div
+                    class="text-xs font-bold text-slate-400 bg-slate-800 px-4 py-2 rounded-full border border-slate-700">
+                    Périmètre : <span class="text-white">NIKE EUROPE BV (Vue Globale)</span> • <span
+                        class="text-brand-400">1 240 Réf.</span>
+                </div>
+                <div class="flex space-x-12 items-center">
+                    <div class="flex flex-col items-center">
+                        <span class="text-slate-500 text-[10px] uppercase font-black mb-1 tracking-tighter">Volume Total
+                            Vendu</span>
+                        <span class="font-mono-nums font-black text-xl text-white">12 450</span>
+                    </div>
+                    <div class="flex flex-col items-center">
+                        <span class="text-slate-500 text-[10px] uppercase font-black mb-1 tracking-tighter">CA Global
+                            Généré</span>
+                        <span class="font-mono-nums font-black text-xl text-emerald-400">345 200 €</span>
+                    </div>
+                    <div class="flex flex-col items-center">
+                        <span class="text-slate-500 text-[10px] uppercase font-black mb-1 tracking-tighter">Taux de
+                            Marge Moyen</span>
+                        <span class="font-mono-nums font-black text-xl text-emerald-400">41.2%</span>
+                    </div>
+                </div>
+                <div class="flex space-x-3">
+                    <button
+                        class="bg-slate-700 hover:bg-slate-600 text-white px-6 py-3 rounded-xl text-sm font-bold transition-all active:scale-95 border border-slate-600">
+                        Export Excel
+                    </button>
+                    <button
+                        class="bg-brand-600 hover:bg-brand-500 text-white px-8 py-3 rounded-xl text-sm font-black transition-all shadow-lg active:scale-95">
+                        Valider ce Fournisseur
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+</body>
+
+</html>

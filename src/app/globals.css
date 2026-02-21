@@ -1,0 +1,319 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════
+   CollectFlow — Apple-inspired Design System
+   ═══════════════════════════════════════════ */
+
+/* ── Dark Mode (default) ── */
+:root {
+  /* Apple macOS dark exact values */
+  --bg-base: #000000;
+  --bg-surface: #111111;
+  --bg-elevated: #1c1c1e;
+  --bg-overlay: rgba(28, 28, 30, 0.85);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.12);
+
+  --text-primary: #f5f5f7;
+  --text-secondary: #a1a1a6;
+  --text-muted: #86868b;
+
+  --accent: #2dd4bf;
+  /* emerald-ish, Apple-tuned */
+  --accent-bg: rgba(45, 212, 191, 0.10);
+  --accent-border: rgba(45, 212, 191, 0.20);
+
+  /* Semantic UI accents */
+  --accent-success: #10b981;
+  --accent-success-bg: rgba(16, 185, 129, 0.10);
+  --accent-warning: #f59e0b;
+  --accent-warning-bg: rgba(245, 158, 11, 0.10);
+  --accent-error: #f43f5e;
+  --accent-error-bg: rgba(244, 63, 94, 0.10);
+
+  /* Primary Action / Brand */
+  --brand-solid: #10b981;
+  --brand-hover: #059669;
+  --action-secondary-bg: #2c2c2e;
+  --action-secondary-text: #f5f5f7;
+  --action-secondary-border: rgba(255, 255, 255, 0.1);
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.6), 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.7), 0 1px 4px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.8), 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+
+/* ── Light Mode ── */
+.light {
+  --bg-base: #f5f5f7;
+  /* Apple light gray */
+  --bg-surface: #ffffff;
+  --bg-elevated: #f0f0f5;
+  --bg-overlay: rgba(255, 255, 255, 0.82);
+  --border: rgba(0, 0, 0, 0.07);
+  --border-strong: rgba(0, 0, 0, 0.12);
+
+  --text-primary: #1d1d1f;
+  /* Apple dark */
+  --text-secondary: #515154;
+  --text-muted: #86868b;
+
+  --accent: #0d9488;
+  /* deeper teal in light */
+  --accent-bg: rgba(13, 148, 136, 0.08);
+  --accent-border: rgba(13, 148, 136, 0.18);
+
+  /* Semantic UI accents (Light Mode Adjustments) */
+  --accent-success: #059669;
+  --accent-success-bg: rgba(5, 150, 105, 0.08);
+  --accent-warning: #d97706;
+  --accent-warning-bg: rgba(217, 119, 6, 0.08);
+  --accent-error: #e11d48;
+  --accent-error-bg: rgba(225, 29, 72, 0.08);
+
+  /* Primary Action / Brand (Light) */
+  --brand-solid: #0d9488;
+  --brand-hover: #0f766e;
+  --action-secondary-bg: #ffffff;
+  --action-secondary-text: #1d1d1f;
+  --action-secondary-border: rgba(0, 0, 0, 0.1);
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.10), 0 1px 4px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    /* Force no system scroll jump */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html.light {
+    color-scheme: light;
+  }
+
+  body {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-sans, -apple-system, "Inter", system-ui, sans-serif);
+    font-size: 14px;
+    line-height: 1.5;
+    transition: background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+      color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Apple-style focus ring */
+  *:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+/* ── Typography ── */
+.text-primary {
+  color: var(--text-primary);
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.text-muted {
+  color: var(--text-muted);
+}
+
+/* ── Surfaces ── */
+.surface {
+  background: var(--bg-surface);
+}
+
+.elevated {
+  background: var(--bg-elevated);
+}
+
+/* ── Glass panels (sidebar, header) ── */
+.glass {
+  background: var(--bg-overlay);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+/* ── Apple border ── */
+.border-apple {
+  border: 1px solid var(--border);
+}
+
+.border-apple-strong {
+  border: 1px solid var(--border-strong);
+}
+
+/* ── Tabular numbers & Mono ── */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.015em;
+}
+
+.font-mono-nums {
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.015em;
+}
+
+/* ── Refined scrollbar ── */
+.overflow-auto::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.overflow-auto::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.overflow-auto::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 99px;
+}
+
+.overflow-auto::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.light .overflow-auto::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+/* ── Heatmap cells ── */
+.heatmap-zero {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+}
+
+.heatmap-low {
+  background: rgba(45, 212, 191, 0.08);
+  color: rgba(45, 212, 191, 0.70);
+}
+
+.heatmap-mid {
+  background: rgba(45, 212, 191, 0.15);
+  color: rgba(45, 212, 191, 0.90);
+}
+
+.heatmap-high {
+  background: rgba(45, 212, 191, 0.25);
+  color: #2dd4bf;
+}
+
+.light .heatmap-low {
+  background: rgba(13, 148, 136, 0.08);
+  color: #0f766e;
+}
+
+.light .heatmap-mid {
+  background: rgba(13, 148, 136, 0.14);
+  color: #0d9488;
+}
+
+.light .heatmap-high {
+  background: rgba(13, 148, 136, 0.22);
+  color: #0f766e;
+}
+
+/* ── Apple-style input ── */
+.apple-input {
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.apple-input::placeholder {
+  color: var(--text-muted);
+}
+
+.apple-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+/* ── Apple-style button ── */
+.apple-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  border: none;
+}
+
+.apple-btn-primary:hover {
+  opacity: 0.88;
+}
+
+.apple-btn-primary:active {
+  transform: scale(0.97);
+}
+
+.apple-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.apple-btn-secondary:hover {
+  background: var(--bg-overlay);
+}
+
+/* ── Segment control (theme toggle) ── */
+.segment-control {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+.segment-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 14px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.segment-btn.active {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}

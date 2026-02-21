@@ -1,0 +1,88 @@
+"use client";
+
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import type { GammeCode, GridFilters, GridSummary, ProductRow } from "@/types/grid";
+
+interface GridState {
+    /** Source data from server */
+    rows: ProductRow[];
+    /** Draft edits: codein → new GammeCode */
+    draftChanges: Record<string, GammeCode>;
+    filters: GridFilters;
+    summary: GridSummary;
+    displayDensity: "compact" | "normal" | "comfortable";
+
+    // Actions
+    setRows: (rows: ProductRow[]) => void;
+    setDraftGamme: (codein: string, gamme: GammeCode) => void;
+    resetDrafts: () => void;
+    setFilter: (key: keyof GridFilters, value: string | null) => void;
+    setDisplayDensity: (density: "compact" | "normal" | "comfortable") => void;
+}
+
+function computeSummary(rows: ProductRow[], drafts: Record<string, GammeCode>): GridSummary {
+    const active = rows.filter((r) => {
+        const g = drafts[r.codein] ?? r.codeGamme;
+        return g !== "Z";
+    });
+    const totalCa = active.reduce((s, r) => s + (r.totalCa ?? 0), 0);
+    const totalMarge = active.reduce((s, r) => s + (r.totalMarge ?? 0), 0);
+    return {
+        totalRows: active.length,
+        totalQuantite: active.reduce((s, r) => s + (r.totalQuantite ?? 0), 0),
+        totalCa,
+        totalMarge,
+        tauxMargeGlobal: totalCa > 0 ? (totalMarge / totalCa) * 100 : 0,
+    };
+}
+
+export const useGridStore = create<GridState>()(
+    persist(
+        (set, get) => ({
+            rows: [],
+            draftChanges: {},
+            filters: {
+                magasin: null,
+                codeFournisseur: null,
+                code3: null,
+                codeGamme: null,
+                search: "",
+            },
+            summary: {
+                totalRows: 0,
+                totalQuantite: 0,
+                totalCa: 0,
+                totalMarge: 0,
+                tauxMargeGlobal: 0,
+            },
+            displayDensity: "normal",
+
+            setRows: (rows) => {
+                set({ rows, summary: computeSummary(rows, get().draftChanges) });
+            },
+
+            setDraftGamme: (codein, gamme) => {
+                const draftChanges = { ...get().draftChanges, [codein]: gamme };
+                set({ draftChanges, summary: computeSummary(get().rows, draftChanges) });
+            },
+
+            resetDrafts: () => {
+                set({ draftChanges: {}, summary: computeSummary(get().rows, {}) });
+            },
+
+            setFilter: (key, value) => {
+                set((state) => ({ filters: { ...state.filters, [key]: value } }));
+            },
+            setDisplayDensity: (density) => set({ displayDensity: density }),
+        }),
+        {
+            name: "collectflow-grid-storage",
+            // Only persist filters and display density, do not persist data rows and drafts
+            partialize: (state) => ({
+                filters: state.filters,
+                displayDensity: state.displayDensity,
+            }),
+        }
+    )
+);
