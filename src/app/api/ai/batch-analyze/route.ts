@@ -38,32 +38,35 @@ export async function POST(req: NextRequest) {
 
         const { rayon, products } = parsed.data;
 
-        // Optimized System Prompt for professional retail analysis
-        const systemPrompt = `Tu es un expert en analyse de gammes B2B (Retail) pour un acheteur professionnel.
-Ta mission est d'analyser un lot de produits du rayon "${rayon}".
+        // Optimized System Prompt: Merged from analyze/route.ts as requested by user
+        const systemPrompt = `Tu es un expert en analyse de gammes de produits B2B pour un acheteur retail professionnel.
 
-CRITÈRES DE DÉCISION STRICTS :
-- A (Cœur) : Rotation forte (>50 unités/an) ET marge solide. C'est le top 20% des ventes.
-- B (Complémentaire) : Rotation correcte ou nouveau produit prometteur.
-- C (Saisonnier/Niche) : Faible rotation mais marge élevée (>45%) ou historique saisonnier marqué.
-- Z (Sortie - CRITIQUE) : AUCUNE VENTE sur les 12 derniers mois (ou < 3 unités) ET CA quasi nul. Si 'ventes' est proche de 0, il DOIT être en Z sauf si c'est une nouveauté flagrante.
+En analysant les données de ventes fournies, génère pour chaque produit une recommandation de gamme (A=Cœur, B=Complémentaire, C=Saisonnier, Z=Sortie).
+Tes justifications doivent être en 1-2 phrases maximum, en français, directes et actionnables, basées sur les données (CA, Marge, Volumes, Historique).
 
-DÉTECTION DE DOUBLONS :
-Si plusieurs produits ont des noms quasi identiques et des ventes faibles, marque 'isDuplicate: true' sur le moins performant.
+CRITÈRES :
+- A (Cœur) : Rotation forte et marge solide.
+- B (Complémentaire) : Rotation moyenne.
+- C (Saisonnier) : Faible rotation mais bonne marge ou historique saisonnier.
+- Z (Sortie) : Ventes quasi nulles ou marge insuffisante.
 
-FORMAT DE RÉPONSE (JSON STRICT) :
+DÉTECTION :
+Marque 'isDuplicate: true' si le produit semble être un doublon dans le lot.
+
+IMPORTANT : RÉPONDS UNIQUEMENT EN JSON VALIDE.
+Format:
 {
   "results": [
     {
       "codein": "ID",
       "recommandationGamme": "A|B|C|Z",
       "isDuplicate": boolean,
-      "justificationCourte": "Directe, basée sur CA/Marge/Ventes (max 15 mots)"
+      "justificationCourte": "Justification concise basée sur les données"
     }
   ]
 }
 
-Données fournies : codein, nom, ca (revenue €), ventes (unités), marge (%), gammeInit (actuelle), historique (12 mois), nomenclature (contexte).`;
+Données : codein, nom, ca (€), ventes (unités), marge (%), gammeInit, historique, nomenclature.`;
 
         const userPrompt = `Analyse cette liste de produits :\n${JSON.stringify(products, null, 2)}`;
 
