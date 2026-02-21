@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "5643:5643"
     environment:
       - NODE_ENV=production
       # L'URL de la base de données peut être passée ici si nécessaire (ex: postgres://user:pass@host:5432/db)

@@ -20,7 +20,7 @@ npm run docker:build
 # ou directement
 docker-compose up -d --build
 ```
-L'application sera accessible sur [http://localhost:3000](http://localhost:3000).
+L'application sera accessible sur [http://localhost:5643](http://localhost:5643).
 
 *L'application sera attachée au réseau Docker externe `nginx_default` afin d'être exposée derrière votre reverse proxy Nginx. Assurez-vous que ce réseau existe (`docker network create nginx_default`).*
 
