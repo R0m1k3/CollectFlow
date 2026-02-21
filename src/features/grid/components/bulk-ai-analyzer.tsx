@@ -80,8 +80,9 @@ export function BulkAiAnalyzer() {
                             if (reco.codein && reco.recommandationGamme) {
                                 // Update the gamme draft
                                 setDraftGamme(reco.codein, reco.recommandationGamme);
-                                // Inject the justification into the AI insight column
-                                const justification = reco.justificationCourte || `Recommandation: Gamme ${reco.recommandationGamme}`;
+                                // Inject the justification into the AI insight column (with gamme letter prefix)
+                                const baseJustification = reco.justificationCourte || "Aucune explication.";
+                                const justification = `Gamme ${reco.recommandationGamme} — ${baseJustification}`;
                                 setInsight(reco.codein, justification, reco.isDuplicate ?? false);
                             }
                         });
