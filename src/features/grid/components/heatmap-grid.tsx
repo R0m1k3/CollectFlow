@@ -127,10 +127,29 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
             accessorKey: "libelle1",
             header: "Désignation",
             size: 280,
-            cell: ({ getValue }) => (
-                <span className="text-[13px] font-bold truncate block max-w-[270px]" title={getValue<string>()} style={{ color: "var(--text-primary)" }}>
-                    {getValue<string>()}
-                </span>
+            cell: ({ row }) => (
+                <div className="flex items-center gap-2 overflow-hidden w-full pr-1">
+                    <span className="text-[13px] font-bold truncate flex-1" title={row.original.libelle1} style={{ color: "var(--text-primary)" }}>
+                        {row.original.libelle1}
+                    </span>
+                    <div className="flex gap-1 shrink-0">
+                        {row.original.workingStores.map((magasin) => (
+                            <div
+                                key={magasin}
+                                title={`Travaillé par : ${magasin}`}
+                                className="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-black border"
+                                style={{
+                                    background: "var(--bg-elevated)",
+                                    borderColor: "var(--border-strong)",
+                                    color: "var(--text-secondary)",
+                                    boxShadow: "var(--shadow-xs)"
+                                }}
+                            >
+                                {magasin.charAt(0).toUpperCase()}
+                            </div>
+                        ))}
+                    </div>
+                </div>
             ),
         },
         {

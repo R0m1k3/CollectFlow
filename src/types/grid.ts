@@ -49,6 +49,7 @@ export interface ProductRow {
     tauxMarge: number;
     /** Combined performance score (0-10) */
     score: number;
+    workingStores: string[];
     aiRecommendation?: string | null;
 }
 
