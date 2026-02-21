@@ -12,5 +12,9 @@ services:
       # L'URL de la base de données peut être passée ici si nécessaire (ex: postgres://user:pass@host:5432/db)
       # Mais comme CollectFlow permet de le configurer depuis l'interface (settings), ce n'est pas strictement obligatoire au lancement.
     restart: unless-stopped
-    # Pour s'assurer que le container peut accéder à une base de données sur la machine hôte
-    network_mode: "host"
+    networks:
+      - nginx_default
+
+networks:
+  nginx_default:
+    external: true

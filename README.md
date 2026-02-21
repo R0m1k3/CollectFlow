@@ -22,7 +22,7 @@ docker-compose up -d --build
 ```
 L'application sera accessible sur [http://localhost:3000](http://localhost:3000).
 
-*Si votre base de données se trouve sur la machine locale, le `docker-compose.yml` utilise `network_mode: "host"` par défaut pour faciliter la connexion localhost.*
+*L'application sera attachée au réseau Docker externe `nginx_default` afin d'être exposée derrière votre reverse proxy Nginx. Assurez-vous que ce réseau existe (`docker network create nginx_default`).*
 
 ### 2. Arrêter l'application
 ```bash
