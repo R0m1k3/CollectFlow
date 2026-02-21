@@ -53,6 +53,26 @@ export async function getMagasins() {
 }
 
 /**
+ * Mapping global des libellés de nomenclature (Secteurs & Rayons)
+ */
+const NOMENCLATURE_LABELS: Record<string, string> = {
+    // Secteurs (Niveau 1 - 2 digits)
+    "20": "LIQUIDES",
+    "30": "ÉPICERIE",
+    "40": "DPH",
+    "50": "BAZAR",
+    "60": "TEXTILE",
+    "70": "FRAIS",
+
+    // Rayons (Niveau 2 - 4 digits)
+    "2001": "EAUX", "2002": "JUS DE FRUITS", "2003": "SODAS / BOUILLONS", "2004": "BIERES", "2005": "VINS", "2006": "CIDRES", "2007": "APERITIFS", "2008": "ALCOOLS",
+    "3001": "ÉPICERIE SALÉE", "3002": "ÉPICERIE SUCRÉE", "3003": "PETIT DÉJEUNER", "3004": "CONSERVES", "3005": "PLAT CUISINES",
+    "4001": "HYGIÈNE", "4002": "ENTRETIEN", "4003": "PARFUMERIE",
+    "5001": "BRICOLAGE", "5002": "MAISON", "5003": "LOISIRS", "5004": "JARDIN",
+    "7001": "FRUITS ET LEGUMES", "7002": "CREMERIE", "7003": "VOLAILLE", "7004": "CHARCUTERIE", "7005": "TRAITEUR", "7006": "BOULANGERIE",
+};
+
+/**
  * Get the list of all unique nomenclature levels available in the database.
  */
 export async function getAvailableNomenclature() {
@@ -68,29 +88,19 @@ export async function getAvailableNomenclature() {
 
         const hierarchy: Record<string, { label: string, children: Record<string, { label: string, children: { code: string, label: string }[] }> }> = {};
 
-        // Mapping basique des libellés Niv 1 et 2
-        const L1_LABELS: Record<string, string> = {
-            "30": "ÉPICERIE",
-            "31": "CRÉMERIE / FRAIS",
-            "32": "LIQUIDES",
-            "33": "DPH",
-            "34": "BAZAR",
-            "35": "TEXTILE",
-        };
-
         results.forEach(r => {
             const c3 = r.code3 || "";
             const l3 = r.libelle3 || "";
-            if (c3.length < 2) return;
+            if (c3.length < 6) return;
 
             const c1 = c3.slice(0, 2);
             const c2 = c3.slice(0, 4);
 
             if (!hierarchy[c1]) {
-                hierarchy[c1] = { label: L1_LABELS[c1] || `Niveau 1 (${c1})`, children: {} };
+                hierarchy[c1] = { label: NOMENCLATURE_LABELS[c1] || `Secteur ${c1}`, children: {} };
             }
             if (!hierarchy[c1].children[c2]) {
-                hierarchy[c1].children[c2] = { label: `Niveau 2 (${c2})`, children: [] };
+                hierarchy[c1].children[c2] = { label: NOMENCLATURE_LABELS[c2] || `Rayon ${c2}`, children: [] };
             }
             hierarchy[c1].children[c2].children.push({ code: c3, label: l3 });
         });

@@ -77,13 +77,19 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             const c1 = c3.slice(0, 2);
             const c2 = c3.slice(0, 4);
 
-            const L1_LABELS: Record<string, string> = {
+            const NOMENCLATURE_LABELS: Record<string, string> = {
+                "20": "LIQUIDES",
                 "30": "ÉPICERIE",
-                "31": "CRÉMERIE / FRAIS",
-                "32": "LIQUIDES",
-                "33": "DPH",
-                "34": "BAZAR",
-                "35": "TEXTILE",
+                "40": "DPH",
+                "50": "BAZAR",
+                "60": "TEXTILE",
+                "70": "FRAIS",
+                // Rayons
+                "2001": "EAUX", "2002": "JUS DE FRUITS", "2003": "SODAS / BOUILLONS", "2004": "BIERES", "2005": "VINS", "2006": "CIDRES", "2007": "APERITIFS", "2008": "ALCOOLS",
+                "3001": "ÉPICERIE SALÉE", "3002": "ÉPICERIE SUCRÉE", "3003": "PETIT DÉJEUNER", "3004": "CONSERVES", "3005": "PLAT CUISINES",
+                "4001": "HYGIÈNE", "4002": "ENTRETIEN", "4003": "PARFUMERIE",
+                "5001": "BRICOLAGE", "5002": "MAISON", "5003": "LOISIRS", "5004": "JARDIN",
+                "7001": "FRUITS ET LEGUMES", "7002": "CREMERIE", "7003": "VOLAILLE", "7004": "CHARCUTERIE", "7005": "TRAITEUR", "7006": "BOULANGERIE",
             };
 
             productMap.set(codein, {
@@ -94,9 +100,9 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
                 gtin: row.gtin ?? "",
                 reference: row.reference ?? "",
                 code1: c1,
-                libelleNiveau1: L1_LABELS[c1] || `Secteur ${c1}`,
+                libelleNiveau1: NOMENCLATURE_LABELS[c1] || `Secteur ${c1}`,
                 code2: c2,
-                libelleNiveau2: `Rayon ${c2}`,
+                libelleNiveau2: NOMENCLATURE_LABELS[c2] || `Rayon ${c2}`,
                 code3: c3,
                 libelle3: row.libelle3 ?? "",
                 codeGamme: (row.codeGamme as GammeCode | null),

@@ -1,9 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { ChevronRight, Search, X } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { useRouter, useSearchParams } from "next/navigation";
+import { cn } from "@/lib/utils";
+import { ChevronDown, Filter } from "lucide-react";
 
 interface NomenclatureFilterProps {
     hierarchy: any;
@@ -18,98 +18,78 @@ export function NomenclatureFilter({ hierarchy, className }: NomenclatureFilterP
     const selected2 = searchParams.get("code2");
     const selected3 = searchParams.get("code3");
 
-    const updateFilter = (params: Record<string, string | null>) => {
-        const nextParams = new URLSearchParams(searchParams.toString());
-        Object.entries(params).forEach(([key, value]) => {
-            if (value) nextParams.set(key, value);
-            else nextParams.delete(key);
-        });
+    // Valeur composite pour le select : "type:code"
+    const currentValue = selected3 ? `code3:${selected3}` :
+        selected2 ? `code2:${selected2}` :
+            selected1 ? `code1:${selected1}` : "";
 
-        // Reset children if parent changes
-        if (params.code1 !== undefined) {
-            nextParams.delete("code2");
-            nextParams.delete("code3");
-        }
-        if (params.code2 !== undefined) {
-            nextParams.delete("code3");
+    const updateFilter = (value: string) => {
+        const params = new URLSearchParams(searchParams.toString());
+
+        // Reset all nomenclature filters
+        params.delete("code1");
+        params.delete("code2");
+        params.delete("code3");
+
+        if (value) {
+            const [type, code] = value.split(":");
+            params.set(type, code);
         }
 
-        router.push(`/grid?${nextParams.toString()}`);
+        router.push(`/grid?${params.toString()}`);
     };
 
-    const l1Options = Object.entries(hierarchy).map(([code, data]: [string, any]) => ({
-        code,
-        label: data.label
-    })).sort((a, b) => a.code.localeCompare(b.code));
+    // Aplatir la hiérarchie pour le menu unique et trier par code
+    const options: { label: string; value: string; level: number; code: string }[] = [];
 
-    const l2Options = selected1 && hierarchy[selected1]
-        ? Object.entries(hierarchy[selected1].children).map(([code, data]: [string, any]) => ({
-            code,
-            label: data.label
-        })).sort((a, b) => a.code.localeCompare(b.code))
-        : [];
+    // Sort Secteurs
+    const sortedSecteurs = Object.entries(hierarchy).sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
 
-    const l3Options = selected1 && selected2 && hierarchy[selected1]?.children[selected2]
-        ? hierarchy[selected1].children[selected2].children
-            .sort((a: any, b: any) => a.code.localeCompare(b.code))
-        : [];
+    sortedSecteurs.forEach(([c1, s]: [string, any]) => {
+        options.push({ label: s.label, value: `code1:${c1}`, level: 0, code: c1 });
+
+        // Sort Rayons
+        const sortedRayons = Object.entries(s.children).sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
+
+        sortedRayons.forEach(([c2, r]: [string, any]) => {
+            options.push({ label: r.label, value: `code2:${c2}`, level: 1, code: c2 });
+
+            // Sort Familles
+            const sortedFamilles = [...r.children].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+
+            sortedFamilles.forEach((f: any) => {
+                options.push({ label: f.label, value: `code3:${f.code}`, level: 2, code: f.code });
+            });
+        });
+    });
 
     return (
-        <div className={cn("flex items-center gap-2", className)}>
-            {/* Level 1 */}
+        <div className={cn("relative group", className)}>
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-2 pointer-events-none">
+                <Filter className="h-3.5 w-3.5 opacity-40 group-focus-within:opacity-100 transition-opacity" style={{ color: "var(--text-primary)" }} />
+            </div>
+
             <select
-                value={selected1 || ""}
-                onChange={(e) => updateFilter({ code1: e.target.value || null })}
-                className="apple-input text-[12px] h-8 min-w-[140px]"
-                style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
+                value={currentValue}
+                onChange={(e) => updateFilter(e.target.value)}
+                className="apple-input pl-9 pr-10 appearance-none w-full min-w-[240px] truncate"
+                style={{ fontSize: "12px", height: "36px" }}
             >
-                <option value="">Tous les Secteurs</option>
-                {l1Options.map(opt => (
-                    <option key={opt.code} value={opt.code}>{opt.label}</option>
+                <option value="">Toute la nomenclature</option>
+                {options.map((opt, idx) => (
+                    <option
+                        key={`${opt.value}-${idx}`}
+                        value={opt.value}
+                        style={{ paddingLeft: `${opt.level * 12}px` }}
+                    >
+                        {"\u00A0".repeat(opt.level * 4)}{opt.label}
+                    </option>
                 ))}
             </select>
 
-            <ChevronRight className="w-3 h-3 opacity-30" />
-
-            {/* Level 2 */}
-            <select
-                value={selected2 || ""}
-                onChange={(e) => updateFilter({ code2: e.target.value || null })}
-                disabled={!selected1}
-                className="apple-input text-[12px] h-8 min-w-[140px] disabled:opacity-50"
-                style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
-            >
-                <option value="">Tous les Rayons</option>
-                {l2Options.map(opt => (
-                    <option key={opt.code} value={opt.code}>{opt.label}</option>
-                ))}
-            </select>
-
-            <ChevronRight className="w-3 h-3 opacity-30" />
-
-            {/* Level 3 */}
-            <select
-                value={selected3 || ""}
-                onChange={(e) => updateFilter({ code3: e.target.value || null })}
-                disabled={!selected2}
-                className="apple-input text-[12px] h-8 min-w-[140px] disabled:opacity-50"
-                style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
-            >
-                <option value="">Toutes les Familles</option>
-                {l3Options.map((opt: any) => (
-                    <option key={opt.code} value={opt.code}>{opt.label}</option>
-                ))}
-            </select>
-
-            {(selected1 || selected2 || selected3) && (
-                <button
-                    onClick={() => updateFilter({ code1: null, code2: null, code3: null })}
-                    className="p-1.5 hover:bg-rose-500/10 rounded-lg text-rose-500 transition-colors"
-                    title="Réinitialiser la nomenclature"
-                >
-                    <X className="w-4 h-4" />
-                </button>
-            )}
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none opacity-40">
+                <ChevronDown className="h-4 w-4" />
+            </div>
         </div>
     );
 }

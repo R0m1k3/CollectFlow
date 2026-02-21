@@ -48,11 +48,15 @@ function getStoreColor(name: string) {
     for (let i = 0; i < name.length; i++) {
         hash = name.charCodeAt(i) + ((hash << 5) - hash);
     }
-    // Use HSL for better visual distribution
-    const h = Math.abs(hash) % 360;
+
+    // Spread hues more widely and use golden ratio for better distribution
+    const goldenRatioConjugate = 0.618033988749895;
+    let h = (Math.abs(hash) * goldenRatioConjugate * 360) % 360;
+
+    // Ensure colors are vibrant but readable
     return {
-        bg: `hsl(${h}, 70%, 45%)`,
-        border: `hsl(${h}, 70%, 35%)`,
+        bg: `hsl(${h}, 75%, 45%)`,
+        border: `hsl(${h}, 85%, 30%)`,
         text: "#fff"
     };
 }
