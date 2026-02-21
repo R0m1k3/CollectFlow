@@ -59,11 +59,18 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
     }
 
     return (
-        <div className="flex items-start gap-1.5 group cursor-pointer" onClick={handleAnalyze} title="Cliquer pour re-analyser">
-            <Bot className="w-3.5 h-3.5 mt-0.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-            <span className={cn("text-[11px] italic line-clamp-2 leading-[1.3]")} style={{ color: "var(--text-secondary)" }}>
-                {insight?.insight}
-            </span>
+        <div className="flex flex-col gap-1 group cursor-pointer" onClick={handleAnalyze} title="Cliquer pour re-analyser">
+            <div className="flex items-start gap-1.5">
+                <Bot className="w-3.5 h-3.5 mt-0.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                <span className={cn("text-[11px] italic line-clamp-2 leading-[1.3]")} style={{ color: "var(--text-secondary)" }}>
+                    {insight?.insight}
+                </span>
+            </div>
+            {insight?.isDuplicate && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 px-1.5 py-0.5 rounded-full w-fit">
+                    ⚠️ Doublon probable
+                </span>
+            )}
         </div>
     );
 }

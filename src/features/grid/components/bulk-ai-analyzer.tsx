@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
+import { useAiCopilotStore } from "@/features/ai-copilot/store/use-ai-copilot-store";
 import { Sparkles, Loader2, CheckCircle2 } from "lucide-react";
 import { ProductRow } from "@/types/grid";
 
@@ -9,6 +10,7 @@ export function BulkAiAnalyzer() {
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [progress, setProgress] = useState({ current: 0, total: 0, message: "" });
     const setDraftGamme = useGridStore(state => state.setDraftGamme);
+    const setInsight = useAiCopilotStore(state => state.setInsight);
 
     const handleAnalyze = async () => {
         const { rows } = useGridStore.getState();
@@ -76,8 +78,11 @@ export function BulkAiAnalyzer() {
                     if (data && Array.isArray(data.results)) {
                         data.results.forEach((reco: any) => {
                             if (reco.codein && reco.recommandationGamme) {
-                                // Add it to the store drafts
+                                // Update the gamme draft
                                 setDraftGamme(reco.codein, reco.recommandationGamme);
+                                // Inject the justification into the AI insight column
+                                const justification = reco.justificationCourte || `Recommandation: Gamme ${reco.recommandationGamme}`;
+                                setInsight(reco.codein, justification, reco.isDuplicate ?? false);
                             }
                         });
                     }

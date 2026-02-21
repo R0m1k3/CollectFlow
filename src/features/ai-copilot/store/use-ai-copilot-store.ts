@@ -6,10 +6,12 @@ interface AiInsight {
     codein: string;
     insight: string;
     status: "idle" | "loading" | "done" | "error";
+    isDuplicate?: boolean;
 }
 
 interface AiCopilotState {
     insights: Record<string, AiInsight>;
+    setInsight: (codein: string, insight: string, isDuplicate?: boolean) => void;
     analyzeProduct: (payload: {
         codein: string;
         libelle1: string;
@@ -23,6 +25,15 @@ interface AiCopilotState {
 
 export const useAiCopilotStore = create<AiCopilotState>((set) => ({
     insights: {},
+
+    setInsight: (codein, insight, isDuplicate = false) => {
+        set((s) => ({
+            insights: {
+                ...s.insights,
+                [codein]: { codein, insight, status: "done", isDuplicate },
+            },
+        }));
+    },
 
     analyzeProduct: async (payload) => {
         const { codein } = payload;
