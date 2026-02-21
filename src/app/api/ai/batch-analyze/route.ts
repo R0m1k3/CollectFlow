@@ -49,28 +49,39 @@ export async function POST(req: NextRequest) {
 Toute analyse de poids doit se faire par rapport à ce TOTAL FOURNISSEUR global, et non uniquement par rapport au lot envoyé.`
             : "CONTEXTE : Analyse par rapport au lot fourni.";
 
-        // Context-Aware System Prompt: Relative weighting relative to supplier totals
-        const systemPrompt = `Tu es un expert en stratégie d'achat retail. Ton rôle est de catégoriser les produits d'un fournisseur (A=Permanent, C=Saisonnier, Z=Sortie) en analysant leur POIDS RÉEL dans le business global du fournisseur.
+        // Context-Aware System Prompt: Strategic Purchase Expert
+        const systemPrompt = `Tu es un expert en stratégie d'achat retail et category manager. Ton rôle est de catégoriser les produits d'un fournisseur (A=Permanent, C=Saisonnier, Z=Sortie).
 
 ${supplierMetricsContext}
 
-L'IMPORTANCE STRATÉGIQUE (POIDS CA/MARGE FOURNISSEUR) PRIME SUR LE SCORE DE PERFORMANCE.
+MÉTHODOLOGIE D'ANALYSE (APPROCHE PERFORMANCE-FIRST) :
 
-MÉTHODOLOGIE D'ANALYSE :
-1. ANALYSE DU POIDS : Calcule la contribution de chaque produit par rapport au chiffre d'affaires et à la marge globale du fournisseur.
-2. RÈGLE D'OR (PROTECTION DES PILIERS) : Un produit qui représente une part significative du business fournisseur (ex: > 1% du CA total ou contributeur majeur à la marge) est stratégique (Gamme A). Son Score faible indique un besoin d'optimisation, PAS une sortie (Z).
-3. HIÉRARCHIE DÉCISIONNELLE :
-   a. Poids relatif dans le business fournisseur (CA/Marge %) -> Priorité 1
-   b. Régularité des ventes (sales12m) -> Priorité 2
-   c. Performance relative (Score 0-100) -> Priorité 3 (Indicateur de santé opérationnelle).
+1. CRITÈRE PRINCIPAL - LA SANTÉ (SCORE) :
+   - Le Score (0-100) est ton indicateur de performance combiné (rotation, rentabilité relative, tendance).
+   - Score > 70 : Produit performant, Gamme A par défaut.
+   - Score < 30 : Produit en difficulté, cible prioritaire pour la Gamme Z.
+
+2. LE POIDS COMME BOUCLIER (PROTECTION DES PILIERS) :
+   - Le poids (CA et Marge du produit par rapport aux totaux du fournisseur) n'est PAS un critère automatique de maintien.
+   - Si un produit a un MAUVAIS SCORE (< 40), tu ne le gardes en Gamme A QUE s'il est un pilier indispensable :
+     - Il porte une part substantielle du business du fournisseur (poids CA ou Marge élevé par rapport aux autres).
+     - OU il génère un flux de volume (unités) massif indispensable au rayon.
+   - IMPORTANT : Dans un catalogue de milliers de produits, un "pilier" peut avoir un faible pourcentage absolu (ex: 0.1%). Dans un petit catalogue, il doit peser lourd. Sois agnostique à la taille du fournisseur.
+
+3. ARBITRAGE POUR LA SORTIE (GAMME Z) :
+   - Propose la Gamme Z si le produit cumule :
+     - Score faible (< 40).
+     - ET Contribution négligeable au business global (ne "déplace pas l'aiguille" du CA ou de la Marge du fournisseur).
+     - ET Ventes sporadiques ou inexistantes sur les derniers mois.
+   - GARDE-FOU : Si Score < 20 ET que le produit n'est manifestement pas un top contributeur, le passage en Z est impératif.
 
 DÉFINITION DES GAMMES :
-- A (Permanent) : Produit "pilier" par son poids global OU sa rotation régulière.
-- C (Saisonnier) : Pics de ventes saisonniers clairs.
-- Z (Sortie) : Cumul de : poids insignifiant chez le fournisseur + marge faible + score médiocre + ventes sporadiques.
+- A (Permanent) : Produits sains (Score élevé) OU Piliers business indispensables (gros volume/CA malgré score moyen).
+- C (Saisonnier) : Profil de ventes avec saisonnalité marquée.
+- Z (Sortie) : Produits non performants et non stratégiques.
 
 IMPORTANT : RÉPONDS UNIQUEMENT EN JSON VALIDE.
-La justification doit impérativement situer le produit par rapport au business global du fournisseur (ex: "Représente X% du CA total fournisseur, pilier stratégique"). Ne donne aucun seuil en euros.
+Ta justification doit expliquer POURQUOI le produit est maintenu ou sorti en croisant Score et Contribution Réelle au business global. Mentionne le poids CA fournisseur explicitement.
 
 Format:
 {
