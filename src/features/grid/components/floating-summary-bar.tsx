@@ -49,8 +49,46 @@ export function FloatingSummaryBar() {
                 />
             </div>
 
-            <div className="flex space-x-3">
+            <div className="flex space-x-3 items-center">
                 <button
+                    onClick={async () => {
+                        if (!hasDrafts) {
+                            alert("Aucune gamme n'a été modifiée. L'export Excel ne concerne que les modifications en cours.");
+                            return;
+                        }
+
+                        // Prepare payload
+                        const modifiedRows = useGridStore.getState().rows.filter(r => draftChanges[r.codein]);
+                        const changes = modifiedRows.map(r => ({
+                            codein: r.codein,
+                            gtin: r.gtin,
+                            gamme: draftChanges[r.codein] as string,
+                        }));
+
+                        // Extract supplier name from the first row (or a generic name)
+                        const nomFournisseur = modifiedRows.length > 0 ? modifiedRows[0].nomFournisseur : "Fournisseur";
+
+                        try {
+                            const res = await fetch("/api/export/modified-gammes", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ nomFournisseur, changes }),
+                            });
+
+                            if (!res.ok) throw new Error("Erreur lors de l'export");
+
+                            const blob = await res.blob();
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement("a");
+                            a.href = url;
+                            a.download = `Modifications_Gammes_${nomFournisseur.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+                            a.click();
+                            window.URL.revokeObjectURL(url);
+                        } catch (error) {
+                            console.error(error);
+                            alert("Une erreur s'est produite lors de la génération du fichier Excel.");
+                        }
+                    }}
                     className="px-6 py-3 rounded-xl text-sm font-bold transition-all active:scale-95 border hover:brightness-105"
                     style={{
                         background: "var(--action-secondary-bg)",
@@ -60,6 +98,7 @@ export function FloatingSummaryBar() {
                 >
                     Export Excel
                 </button>
+
                 <button
                     className="px-8 py-3 rounded-xl text-sm font-black transition-all shadow-lg active:scale-95 text-white hover:brightness-110"
                     style={{
