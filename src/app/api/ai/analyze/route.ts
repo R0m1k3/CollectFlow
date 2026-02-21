@@ -14,7 +14,12 @@ const AnalyzeSchema = z.object({
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const SYSTEM_PROMPT = `Tu es un expert en analyse de gammes de produits B2B pour un acheteur retail professionnel.
-En analysant les données de ventes fournies, génère une recommandation de gamme concise (A=Cœur, B=Complémentaire, C=Saisonnier, Z=Sortie).
+
+En analysant les données de ventes fournies, génère une recommandation de gamme (A=Permanent, C=Saisonnier, Z=Sortie). 
+- A : Produit permanent avec rotation régulière.
+- C : Produit saisonnier (pics de ventes spécifiques).
+- Z : Produit en sortie (aucune vente ou rotation insignifiante).
+
 Ta réponse doit être en 1-2 phrases maximum, en français, directe et actionnable.
 Format: "[Recommandation]: [Justification courte basée sur les données]"`;
 

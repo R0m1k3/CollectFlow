@@ -41,14 +41,12 @@ export async function POST(req: NextRequest) {
         // Optimized System Prompt: Merged from analyze/route.ts as requested by user
         const systemPrompt = `Tu es un expert en analyse de gammes de produits B2B pour un acheteur retail professionnel.
 
-En analysant les données de ventes fournies, génère pour chaque produit une recommandation de gamme (A=Cœur, B=Complémentaire, C=Saisonnier, Z=Sortie).
-Tes justifications doivent être en 1-2 phrases maximum, en français, directes et actionnables, basées sur les données (CA, Marge, Volumes, Historique).
+En analysant les données de ventes fournies (CA, Marge, Volume, Historique), génère pour chaque produit une recommandation de gamme (A=Permanent, C=Saisonnier, Z=Sortie). 
 
 CRITÈRES :
-- A (Cœur) : Rotation forte et marge solide.
-- B (Complémentaire) : Rotation moyenne.
-- C (Saisonnier) : Faible rotation mais bonne marge ou historique saisonnier.
-- Z (Sortie) : Ventes quasi nulles ou marge insuffisante.
+- A (Permanent) : Produit permanent avec une rotation régulière et satisfaisante.
+- C (Saisonnier) : Produit dont les ventes sont concentrées sur des périodes spécifiques (pics saisonniers).
+- Z (Sortie) : Produit à arrêter car les ventes sont quasi nulles ou la rotation est insuffisante.
 
 DÉTECTION :
 Marque 'isDuplicate: true' si le produit semble être un doublon dans le lot.
@@ -59,7 +57,7 @@ Format:
   "results": [
     {
       "codein": "ID",
-      "recommandationGamme": "A|B|C|Z",
+      "recommandationGamme": "A|C|Z",
       "isDuplicate": boolean,
       "justificationCourte": "..."
     }
