@@ -14,7 +14,10 @@ export function BulkAiAnalyzer() {
 
     const handleAnalyze = async () => {
         const { rows } = useGridStore.getState();
-        console.log("[BulkAiAnalyzer] Starting analysis on", rows.length, "rows");
+        const supplierTotalCa = rows.reduce((acc, row) => acc + (row.totalCa || 0), 0);
+        const supplierTotalMarge = rows.reduce((acc, row) => acc + (row.totalMarge || 0), 0);
+
+        console.log("[BulkAiAnalyzer] Starting analysis on", rows.length, "rows", { supplierTotalCa, supplierTotalMarge });
 
         setIsAnalyzing(true);
         let completed = 0;
@@ -67,7 +70,12 @@ export function BulkAiAnalyzer() {
                         res = await fetch("/api/ai/batch-analyze", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ rayon: chunk.rayon, products: payloadProducts })
+                            body: JSON.stringify({
+                                rayon: chunk.rayon,
+                                products: payloadProducts,
+                                supplierTotalCa,
+                                supplierTotalMarge
+                            })
                         });
 
                         if (res.status === 429 && attempt < MAX_CHUNK_RETRIES) {

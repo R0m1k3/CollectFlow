@@ -5,6 +5,8 @@ import { getSavedDatabaseConfig } from "@/features/settings/actions";
 // Schema for the incoming request
 const BatchAnalyzeSchema = z.object({
     rayon: z.string(),
+    supplierTotalCa: z.number().optional(),
+    supplierTotalMarge: z.number().optional(),
     products: z.array(z.object({
         codein: z.string(),
         nom: z.string().nullable().optional(),
@@ -37,28 +39,38 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Format de données invalide." }, { status: 400 });
         }
 
-        const { rayon, products } = parsed.data;
+        const { rayon, products, supplierTotalCa, supplierTotalMarge } = parsed.data;
 
-        // Context-Aware System Prompt: Relative weighting within the batch
-        const systemPrompt = `Tu es un expert en stratégie d'achat retail. Ton rôle est de catégoriser les produits d'un fournisseur (A=Permanent, C=Saisonnier, Z=Sortie) en analysant leur POIDS RELATIF dans le lot fourni.
+        const supplierMetricsContext = supplierTotalCa && supplierTotalMarge
+            ? `CONTEXTE FOURNISSEUR TOTAL :
+- CA Total Fournisseur : ${supplierTotalCa.toLocaleString('fr-FR')} €
+- Marge Totale Fournisseur : ${supplierTotalMarge.toLocaleString('fr-FR')} €
 
-L'IMPORTANCE RELATIVE AU SEIN DU LOT PRIME SUR LE SCORE DE PERFORMANCE.
+Toute analyse de poids doit se faire par rapport à ce TOTAL FOURNISSEUR global, et non uniquement par rapport au lot envoyé.`
+            : "CONTEXTE : Analyse par rapport au lot fourni.";
+
+        // Context-Aware System Prompt: Relative weighting relative to supplier totals
+        const systemPrompt = `Tu es un expert en stratégie d'achat retail. Ton rôle est de catégoriser les produits d'un fournisseur (A=Permanent, C=Saisonnier, Z=Sortie) en analysant leur POIDS RÉEL dans le business global du fournisseur.
+
+${supplierMetricsContext}
+
+L'IMPORTANCE STRATÉGIQUE (POIDS CA/MARGE FOURNISSEUR) PRIME SUR LE SCORE DE PERFORMANCE.
 
 MÉTHODOLOGIE D'ANALYSE :
-1. ANALYSE DU LOT : Identifie les produits qui portent le business du fournisseur (Top contributeurs en CA et Marge au sein de ce groupe).
-2. RÈGLE D'OR (PROTECTION DES PILIERS) : Un produit avec une contribution significative (ex: dans les 20% supérieurs du lot en CA ou Marge) est stratégique (Gamme A). Son Score faible indique un besoin d'optimisation, PAS une sortie (Z).
+1. ANALYSE DU POIDS : Calcule la contribution de chaque produit par rapport au chiffre d'affaires et à la marge globale du fournisseur.
+2. RÈGLE D'OR (PROTECTION DES PILIERS) : Un produit qui représente une part significative du business fournisseur (ex: > 1% du CA total ou contributeur majeur à la marge) est stratégique (Gamme A). Son Score faible indique un besoin d'optimisation, PAS une sortie (Z).
 3. HIÉRARCHIE DÉCISIONNELLE :
-   a. Poids relatif dans le lot (CA/Marge %) -> Priorité 1
+   a. Poids relatif dans le business fournisseur (CA/Marge %) -> Priorité 1
    b. Régularité des ventes (sales12m) -> Priorité 2
-   c. Performance relative (Score 0-100) -> Priorité 3 (Simple indicateur de santé).
+   c. Performance relative (Score 0-100) -> Priorité 3 (Indicateur de santé opérationnelle).
 
 DÉFINITION DES GAMMES :
-- A (Permanent) : Produit "pilier" par son poids relatif OU sa rotation régulière.
+- A (Permanent) : Produit "pilier" par son poids global OU sa rotation régulière.
 - C (Saisonnier) : Pics de ventes saisonniers clairs.
-- Z (Sortie) : Cumul de : poids insignifiant dans le lot + marge faible + score médiocre + ventes sporadiques.
+- Z (Sortie) : Cumul de : poids insignifiant chez le fournisseur + marge faible + score médiocre + ventes sporadiques.
 
 IMPORTANT : RÉPONDS UNIQUEMENT EN JSON VALIDE.
-La justification doit obligatoirement situer le produit par rapport au reste du lot (ex: "Top 10% du CA du lot"). Ne donne aucun seuil en euros.
+La justification doit impérativement situer le produit par rapport au business global du fournisseur (ex: "Représente X% du CA total fournisseur, pilier stratégique"). Ne donne aucun seuil en euros.
 
 Format:
 {
