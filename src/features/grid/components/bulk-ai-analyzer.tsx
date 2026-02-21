@@ -97,6 +97,11 @@ export function BulkAiAnalyzer() {
                 }
 
                 completed++;
+
+                // Respect OpenRouter free-tier rate limits — pause 3s before next chunk
+                if (completed < chunks.length) {
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                }
             }
 
             setProgress(prev => ({ ...prev, current: completed, total: chunks.length, message: `Analyse terminée ! (${prev.errors > 0 ? prev.errors + " erreurs" : "succès"})` }));
