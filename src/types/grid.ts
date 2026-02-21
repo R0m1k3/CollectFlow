@@ -26,8 +26,8 @@ export interface VenteProduit {
     margeMvt: number | null;
 }
 
-/** A/B/C/Z status codes for product categories */
-export type GammeCode = "A" | "B" | "C" | "Z";
+/** A/B/C/Z status codes for product categories, but can be any string from DB (like 'Aucune') */
+export type GammeCode = string;
 
 /** A product row with its 12-month sales history and computed KPIs */
 export interface ProductRow {

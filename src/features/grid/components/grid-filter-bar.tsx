@@ -30,19 +30,41 @@ export function GridFilterBar({ fournisseurs, magasins, nomenclature }: GridFilt
     const router = useRouter();
     const searchParams = useSearchParams();
 
-    // Compute dynamic counts per Gamme
-    const gammeCounts = React.useMemo(() => {
-        const counts: Record<string, number> = { A: 0, B: 0, C: 0, Z: 0, Total: 0 };
+    // Compute dynamic counts and present Gammes
+    const { gammeCounts, activeGammes } = React.useMemo(() => {
+        const counts: Record<string, number> = { Total: 0 };
+        const gammesPresence = new Set<string>();
+
         rows.forEach(r => {
-            const effectiveGamme = draftChanges[r.codein] ?? r.codeGamme;
-            if (effectiveGamme && counts[effectiveGamme] !== undefined) {
-                counts[effectiveGamme]++;
+            let effectiveGamme = draftChanges[r.codein] ?? r.codeGamme;
+
+            // Handle null, empty, or undefined gammes as "Aucune"
+            if (!effectiveGamme || effectiveGamme.trim() === "") {
+                effectiveGamme = "Aucune";
             }
+
+            gammesPresence.add(effectiveGamme);
+            counts[effectiveGamme] = (counts[effectiveGamme] || 0) + 1;
+
             if (effectiveGamme !== "Z") {
                 counts.Total++; // Active references (non-Z)
             }
         });
-        return counts;
+
+        // Always ensure A, B, C, Z are available IF they have count > 0, plus any other discovered gammes
+        const sortedGammes = Array.from(gammesPresence).sort((a, b) => {
+            if (a === "Aucune") return 1; // Put "Aucune" at the end
+            if (b === "Aucune") return -1;
+            return a.localeCompare(b);
+        });
+
+        // Build the dynamic filter list
+        const filtersList: { label: string; value: string | null }[] = [
+            { label: "Tous", value: null },
+            ...sortedGammes.map(g => ({ label: g, value: g }))
+        ];
+
+        return { gammeCounts: counts, activeGammes: filtersList };
     }, [rows, draftChanges]);
 
     const handleSupplierSelect = (code: string) => {
@@ -104,8 +126,8 @@ export function GridFilterBar({ fournisseurs, magasins, nomenclature }: GridFilt
                 className="flex items-center gap-1 p-0.5 rounded-lg"
                 style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
             >
-                {GAMME_FILTERS.map(({ label, value }) => {
-                    const count = value === null ? rows.length : gammeCounts[value];
+                {activeGammes.map(({ label, value }) => {
+                    const count = value === null ? rows.length : gammeCounts[value] || 0;
                     const isActive = filters.codeGamme === value;
 
                     // Semantic colors for the badge based on Gamme
@@ -116,6 +138,7 @@ export function GridFilterBar({ fournisseurs, magasins, nomenclature }: GridFilt
                             case "B": return { background: "rgba(59, 130, 246, 0.15)", color: "rgb(37, 99, 235)" }; // Blue
                             case "C": return { background: "rgba(245, 158, 11, 0.15)", color: "rgb(217, 119, 6)" }; // Amber
                             case "Z": return { background: "rgba(244, 63, 94, 0.15)", color: "rgb(225, 29, 72)" };  // Rose
+                            case "Aucune": return { background: "rgba(100, 116, 139, 0.15)", color: "rgb(71, 85, 105)" }; // Slate
                             default: return { background: "rgba(0,0,0,0.1)", color: "var(--text-primary)" };
                         }
                     };
