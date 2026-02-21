@@ -9,6 +9,8 @@ const CONFIG_FILE = path.join(DATA_DIR, ".db-config.json");
 
 export interface DbConfig {
     url: string;
+    openRouterKey?: string;
+    openRouterModel?: string;
 }
 
 export async function testDatabaseConnection(url: string) {
@@ -32,9 +34,9 @@ export async function testDatabaseConnection(url: string) {
     }
 }
 
-export async function saveDatabaseSettings(url: string) {
+export async function saveDatabaseSettings(url: string, openRouterKey?: string, openRouterModel?: string) {
     try {
-        const config: DbConfig = { url };
+        const config: DbConfig = { url, openRouterKey, openRouterModel };
 
         // S'assurer que le dossier data existe
         await fs.mkdir(DATA_DIR, { recursive: true });

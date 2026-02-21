@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { getSavedDatabaseConfig } from "@/features/settings/actions";
 
 const AnalyzeSchema = z.object({
     codein: z.string(),
@@ -18,9 +19,12 @@ Ta réponse doit être en 1-2 phrases maximum, en français, directe et actionna
 Format: "[Recommandation]: [Justification courte basée sur les données]"`;
 
 export async function POST(req: NextRequest) {
-    const apiKey = process.env.OPENROUTER_API_KEY;
+    const config = await getSavedDatabaseConfig();
+    const apiKey = process.env.OPENROUTER_API_KEY || config?.openRouterKey;
+    const model = config?.openRouterModel || "google/gemini-flash-1.5";
+
     if (!apiKey) {
-        return NextResponse.json({ error: "OPENROUTER_API_KEY not configured" }, { status: 503 });
+        return NextResponse.json({ error: "OPENROUTER_API_KEY not configured. Please set it in Settings." }, { status: 503 });
     }
 
     const body = await req.json();
@@ -53,7 +57,7 @@ Quelle gamme recommandes-tu et pourquoi ?`;
                 "X-Title": "CollectFlow AI Copilot",
             },
             body: JSON.stringify({
-                model: "google/gemini-flash-1.5",
+                model,
                 messages: [
                     { role: "system", content: SYSTEM_PROMPT },
                     { role: "user", content: userMessage },

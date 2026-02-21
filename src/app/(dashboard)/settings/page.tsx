@@ -73,6 +73,7 @@ export default function SettingsPage() {
 
     useEffect(() => {
         setIsMounted(true);
+        reloadFromServer();
     }, []);
 
     const fetchModels = useCallback(async (key: string) => {
@@ -95,18 +96,27 @@ export default function SettingsPage() {
 
     const reloadFromServer = async () => {
         const config = await getSavedDatabaseConfig();
-        if (config && config.url) {
-            // Parser l'URL pour remettre dans le store
-            try {
-                const url = new URL(config.url.replace("postgres://", "http://")); // URL parser helper
-                setHost(url.hostname);
-                setPort(url.port || "5432");
-                setDatabase(url.pathname.slice(1).split("?")[0]);
-                setUser(url.username);
-                setPassword(decodeURIComponent(url.password));
-                setSsl(config.url.includes("sslmode=require"));
-            } catch (e) {
-                console.error("Failed to parse saved URL", e);
+        if (config) {
+            if (config.url) {
+                // Parser l'URL pour remettre dans le store
+                try {
+                    const url = new URL(config.url.replace("postgres://", "http://")); // URL parser helper
+                    setHost(url.hostname);
+                    setPort(url.port || "5432");
+                    setDatabase(url.pathname.slice(1).split("?")[0]);
+                    setUser(url.username);
+                    setPassword(decodeURIComponent(url.password));
+                    setSsl(config.url.includes("sslmode=require"));
+                } catch (e) {
+                    console.error("Failed to parse saved URL", e);
+                }
+            }
+            if (config.openRouterKey) {
+                setApiKey(config.openRouterKey);
+                fetchModels(config.openRouterKey);
+            }
+            if (config.openRouterModel) {
+                setSelectedModel(config.openRouterModel);
             }
         }
     };
@@ -127,7 +137,7 @@ export default function SettingsPage() {
     const handleSave = async () => {
         setSaveStatus("saving");
         const url = getDatabaseUrl();
-        const res = await saveDatabaseSettings(url);
+        const res = await saveDatabaseSettings(url, apiKey, selectedModel);
         if (res.success) {
             setSaveStatus("saved");
             setTimeout(() => setSaveStatus("idle"), 2500);
