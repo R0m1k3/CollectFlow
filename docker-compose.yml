@@ -13,6 +13,8 @@ services:
       - AUTH_SECRET=my-super-secret-key-that-should-be-changed-in-production
       - DATABASE_URL=postgres://postgres:MOT_DE_PASSE_ICI@postgresbase:5432/collectflow
       # Mais comme CollectFlow permet de le configurer depuis l'interface (settings), ce n'est pas strictement obligatoire au lancement.
+    volumes:
+      - ./data:/app/data
     restart: unless-stopped
     networks:
       - nginx_default
