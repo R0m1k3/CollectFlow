@@ -198,7 +198,7 @@ export default function SettingsPage() {
                     <select
                         className="apple-input w-auto"
                         value={displayDensity}
-                        onChange={(e) => setDisplayDensity(e.target.value as any)}
+                        onChange={(e) => setDisplayDensity(e.target.value as "compact" | "normal" | "comfortable")}
                     >
                         <option value="compact">Compact (32px)</option>
                         <option value="normal">Normal (40px)</option>

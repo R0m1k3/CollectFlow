@@ -143,7 +143,7 @@ export default function ScorePage() {
                     >
                         <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>
                             <strong>Axe fort</strong> = un axe dont le poids dépasse le seuil (configurable dans Paramètres).
-                            Un produit peut obtenir un bonus s'il excelle sur 2 ou 3 axes à la fois.
+                            Un produit peut obtenir un bonus s&apos;il excelle sur 2 ou 3 axes à la fois.
                         </p>
                     </div>
                 </div>

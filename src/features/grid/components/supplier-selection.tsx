@@ -23,7 +23,7 @@ export function SupplierSelection({ fournisseurs }: { fournisseurs: Supplier[] }
             <div className="mb-10 text-center">
                 <h1 className="text-[32px] font-bold tracking-tight mb-2">Choisir un fournisseur</h1>
                 <p className="text-[15px]" style={{ color: "var(--text-secondary)" }}>
-                    Sélectionnez un fournisseur pour commencer la révision de l'assortiment.
+                    Sélectionnez un fournisseur pour commencer la révision de l&apos;assortiment.
                 </p>
             </div>
 
@@ -65,7 +65,7 @@ export function SupplierSelection({ fournisseurs }: { fournisseurs: Supplier[] }
 
             {filtered.length === 0 && (
                 <div className="text-center py-20 bg-slate-50/50 dark:bg-slate-900/50 rounded-3xl border border-dashed border-slate-200 dark:border-slate-800">
-                    <p className="text-slate-500 font-medium">Aucun fournisseur trouvé pour "{search}"</p>
+                    <p className="text-slate-500 font-medium">Aucun fournisseur trouvé pour &quot;{search}&quot;</p>
                 </div>
             )}
         </div>
