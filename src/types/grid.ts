@@ -13,6 +13,7 @@ export interface VenteProduit {
     gtin: string | null;
     reference: string | null;
     codeGamme: GammeCode | null;
+    codeGammeInit: GammeCode | null;
     code3: string | null;
     libelle3: string | null;
     magasin: string;
@@ -43,6 +44,7 @@ export interface ProductRow {
     code3: string;
     libelle3: string;
     codeGamme: GammeCode | null;
+    codeGammeInit: GammeCode | null;
     /** Draft gamme value before saving */
     codeGammeDraft: GammeCode | null;
     /** 12-month sales quantities, indexed by YYYYMM key */

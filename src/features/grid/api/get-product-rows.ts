@@ -2,9 +2,11 @@
 
 import { db } from "@/db";
 import { ventesProduits } from "@/db/schema";
-import { eq, and, ne, like } from "drizzle-orm";
+import { eq, and, ne, like, sql } from "drizzle-orm";
 import type { ProductRow, GammeCode, GridFilters } from "@/types/grid";
 import { computeProductScores } from "@/lib/score-engine";
+
+let isSchemaInitialized = false;
 
 interface GetProductRowsInput {
     codeFournisseur: string;
@@ -14,6 +16,26 @@ interface GetProductRowsInput {
 
 export async function getProductRows(input: GetProductRowsInput): Promise<ProductRow[]> {
     const { codeFournisseur, magasin = "TOTAL", filters } = input;
+
+    // Self-healing: Ensure codeGammeInit column exists and is populated
+    if (!isSchemaInitialized) {
+        try {
+            await db.execute(sql`
+                ALTER TABLE ventes_produits 
+                ADD COLUMN IF NOT EXISTS code_gamme_init VARCHAR(20)
+            `);
+            await db.execute(sql`
+                UPDATE ventes_produits 
+                SET code_gamme_init = code_gamme 
+                WHERE code_gamme_init IS NULL
+            `);
+            isSchemaInitialized = true;
+            console.log("[Schema] codeGammeInit initialized successfully.");
+        } catch (err) {
+            console.error("[Schema] Failed to initialize codeGammeInit:", err);
+            // We continue anyway, the mapping fallback will handle it for the UI
+        }
+    }
 
     // ... (allowedPeriods calculation remains the same)
     const now = new Date();
@@ -106,6 +128,7 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
                 code3: c3,
                 libelle3: row.libelle3 ?? "",
                 codeGamme: (row.codeGamme as GammeCode | null),
+                codeGammeInit: (row.codeGammeInit as GammeCode | null) ?? (row.codeGamme as GammeCode | null),
                 codeGammeDraft: null,
                 sales12m: { [periode]: qty },
                 totalQuantite: qty,

@@ -285,7 +285,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
             size: 56,
             cell: ({ row }) => (
                 <div className="text-center font-bold text-[12px]" style={{ color: "var(--text-secondary)" }}>
-                    {row.original.codeGamme || "-"}
+                    {row.original.codeGammeInit || "-"}
                 </div>
             ),
         },
@@ -295,12 +295,21 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
             size: 110,
             cell: ({ row }) => {
                 const effectiveGamme = (draftChanges[row.original.codein] ?? row.original.codeGamme) as GammeCode | null;
+                const isModified = row.original.codeGamme !== row.original.codeGammeInit && row.original.codeGammeInit !== null;
+
                 return (
-                    <GammeSelect
-                        value={effectiveGamme}
-                        isDraft={!!draftChanges[row.original.codein]}
-                        onChange={(g: GammeCode) => setDraftGamme(row.original.codein, g)}
-                    />
+                    <div className="relative group/gamme">
+                        <GammeSelect
+                            value={effectiveGamme}
+                            isDraft={!!draftChanges[row.original.codein]}
+                            onChange={(g: GammeCode) => setDraftGamme(row.original.codein, g)}
+                        />
+                        {isModified && !draftChanges[row.original.codein] && (
+                            <div className="absolute -right-2 -top-2 bg-emerald-500 text-white rounded-full p-0.5 shadow-sm z-10 animate-in zoom-in-50" title="Modifié et validé">
+                                <Check className="w-2.5 h-2.5" />
+                            </div>
+                        )}
+                    </div>
                 );
             },
         },
