@@ -36,7 +36,7 @@ export const useAiCopilotStore = create<AiCopilotState>((set) => ({
     },
 
     analyzeProduct: async (payload) => {
-        const { codein } = payload;
+        const { codein, score } = payload;
 
         // Mark as loading
         set((s) => ({

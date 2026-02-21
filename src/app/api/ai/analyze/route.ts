@@ -10,18 +10,21 @@ const AnalyzeSchema = z.object({
     totalQuantite: z.number(),
     sales12m: z.record(z.string(), z.number()),
     codeGamme: z.string().nullable(),
+    score: z.number().nullable().optional(),
 });
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const SYSTEM_PROMPT = `Tu es un expert en analyse de gammes de produits B2B pour un acheteur retail professionnel.
 
-En analysant les données de ventes fournies, génère une recommandation de gamme (A=Permanent, C=Saisonnier, Z=Sortie). 
-- A : Produit permanent avec rotation régulière.
-- C : Produit saisonnier (pics de ventes spécifiques).
-- Z : Produit en sortie (aucune vente ou rotation insignifiante).
+En analysant les données de ventes et le SCORE de performance relative (0-100), génère une recommandation de gamme (A=Permanent, C=Saisonnier, Z=Sortie). 
+
+RÈGLES CRITIQUES :
+- SCORE < 20 : Signal fort de "Sortie" (Z). Même si le volume semble correct dans l'absolu, un score faible signifie que le produit sous-performe par rapport à ses pairs.
+- A (Permanent) : Uniquement si la rotation est régulière ET le score est satisfaisant.
+- C (Saisonnier) : Uniquement si des pics clairs apparaissent dans l'historique.
 
 Ta réponse doit être en 1-2 phrases maximum, en français, directe et actionnable.
-Format: "[Recommandation]: [Justification courte basée sur les données]"`;
+Format: "[Recommandation]: [Justification courte basée sur les données et le score]"`;
 
 export async function POST(req: NextRequest) {
     console.log("[AI] Analysis request received.");
@@ -42,7 +45,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Invalid payload", details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const { codein, libelle1, totalCa, tauxMarge, totalQuantite, sales12m, codeGamme } = parsed.data;
+    const { codein, libelle1, totalCa, tauxMarge, totalQuantite, sales12m, codeGamme, score } = parsed.data;
 
     // Format monthly sales for the prompt
     const monthlySummary = Object.entries(sales12m)
@@ -51,6 +54,7 @@ export async function POST(req: NextRequest) {
 
     const userMessage = `Produit: "${libelle1}" (Code: ${codein})
 Gamme actuelle: ${codeGamme ?? "Non définie"}
+Score de performance: ${score ?? "N/A"}/100
 CA total 12m: ${totalCa.toFixed(0)}€ | Taux de marge: ${tauxMarge.toFixed(1)}% | Volume: ${Math.round(totalQuantite)} unités
 Historique mensuel: ${monthlySummary}
 

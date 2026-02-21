@@ -11,6 +11,7 @@ const BatchAnalyzeSchema = z.object({
         ca: z.number().nullable().optional(),
         ventes: z.number().nullable().optional(),
         marge: z.number().nullable().optional(),
+        score: z.number().nullable().optional(),
         gammeInit: z.string().nullable().optional(),
         historique: z.string().nullable().optional(),
         nomenclature: z.string().nullable().optional(),
@@ -41,39 +42,40 @@ export async function POST(req: NextRequest) {
         // Optimized System Prompt: Merged from analyze/route.ts as requested by user
         const systemPrompt = `Tu es un expert en analyse de gammes de produits B2B pour un acheteur retail professionnel.
 
-En analysant les données de ventes fournies (CA, Marge, Volume, Historique), génère pour chaque produit une recommandation de gamme (A=Permanent, C=Saisonnier, Z=Sortie). 
+En analysant les données de ventes fournies (CA, Marge, Volume, Historique) et surtout le SCORE de performance relative (0-100), génère pour chaque produit une recommandation de gamme (A=Permanent, C=Saisonnier, Z=Sortie). 
 
-CRITÈRES :
-- A (Permanent) : Produit permanent avec une rotation régulière et satisfaisante sur toute l'année.
-- C (Saisonnier) : Produit dont les ventes sont concentrées sur des périodes spécifiques. Détecte les pics dans l' 'historique' (ex: ventes en 202412 mais rien ailleurs). Aide-toi de la 'nomenclature' et du 'nom' pour confirmer l'usage saisonnier.
-- Z (Sortie) : Produit à arrêter car les ventes sont quasi nulles ou la rotation est insuffisante.
+CRITÈRES PRIORITAIRES :
+- SCORE < 20 : Recommandation "Z" (Sortie) quasi-obligatoire. Même si le volume semble correct, le produit est un boulet par rapport au reste du fournisseur.
+- A (Permanent) : Produit avec une rotation régulière ET un score satisfaisant (> 30-40).
+- C (Saisonnier) : Pics de ventes concentrés sur l'historique. Aide-toi de la nomenclature.
+- Z (Sortie) : Ventes nulles, rotation insuffisante ou score médiocre.`;
 
-DÉTECTION :
+        DÉTECTION:
 Marque 'isDuplicate: true' si le produit semble être un doublon dans le lot.
 
-IMPORTANT : RÉPONDS UNIQUEMENT EN JSON VALIDE.
-Format:
-{
-  "results": [
-    {
-      "codein": "ID",
-      "recommandationGamme": "A|C|Z",
-      "isDuplicate": boolean,
-      "justificationCourte": "..."
-    }
-  ]
-}
+            IMPORTANT : RÉPONDS UNIQUEMENT EN JSON VALIDE.
+                Format:
+        {
+            "results": [
+                {
+                    "codein": "ID",
+                    "recommandationGamme": "A|C|Z",
+                    "isDuplicate": boolean,
+                    "justificationCourte": "..."
+                }
+            ]
+        }
 
-INTERDICTION FORMELLE : N'utilise jamais la phrase "Justification courte basée sur les données" comme réponse. Tu dois rédiger une analyse réelle.
+INTERDICTION FORMELLE: N'utilise jamais la phrase "Justification courte basée sur les données" comme réponse. Tu dois rédiger une analyse réelle.
 
-Données : codein, nom, ca (€), ventes (unités), marge (%), gammeInit, historique, nomenclature.`;
+        Données: codein, nom, ca(€), ventes(unités), marge(%), gammeInit, historique, nomenclature.`;
 
-        const userPrompt = `Analyse cette liste de produits :\n${JSON.stringify(products, null, 2)}`;
+        const userPrompt = `Analyse cette liste de produits: \n${ JSON.stringify(products, null, 2) } `;
 
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
             method: "POST",
             headers: {
-                "Authorization": `Bearer ${apiKey}`,
+                "Authorization": `Bearer ${ apiKey } `,
                 "Content-Type": "application/json",
             },
             body: JSON.stringify({
@@ -91,7 +93,7 @@ Données : codein, nom, ca (€), ventes (unités), marge (%), gammeInit, histor
             // Read the retry-after header and pass it back to the client
             const retryAfter = response.headers.get("Retry-After") || response.headers.get("x-ratelimit-reset-requests");
             const waitSeconds = retryAfter ? parseInt(retryAfter, 10) : 60;
-            console.warn(`[batch-analyze] Rate limited. Retry after ${waitSeconds}s.`);
+            console.warn(`[batch - analyze] Rate limited.Retry after ${ waitSeconds } s.`);
             return NextResponse.json({ error: "rate_limited", retryAfter: waitSeconds }, { status: 429 });
         }
 
@@ -112,7 +114,7 @@ Données : codein, nom, ca (€), ventes (unités), marge (%), gammeInit, histor
 
         // Try to extract JSON block from the response (handles markdown code blocks and raw JSON)
         let jsonStr = content;
-        const jsonBlock = content.match(/```json\s*([\s\S]*?)\s*```/);
+        const jsonBlock = content.match(/```json\s * ([\s\S] *?) \s * ```/);
         if (jsonBlock) {
             jsonStr = jsonBlock[1];
         } else {
