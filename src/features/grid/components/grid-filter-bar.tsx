@@ -16,13 +16,15 @@ const GAMME_FILTERS: { label: string; value: GammeCode | null }[] = [
 import { SupplierCombobox } from "./supplier-combobox";
 import { StoreCombobox } from "./store-combobox";
 import { useRouter, useSearchParams } from "next/navigation";
+import { NomenclatureFilter } from "./nomenclature-filter";
 
 interface GridFilterBarProps {
     fournisseurs: { code: string; nom: string }[];
     magasins: { code: string; nom: string }[];
+    nomenclature: any;
 }
 
-export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
+export function GridFilterBar({ fournisseurs, magasins, nomenclature }: GridFilterBarProps) {
     const { filters, setFilter } = useGridStore();
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -107,20 +109,7 @@ export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
             </div>
 
             {/* Nomenclature filter */}
-            <div className="relative">
-                <select
-                    value={filters.code3 ?? ""}
-                    onChange={(e) => setFilter("code3", e.target.value || null)}
-                    className="apple-input pr-8 appearance-none"
-                    style={{ width: "180px" }}
-                >
-                    <option value="">Toutes nomenclatures</option>
-                </select>
-                <ChevronDown
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none"
-                    style={{ color: "var(--text-muted)" }}
-                />
-            </div>
+            <NomenclatureFilter hierarchy={nomenclature} />
         </div>
     );
 }

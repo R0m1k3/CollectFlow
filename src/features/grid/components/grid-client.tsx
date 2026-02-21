@@ -20,9 +20,10 @@ interface GridClientProps {
     fournisseurs: { code: string; nom: string }[];
     magasins: { code: string; nom: string }[];
     magasin: string;
+    nomenclature: any; // Type defined in components if needed
 }
 
-export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins, magasin }: GridClientProps) {
+export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins, magasin, nomenclature }: GridClientProps) {
     const setRows = useGridStore((s) => s.setRows);
     const seuilAxeFort = useScoreSettingsStore((s) => s.seuilAxeFort);
     const bonusParAxe = useScoreSettingsStore((s) => s.bonusParAxe);
@@ -98,7 +99,7 @@ export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins
             </div>
 
             {/* Filters */}
-            <GridFilterBar fournisseurs={fournisseurs} magasins={magasins} />
+            <GridFilterBar fournisseurs={fournisseurs} magasins={magasins} nomenclature={nomenclature} />
 
             {/* Bulk toolbar (contextual) */}
             <BulkActionToolbar

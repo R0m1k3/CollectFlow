@@ -12,7 +12,7 @@ import {
     RowSelectionState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check } from "lucide-react";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { GammeSelect } from "@/features/grid/components/gamme-select";
 import { HeatmapCell } from "@/features/grid/components/heatmap-cell";
@@ -38,6 +38,23 @@ function formatMonthLabel(key: string): string {
     const m = parseInt(key.slice(4, 6), 10);
     const names = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"];
     return `${names[m - 1]} ${key.slice(2, 4)}`;
+}
+
+/**
+ * Generates a deterministic color for a store name.
+ */
+function getStoreColor(name: string) {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    // Use HSL for better visual distribution
+    const h = Math.abs(hash) % 360;
+    return {
+        bg: `hsl(${h}, 70%, 45%)`,
+        border: `hsl(${h}, 70%, 35%)`,
+        text: "#fff"
+    };
 }
 
 interface HeatmapGridProps {
@@ -121,7 +138,37 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
             accessorKey: "codein",
             header: "Code",
             size: 90,
-            cell: ({ getValue }) => <span className="font-mono-nums font-bold text-[12px] tracking-tight opacity-70" style={{ color: "var(--text-muted)" }}>{getValue<string>()}</span>,
+            cell: ({ getValue }) => {
+                const value = getValue<string>();
+                // eslint-disable-next-line react-hooks/rules-of-hooks
+                const [copied, setCopied] = useState(false);
+
+                const handleCopy = (e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    navigator.clipboard.writeText(value);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                };
+
+                return (
+                    <div
+                        onClick={handleCopy}
+                        className="group flex items-center gap-1.5 cursor-pointer hover:text-emerald-500 transition-colors"
+                        title="Copier le code"
+                    >
+                        <span className="font-mono-nums font-bold text-[12px] tracking-tight opacity-70 group-hover:opacity-100" style={{ color: "var(--text-muted)" }}>
+                            {value}
+                        </span>
+                        <div className="shrink-0 transition-all duration-200">
+                            {copied ? (
+                                <Check className="w-3 h-3 text-emerald-500 animate-in zoom-in-50" />
+                            ) : (
+                                <Copy className="w-3 h-3 opacity-0 group-hover:opacity-40 hover:!opacity-100" />
+                            )}
+                        </div>
+                    </div>
+                );
+            },
         },
         {
             accessorKey: "libelle1",
@@ -133,21 +180,23 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                         {row.original.libelle1}
                     </span>
                     <div className="flex gap-1 shrink-0">
-                        {row.original.workingStores.map((magasin) => (
-                            <div
-                                key={magasin}
-                                title={`Travaillé par : ${magasin}`}
-                                className="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-black border"
-                                style={{
-                                    background: "var(--bg-elevated)",
-                                    borderColor: "var(--border-strong)",
-                                    color: "var(--text-secondary)",
-                                    boxShadow: "var(--shadow-xs)"
-                                }}
-                            >
-                                {magasin.charAt(0).toUpperCase()}
-                            </div>
-                        ))}
+                        {row.original.workingStores.map((magasin) => {
+                            const colors = getStoreColor(magasin);
+                            return (
+                                <div
+                                    key={magasin}
+                                    title={`Travaillé par : ${magasin}`}
+                                    className="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-black border shadow-sm"
+                                    style={{
+                                        background: colors.bg,
+                                        borderColor: colors.border,
+                                        color: colors.text,
+                                    }}
+                                >
+                                    {magasin.charAt(0).toUpperCase()}
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
             ),

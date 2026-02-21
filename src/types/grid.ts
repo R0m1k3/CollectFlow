@@ -13,6 +13,10 @@ export interface VenteProduit {
     gtin: string | null;
     reference: string | null;
     codeGamme: GammeCode | null;
+    code1: string | null;
+    libelleNiveau1: string | null;
+    code2: string | null;
+    libelleNiveau2: string | null;
     code3: string | null;
     libelle3: string | null;
     magasin: string;
@@ -36,6 +40,10 @@ export interface ProductRow {
     libelle1: string;
     gtin: string;
     reference: string;
+    code1: string;
+    libelleNiveau1: string;
+    code2: string;
+    libelleNiveau2: string;
     code3: string;
     libelle3: string;
     codeGamme: GammeCode | null;
@@ -66,6 +74,8 @@ export interface GridSummary {
 export interface GridFilters {
     magasin: string | null;
     codeFournisseur: string | null;
+    code1: string | null;
+    code2: string | null;
     code3: string | null;
     codeGamme: GammeCode | null;
     search: string;

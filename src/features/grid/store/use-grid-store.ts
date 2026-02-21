@@ -45,6 +45,8 @@ export const useGridStore = create<GridState>()(
             filters: {
                 magasin: null,
                 codeFournisseur: null,
+                code1: null,
+                code2: null,
                 code3: null,
                 codeGamme: null,
                 search: "",
