@@ -14,10 +14,14 @@ services:
       - DATABASE_URL=postgres://postgres:MOT_DE_PASSE_ICI@postgresbase:5432/collectflow
       # Mais comme CollectFlow permet de le configurer depuis l'interface (settings), ce n'est pas strictement obligatoire au lancement.
     volumes:
-      - ./data:/app/data
+      - collectflow-data:/app/data
     restart: unless-stopped
     networks:
       - nginx_default
+
+volumes:
+  collectflow-data:
+    name: collectflow-data
 
 networks:
   nginx_default:
