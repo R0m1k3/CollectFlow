@@ -7,10 +7,13 @@ const BatchAnalyzeSchema = z.object({
     rayon: z.string(),
     products: z.array(z.object({
         codein: z.string(),
-        gtin: z.string().nullable().optional(),
         nom: z.string().nullable().optional(),
+        ca: z.number().nullable().optional(),
         ventes: z.number().nullable().optional(),
         marge: z.number().nullable().optional(),
+        gammeInit: z.string().nullable().optional(),
+        historique: z.string().nullable().optional(),
+        nomenclature: z.string().nullable().optional(),
     })),
 });
 
@@ -22,7 +25,7 @@ export async function POST(req: NextRequest) {
 
     if (!apiKey) {
         console.error("[batch-analyze] API key manquante.");
-        return NextResponse.json({ error: "Clé API OpenRouter manquante. Configurez-la dans les Paramètres." }, { status: 500 });
+        return NextResponse.json({ error: "Clé API OpenRouter manquante. Configurez-la dans les Paramètres." }, { status: 503 });
     }
 
     try {
@@ -35,30 +38,32 @@ export async function POST(req: NextRequest) {
 
         const { rayon, products } = parsed.data;
 
-        // Prompt definition
-        const systemPrompt = `Tu es un expert en Retail et en gestion d'assortiment. 
-Ta mission est d'analyser un lot de produits appartenant au rayon "${rayon}".
-Pour chaque produit, tu dois recommander une Gamme (A, B, C ou Z) basée sur ses performances de ventes (volume) et sa marge (%).
-Tu dois aussi détecter les doublons évidents (même produit, GTIN similaire, ventes réparties) en mettant isDuplicate: true le cas échéant.
+        // Optimized System Prompt for professional retail analysis
+        const systemPrompt = `Tu es un expert en analyse de gammes B2B (Retail) pour un acheteur professionnel.
+Ta mission est d'analyser un lot de produits du rayon "${rayon}".
 
-Règles de Gamme :
-- A : Produit phare, rotation forte, excellente marge.
-- B : Produit cœur de gamme, rotation moyenne.
-- C : Dépannage ou niche, faible rotation mais potentiellement bonne marge.
-- Z : Produit à déréférencer ou mort (ventes très faibles, marge mauvaise).
+CRITÈRES DE DÉCISION STRICTS :
+- A (Cœur) : Rotation forte (>50 unités/an) ET marge solide. C'est le top 20% des ventes.
+- B (Complémentaire) : Rotation correcte ou nouveau produit prometteur.
+- C (Saisonnier/Niche) : Faible rotation mais marge élevée (>45%) ou historique saisonnier marqué.
+- Z (Sortie - CRITIQUE) : AUCUNE VENTE sur les 12 derniers mois (ou < 3 unités) ET CA quasi nul. Si 'ventes' est proche de 0, il DOIT être en Z sauf si c'est une nouveauté flagrante.
 
-TU DOIS REPONDRE UNIQUEMENT EN FORMAT JSON VALIDE. AUCUN TEXTE AVANT OU APRES.
-Format attendu:
+DÉTECTION DE DOUBLONS :
+Si plusieurs produits ont des noms quasi identiques et des ventes faibles, marque 'isDuplicate: true' sur le moins performant.
+
+FORMAT DE RÉPONSE (JSON STRICT) :
 {
   "results": [
     {
-      "codein": "123",
-      "recommandationGamme": "A",
-      "isDuplicate": false,
-      "justificationCourte": "Forte rotation et excellente marge."
+      "codein": "ID",
+      "recommandationGamme": "A|B|C|Z",
+      "isDuplicate": boolean,
+      "justificationCourte": "Directe, basée sur CA/Marge/Ventes (max 15 mots)"
     }
   ]
-}`;
+}
+
+Données fournies : codein, nom, ca (revenue €), ventes (unités), marge (%), gammeInit (actuelle), historique (12 mois), nomenclature (contexte).`;
 
         const userPrompt = `Analyse cette liste de produits :\n${JSON.stringify(products, null, 2)}`;
 
