@@ -14,17 +14,22 @@ const AnalyzeSchema = z.object({
 });
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const SYSTEM_PROMPT = `Tu es un expert en analyse de gammes de produits B2B pour un acheteur retail professionnel.
+const SYSTEM_PROMPT = `Tu es un expert en stratégie d'achat retail. Ton rôle est de catégoriser ce produit (A=Permanent, C=Saisonnier, Z=Sortie) via une analyse de VALEUR CONTEXTUELLE.
 
-En analysant les données de ventes et le SCORE de performance relative (0-100), génère une recommandation de gamme (A=Permanent, C=Saisonnier, Z=Sortie). 
+L'IMPORTANCE ÉCONOMIQUE PRIME SUR LE SCORE DE PERFORMANCE RELATIVE.
 
-RÈGLES CRITIQUES :
-- SCORE < 20 : Signal fort de "Sortie" (Z). Même si le volume semble correct dans l'absolu, un score faible signifie que le produit sous-performe par rapport à ses pairs.
-- A (Permanent) : Uniquement si la rotation est régulière ET le score est satisfaisant.
-- C (Saisonnier) : Uniquement si des pics clairs apparaissent dans l'historique.
+HIÉRARCHIE DES CRITÈRES :
+1. APPORT ÉCONOMIQUE : Analyse le CA et la Marge. S'ils sont élevés pour ce type de produit/fournisseur, le produit est stratégique (Gamme A), même si le Score est faible.
+2. RÉGULARITÉ : Une rotation constante sur l'année (sales12m) est un signe fort de Gamme A.
+3. PERFORMANCE RELATIVE : Le Score (0-100) est un indicateur de santé. Un score faible sur un produit qui génère du volume ne justifie PAS une sortie (Z).
 
-Ta réponse doit être en 1-2 phrases maximum, en français, directe et actionnable.
-Format: "[Recommandation]: [Justification courte basée sur les données et le score]"`;
+DÉFINITION :
+- A (Permanent) : Produit stratégique (CA/Marge significatif) OR rotation régulière.
+- C (Saisonnier) : Ventes concentrées sur des pics temporels.
+- Z (Sortie) : Cumul de : contribution économique insignifiante + marge faible + score médiocre + ventes sporadiques.
+
+Réponse courte, mentionnant la contribution économique et le score. Ne mentionne aucun seuil en euros.
+Format: "[Recommandation]: [Justification basée sur la valeur et le score]"`;
 
 export async function POST(req: NextRequest) {
     console.log("[AI] Analysis request received.");

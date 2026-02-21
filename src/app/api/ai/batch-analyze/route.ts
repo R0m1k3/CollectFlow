@@ -39,18 +39,27 @@ export async function POST(req: NextRequest) {
 
         const { rayon, products } = parsed.data;
 
-        // Optimized System Prompt: Perfectly aligned with analyze/route.ts
-        const systemPrompt = `Tu es un expert en analyse de gammes de produits B2B pour un acheteur retail professionnel.
+        // Context-Aware System Prompt: Relative weighting within the batch
+        const systemPrompt = `Tu es un expert en stratégie d'achat retail. Ton rôle est de catégoriser les produits d'un fournisseur (A=Permanent, C=Saisonnier, Z=Sortie) en analysant leur POIDS RELATIF dans le lot fourni.
 
-En analysant les données de ventes fournies (CA, Marge, Volume, Historique mensuel) et surtout le SCORE de performance relative (0-100), génère pour chaque produit une recommandation de gamme (A=Permanent, C=Saisonnier, Z=Sortie). 
+L'IMPORTANCE RELATIVE AU SEIN DU LOT PRIME SUR LE SCORE DE PERFORMANCE.
 
-CRITÈRES PRIORITAIRES :
-- SCORE < 20 : Recommandation "Z" (Sortie) quasi-obligatoire. Un score faible signifie que le produit est un fardeau par rapport aux autres produits du fournisseur.
-- A (Permanent) : Produit avec une rotation régulière ET un score satisfaisant (> 35).
-- C (Saisonnier) : Pics de ventes concentrés sur l'historique (sales12m). Aide-toi de la nomenclature.
-- Z (Sortie) : Ventes nulles, rotation insuffisante ou score médiocre.
+MÉTHODOLOGIE D'ANALYSE :
+1. ANALYSE DU LOT : Identifie les produits qui portent le business du fournisseur (Top contributeurs en CA et Marge au sein de ce groupe).
+2. RÈGLE D'OR (PROTECTION DES PILIERS) : Un produit avec une contribution significative (ex: dans les 20% supérieurs du lot en CA ou Marge) est stratégique (Gamme A). Son Score faible indique un besoin d'optimisation, PAS une sortie (Z).
+3. HIÉRARCHIE DÉCISIONNELLE :
+   a. Poids relatif dans le lot (CA/Marge %) -> Priorité 1
+   b. Régularité des ventes (sales12m) -> Priorité 2
+   c. Performance relative (Score 0-100) -> Priorité 3 (Simple indicateur de santé).
+
+DÉFINITION DES GAMMES :
+- A (Permanent) : Produit "pilier" par son poids relatif OU sa rotation régulière.
+- C (Saisonnier) : Pics de ventes saisonniers clairs.
+- Z (Sortie) : Cumul de : poids insignifiant dans le lot + marge faible + score médiocre + ventes sporadiques.
 
 IMPORTANT : RÉPONDS UNIQUEMENT EN JSON VALIDE.
+La justification doit obligatoirement situer le produit par rapport au reste du lot (ex: "Top 10% du CA du lot"). Ne donne aucun seuil en euros.
+
 Format:
 {
   "results": [
@@ -58,12 +67,12 @@ Format:
       "codein": "ID",
       "recommandationGamme": "A|C|Z",
       "isDuplicate": boolean,
-      "justificationCourte": "..."
+      "justificationCourte": "Justification incluant le poids relatif (ex: 'Top contributeur CA du lot, à protéger')."
     }
   ]
 }
 
-Données fournies : codein, nom, ca (€), ventes (unités), marge (%), score (0-100), codeGamme (actuel), sales12m (historique par mois), nomenclature.`;
+Données : codein, nom, ca (€), ventes (unités), marge (%), score (0-100), codeGamme (actuel), sales12m (historique), nomenclature.`;
 
         const userPrompt = `Analyse cette liste de produits: \n${JSON.stringify(products, null, 2)} `;
 
