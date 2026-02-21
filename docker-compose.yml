@@ -9,6 +9,7 @@ services:
       - "5643:5643"
     environment:
       - NODE_ENV=production
+      - AUTH_TRUST_HOST=true
       # L'URL de la base de données peut être passée ici si nécessaire (ex: postgres://user:pass@host:5432/db)
       # Mais comme CollectFlow permet de le configurer depuis l'interface (settings), ce n'est pas strictement obligatoire au lancement.
     restart: unless-stopped
