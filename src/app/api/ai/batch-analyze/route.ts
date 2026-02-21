@@ -62,39 +62,39 @@ Format attendu:
 
         const userPrompt = `Analyse cette liste de produits :\n${JSON.stringify(products, null, 2)}`;
 
-        // Retry loop for 429 rate limiting — reads Retry-After header
-        let response: Response | null = null;
-        const MAX_RETRIES = 3;
-        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-                method: "POST",
-                headers: {
-                    "Authorization": `Bearer ${apiKey}`,
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    model,
-                    messages: [
-                        { role: "system", content: systemPrompt },
-                        { role: "user", content: userPrompt }
-                    ],
-                    response_format: { type: "json_object" },
-                    temperature: 0.1,
-                }),
-            });
+        // Always use the free Llama 3.3 model for batch — not the user's settings model
+        // (settings model may be a paid model not suitable here)
+        const BATCH_MODEL = "meta-llama/llama-3.3-70b-instruct:free";
 
-            if (response.status !== 429) break; // Success or non-retryable error
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                model: BATCH_MODEL,
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: userPrompt }
+                ],
+                response_format: { type: "json_object" },
+                temperature: 0.1,
+            }),
+        });
 
-            const retryAfterHeader = response.headers.get("Retry-After") || response.headers.get("x-ratelimit-reset-requests");
-            const waitSeconds = retryAfterHeader ? Math.min(parseInt(retryAfterHeader, 10), 90) : 30 * attempt;
-            console.warn(`[batch-analyze] 429 on attempt ${attempt}/${MAX_RETRIES}. Waiting ${waitSeconds}s...`);
-            await new Promise(resolve => setTimeout(resolve, waitSeconds * 1000));
+        if (response.status === 429) {
+            // Read the retry-after header and pass it back to the client
+            const retryAfter = response.headers.get("Retry-After") || response.headers.get("x-ratelimit-reset-requests");
+            const waitSeconds = retryAfter ? parseInt(retryAfter, 10) : 60;
+            console.warn(`[batch-analyze] Rate limited. Retry after ${waitSeconds}s.`);
+            return NextResponse.json({ error: "rate_limited", retryAfter: waitSeconds }, { status: 429 });
         }
 
-        if (!response || !response.ok) {
-            const err = response ? await response.text() : "No response";
-            console.error("OpenRouter API Error:", err);
-            return NextResponse.json({ error: "Erreur lors de l'appel à OpenRouter." }, { status: response?.status ?? 500 });
+        if (!response.ok) {
+            const err = await response.text();
+            console.error("OpenRouter API Error:", response.status, err);
+            return NextResponse.json({ error: "Erreur lors de l'appel à OpenRouter.", status: response.status }, { status: response.status });
         }
 
         const data = await response.json();

@@ -57,15 +57,33 @@ export function BulkAiAnalyzer() {
                 }));
 
                 try {
-                    const res = await fetch("/api/ai/batch-analyze", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ rayon: chunk.rayon, products: payloadProducts })
-                    });
+                    let res: Response | null = null;
+                    const MAX_CHUNK_RETRIES = 3;
 
-                    if (!res.ok) {
-                        const errText = await res.text();
-                        console.error(`[BulkAiAnalyzer] Erreur HTTP ${res.status} sur le lot ${chunk.rayon}:`, errText);
+                    for (let attempt = 1; attempt <= MAX_CHUNK_RETRIES; attempt++) {
+                        res = await fetch("/api/ai/batch-analyze", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ rayon: chunk.rayon, products: payloadProducts })
+                        });
+
+                        if (res.status === 429) {
+                            const errData = await res.json().catch(() => ({}));
+                            const waitSecs = errData.retryAfter ?? (30 * attempt);
+                            console.warn(`[BulkAiAnalyzer] Rate limited. Waiting ${waitSecs}s before retry ${attempt}/${MAX_CHUNK_RETRIES}`);
+
+                            for (let t = waitSecs; t > 0; t--) {
+                                setProgress(prev => ({ ...prev, message: `⏳ Lot ${completed + 1}/${chunks.length} — Rate limit, reprise dans ${t}s...` }));
+                                await new Promise(r => setTimeout(r, 1000));
+                            }
+                            continue; // retry
+                        }
+                        break; // success or non-retryable error
+                    }
+
+                    if (!res || !res.ok) {
+                        const errText = await res?.text().catch(() => "");
+                        console.error(`[BulkAiAnalyzer] Erreur HTTP ${res?.status} sur le lot ${chunk.rayon}:`, errText);
                         setProgress(prev => ({ ...prev, errors: prev.errors + 1 }));
                     } else {
                         const data = await res.json();
