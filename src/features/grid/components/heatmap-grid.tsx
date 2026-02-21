@@ -31,7 +31,7 @@ function getLast12Months(): string[] {
     return months;
 }
 
-const MONTHS_12 = getLast12Months();
+// La constante est supprimée d'ici pour éviter le mismatch d'hydratation (new Date() au runtime module)
 
 function formatMonthLabel(key: string): string {
     const m = parseInt(key.slice(4, 6), 10);
@@ -47,10 +47,17 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     const { rows, draftChanges, setDraftGamme, filters, displayDensity } = useGridStore();
     const [sorting, setSorting] = useState<SortingState>([]);
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+    const [isMounted, setIsMounted] = useState(false);
     const tableContainerRef = useRef<HTMLDivElement>(null);
 
+    // Calculer les mois dynamiquement pour éviter le mismatch entre serveur et client
+    const MONTHS_12 = useMemo(() => getLast12Months(), []);
+
+    useEffect(() => {
+        setIsMounted(true);
+    }, []);
+
     const rowHeight = displayDensity === "compact" ? 32 : displayDensity === "normal" ? 40 : 48;
-    const cellPadding = displayDensity === "compact" ? "py-1" : displayDensity === "normal" ? "py-1.5" : "py-2.5";
 
     const handleRowSelectionChange = useCallback(
         (updater: React.SetStateAction<RowSelectionState>) => {
@@ -240,6 +247,21 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     });
 
     const totalWidth = columns.reduce((s, c) => s + ((c as { size?: number }).size ?? 150), 0);
+
+    if (!isMounted) {
+        return (
+            <div
+                className="overflow-auto rounded-[12px] flex items-center justify-center"
+                style={{
+                    height: "calc(100vh - 240px)",
+                    background: "var(--bg-surface)",
+                    border: "1px solid var(--border)",
+                }}
+            >
+                <div className="text-muted text-sm italic opacity-50">Chargement de la grille...</div>
+            </div>
+        );
+    }
 
     return (
         <div

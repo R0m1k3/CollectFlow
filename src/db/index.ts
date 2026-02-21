@@ -8,7 +8,7 @@ let connectionString = process.env.DATABASE_URL;
 
 // On tente de lire la config sauvegardée via l'UI
 try {
-    const CONFIG_PATH = path.join(process.cwd(), ".db-config.json");
+    const CONFIG_PATH = path.join(process.cwd(), "data", ".db-config.json");
     if (fs.existsSync(CONFIG_PATH)) {
         const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
         if (config.url) {
