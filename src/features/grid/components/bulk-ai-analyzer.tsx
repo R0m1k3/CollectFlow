@@ -56,51 +56,48 @@ export function BulkAiAnalyzer() {
                     marge: r.totalMarge ? parseFloat(((r.totalMarge / (r.totalCa || 1)) * 100).toFixed(1)) : 0,
                 }));
 
-                const res = await fetch("/api/ai/batch-analyze", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        rayon: chunk.rayon,
-                        products: payloadProducts
-                    })
-                });
-
-                if (!res.ok) {
-                    const errText = await res.text();
-                    console.error(`[BulkAiAnalyzer] Erreur HTTP ${res.status} sur le lot ${chunk.rayon}:`, errText);
-                    setProgress(prev => ({ ...prev, errors: prev.errors + 1 }));
-                    completed++;
-                    continue;
-                }
-
                 try {
-                    const data = await res.json();
-                    console.log(`[BulkAiAnalyzer] Response for ${chunk.rayon}:`, data);
+                    const res = await fetch("/api/ai/batch-analyze", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ rayon: chunk.rayon, products: payloadProducts })
+                    });
 
-                    if (data && Array.isArray(data.results)) {
-                        let applied = 0;
-                        data.results.forEach((reco: any) => {
-                            if (reco.codein && reco.recommandationGamme) {
-                                setDraftGamme(reco.codein, reco.recommandationGamme);
-                                const baseJustification = reco.justificationCourte || "Aucune explication.";
-                                const justification = `Gamme ${reco.recommandationGamme} — ${baseJustification}`;
-                                setInsight(reco.codein, justification, reco.isDuplicate ?? false);
-                                applied++;
-                            }
-                        });
-                        console.log(`[BulkAiAnalyzer] Applied ${applied} recommendations for ${chunk.rayon}`);
+                    if (!res.ok) {
+                        const errText = await res.text();
+                        console.error(`[BulkAiAnalyzer] Erreur HTTP ${res.status} sur le lot ${chunk.rayon}:`, errText);
+                        setProgress(prev => ({ ...prev, errors: prev.errors + 1 }));
                     } else {
-                        console.warn(`[BulkAiAnalyzer] Unexpected response shape for ${chunk.rayon}:`, data);
+                        const data = await res.json();
+                        console.log(`[BulkAiAnalyzer] Response for ${chunk.rayon}:`, data);
+
+                        if (data && Array.isArray(data.results)) {
+                            let applied = 0;
+                            data.results.forEach((reco: any) => {
+                                if (reco.codein && reco.recommandationGamme) {
+                                    setDraftGamme(reco.codein, reco.recommandationGamme);
+                                    const baseJustification = reco.justificationCourte || "Aucune explication.";
+                                    const justification = `Gamme ${reco.recommandationGamme} — ${baseJustification}`;
+                                    setInsight(reco.codein, justification, reco.isDuplicate ?? false);
+                                    applied++;
+                                }
+                            });
+                            console.log(`[BulkAiAnalyzer] Applied ${applied} recommendations for ${chunk.rayon}`);
+                        } else {
+                            console.warn(`[BulkAiAnalyzer] Unexpected response shape for ${chunk.rayon}:`, data);
+                        }
                     }
                 } catch (e) {
-                    console.error(`[BulkAiAnalyzer] Failed to parse JSON for chunk ${chunk.rayon}:`, e);
+                    console.error(`[BulkAiAnalyzer] Failed fetch for chunk ${chunk.rayon}:`, e);
+                    setProgress(prev => ({ ...prev, errors: prev.errors + 1 }));
                 }
 
                 completed++;
 
-                // Respect OpenRouter free-tier rate limits — pause 3s before next chunk
+                // Always wait 20s between chunks — free tier allows ~3 req/min
                 if (completed < chunks.length) {
-                    await new Promise(resolve => setTimeout(resolve, 3000));
+                    setProgress(prev => ({ ...prev, current: completed, message: `En attente... (lot ${completed}/${chunks.length})` }));
+                    await new Promise(resolve => setTimeout(resolve, 20000));
                 }
             }
 
