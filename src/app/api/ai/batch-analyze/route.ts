@@ -61,10 +61,12 @@ Format:
       "codein": "ID",
       "recommandationGamme": "A|B|C|Z",
       "isDuplicate": boolean,
-      "justificationCourte": "Justification concise basée sur les données"
+      "justificationCourte": "..."
     }
   ]
 }
+
+INTERDICTION FORMELLE : N'utilise jamais la phrase "Justification courte basée sur les données" comme réponse. Tu dois rédiger une analyse réelle.
 
 Données : codein, nom, ca (€), ventes (unités), marge (%), gammeInit, historique, nomenclature.`;
 
