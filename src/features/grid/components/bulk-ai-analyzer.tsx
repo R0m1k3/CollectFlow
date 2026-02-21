@@ -8,13 +8,13 @@ import { ProductRow } from "@/types/grid";
 
 export function BulkAiAnalyzer() {
     const [isAnalyzing, setIsAnalyzing] = useState(false);
-    const [progress, setProgress] = useState({ current: 0, total: 0, message: "" });
+    const [progress, setProgress] = useState({ current: 0, total: 0, message: "", errors: 0 });
     const setDraftGamme = useGridStore(state => state.setDraftGamme);
     const setInsight = useAiCopilotStore(state => state.setInsight);
 
     const handleAnalyze = async () => {
         const { rows } = useGridStore.getState();
-        if (rows.length === 0) return;
+        console.log("[BulkAiAnalyzer] Starting analysis on", rows.length, "rows");
 
         setIsAnalyzing(true);
 
@@ -40,12 +40,12 @@ export function BulkAiAnalyzer() {
                 }
             }
 
-            setProgress({ current: 0, total: chunks.length, message: "Initialisation..." });
+            setProgress({ current: 0, total: chunks.length, message: "Initialisation...", errors: 0 });
 
             // Process sequentially
             let completed = 0;
             for (const chunk of chunks) {
-                setProgress({ current: completed, total: chunks.length, message: `Analyse du rayon: ${chunk.rayon}` });
+                setProgress(prev => ({ ...prev, current: completed, total: chunks.length, message: `Analyse du rayon: ${chunk.rayon}` }));
 
                 // Simplify payload to save tokens
                 const payloadProducts = chunk.items.map(r => ({
@@ -66,35 +66,40 @@ export function BulkAiAnalyzer() {
                 });
 
                 if (!res.ok) {
-                    console.error(`Erreur sur le lot ${chunk.rayon}`);
+                    const errText = await res.text();
+                    console.error(`[BulkAiAnalyzer] Erreur HTTP ${res.status} sur le lot ${chunk.rayon}:`, errText);
+                    setProgress(prev => ({ ...prev, errors: prev.errors + 1 }));
                     completed++;
-                    continue; // Skip the failed chunk but continue processing
+                    continue;
                 }
 
                 try {
                     const data = await res.json();
+                    console.log(`[BulkAiAnalyzer] Response for ${chunk.rayon}:`, data);
 
-                    // data.results should be an array
                     if (data && Array.isArray(data.results)) {
+                        let applied = 0;
                         data.results.forEach((reco: any) => {
                             if (reco.codein && reco.recommandationGamme) {
-                                // Update the gamme draft
                                 setDraftGamme(reco.codein, reco.recommandationGamme);
-                                // Inject the justification into the AI insight column (with gamme letter prefix)
                                 const baseJustification = reco.justificationCourte || "Aucune explication.";
                                 const justification = `Gamme ${reco.recommandationGamme} — ${baseJustification}`;
                                 setInsight(reco.codein, justification, reco.isDuplicate ?? false);
+                                applied++;
                             }
                         });
+                        console.log(`[BulkAiAnalyzer] Applied ${applied} recommendations for ${chunk.rayon}`);
+                    } else {
+                        console.warn(`[BulkAiAnalyzer] Unexpected response shape for ${chunk.rayon}:`, data);
                     }
                 } catch (e) {
-                    console.error("Failed to parse JSON for chunk", chunk.rayon, e);
+                    console.error(`[BulkAiAnalyzer] Failed to parse JSON for chunk ${chunk.rayon}:`, e);
                 }
 
                 completed++;
             }
 
-            setProgress({ current: completed, total: chunks.length, message: "Analyse terminée avec succès !" });
+            setProgress(prev => ({ ...prev, current: completed, total: chunks.length, message: `Analyse terminée ! (${prev.errors > 0 ? prev.errors + " erreurs" : "succès"})` }));
             setTimeout(() => {
                 setIsAnalyzing(false);
             }, 3000);

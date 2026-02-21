@@ -81,13 +81,30 @@ Format attendu:
         }
 
         const data = await response.json();
-        const content = data.choices[0].message.content;
+        const content: string = data.choices?.[0]?.message?.content ?? "";
 
-        // Clean up markdown markers if the model ignored response_format
-        const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/) || content.match(/{[\s\S]*}/);
-        const jsonStr = jsonMatch ? jsonMatch[0].replace(/```json\n|\n```/g, '') : content;
+        console.log("[batch-analyze] Raw LLM response:", content.slice(0, 500));
+
+        if (!content) {
+            return NextResponse.json({ error: "Réponse vide du modèle." }, { status: 500 });
+        }
+
+        // Try to extract JSON block from the response (handles markdown code blocks and raw JSON)
+        let jsonStr = content;
+        const jsonBlock = content.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonBlock) {
+            jsonStr = jsonBlock[1];
+        } else {
+            // Look for first { ... } block
+            const start = content.indexOf("{");
+            const end = content.lastIndexOf("}");
+            if (start !== -1 && end !== -1) {
+                jsonStr = content.slice(start, end + 1);
+            }
+        }
 
         const resultJson = JSON.parse(jsonStr);
+        console.log("[batch-analyze] Parsed results count:", resultJson?.results?.length ?? "N/A");
 
         return NextResponse.json(resultJson);
 
