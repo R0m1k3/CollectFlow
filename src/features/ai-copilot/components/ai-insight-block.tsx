@@ -24,6 +24,7 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
             totalQuantite: row.totalQuantite,
             sales12m: row.sales12m,
             codeGamme: row.codeGamme,
+            score: row.score,
         });
     };
 

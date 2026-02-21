@@ -17,6 +17,7 @@ export function BulkAiAnalyzer() {
         console.log("[BulkAiAnalyzer] Starting analysis on", rows.length, "rows");
 
         setIsAnalyzing(true);
+        let completed = 0;
 
         try {
             // Group by Nomenclature (libelle3 or a fallback)
@@ -27,39 +28,34 @@ export function BulkAiAnalyzer() {
                 groups[rayon].push(r);
             });
 
-            // Create chunks of up to 50 products per rayon
             const CHUNK_SIZE = 50;
             const chunks: { rayon: string; items: ProductRow[] }[] = [];
 
             for (const [rayon, items] of Object.entries(groups)) {
                 for (let i = 0; i < items.length; i += CHUNK_SIZE) {
-                    chunks.push({
-                        rayon,
-                        items: items.slice(i, i + CHUNK_SIZE)
-                    });
+                    chunks.push({ rayon, items: items.slice(i, i + CHUNK_SIZE) });
                 }
             }
 
             setProgress({ current: 0, total: chunks.length, message: "Initialisation...", errors: 0 });
 
-            // Process sequentially
-            let completed = 0;
-            for (const chunk of chunks) {
-                setProgress(prev => ({ ...prev, current: completed, total: chunks.length, message: `Analyse du rayon: ${chunk.rayon}` }));
+            // Process with a continuous concurrency limit
+            const CONCURRENCY = 3;
+            const remainingChunks = [...chunks];
 
-                // Enrich payload with more context to improve AI decision quality
+            const processNext = async () => {
+                const chunk = remainingChunks.shift();
+                if (!chunk) return;
+
                 const payloadProducts = chunk.items.map(r => ({
                     codein: r.codein,
                     nom: r.libelle1,
                     ca: r.totalCa || 0,
                     ventes: r.totalQuantite || 0,
                     marge: r.totalMarge ? parseFloat(((r.totalMarge / (r.totalCa || 1)) * 100).toFixed(1)) : 0,
-                    gammeInit: r.codeGammeInit || "N/A",
-                    // Detailed history: "YYYYMM: Qty, YYYYMM: Qty..." to help AI see seasonality
-                    historique: Object.entries(r.sales12m || {})
-                        .map(([month, qty]) => `${month}:${qty}`)
-                        .join(", "),
-                    // Contextual nomenclature
+                    score: r.score || 0,
+                    codeGamme: r.codeGamme || "N/A",
+                    sales12m: r.sales12m || {}, // Send raw object for better AI analysis
                     nomenclature: `${r.libelleNiveau1 || ""} > ${r.libelleNiveau2 || ""} > ${r.libelle3 || ""}`
                 }));
 
@@ -74,66 +70,58 @@ export function BulkAiAnalyzer() {
                             body: JSON.stringify({ rayon: chunk.rayon, products: payloadProducts })
                         });
 
-                        if (res.status === 429) {
+                        if (res.status === 429 && attempt < MAX_CHUNK_RETRIES) {
                             const errData = await res.json().catch(() => ({}));
                             const waitSecs = errData.retryAfter ?? (30 * attempt);
-                            console.warn(`[BulkAiAnalyzer] Rate limited. Waiting ${waitSecs}s before retry ${attempt}/${MAX_CHUNK_RETRIES}`);
-
                             for (let t = waitSecs; t > 0; t--) {
-                                setProgress(prev => ({ ...prev, message: `⏳ Lot ${completed + 1}/${chunks.length} — Rate limit, reprise dans ${t}s...` }));
+                                setProgress(prev => ({ ...prev, message: `⏳ Lot ${completed + 1}/${chunks.length} — Limite API, reprise dans ${t}s...` }));
                                 await new Promise(r => setTimeout(r, 1000));
                             }
-                            continue; // retry
+                            continue;
                         }
-                        break; // success or non-retryable error
+                        break;
                     }
 
                     if (!res || !res.ok) {
                         const errText = await res?.text().catch(() => "");
-                        console.error(`[BulkAiAnalyzer] Erreur HTTP ${res?.status} sur le lot ${chunk.rayon}:`, errText);
+                        console.error(`[BulkAiAnalyzer] Erreur HTTP sur le lot ${chunk.rayon}:`, errText);
                         setProgress(prev => ({ ...prev, errors: prev.errors + 1 }));
                     } else {
                         const data = await res.json();
-                        console.log(`[BulkAiAnalyzer] Response for ${chunk.rayon}:`, data);
-
                         if (data && Array.isArray(data.results)) {
-                            let applied = 0;
                             data.results.forEach((reco: any) => {
                                 if (reco.codein && reco.recommandationGamme) {
                                     setDraftGamme(reco.codein, reco.recommandationGamme);
-                                    const baseJustification = reco.justificationCourte || "Aucune explication.";
-                                    const justification = `Gamme ${reco.recommandationGamme} — ${baseJustification}`;
+                                    const justification = `Gamme ${reco.recommandationGamme} — ${reco.justificationCourte || "Analyse effectuée."}`;
                                     setInsight(reco.codein, justification, reco.isDuplicate ?? false);
-                                    applied++;
                                 }
                             });
-                            console.log(`[BulkAiAnalyzer] Applied ${applied} recommendations for ${chunk.rayon}`);
-                        } else {
-                            console.warn(`[BulkAiAnalyzer] Unexpected response shape for ${chunk.rayon}:`, data);
                         }
                     }
                 } catch (e) {
                     console.error(`[BulkAiAnalyzer] Failed fetch for chunk ${chunk.rayon}:`, e);
                     setProgress(prev => ({ ...prev, errors: prev.errors + 1 }));
+                } finally {
+                    completed++;
+                    setProgress(prev => ({
+                        ...prev,
+                        current: completed,
+                        message: completed === chunks.length ? "Analyse terminée" : `Analyse: ${completed}/${chunks.length} lots`
+                    }));
+                    // Process next chunk in the same worker
+                    await processNext();
                 }
+            };
 
-                completed++;
-
-                // Always wait 20s between chunks — free tier allows ~3 req/min
-                if (completed < chunks.length) {
-                    setProgress(prev => ({ ...prev, current: completed, message: `En attente... (lot ${completed}/${chunks.length})` }));
-                    await new Promise(resolve => setTimeout(resolve, 20000));
-                }
-            }
+            // Start workers
+            const workers = Array.from({ length: Math.min(CONCURRENCY, chunks.length) }, () => processNext());
+            await Promise.all(workers);
 
             setProgress(prev => ({ ...prev, current: completed, total: chunks.length, message: `Analyse terminée ! (${prev.errors > 0 ? prev.errors + " erreurs" : "succès"})` }));
-            setTimeout(() => {
-                setIsAnalyzing(false);
-            }, 3000);
+            setTimeout(() => setIsAnalyzing(false), 3000);
 
         } catch (error) {
             console.error("Erreur globale lors de l'analyse:", error);
-            alert("Une erreur inattendue s'est produite pendant l'analyse globale.");
             setIsAnalyzing(false);
         }
     };

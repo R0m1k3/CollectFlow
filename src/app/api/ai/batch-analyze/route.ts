@@ -12,8 +12,8 @@ const BatchAnalyzeSchema = z.object({
         ventes: z.number().nullable().optional(),
         marge: z.number().nullable().optional(),
         score: z.number().nullable().optional(),
-        gammeInit: z.string().nullable().optional(),
-        historique: z.string().nullable().optional(),
+        codeGamme: z.string().nullable().optional(),
+        sales12m: z.record(z.string(), z.number()).nullable().optional(),
         nomenclature: z.string().nullable().optional(),
     })),
 });
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     // Read the API key from DB config (same pattern as /api/ai/analyze)
     const config = await getSavedDatabaseConfig();
     const apiKey = process.env.OPENROUTER_API_KEY || config?.openRouterKey;
-    const model = config?.openRouterModel || "meta-llama/llama-3.3-70b-instruct:free";
+    const model = config?.openRouterModel || "google/gemini-flash-1.5";
 
     if (!apiKey) {
         console.error("[batch-analyze] API key manquante.");
@@ -39,19 +39,16 @@ export async function POST(req: NextRequest) {
 
         const { rayon, products } = parsed.data;
 
-        // Optimized System Prompt: Merged from analyze/route.ts as requested by user
+        // Optimized System Prompt: Perfectly aligned with analyze/route.ts
         const systemPrompt = `Tu es un expert en analyse de gammes de produits B2B pour un acheteur retail professionnel.
 
-En analysant les données de ventes fournies (CA, Marge, Volume, Historique) et surtout le SCORE de performance relative (0-100), génère pour chaque produit une recommandation de gamme (A=Permanent, C=Saisonnier, Z=Sortie). 
+En analysant les données de ventes fournies (CA, Marge, Volume, Historique mensuel) et surtout le SCORE de performance relative (0-100), génère pour chaque produit une recommandation de gamme (A=Permanent, C=Saisonnier, Z=Sortie). 
 
 CRITÈRES PRIORITAIRES :
-- SCORE < 20 : Recommandation "Z" (Sortie) quasi-obligatoire. Même si le volume semble correct, le produit est un boulet par rapport au reste du fournisseur.
-- A (Permanent) : Produit avec une rotation régulière ET un score satisfaisant (> 30-40).
-- C (Saisonnier) : Pics de ventes concentrés sur l'historique. Aide-toi de la nomenclature.
+- SCORE < 20 : Recommandation "Z" (Sortie) quasi-obligatoire. Un score faible signifie que le produit est un fardeau par rapport aux autres produits du fournisseur.
+- A (Permanent) : Produit avec une rotation régulière ET un score satisfaisant (> 35).
+- C (Saisonnier) : Pics de ventes concentrés sur l'historique (sales12m). Aide-toi de la nomenclature.
 - Z (Sortie) : Ventes nulles, rotation insuffisante ou score médiocre.
-
-DÉTECTION :
-Marque 'isDuplicate: true' si le produit semble être un doublon dans le lot.
 
 IMPORTANT : RÉPONDS UNIQUEMENT EN JSON VALIDE.
 Format:
@@ -66,9 +63,7 @@ Format:
   ]
 }
 
-INTERDICTION FORMELLE : N'utilise jamais la phrase "Justification courte basée sur les données" comme réponse. Tu dois rédiger une analyse réelle.
-
-Données : codein, nom, ca (€), ventes (unités), marge (%), gammeInit, historique, nomenclature.`;
+Données fournies : codein, nom, ca (€), ventes (unités), marge (%), score (0-100), codeGamme (actuel), sales12m (historique par mois), nomenclature.`;
 
         const userPrompt = `Analyse cette liste de produits: \n${JSON.stringify(products, null, 2)} `;
 
