@@ -62,10 +62,6 @@ Format attendu:
 
         const userPrompt = `Analyse cette liste de produits :\n${JSON.stringify(products, null, 2)}`;
 
-        // Always use the free Llama 3.3 model for batch — not the user's settings model
-        // (settings model may be a paid model not suitable here)
-        const BATCH_MODEL = "meta-llama/llama-3.3-70b-instruct:free";
-
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
             method: "POST",
             headers: {
@@ -73,7 +69,7 @@ Format attendu:
                 "Content-Type": "application/json",
             },
             body: JSON.stringify({
-                model: BATCH_MODEL,
+                model, // uses the model configured in Settings (same as individual analysis)
                 messages: [
                     { role: "system", content: systemPrompt },
                     { role: "user", content: userPrompt }
