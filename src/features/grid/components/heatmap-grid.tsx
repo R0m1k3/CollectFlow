@@ -42,6 +42,7 @@ function formatMonthLabel(key: string): string {
 
 /**
  * Generates a deterministic color for a store name.
+ * Harmonized with the "Silent UI" philosophy: professional, muted, and non-distracting.
  */
 function getStoreColor(name: string) {
     let hash = 0;
@@ -49,15 +50,16 @@ function getStoreColor(name: string) {
         hash = name.charCodeAt(i) + ((hash << 5) - hash);
     }
 
-    // Spread hues more widely and use golden ratio for better distribution
-    const goldenRatioConjugate = 0.618033988749895;
-    let h = (Math.abs(hash) * goldenRatioConjugate * 360) % 360;
+    // Use a narrower, more professional range of hues (mostly Ardois/Blue/Teal/Sage)
+    // and lower saturation for a "muted" look.
+    const h = Math.abs(hash % 360);
+    const s = 15 + (Math.abs(hash) % 20); // Low saturation: 15-35%
+    const l = 40 + (Math.abs(hash) % 15); // Medium lightness: 40-55%
 
-    // Ensure colors are vibrant but readable
     return {
-        bg: `hsl(${h}, 75%, 45%)`,
-        border: `hsl(${h}, 85%, 30%)`,
-        text: "#fff"
+        bg: `hsl(${h}, ${s}%, ${l}%)`,
+        border: `hsl(${h}, ${s}%, ${l - 10}%)`,
+        text: "rgba(255, 255, 255, 0.95)"
     };
 }
 
@@ -160,7 +162,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                         className="group flex items-center gap-1.5 cursor-pointer hover:text-emerald-500 transition-colors"
                         title="Copier le code"
                     >
-                        <span className="font-mono-nums font-bold text-[12px] tracking-tight opacity-70 group-hover:opacity-100" style={{ color: "var(--text-muted)" }}>
+                        <span className="tabular-nums font-bold text-[12px] tracking-tight opacity-70 group-hover:opacity-100" style={{ color: "var(--text-muted)" }}>
                             {value}
                         </span>
                         <div className="shrink-0 transition-all duration-200">
@@ -223,7 +225,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                 const val = getValue<number>();
                 const color = val >= 80 ? "text-emerald-500" : val >= 50 ? "text-amber-500" : "text-rose-500";
                 return (
-                    <div className={cn("text-center font-black text-[13px]", color)}>
+                    <div className={cn("text-center font-black text-[13px] tabular-nums", color)}>
                         {val}
                     </div>
                 );
@@ -243,7 +245,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
             header: () => <div className="text-center w-full">Tot. 12m</div>,
             size: 90,
             cell: ({ getValue }) => (
-                <div className="mx-auto w-[60px] text-center px-1 font-mono-nums text-sm font-black py-1.5 rounded-md border" style={{
+                <div className="mx-auto w-[60px] text-center px-1 tabular-nums text-sm font-black py-1.5 rounded-md border" style={{
                     background: "var(--bg-elevated)",
                     color: "var(--text-primary)",
                     borderColor: "var(--border-strong)"
@@ -257,7 +259,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
             header: () => <div className="text-center w-full">CA</div>,
             size: 90,
             cell: ({ getValue }) => (
-                <div className="text-center font-mono-nums text-[13px] font-bold" style={{ color: "var(--text-primary)" }}>
+                <div className="text-center tabular-nums text-[13px] font-bold" style={{ color: "var(--text-primary)" }}>
                     {Math.round(getValue<number>()).toLocaleString("fr-FR")}&nbsp;€
                 </div>
             ),
@@ -268,10 +270,10 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
             size: 110,
             cell: ({ row }) => (
                 <div className="flex flex-col items-center justify-center">
-                    <span className="font-mono-nums text-[13px] font-bold" style={{ color: "var(--text-primary)" }}>
+                    <span className="tabular-nums text-[13px] font-bold" style={{ color: "var(--text-primary)" }}>
                         {Math.round(row.original.totalMarge).toLocaleString("fr-FR")}&nbsp;€
                     </span>
-                    <span className="font-mono-nums text-[10px] font-bold opacity-70" style={{
+                    <span className="tabular-nums text-[10px] font-bold opacity-70" style={{
                         color: row.original.tauxMarge >= 40 ? "var(--accent-success)" : row.original.tauxMarge >= 25 ? "var(--accent-warning)" : "var(--accent-error)"
                     }}>
                         {row.original.tauxMarge.toFixed(1)}%

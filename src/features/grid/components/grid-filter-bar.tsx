@@ -101,30 +101,46 @@ export function GridFilterBar({ fournisseurs, magasins, nomenclature }: GridFilt
 
             {/* Gamme quick filter */}
             <div
-                className="flex items-center gap-1 p-0.5 rounded-md"
+                className="flex items-center gap-1 p-0.5 rounded-lg"
                 style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
             >
                 {GAMME_FILTERS.map(({ label, value }) => {
                     const count = value === null ? rows.length : gammeCounts[value];
+                    const isActive = filters.codeGamme === value;
+
+                    // Semantic colors for the badge based on Gamme
+                    const getBadgeStyles = () => {
+                        if (!isActive) return { background: "rgba(0,0,0,0.05)", color: "var(--text-muted)" };
+                        switch (value) {
+                            case "A": return { background: "rgba(16, 185, 129, 0.15)", color: "rgb(5, 150, 105)" }; // Emerald
+                            case "B": return { background: "rgba(59, 130, 246, 0.15)", color: "rgb(37, 99, 235)" }; // Blue
+                            case "C": return { background: "rgba(245, 158, 11, 0.15)", color: "rgb(217, 119, 6)" }; // Amber
+                            case "Z": return { background: "rgba(244, 63, 94, 0.15)", color: "rgb(225, 29, 72)" };  // Rose
+                            default: return { background: "rgba(0,0,0,0.1)", color: "var(--text-primary)" };
+                        }
+                    };
+
+                    const badgeStyles = getBadgeStyles();
+
                     return (
                         <button
                             key={label}
                             onClick={() => setFilter("codeGamme", value)}
                             className={cn(
-                                "flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-[4px] transition-colors",
-                                filters.codeGamme === value
-                                    ? "shadow-sm"
-                                    : "hover:bg-[var(--bg-surface)]"
+                                "flex items-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-[6px] transition-all duration-200",
+                                isActive
+                                    ? "shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
+                                    : "hover:bg-[var(--bg-surface)] opacity-70 hover:opacity-100"
                             )}
                             style={{
-                                background: filters.codeGamme === value ? "var(--bg-surface)" : "transparent",
-                                color: filters.codeGamme === value ? "var(--text-primary)" : "var(--text-secondary)",
+                                background: isActive ? "var(--bg-surface)" : "transparent",
+                                color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
                             }}
                         >
                             <span>{label}</span>
                             <span
-                                className="px-1.5 py-0.5 rounded-full text-[10px] bg-black/5 dark:bg-white/10"
-                                style={{ color: filters.codeGamme === value ? "var(--text-primary)" : "var(--text-muted)" }}
+                                className="inline-flex items-center justify-center min-w-[20px] px-1.5 py-0.5 rounded-full text-[9px] font-bold tabular-nums tracking-tight transition-colors"
+                                style={badgeStyles}
                             >
                                 {count}
                             </span>
