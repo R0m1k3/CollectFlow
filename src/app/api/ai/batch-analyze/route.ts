@@ -48,34 +48,34 @@ CRITÈRES PRIORITAIRES :
 - SCORE < 20 : Recommandation "Z" (Sortie) quasi-obligatoire. Même si le volume semble correct, le produit est un boulet par rapport au reste du fournisseur.
 - A (Permanent) : Produit avec une rotation régulière ET un score satisfaisant (> 30-40).
 - C (Saisonnier) : Pics de ventes concentrés sur l'historique. Aide-toi de la nomenclature.
-- Z (Sortie) : Ventes nulles, rotation insuffisante ou score médiocre.`;
+- Z (Sortie) : Ventes nulles, rotation insuffisante ou score médiocre.
 
-        DÉTECTION:
+DÉTECTION :
 Marque 'isDuplicate: true' si le produit semble être un doublon dans le lot.
 
-            IMPORTANT : RÉPONDS UNIQUEMENT EN JSON VALIDE.
-                Format:
-        {
-            "results": [
-                {
-                    "codein": "ID",
-                    "recommandationGamme": "A|C|Z",
-                    "isDuplicate": boolean,
-                    "justificationCourte": "..."
-                }
-            ]
-        }
+IMPORTANT : RÉPONDS UNIQUEMENT EN JSON VALIDE.
+Format:
+{
+  "results": [
+    {
+      "codein": "ID",
+      "recommandationGamme": "A|C|Z",
+      "isDuplicate": boolean,
+      "justificationCourte": "..."
+    }
+  ]
+}
 
-INTERDICTION FORMELLE: N'utilise jamais la phrase "Justification courte basée sur les données" comme réponse. Tu dois rédiger une analyse réelle.
+INTERDICTION FORMELLE : N'utilise jamais la phrase "Justification courte basée sur les données" comme réponse. Tu dois rédiger une analyse réelle.
 
-        Données: codein, nom, ca(€), ventes(unités), marge(%), gammeInit, historique, nomenclature.`;
+Données : codein, nom, ca (€), ventes (unités), marge (%), gammeInit, historique, nomenclature.`;
 
-        const userPrompt = `Analyse cette liste de produits: \n${ JSON.stringify(products, null, 2) } `;
+        const userPrompt = `Analyse cette liste de produits: \n${JSON.stringify(products, null, 2)} `;
 
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
             method: "POST",
             headers: {
-                "Authorization": `Bearer ${ apiKey } `,
+                "Authorization": `Bearer ${apiKey} `,
                 "Content-Type": "application/json",
             },
             body: JSON.stringify({
@@ -93,7 +93,7 @@ INTERDICTION FORMELLE: N'utilise jamais la phrase "Justification courte basée s
             // Read the retry-after header and pass it back to the client
             const retryAfter = response.headers.get("Retry-After") || response.headers.get("x-ratelimit-reset-requests");
             const waitSeconds = retryAfter ? parseInt(retryAfter, 10) : 60;
-            console.warn(`[batch - analyze] Rate limited.Retry after ${ waitSeconds } s.`);
+            console.warn(`[batch - analyze] Rate limited.Retry after ${waitSeconds} s.`);
             return NextResponse.json({ error: "rate_limited", retryAfter: waitSeconds }, { status: 429 });
         }
 

@@ -20,6 +20,7 @@ interface AiCopilotState {
         totalQuantite: number;
         sales12m: Record<string, number>;
         codeGamme: string | null;
+        score?: number | null;
     }) => Promise<void>;
 }
 
