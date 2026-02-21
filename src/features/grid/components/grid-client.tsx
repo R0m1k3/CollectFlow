@@ -22,7 +22,7 @@ interface GridClientProps {
     magasin: string;
 }
 
-export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fournisseurs, magasins, magasin }: GridClientProps) {
+export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins, magasin }: GridClientProps) {
     const setRows = useGridStore((s) => s.setRows);
     const seuilAxeFort = useScoreSettingsStore((s) => s.seuilAxeFort);
     const bonusParAxe = useScoreSettingsStore((s) => s.bonusParAxe);
@@ -32,12 +32,20 @@ export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fourn
     const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle");
     const { save, hasDrafts, count } = useSaveDrafts(magasin);
 
+    const [isMounted, setIsMounted] = useState(false);
+
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setIsMounted(true);
+    }, []);
+
+    useEffect(() => {
+        if (!isMounted) return;
         // Deep clone to avoid mutating the React prop directly across re-renders
         const rowsCopy = JSON.parse(JSON.stringify(initialRows));
         const scoredRows = computeProductScores(rowsCopy, { seuilAxeFort, bonusParAxe });
         setRows(scoredRows);
-    }, [initialRows, setRows, seuilAxeFort, bonusParAxe]);
+    }, [initialRows, setRows, seuilAxeFort, bonusParAxe, isMounted]);
 
     const handleSave = () => {
         startTransition(async () => {
@@ -46,6 +54,10 @@ export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fourn
             setTimeout(() => setSaveStatus("idle"), 3000);
         });
     };
+
+    if (!isMounted) {
+        return <div className="p-8 text-center animate-pulse text-muted italic">Initialisation de la grille...</div>;
+    }
 
     const activeStoreNom = magasins.find(m => m.code === magasin)?.nom || "National (Total)";
 

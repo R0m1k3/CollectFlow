@@ -59,6 +59,8 @@ export default function SettingsPage() {
     const [selectedModel, setSelectedModel] = useState("google/gemini-flash-1.5");
     const [modelsStatus, setModelsStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
 
+    const [isMounted, setIsMounted] = useState(false);
+
     const {
         host, setHost,
         port, setPort,
@@ -70,9 +72,26 @@ export default function SettingsPage() {
     } = useDbSettingsStore();
 
     useEffect(() => {
-        // Optionnel : On pourrait charger la config serveur au montage si on veut écraser le localStorage
-        // Pour l'instant on laisse le localStorage faire son travail, mais on offre une fonction de reset
+        setIsMounted(true);
     }, []);
+
+    const fetchModels = useCallback(async (key: string) => {
+        if (!key.trim()) return;
+        setModelsStatus("loading");
+        try {
+            const res = await fetch("/api/openrouter/models", { headers: { "x-openrouter-key": key } });
+            if (!res.ok) throw new Error();
+            const data = await res.json();
+            setModels(data.models ?? []);
+            setModelsStatus("ok");
+        } catch {
+            setModelsStatus("error");
+        }
+    }, []);
+
+    if (!isMounted) {
+        return null;
+    }
 
     const reloadFromServer = async () => {
         const config = await getSavedDatabaseConfig();
@@ -91,20 +110,6 @@ export default function SettingsPage() {
             }
         }
     };
-
-    const fetchModels = useCallback(async (key: string) => {
-        if (!key.trim()) return;
-        setModelsStatus("loading");
-        try {
-            const res = await fetch("/api/openrouter/models", { headers: { "x-openrouter-key": key } });
-            if (!res.ok) throw new Error();
-            const data = await res.json();
-            setModels(data.models ?? []);
-            setModelsStatus("ok");
-        } catch {
-            setModelsStatus("error");
-        }
-    }, []);
 
     const testDb = async () => {
         setDbStatus("testing");
