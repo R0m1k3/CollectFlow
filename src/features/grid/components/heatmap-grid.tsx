@@ -205,7 +205,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
         },
         {
             id: "gamme",
-            header: "Gamme",
+            header: () => <div className="text-center w-full">Gamme</div>,
             size: 110,
             cell: ({ row }) => {
                 const effectiveGamme = (draftChanges[row.original.codein] ?? row.original.codeGamme) as GammeCode | null;
@@ -281,7 +281,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                         <tr key={headerGroup.id} className="flex w-full">
                             {headerGroup.headers.map((header) => {
                                 const isFlexible = header.column.id === "libelle1" || header.column.id === "ai" || header.column.id === "libelle3";
-                                const isCenter = header.column.id === "totalQuantite" || header.column.id === "financial" || header.column.id.startsWith("month_") || header.column.id === "gammeInitial" || header.column.id === "score";
+                                const isCenter = header.column.id === "totalQuantite" || header.column.id === "financial" || header.column.id.startsWith("month_") || header.column.id === "gammeInitial" || header.column.id === "score" || header.column.id === "gamme";
                                 const size = header.getSize();
                                 return (
                                     <th

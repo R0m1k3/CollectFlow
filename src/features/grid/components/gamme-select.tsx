@@ -31,10 +31,10 @@ export function GammeSelect({ value, isDraft, onChange }: GammeSelectProps) {
             )}
         >
             <option value="" disabled>—</option>
-            <option value="A">A - Cœur</option>
-            <option value="B">B - Standard</option>
-            <option value="C">C - Optionnel</option>
-            <option value="Z">Z - Sortie</option>
+            <option value="A">A</option>
+            <option value="B">B</option>
+            <option value="C">C</option>
+            <option value="Z">Z</option>
         </select>
     );
 }
