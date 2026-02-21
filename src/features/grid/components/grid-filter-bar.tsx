@@ -1,5 +1,6 @@
 "use client";
 
+import React, { useMemo } from "react";
 import { Search, X, ChevronDown } from "lucide-react";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { GammeCode } from "@/types/grid";
@@ -25,9 +26,24 @@ interface GridFilterBarProps {
 }
 
 export function GridFilterBar({ fournisseurs, magasins, nomenclature }: GridFilterBarProps) {
-    const { filters, setFilter } = useGridStore();
+    const { filters, setFilter, rows, draftChanges } = useGridStore();
     const router = useRouter();
     const searchParams = useSearchParams();
+
+    // Compute dynamic counts per Gamme
+    const gammeCounts = React.useMemo(() => {
+        const counts: Record<string, number> = { A: 0, B: 0, C: 0, Z: 0, Total: 0 };
+        rows.forEach(r => {
+            const effectiveGamme = draftChanges[r.codein] ?? r.codeGamme;
+            if (effectiveGamme && counts[effectiveGamme] !== undefined) {
+                counts[effectiveGamme]++;
+            }
+            if (effectiveGamme !== "Z") {
+                counts.Total++; // Active references (non-Z)
+            }
+        });
+        return counts;
+    }, [rows, draftChanges]);
 
     const handleSupplierSelect = (code: string) => {
         const params = new URLSearchParams(searchParams.toString());
@@ -88,24 +104,33 @@ export function GridFilterBar({ fournisseurs, magasins, nomenclature }: GridFilt
                 className="flex items-center gap-1 p-0.5 rounded-md"
                 style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
             >
-                {GAMME_FILTERS.map(({ label, value }) => (
-                    <button
-                        key={label}
-                        onClick={() => setFilter("codeGamme", value)}
-                        className={cn(
-                            "px-2.5 py-1 text-[11px] font-semibold rounded-[4px] transition-colors",
-                            filters.codeGamme === value
-                                ? "shadow-sm"
-                                : "hover:bg-[var(--bg-surface)]"
-                        )}
-                        style={{
-                            background: filters.codeGamme === value ? "var(--bg-surface)" : "transparent",
-                            color: filters.codeGamme === value ? "var(--text-primary)" : "var(--text-secondary)",
-                        }}
-                    >
-                        {label}
-                    </button>
-                ))}
+                {GAMME_FILTERS.map(({ label, value }) => {
+                    const count = value === null ? rows.length : gammeCounts[value];
+                    return (
+                        <button
+                            key={label}
+                            onClick={() => setFilter("codeGamme", value)}
+                            className={cn(
+                                "flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-[4px] transition-colors",
+                                filters.codeGamme === value
+                                    ? "shadow-sm"
+                                    : "hover:bg-[var(--bg-surface)]"
+                            )}
+                            style={{
+                                background: filters.codeGamme === value ? "var(--bg-surface)" : "transparent",
+                                color: filters.codeGamme === value ? "var(--text-primary)" : "var(--text-secondary)",
+                            }}
+                        >
+                            <span>{label}</span>
+                            <span
+                                className="px-1.5 py-0.5 rounded-full text-[10px] bg-black/5 dark:bg-white/10"
+                                style={{ color: filters.codeGamme === value ? "var(--text-primary)" : "var(--text-muted)" }}
+                            >
+                                {count}
+                            </span>
+                        </button>
+                    );
+                })}
             </div>
 
             {/* Nomenclature filter */}
