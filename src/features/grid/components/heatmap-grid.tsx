@@ -24,7 +24,9 @@ import { AiInsightBlock } from "@/features/ai-copilot/components/ai-insight-bloc
 function getLast12Months(): string[] {
     const months: string[] = [];
     const now = new Date();
-    for (let i = 11; i >= 0; i--) {
+    // On commence à i=12 (il y a 12 mois) et on finit à i=1 (le mois dernier)
+    // pour exclure le mois en cours (i=0)
+    for (let i = 12; i >= 1; i--) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
         months.push(`${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`);
     }

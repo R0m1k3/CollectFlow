@@ -14,6 +14,14 @@ interface GetProductRowsInput {
 export async function getProductRows(input: GetProductRowsInput): Promise<ProductRow[]> {
     const { codeFournisseur, magasin = "TOTAL" } = input;
 
+    // Calculer les 12 derniers mois COMPLETS (excluant le mois en cours)
+    const allowedPeriods = new Set<string>();
+    const now = new Date();
+    for (let i = 12; i >= 1; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        allowedPeriods.add(`${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`);
+    }
+
     // Get all rows for this supplier (excluding the synthetic TOTAL period)
     const rows = await db
         .select()
@@ -30,6 +38,9 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
     const productMap = new Map<string, ProductRow>();
 
     for (const row of rows) {
+        // Ignorer les données qui ne font pas partie des 12 mois complets
+        if (!allowedPeriods.has(row.periode)) continue;
+
         const existing = productMap.get(row.codein);
         const monthKey = row.periode;
         const qty = Math.abs(parseFloat(row.quantite?.toString() ?? "0"));
