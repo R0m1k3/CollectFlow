@@ -41,8 +41,9 @@ export async function saveDatabaseSettings(url: string, openRouterKey?: string, 
         // S'assurer que le dossier data existe
         await fs.mkdir(DATA_DIR, { recursive: true });
 
+        console.log(`[Settings] Saving config to ${CONFIG_FILE}`);
         await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2));
-        console.log("Database configuration saved to:", CONFIG_FILE);
+        console.log("[Settings] Database configuration saved successfully.");
 
         // Refresh the shared DB instance immediately
         const { refreshDb } = await import("@/db");
@@ -58,9 +59,14 @@ export async function saveDatabaseSettings(url: string, openRouterKey?: string, 
 
 export async function getSavedDatabaseConfig(): Promise<DbConfig | null> {
     try {
+        if (!(await fs.stat(CONFIG_FILE).catch(() => null))) {
+            console.log(`[Settings] Config file not found at ${CONFIG_FILE}`);
+            return null;
+        }
         const data = await fs.readFile(CONFIG_FILE, "utf-8");
         return JSON.parse(data);
-    } catch {
+    } catch (error) {
+        console.error(`[Settings] Error reading config from ${CONFIG_FILE}:`, error);
         return null;
     }
 }

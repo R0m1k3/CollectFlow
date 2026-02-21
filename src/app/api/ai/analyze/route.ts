@@ -19,13 +19,17 @@ Ta réponse doit être en 1-2 phrases maximum, en français, directe et actionna
 Format: "[Recommandation]: [Justification courte basée sur les données]"`;
 
 export async function POST(req: NextRequest) {
+    console.log("[AI] Analysis request received.");
     const config = await getSavedDatabaseConfig();
     const apiKey = process.env.OPENROUTER_API_KEY || config?.openRouterKey;
     const model = config?.openRouterModel || "google/gemini-flash-1.5";
 
     if (!apiKey) {
+        console.error("[AI] OPENROUTER_API_KEY is missing (neither in env nor in config file).");
         return NextResponse.json({ error: "OPENROUTER_API_KEY not configured. Please set it in Settings." }, { status: 503 });
     }
+
+    console.log(`[AI] Using model: ${model} with API key starting with ${apiKey.substring(0, 10)}...`);
 
     const body = await req.json();
     const parsed = AnalyzeSchema.safeParse(body);
