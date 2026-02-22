@@ -15,6 +15,7 @@ import {
     Loader2,
 } from "lucide-react";
 import { SuccessModal } from "@/components/shared/success-modal";
+import { ConfirmModal } from "@/components/shared/confirm-modal";
 
 const formatDate = (date: Date) => {
     return new Intl.DateTimeFormat("fr-FR", {
@@ -41,6 +42,14 @@ export function SnapshotList({ type }: SnapshotListProps) {
         message: ""
     });
 
+    const [confirmModal, setConfirmModal] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+        variant?: "danger" | "default";
+        onConfirm: () => void;
+    }>({ isOpen: false, title: "", message: "", onConfirm: () => { } });
+
     const restoreSnapshot = useGridStore(state => state.restoreSnapshot);
     const router = useRouter();
 
@@ -60,51 +69,49 @@ export function SnapshotList({ type }: SnapshotListProps) {
         fetchSnapshots();
     }, [type]);
 
-    const handleDelete = async (id: number) => {
-        if (!window.confirm(`Supprimer cet ${type === 'export' ? 'export' : 'snapshot'} définitivement ?`)) return;
-        setIsDeleting(id);
-        try {
-            const res = await deleteSnapshot(id);
-            if (res.success) {
-                setSnapshots(prev => prev.filter(s => s.id !== id));
-                setModal({
-                    isOpen: true,
-                    title: "Action Réussie",
-                    message: "L'élément a été supprimé de votre historique."
-                });
-            } else {
-                setModal({
-                    isOpen: true,
-                    title: "Erreur",
-                    message: "Impossible de supprimer l'élément."
-                });
-            }
-        } catch (err) {
-            setModal({
-                isOpen: true,
-                title: "Erreur Technique",
-                message: "Une erreur est survenue lors de la suppression."
-            });
-        } finally {
-            setIsDeleting(null);
-        }
+    const handleDelete = (id: number) => {
+        setConfirmModal({
+            isOpen: true,
+            title: "Supprimer",
+            message: `Supprimer cet ${type === 'export' ? 'export' : 'snapshot'} définitivement ?`,
+            variant: "danger",
+            onConfirm: async () => {
+                setIsDeleting(id);
+                try {
+                    const res = await deleteSnapshot(id);
+                    if (res.success) {
+                        setSnapshots(prev => prev.filter(s => s.id !== id));
+                        setModal({ isOpen: true, title: "Action Réussie", message: "L'élément a été supprimé de votre historique." });
+                    } else {
+                        setModal({ isOpen: true, title: "Erreur", message: "Impossible de supprimer l'élément." });
+                    }
+                } catch (err) {
+                    setModal({ isOpen: true, title: "Erreur Technique", message: "Une erreur est survenue lors de la suppression." });
+                } finally {
+                    setIsDeleting(null);
+                }
+            },
+        });
     };
 
     const handleLoad = (snapshot: any) => {
-        if (!window.confirm(`Charger la session "${snapshot.label}" ? Cela remplacera vos brouillons actuels.`)) return;
-
-        const changes: Record<string, string> = {};
-        Object.entries(snapshot.changes as any).forEach(([codein, delta]: [string, any]) => {
-            changes[codein] = delta.after;
+        setConfirmModal({
+            isOpen: true,
+            title: "Restaurer la session",
+            message: `Charger la session "${snapshot.label}" ? Cela remplacera vos brouillons actuels.`,
+            variant: "default",
+            onConfirm: () => {
+                const changes: Record<string, string> = {};
+                Object.entries(snapshot.changes as any).forEach(([codein, delta]: [string, any]) => {
+                    changes[codein] = delta.after;
+                });
+                restoreSnapshot(changes);
+                const query = new URLSearchParams();
+                if (snapshot.codeFournisseur) query.set("fournisseur", snapshot.codeFournisseur);
+                if (snapshot.magasin) query.set("magasin", snapshot.magasin);
+                router.push(`/grid?${query.toString()}`);
+            },
         });
-
-        restoreSnapshot(changes);
-
-        const query = new URLSearchParams();
-        if (snapshot.codeFournisseur) query.set("fournisseur", snapshot.codeFournisseur);
-        if (snapshot.magasin) query.set("magasin", snapshot.magasin);
-
-        router.push(`/grid?${query.toString()}`);
     };
 
     if (loading) {
@@ -208,6 +215,16 @@ export function SnapshotList({ type }: SnapshotListProps) {
                 onClose={() => setModal(prev => ({ ...prev, isOpen: false }))}
                 title={modal.title}
                 message={modal.message}
+            />
+
+            <ConfirmModal
+                isOpen={confirmModal.isOpen}
+                onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                onConfirm={confirmModal.onConfirm}
+                title={confirmModal.title}
+                message={confirmModal.message}
+                variant={confirmModal.variant}
+                confirmLabel={confirmModal.variant === "danger" ? "Supprimer" : "Confirmer"}
             />
         </div>
     );

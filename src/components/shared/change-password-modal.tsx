@@ -90,7 +90,7 @@ export function ChangePasswordModal({
                 style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }}
             >
                 {/* Accent bar */}
-                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-teal-400 to-emerald-400" />
+                <div className="absolute top-0 left-0 w-full h-0.5" style={{ background: "linear-gradient(to right, var(--accent), var(--accent-success))" }} />
 
                 {/* Close button */}
                 <button
