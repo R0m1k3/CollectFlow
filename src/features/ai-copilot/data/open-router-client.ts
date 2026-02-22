@@ -44,7 +44,7 @@ export class OpenRouterClient {
         const content = data.choices?.[0]?.message?.content ?? "";
 
         return {
-            insight: content,
+            insight: AnalysisEngine.cleanInsight(content),
             codein: p.codein,
             recommandation: AnalysisEngine.extractRecommendation(content)
         };

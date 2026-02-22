@@ -12,12 +12,13 @@ En analysant les données de ventes fournies, génère une recommandation de gam
 Critères de pondération et Règles Métier Strictes :
 1. Normalisation Totale (Base 2 magasins) : TOUTES les statistiques fournies sont PONDÉRÉES par 2 si le produit n'est au catalogue que de 1 magasin.
 2. Segmentation par Rayon (Univers) : Privilégie la comparaison "Intra-Rayon". Un produit doit être performant par rapport aux standards de son propre Rayon (Niveau 2).
-3. Score de Performance Global (0-10) : Un score > 7 est un indicateur fort pour "Permanent" (A). Un score < 3 est un indicateur fort pour "Sortie" (Z).
+3. Score de Performance Global (0-100) : Un score > 70 est un indicateur fort pour "Permanent" (A). Un score < 30 est un indicateur fort pour "Sortie" (Z).
 4. Régularité des Ventes (0-12 mois) : Un produit avec une vente régulière (> 8 mois/an) est un candidat idéal pour "Permanent" (A). Une régularité faible (< 3 mois) couplée à un volume total faible indique une "Sortie" (Z).
 5. Équilibre : Un produit "A" doit justifier sa place par son flux, sa rentabilité brute OU son score global.
 
 Ta réponse doit être courte, directe et sans complaisance.
-Format impératif : "[Recommandation]: [Justification courte]"`;
+Format impératif : "[Recommandation] : [Texte brut de l'explication sans aucun préfixe du type 'Justification:' ou 'Pourquoi:']"
+Exemple : "A : Volume de vente et score élevés justifiant le maintien en rayon."`;
     }
 
     static generateUserMessage(p: ProductAnalysisInput): string {
@@ -39,7 +40,7 @@ Rayon : ${p.libelleNiveau2 || "Non classé"}
 Gamme actuelle : ${p.codeGamme ?? "Non définie"}
 ${volumeInfo}${benchmarks}
 Indicateurs de Performance :
-- Score Global App : ${p.score.toFixed(1)}/10
+- Score Global App : ${p.score.toFixed(1)}/100
 - Régularité des ventes : ${p.regularityScore}/12 mois
 - Marge brute : ${p.tauxMarge.toFixed(1)}%
 - Historique mensuel (Pondéré) : ${monthlySummary}
@@ -49,11 +50,26 @@ Quelle est ta recommandation (A, C ou Z) et pourquoi ?`;
 
     static extractRecommendation(content: string): "A" | "C" | "Z" | null {
         // Recherche une lettre A, C ou Z isolée (entourée de non-lettres ou début/fin)
-        // On favorise le format [A] ou "A:" mais on accepte A seul.
         const match = content.match(/\b([ACZ])\b/i);
         if (match) {
             return match[1].toUpperCase() as "A" | "C" | "Z";
         }
         return null;
+    }
+
+    /**
+     * Nettoie le texte de l'IA pour ne garder que la justification pure.
+     * Supprime les préfixes comme "[A] :", "Justification :", "Justification courte :", etc.
+     */
+    static cleanInsight(content: string): string {
+        let cleaned = content;
+
+        // Supprime le préfixe de recommandation type "A : ", "[A] - ", "A -" au début
+        cleaned = cleaned.replace(/^\[?[ACZ]\]?\s*[:\s-]+\s*/i, "");
+
+        // Supprime les préfixes de justification connus (insensible à la casse, gère variations)
+        cleaned = cleaned.replace(/^(justification|explication|pourquoi|justification courte|raison|avis)\s*[:\s-]+\s*/i, "");
+
+        return cleaned.trim();
     }
 }

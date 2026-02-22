@@ -190,22 +190,22 @@ export function BulkAiAnalyzer() {
 
     if (isAnalyzing) {
         return (
-            <div className="flex items-center gap-4 h-10 px-4 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800">
-                <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
+            <div className="flex items-center gap-4 h-10 px-4 rounded-xl bg-[var(--accent-bg)] border border-[var(--accent-border)] shadow-sm">
+                <Loader2 className="w-4 h-4 text-[var(--accent)] animate-spin" />
                 <div className="flex flex-col min-w-[150px]">
-                    <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-400 leading-none">
+                    <span className="text-[10px] font-bold text-[var(--accent)] leading-none">
                         {progress.message}
                     </span>
-                    <div className="w-full bg-indigo-200 dark:bg-indigo-800/50 rounded-full h-1 mt-1">
+                    <div className="w-full bg-[var(--bg-elevated)] rounded-full h-1 mt-1 overflow-hidden">
                         <div
-                            className="bg-indigo-500 h-1 rounded-full transition-all duration-300"
+                            className="bg-[var(--accent)] h-1 rounded-full transition-all duration-300"
                             style={{ width: `${Math.max(5, (progress.current / progress.total) * 100)}%` }}
                         ></div>
                     </div>
                 </div>
                 <button
                     onClick={handleStop}
-                    className="p-1 hover:bg-indigo-100 dark:hover:bg-indigo-800 rounded-lg transition-colors text-indigo-600 dark:text-indigo-400"
+                    className="p-1 hover:bg-[var(--bg-elevated)] rounded-lg transition-colors text-[var(--text-muted)] hover:text-[var(--accent-error)]"
                     title="Arrêter l'analyse"
                 >
                     <XCircle className="w-4 h-4" />
@@ -216,9 +216,9 @@ export function BulkAiAnalyzer() {
 
     if (progress.current > 0 && !isAnalyzing) {
         return (
-            <div className="flex items-center gap-2 h-10 px-4 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 cursor-default">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-500" />
-                <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
+            <div className="flex items-center gap-2 h-10 px-4 rounded-xl bg-[var(--accent-success-bg)] border border-[var(--accent-success)] shadow-sm cursor-default">
+                <CheckCircle2 className="w-4 h-4 text-[var(--accent-success)]" />
+                <span className="text-xs font-bold text-[var(--accent-success)]">
                     {progress.errors > 0
                         ? `Terminé (${progress.current - progress.errors}/${progress.total})`
                         : `Analyse Terminée`
@@ -231,7 +231,7 @@ export function BulkAiAnalyzer() {
     return (
         <button
             onClick={handleAnalyze}
-            className="group flex items-center justify-center gap-2 h-10 px-6 rounded-xl text-sm font-bold transition-all shadow-sm bg-gradient-to-r from-indigo-500 to-violet-500 text-white hover:shadow-md hover:brightness-110 active:scale-95 border border-indigo-400"
+            className="group flex items-center justify-center gap-2 h-10 px-6 rounded-xl text-sm font-black transition-all shadow-md bg-[var(--accent)] text-white hover:brightness-110 active:scale-95 border border-white/10"
         >
             <Sparkles className="w-4 h-4" />
             Analyse IA
