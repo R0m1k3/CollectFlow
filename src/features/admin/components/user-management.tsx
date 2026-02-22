@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { getUsers, createUser, deleteUser } from "../api/user-actions";
+import { getUsers, createUser, deleteUser, updatePassword } from "../api/user-actions";
 import {
     UserPlus,
     Trash2,
@@ -9,6 +9,7 @@ import {
     User,
     Loader2,
     Check,
+    Key,
 } from "lucide-react";
 import { SuccessModal } from "@/components/shared/success-modal";
 
@@ -54,6 +55,27 @@ export function UserManagement() {
             alert(res.error);
         }
         setIsCreating(false);
+    };
+
+    const handleUpdatePassword = async (id: number, username: string) => {
+        const pass = window.prompt(`Nouveau mot de passe pour ${username} :`);
+        if (!pass) return;
+
+        if (pass.length < 4) {
+            alert("Le mot de passe doit faire au moins 4 caractères.");
+            return;
+        }
+
+        const res = await updatePassword(id, pass);
+        if (res.success) {
+            setModal({
+                isOpen: true,
+                title: "Mot de passe mis à jour",
+                message: `Le mot de passe de ${username} a été modifié avec succès.`
+            });
+        } else {
+            alert(res.error);
+        }
     };
 
     const handleDelete = async (id: number, username: string) => {
@@ -148,6 +170,13 @@ export function UserManagement() {
                             </span>
                         </div>
                         <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                                onClick={() => handleUpdatePassword(u.id, u.username)}
+                                className="p-2.5 rounded-xl hover:bg-indigo-500/10 text-slate-500 hover:text-indigo-400 transition-colors"
+                                title="Changer le mot de passe"
+                            >
+                                <Key className="w-4 h-4" />
+                            </button>
                             <button
                                 onClick={() => handleDelete(u.id, u.username)}
                                 className="p-2.5 rounded-xl hover:bg-rose-500/10 text-slate-500 hover:text-rose-500 transition-colors"
