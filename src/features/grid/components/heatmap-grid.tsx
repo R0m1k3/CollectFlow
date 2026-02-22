@@ -12,7 +12,7 @@ import {
     RowSelectionState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store } from "lucide-react";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { GammeSelect } from "@/features/grid/components/gamme-select";
 import { HeatmapCell } from "@/features/grid/components/heatmap-cell";
@@ -41,25 +41,31 @@ function formatMonthLabel(key: string): string {
 }
 
 /**
- * Generates a deterministic color for a store name.
- * Harmonized with the "Silent UI" philosophy: professional, muted, and non-distracting.
+ * Returns premium styling and icons for stores.
+ * Indigo for first store, Amber for second, Slate for others.
  */
-function getStoreColor(name: string) {
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+function getStoreConfig(name: string, index: number) {
+    if (index === 0) {
+        return {
+            bg: "rgba(99, 102, 241, 0.1)", // Indigo
+            text: "#818cf8",
+            border: "rgba(99, 102, 241, 0.2)",
+            label: "M1"
+        };
     }
-
-    // Use a narrower, more professional range of hues (mostly Ardois/Blue/Teal/Sage)
-    // and lower saturation for a "muted" look.
-    const h = Math.abs(hash % 360);
-    const s = 15 + (Math.abs(hash) % 20); // Low saturation: 15-35%
-    const l = 40 + (Math.abs(hash) % 15); // Medium lightness: 40-55%
-
+    if (index === 1) {
+        return {
+            bg: "rgba(245, 158, 11, 0.1)", // Amber
+            text: "#fbbf24",
+            border: "rgba(245, 158, 11, 0.2)",
+            label: "M2"
+        };
+    }
     return {
-        bg: `hsl(${h}, ${s}%, ${l}%)`,
-        border: `hsl(${h}, ${s}%, ${l - 10}%)`,
-        text: "rgba(255, 255, 255, 0.95)"
+        bg: "var(--bg-elevated)",
+        text: "var(--text-muted)",
+        border: "var(--border)",
+        label: name.charAt(0).toUpperCase()
     };
 }
 
@@ -185,21 +191,22 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                     <span className="text-[13px] font-bold truncate flex-1" title={row.original.libelle1} style={{ color: "var(--text-primary)" }}>
                         {row.original.libelle1}
                     </span>
-                    <div className="flex gap-1 shrink-0">
-                        {row.original.workingStores.map((magasin) => {
-                            const colors = getStoreColor(magasin);
+                    <div className="flex gap-1.5 shrink-0">
+                        {row.original.workingStores.map((magasin, idx) => {
+                            const config = getStoreConfig(magasin, idx);
                             return (
                                 <div
                                     key={magasin}
-                                    title={`Travaillé par : ${magasin}`}
-                                    className="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-black border shadow-sm"
+                                    title={`Travaillé par : ${magasin} (${idx + 1 === 1 ? 'Magasin 1' : 'Magasin 2'})`}
+                                    className="px-1.5 py-0.5 rounded-md flex items-center gap-1 text-[10px] font-black border shadow-sm transition-transform hover:scale-110"
                                     style={{
-                                        background: colors.bg,
-                                        borderColor: colors.border,
-                                        color: colors.text,
+                                        background: config.bg,
+                                        borderColor: config.border,
+                                        color: config.text,
                                     }}
                                 >
-                                    {magasin.charAt(0).toUpperCase()}
+                                    <Store className="w-2.5 h-2.5" strokeWidth={3} />
+                                    <span>{config.label}</span>
                                 </div>
                             );
                         })}
@@ -365,15 +372,21 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     return (
         <div
             ref={tableContainerRef}
-            className="overflow-auto rounded-[12px]"
+            className="overflow-auto rounded-[12px] scroll-smooth"
             style={{
                 height: "calc(100vh - 240px)",
                 background: "var(--bg-surface)",
                 border: "1px solid var(--border)",
+                boxShadow: "var(--shadow-sm)"
             }}
         >
             <table className="text-sm block" style={{ width: "100%", minWidth: totalWidth }}>
-                <thead className="sticky top-0 z-10 block" style={{ background: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>
+                <thead className="sticky top-0 z-10 block" style={{
+                    background: "linear-gradient(to bottom, var(--bg-elevated), var(--bg-surface))",
+                    borderBottom: "1px solid var(--border-strong)",
+                    backdropFilter: "blur(10px)",
+                    WebkitBackdropFilter: "blur(10px)"
+                }}>
                     {table.getHeaderGroups().map((headerGroup) => (
                         <tr key={headerGroup.id} className="flex w-full">
                             {headerGroup.headers.map((header) => {
@@ -383,7 +396,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                                 return (
                                     <th
                                         key={header.id}
-                                        className="px-2 py-2 text-[11px] font-bold uppercase tracking-wider whitespace-nowrap select-none flex items-center"
+                                        className="px-2 py-3 text-[10px] font-black uppercase tracking-[0.05em] whitespace-nowrap select-none flex items-center transition-colors hover:bg-white/5"
                                         style={{
                                             width: isFlexible ? "100%" : size,
                                             flex: isFlexible ? `1 1 ${size}px` : `0 0 ${size}px`,
@@ -394,12 +407,15 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                                         }}
                                         onClick={header.column.getToggleSortingHandler()}
                                     >
-                                        <div className={`flex items-center gap-1 cursor-pointer ${isCenter ? "justify-center w-full" : ""}`}>
+                                        <div className={`flex items-center gap-1.5 cursor-pointer ${isCenter ? "justify-center w-full" : ""}`}>
                                             {flexRender(header.column.columnDef.header, header.getContext())}
                                             {header.column.getCanSort() && (
-                                                header.column.getIsSorted() === "asc" ? <ChevronUp className="w-3 h-3" />
-                                                    : header.column.getIsSorted() === "desc" ? <ChevronDown className="w-3 h-3" />
-                                                        : <ChevronsUpDown className="w-3 h-3 opacity-30" />
+                                                <div className="shrink-0 opacity-40">
+                                                    {header.column.getIsSorted() === "asc" ? <ChevronUp className="w-3 h-3 text-emerald-500" />
+                                                        : header.column.getIsSorted() === "desc" ? <ChevronDown className="w-3 h-3 text-emerald-500" />
+                                                            : <ChevronsUpDown className="w-3 h-3" />
+                                                    }
+                                                </div>
                                             )}
                                         </div>
                                     </th>
@@ -420,15 +436,15 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                                 ref={rowVirtualizer.measureElement}
                                 onClick={() => row.toggleSelected()}
                                 className={cn(
-                                    "absolute w-full flex items-center cursor-pointer transition-colors",
-                                    effectiveGamme === "Z" && "opacity-40"
+                                    "absolute w-full flex items-center cursor-pointer transition-all duration-200 group/row",
+                                    effectiveGamme === "Z" && "opacity-40 grayscale-[0.5] hover:grayscale-0 hover:opacity-100"
                                 )}
                                 style={{
                                     height: `${rowHeight}px`,
                                     transform: `translateY(${virtualRow.start}px)`,
                                     borderBottom: "1px solid var(--border)",
-                                    background: isSelected ? "var(--accent-bg)" : undefined,
-                                    borderLeft: isSelected ? "2px solid var(--accent)" : undefined,
+                                    background: isSelected ? "var(--accent-bg)" : "transparent",
+                                    borderLeft: isSelected ? "3px solid var(--accent)" : "3px solid transparent",
                                 }}
                             >
                                 {row.getVisibleCells().map((cell) => {
@@ -438,7 +454,10 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                                     return (
                                         <td
                                             key={cell.id}
-                                            className={`px-2 overflow-hidden flex items-center`}
+                                            className={cn(
+                                                "px-2 overflow-hidden flex items-center transition-colors group-hover/row:bg-white/5",
+                                                isSelected && "bg-transparent"
+                                            )}
                                             style={{
                                                 width: isFlexible ? "100%" : size,
                                                 flex: isFlexible ? `1 1 ${size}px` : `0 0 ${size}px`,

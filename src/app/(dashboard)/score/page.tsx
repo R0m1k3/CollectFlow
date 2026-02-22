@@ -85,6 +85,27 @@ export default function ScorePage() {
                 </div>
             </InfoCard>
 
+            {/* Équité & Normalisation */}
+            <InfoCard icon={Layers} title="Équité & Normalisation">
+                <div className="space-y-3">
+                    <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+                        Afin de ne pas pénaliser les produits présents dans un seul magasin, une <strong>pondération d&apos;équité</strong> est appliquée :
+                    </p>
+                    <div
+                        className="rounded-[10px] px-4 py-3 flex items-center gap-4"
+                        style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
+                    >
+                        <div className="text-2xl">⚖️</div>
+                        <div className="text-[12px]" style={{ color: "var(--text-primary)" }}>
+                            <p><strong>Produit 1 Magasin</strong> : Statistiques multipliées par <strong>2</strong></p>
+                            <p className="mt-1" style={{ color: "var(--text-muted)" }}>
+                                Cela permet de comparer sa performance sur une base réseau normalisée de 2 magasins.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </InfoCard>
+
             {/* Les 3 axes */}
             <InfoCard icon={Layers} title="Les 3 axes d'évaluation">
                 <div className="space-y-3">
