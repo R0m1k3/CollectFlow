@@ -42,11 +42,13 @@ export class OpenRouterClient {
 
         const data = await response.json();
         const content = data.choices?.[0]?.message?.content ?? "";
+        const reco = AnalysisEngine.extractRecommendation(content);
+        const cleanInsight = AnalysisEngine.cleanInsight(content);
 
         return {
-            insight: AnalysisEngine.cleanInsight(content),
+            insight: reco ? `[${reco}] ${cleanInsight}` : cleanInsight,
             codein: p.codein,
-            recommandation: AnalysisEngine.extractRecommendation(content)
+            recommandation: reco
         };
     }
 }
