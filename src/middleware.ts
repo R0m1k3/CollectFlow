@@ -21,7 +21,7 @@ export default auth((req) => {
 
     // 3. Rediriger vers le dashboard si déjà connecté et sur /login
     if (isLoggedIn && isPublicRoute) {
-        return NextResponse.redirect(new URL("/dashboard", nextUrl));
+        return NextResponse.redirect(new URL("/grid", nextUrl));
     }
 
     // 4. Protection par rôle (Admin seulement pour les paramètres)
@@ -29,7 +29,7 @@ export default auth((req) => {
     const userRole = (req.auth?.user as any)?.role;
 
     if (isAdminRoute && userRole !== "admin") {
-        return NextResponse.redirect(new URL("/dashboard", nextUrl));
+        return NextResponse.redirect(new URL("/grid", nextUrl));
     }
 
     return NextResponse.next();
