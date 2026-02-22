@@ -126,13 +126,26 @@
   color: var(--text-muted);
 }
 
-/* ── Surfaces ── */
-.surface {
+/* ── Surfaces & containers ── */
+.surface { background: var(--bg-surface); }
+.elevated { background: var(--bg-elevated); }
+
+.apple-card {
   background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 
-.elevated {
+.apple-card-header {
+  padding: 16px 20px;
   background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+}
+
+.apple-card-content {
+  padding: 20px;
 }
 
 /* ── Glass panels (sidebar, header) ── */

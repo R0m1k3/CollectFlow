@@ -14,15 +14,12 @@ interface OpenRouterModel { id: string; name: string; free: boolean; }
 
 function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
     return (
-        <section
-            className="rounded-[14px] overflow-hidden"
-            style={{ border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}
-        >
-            <div className="px-5 py-4" style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-elevated)" }}>
-                <h2 className="text-[13px] font-semibold" style={{ color: "var(--text-primary)" }}>{title}</h2>
-                {subtitle && <p className="text-[12px] mt-0.5" style={{ color: "var(--text-secondary)" }}>{subtitle}</p>}
+        <section className="apple-card">
+            <div className="apple-card-header">
+                <h2 className="text-[13px] font-semibold text-[var(--text-primary)]">{title}</h2>
+                {subtitle && <p className="text-[12px] mt-0.5 text-[var(--text-secondary)]">{subtitle}</p>}
             </div>
-            <div className="px-5 py-5 space-y-4" style={{ background: "var(--bg-surface)" }}>
+            <div className="apple-card-content space-y-4">
                 {children}
             </div>
         </section>
@@ -32,9 +29,9 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
     return (
         <div className="space-y-1.5">
-            <label className="text-[12px] font-medium" style={{ color: "var(--text-secondary)" }}>{label}</label>
+            <label className="text-[12px] font-medium text-[var(--text-secondary)]">{label}</label>
             {children}
-            {hint && <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>{hint}</p>}
+            {hint && <p className="text-[11px] text-[var(--text-muted)]">{hint}</p>}
         </div>
     );
 }
@@ -151,8 +148,8 @@ export default function SettingsPage() {
     return (
         <div className="space-y-6 max-w-xl">
             <div>
-                <h1 className="text-[22px] font-bold tracking-[-0.4px]" style={{ color: "var(--text-primary)" }}>Paramètres</h1>
-                <p className="text-[13px] mt-1" style={{ color: "var(--text-secondary)" }}>Configuration de la connexion et des services.</p>
+                <h1 className="text-[22px] font-bold tracking-[-0.4px] text-[var(--text-primary)]">Paramètres</h1>
+                <p className="text-[13px] mt-1 text-[var(--text-secondary)]">Configuration de la connexion et des services.</p>
             </div>
 
             {/* PostgreSQL */}
@@ -214,7 +211,7 @@ export default function SettingsPage() {
                         onChange={(e) => setSsl(e.target.checked)}
                         className="w-3.5 h-3.5 rounded accent-teal-500 cursor-pointer"
                     />
-                    <label htmlFor="ssl" className="text-[12px] cursor-pointer" style={{ color: "var(--text-secondary)" }}>Connexion SSL</label>
+                    <label htmlFor="ssl" className="text-[12px] cursor-pointer text-[var(--text-secondary)]">Connexion SSL</label>
                 </div>
                 <div className="flex items-center gap-3">
                     <button onClick={testDb} disabled={dbStatus === "testing"} className="apple-btn-secondary">
@@ -236,8 +233,7 @@ export default function SettingsPage() {
                 <div className="pt-2">
                     <button
                         onClick={reloadFromServer}
-                        className="flex items-center gap-2 text-[12px] font-medium transition-colors hover:text-emerald-500"
-                        style={{ color: "var(--text-secondary)" }}
+                        className="flex items-center gap-2 text-[12px] font-medium transition-colors hover:text-[var(--accent)] text-[var(--text-secondary)]"
                     >
                         <RotateCcw className="w-3.5 h-3.5" />
                         Recharger la configuration enregistrée sur le serveur
@@ -301,8 +297,8 @@ export default function SettingsPage() {
             <Section title="Apparence">
                 <div className="flex items-center justify-between">
                     <div>
-                        <p className="text-[13px] font-medium" style={{ color: "var(--text-primary)" }}>Thème</p>
-                        <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>Interface claire ou sombre</p>
+                        <p className="text-[13px] font-medium text-[var(--text-primary)]">Thème</p>
+                        <p className="text-[12px] text-[var(--text-secondary)]">Interface claire ou sombre</p>
                     </div>
                     {/* Segment control */}
                     <div className="segment-control">
@@ -317,8 +313,8 @@ export default function SettingsPage() {
 
                 <div className="flex items-center justify-between">
                     <div>
-                        <p className="text-[13px] font-medium" style={{ color: "var(--text-primary)" }}>Densité de la grille</p>
-                        <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>Hauteur de ligne par défaut</p>
+                        <p className="text-[13px] font-medium text-[var(--text-primary)]">Densité de la grille</p>
+                        <p className="text-[12px] text-[var(--text-secondary)]">Hauteur de ligne par défaut</p>
                     </div>
                     <select
                         className="apple-input w-auto"
@@ -394,8 +390,7 @@ export default function SettingsPage() {
                 <div className="pt-2">
                     <button
                         onClick={resetScoreDefaults}
-                        className="flex items-center gap-2 text-[12px] font-medium transition-colors hover:text-emerald-500"
-                        style={{ color: "var(--text-secondary)" }}
+                        className="flex items-center gap-2 text-[12px] font-medium transition-colors hover:text-[var(--accent)] text-[var(--text-secondary)]"
                     >
                         <RotateCcw className="w-3.5 h-3.5" />
                         Rétablir les valeurs par défaut
