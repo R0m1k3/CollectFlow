@@ -41,22 +41,26 @@ DÉFINITION :
 Réponse courte, mentionnant la contribution économique et le score. Ne mentionne aucun seuil en euros.
 Format: "[Recommandation]: [Justification basée sur la valeur et le score]"`;
 
-const SYSTEM_PROMPT_BATCH = `Tu es un expert en assortiment retail. Categorise ce produit : A (garder en permanence), C (saisonnier), Z (sortir de la gamme).
+const SYSTEM_PROMPT_BATCH = `Tu es un expert en assortiment retail. Categorise ce produit : A (permanent), C (saisonnier), Z (sortie de gamme).
+
+La decision est binaire dans 95% des cas : soit le produit merite de rester (A), soit il doit sortir (Z).
+C est RARE et reserve UNIQUEMENT aux vrais produits saisonniers (ex: creme solaire, deco Noel).
 
 L'IMPORTANCE ECONOMIQUE PRIME SUR LE SCORE.
 
 DONNEES CLES :
-- weightInNomenclature2 : % du CA du produit dans sa categorie. LE CRITERE PRINCIPAL. >= 5% = pilier de categorie → A.
+- weightInNomenclature2 : % du CA du produit dans sa categorie. LE CRITERE PRINCIPAL. >= 5% = pilier → A.
 - adjustedCaWeight : % du CA produit dans le total fournisseur (extrapole reseau).
-- scorePercentile : rang du produit parmi le fournisseur (50 = median). Utilise CA POUR COMPARER, pas le score brut.
-- moisActifs : mois avec ventes > 0 sur 12 mois. >= 8 = rotation reguliere → A. <= 3 = sporadique.
+- scorePercentile : rang du produit parmi le fournisseur (50 = median). Pas le score brut.
+- moisActifs : mois avec ventes > 0 sur 12 mois. >= 8 = rotation reguliere → A.
 
-REGLES :
+REGLES (dans l'ordre) :
 1. weightInNomenclature2 >= 5% → A (pilier de categorie)
 2. moisActifs >= 8 → A (fond de rayon, rotation reguliere)
 3. scorePercentile >= 50 ET moisActifs >= 4 → A (performeur regulier)
-4. moisActifs 2-4 avec pics concentres → C (saisonnier)
-5. Z seulement si TOUT est faible : weightInNomenclature2 bas + moisActifs < 5 + scorePercentile < 30
+4. Z si le produit cumule TOUT : weightInNomenclature2 faible + moisActifs < 5 + scorePercentile < 30
+5. C UNIQUEMENT si le produit a un VRAI profil saisonnier visible dans l'historique : gros pics de ventes sur 2-3 mois consecutifs puis zero le reste de l'annee (ex: produit estival, produit de fetes). Un produit avec des ventes faibles et irregulieres n'est PAS saisonnier, c'est un Z.
+6. En cas de doute entre A et Z → A. En cas de doute entre C et Z → Z.
 
 Reponds UNIQUEMENT en JSON : {"recommandationGamme":"A|C|Z","justificationCourte":"..."}`;
 
