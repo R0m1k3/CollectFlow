@@ -1,14 +1,24 @@
+import { SnapshotList } from "@/features/snapshots/components/snapshot-list";
+import { FileDown } from "lucide-react";
+
 export default function ExportsPage() {
     return (
-        <div className="space-y-6">
-            <div>
-                <h1 className="text-2xl font-bold tracking-tight text-slate-100">Exports</h1>
-                <p className="text-sm text-slate-400 mt-1">Génération des fichiers Excel différentiels pour l&apos;ERP.</p>
+        <div className="space-y-8 max-w-6xl mx-auto px-4 py-6">
+            <div className="flex items-start justify-between">
+                <div>
+                    <div className="flex items-center gap-3 mb-2">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                            <FileDown className="w-5 h-5 text-emerald-400" />
+                        </div>
+                        <h1 className="text-3xl font-black tracking-tight text-slate-100 italic uppercase">Historique d&apos;Arbitrage</h1>
+                    </div>
+                    <p className="text-sm text-slate-400 max-w-xl">
+                        Retrouvez ici toutes vos sessions sauvegardées et exports réalisés. Vous pouvez restaurer une session pour reprendre votre travail ou supprimer les anciens enregistrements.
+                    </p>
+                </div>
             </div>
-            <div className="border border-dashed border-slate-700 rounded-xl p-12 text-center">
-                <p className="text-slate-500 text-sm">Sélectionnez un fournisseur dans la grille, puis cliquez sur <strong className="text-slate-400">«&nbsp;Exporter&nbsp;»</strong>.</p>
-                <p className="text-slate-600 text-xs mt-1">L&apos;export génère un fichier <code className="text-slate-500">.xlsx</code> avec le delta avant/après des gammes révisées.</p>
-            </div>
+
+            <SnapshotList />
         </div>
     );
 }

@@ -24,6 +24,7 @@ interface GridState {
     setFilter: (key: keyof GridFilters, value: string | null) => void;
     setDisplayDensity: (density: "compact" | "normal" | "comfortable") => void;
     setActiveGridQuery: (query: string) => void;
+    restoreSnapshot: (changes: Record<string, GammeCode>) => void;
 }
 
 function computeSummary(rows: ProductRow[], drafts: Record<string, GammeCode>): GridSummary {
@@ -101,6 +102,9 @@ export const useGridStore = create<GridState>()(
             },
             setDisplayDensity: (density) => set({ displayDensity: density }),
             setActiveGridQuery: (query) => set({ activeGridQuery: query }),
+            restoreSnapshot: (changes) => {
+                set({ draftChanges: changes, summary: computeSummary(get().rows, changes) });
+            },
         }),
         {
             name: "collectflow-grid-storage",

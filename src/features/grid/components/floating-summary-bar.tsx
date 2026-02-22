@@ -1,12 +1,11 @@
-"use client";
-
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { useAiCopilotStore } from "@/features/ai-copilot/store/use-ai-copilot-store";
 
 import { BulkAiAnalyzer } from "./bulk-ai-analyzer";
 import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
-import { Loader2, CheckCircle, AlertCircle, RotateCcw } from "lucide-react";
+import { Loader2, CheckCircle, AlertCircle, RotateCcw, Camera } from "lucide-react";
 import { useState, useTransition } from "react";
+import { saveSnapshot } from "@/features/snapshots/api/save-snapshot";
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
     // Determine color based on label to match the prototype
@@ -21,9 +20,10 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 }
 
 export function FloatingSummaryBar() {
-    const { summary, resetDrafts, rows, filters } = useGridStore();
+    const { summary, resetDrafts, rows, filters, draftChanges } = useGridStore();
     const { resetInsights } = useAiCopilotStore();
     const [isPending, startTransition] = useTransition();
+    const [isSavingSnapshot, setIsSavingSnapshot] = useState(false);
     const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle");
 
     const visibleCodeins = rows.map(r => r.codein);
@@ -44,6 +44,49 @@ export function FloatingSummaryBar() {
         }
     };
 
+    const handleSnapshot = async (labelOverride?: string) => {
+        if (rows.length === 0) return;
+        setIsSavingSnapshot(true);
+        try {
+            const modifiedRows = rows.filter(r => draftChanges[r.codein]);
+            const changes = Object.fromEntries(
+                modifiedRows.map(r => [
+                    r.codein,
+                    {
+                        before: r.codeGamme,
+                        after: draftChanges[r.codein] as string
+                    }
+                ])
+            );
+
+            const res = await saveSnapshot({
+                codeFournisseur: filters.codeFournisseur || rows[0].codeFournisseur,
+                nomFournisseur: rows[0].nomFournisseur,
+                magasin: filters.magasin || "TOTAL",
+                label: labelOverride || `Session ${rows[0].nomFournisseur} — ${new Date().toLocaleTimeString()}`,
+                changes,
+                summary: {
+                    totalRows: summary.totalRows,
+                    totalCa: summary.totalCa,
+                    totalMarge: summary.totalMarge,
+                    tauxMargeGlobal: summary.tauxMargeGlobal,
+                }
+            });
+
+            if (res.success) {
+                if (!labelOverride) alert("Snapshot enregistré avec succès ! Retrouvez-le dans la page Snapshots.");
+                return res.snapshotId;
+            } else {
+                throw new Error(res.error);
+            }
+        } catch (err) {
+            console.error(err);
+            if (!labelOverride) alert("Erreur lors de la création du snapshot.");
+        } finally {
+            setIsSavingSnapshot(false);
+        }
+    };
+
     return (
         <div
             className="fixed bottom-6 left-[264px] right-6 p-4 flex justify-between items-center shadow-lg border rounded-xl z-50 transition-colors bg-slate-100 dark:bg-slate-800"
@@ -51,7 +94,7 @@ export function FloatingSummaryBar() {
                 borderColor: hasDrafts ? "rgba(234, 179, 8, 0.5)" : "var(--border-strong)",
             }}
         >
-            <div className="text-xs font-bold px-4 py-2 rounded-full border flex items-center gap-2 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500">
+            <div className="text-xs font-bold px-4 py-2 rounded-full border flex items-center bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500">
                 <button
                     onClick={handleReset}
                     className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-900/20 text-slate-400 hover:text-rose-500 transition-colors rounded-lg border border-transparent hover:border-rose-200"
@@ -59,7 +102,16 @@ export function FloatingSummaryBar() {
                 >
                     <RotateCcw className="w-4 h-4" />
                 </button>
-                <div className="w-[1px] h-4 bg-slate-200 dark:bg-slate-800 mx-1" />
+                <div className="w-[1px] h-4 bg-slate-200 dark:bg-slate-800 mx-1.5" />
+                <button
+                    onClick={() => handleSnapshot()}
+                    disabled={isSavingSnapshot}
+                    className="p-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 text-slate-400 hover:text-indigo-500 transition-colors rounded-lg border border-transparent hover:border-indigo-200 disabled:opacity-50"
+                    title="Prendre un snapshot de la session"
+                >
+                    {isSavingSnapshot ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                </button>
+                <div className="w-[1px] h-4 bg-slate-200 dark:bg-slate-800 mx-1.5" />
                 {hasDrafts && (
                     <span className="text-[10px] font-black uppercase text-amber-600 dark:text-amber-500 bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
                         {count} modif.
@@ -110,6 +162,9 @@ export function FloatingSummaryBar() {
                         }));
 
                         const nomFournisseur = modifiedRows[0].nomFournisseur;
+
+                        // Auto-save snapshot for history
+                        await handleSnapshot(`Export ${nomFournisseur} — ${new Date().toLocaleTimeString()}`);
 
                         try {
                             const res = await fetch("/api/export/modified-gammes", {
