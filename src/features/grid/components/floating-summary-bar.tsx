@@ -75,19 +75,16 @@ export function FloatingSummaryBar() {
                         const currentDrafts = currentState.draftChanges;
                         const currentRows = currentState.rows;
 
-                        // On définit les lignes modifiées comme étant soit dans les drafts, 
-                        // soit ayant une gamme différente de la gamme initiale (déjà sauvegardées)
                         const modifiedRows = currentRows.filter(r => {
                             const currentGamme = currentDrafts[r.codein] ?? r.codeGamme;
                             return currentGamme !== r.codeGammeInit;
                         });
 
                         if (modifiedRows.length === 0) {
-                            alert("Aucun changement détecté par rapport à l'état initial. L'export Excel ne contient que les modifications de cette session.");
+                            alert("Aucun changement détecté par rapport à l'état initial.");
                             return;
                         }
 
-                        // Prepare payload
                         const changes = modifiedRows.map(r => ({
                             codein: r.codein,
                             gtin: r.gtin,
@@ -95,7 +92,7 @@ export function FloatingSummaryBar() {
                             gamme: (currentDrafts[r.codein] ?? r.codeGamme) as string,
                         }));
 
-                        const nomFournisseur = modifiedRows.length > 0 ? modifiedRows[0].nomFournisseur : "Fournisseur";
+                        const nomFournisseur = modifiedRows[0].nomFournisseur;
 
                         try {
                             const res = await fetch("/api/export/modified-gammes", {
@@ -115,10 +112,10 @@ export function FloatingSummaryBar() {
                             window.URL.revokeObjectURL(url);
                         } catch (error) {
                             console.error(error);
-                            alert("Une erreur s'est produite lors de la génération du fichier Excel.");
+                            alert("Une erreur s'est produite lors de l'export Excel.");
                         }
                     }}
-                    className="px-6 py-3 rounded-xl text-sm font-bold transition-all active:scale-95 border hover:brightness-105"
+                    className="h-10 px-6 rounded-xl text-sm font-bold transition-all active:scale-95 border hover:brightness-105"
                     style={{
                         background: "var(--action-secondary-bg)",
                         color: "var(--action-secondary-text)",
@@ -131,7 +128,7 @@ export function FloatingSummaryBar() {
                 <button
                     onClick={handleSave}
                     disabled={!hasDrafts || isPending}
-                    className="px-8 py-3 flex items-center gap-2 rounded-xl text-sm font-black transition-all shadow-lg active:scale-95 text-white hover:brightness-110 disabled:opacity-50"
+                    className="h-10 px-6 flex items-center justify-center gap-2 rounded-xl text-sm font-black transition-all shadow-lg active:scale-95 text-white hover:brightness-110 disabled:opacity-50"
                     style={{
                         background: "var(--brand-solid)",
                     }}
@@ -143,7 +140,7 @@ export function FloatingSummaryBar() {
                     ) : saveStatus === "error" ? (
                         <AlertCircle className="w-4 h-4" />
                     ) : null}
-                    {isPending ? "Validation..." : "Valider ce Fournisseur"}
+                    {isPending ? "Validation..." : "Valider"}
                 </button>
             </div>
         </div>

@@ -188,15 +188,15 @@ export function BulkAiAnalyzer() {
 
     if (isAnalyzing) {
         return (
-            <div className="flex items-center gap-4 px-4 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800">
+            <div className="flex items-center gap-4 h-10 px-4 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800">
                 <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
                 <div className="flex flex-col min-w-[150px]">
-                    <span className="text-xs font-bold text-indigo-700 dark:text-indigo-400">
+                    <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-400 leading-none">
                         {progress.message}
                     </span>
-                    <div className="w-full bg-indigo-200 dark:bg-indigo-800/50 rounded-full h-1.5 mt-1.5">
+                    <div className="w-full bg-indigo-200 dark:bg-indigo-800/50 rounded-full h-1 mt-1">
                         <div
-                            className="bg-indigo-500 h-1.5 rounded-full transition-all duration-300"
+                            className="bg-indigo-500 h-1 rounded-full transition-all duration-300"
                             style={{ width: `${Math.max(5, (progress.current / progress.total) * 100)}%` }}
                         ></div>
                     </div>
@@ -206,7 +206,7 @@ export function BulkAiAnalyzer() {
                     className="p-1 hover:bg-indigo-100 dark:hover:bg-indigo-800 rounded-lg transition-colors text-indigo-600 dark:text-indigo-400"
                     title="Arrêter l'analyse"
                 >
-                    <XCircle className="w-5 h-5" />
+                    <XCircle className="w-4 h-4" />
                 </button>
             </div>
         );
@@ -214,12 +214,12 @@ export function BulkAiAnalyzer() {
 
     if (progress.current > 0 && !isAnalyzing) {
         return (
-            <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 cursor-default">
+            <div className="flex items-center gap-2 h-10 px-4 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 cursor-default">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-500" />
                 <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
                     {progress.errors > 0
-                        ? `Terminé (${progress.current - progress.errors}/${progress.total} OK)`
-                        : `Analyse terminée (${progress.total} produits)`
+                        ? `Terminé (${progress.current - progress.errors}/${progress.total})`
+                        : `Analyse Terminée`
                     }
                 </span>
             </div>
@@ -229,10 +229,10 @@ export function BulkAiAnalyzer() {
     return (
         <button
             onClick={handleAnalyze}
-            className="group flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm bg-gradient-to-r from-indigo-500 to-violet-500 text-white hover:shadow-md hover:brightness-110 active:scale-95 border border-indigo-400"
+            className="group flex items-center justify-center gap-2 h-10 px-6 rounded-xl text-sm font-bold transition-all shadow-sm bg-gradient-to-r from-indigo-500 to-violet-500 text-white hover:shadow-md hover:brightness-110 active:scale-95 border border-indigo-400"
         >
             <Sparkles className="w-4 h-4" />
-            Analyse IA Globale
+            Analyse IA
         </button>
     );
 }

@@ -45,12 +45,13 @@ function formatMonthLabel(key: string): string {
  * Indigo for first store, Amber for second, Slate for others.
  */
 function getStoreConfig(name: string, index: number) {
+    const initial = name.charAt(0).toUpperCase();
     if (index === 0) {
         return {
             bg: "rgba(99, 102, 241, 0.1)", // Indigo
             text: "#818cf8",
             border: "rgba(99, 102, 241, 0.2)",
-            label: "M1"
+            label: initial
         };
     }
     if (index === 1) {
@@ -58,14 +59,14 @@ function getStoreConfig(name: string, index: number) {
             bg: "rgba(245, 158, 11, 0.1)", // Amber
             text: "#fbbf24",
             border: "rgba(245, 158, 11, 0.2)",
-            label: "M2"
+            label: initial
         };
     }
     return {
         bg: "var(--bg-elevated)",
         text: "var(--text-muted)",
         border: "var(--border)",
-        label: name.charAt(0).toUpperCase()
+        label: initial
     };
 }
 
