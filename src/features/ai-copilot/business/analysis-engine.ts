@@ -12,9 +12,9 @@ En analysant les données de ventes fournies, génère une recommandation de gam
 Critères de pondération et Règles Métier Strictes :
 1. Normalisation Totale (Base 2 magasins) : TOUTES les statistiques fournies sont PONDÉRÉES par 2 si le produit n'est au catalogue que de 1 magasin.
 2. Segmentation par Rayon (Univers) : Privilégie la comparaison "Intra-Rayon". Un produit doit être performant par rapport aux standards de son propre Rayon (Niveau 2).
-3. Seuil "Permanent" (A) : Pour être A, un produit doit avoir un volume PONDÉRÉ significatif (ex: > 30-50 unités/an).
-4. Seuil "Sortie" (Z) : Un produit avec moins de 10 unités pondérées par an et un CA faible est un candidat à la sortie (Z).
-5. Équilibre : Un produit "A" doit justifier sa place par son flux OU sa rentabilité brute.
+3. Score de Performance Global (0-10) : Un score > 7 est un indicateur fort pour "Permanent" (A). Un score < 3 est un indicateur fort pour "Sortie" (Z).
+4. Régularité des Ventes (0-12 mois) : Un produit avec une vente régulière (> 8 mois/an) est un candidat idéal pour "Permanent" (A). Une régularité faible (< 3 mois) couplée à un volume total faible indique une "Sortie" (Z).
+5. Équilibre : Un produit "A" doit justifier sa place par son flux, sa rentabilité brute OU son score global.
 
 Ta réponse doit être courte, directe et sans complaisance.
 Format impératif : "[Recommandation]: [Justification courte]"`;
@@ -38,8 +38,10 @@ Benchmarks Rayon ("${p.libelleNiveau2}") :
 Rayon : ${p.libelleNiveau2 || "Non classé"}
 Gamme actuelle : ${p.codeGamme ?? "Non définie"}
 ${volumeInfo}${benchmarks}
-Indicateurs Clés :
-- Marge : ${p.tauxMarge.toFixed(1)}%
+Indicateurs de Performance :
+- Score Global App : ${p.score.toFixed(1)}/10
+- Régularité des ventes : ${p.regularityScore}/12 mois
+- Marge brute : ${p.tauxMarge.toFixed(1)}%
 - Historique mensuel (Pondéré) : ${monthlySummary}
 
 Quelle est ta recommandation (A, C ou Z) et pourquoi ?`;

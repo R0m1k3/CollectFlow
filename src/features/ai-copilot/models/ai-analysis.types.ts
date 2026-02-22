@@ -15,6 +15,8 @@ export interface ProductAnalysisInput {
     storeCount: number;
     sales12m: Record<string, number>;
     codeGamme: string | null;
+    score: number;
+    regularityScore: number;
 }
 
 export interface AnalysisResult {

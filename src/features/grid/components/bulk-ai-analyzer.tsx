@@ -80,6 +80,8 @@ export function BulkAiAnalyzer() {
                     Object.entries(r.sales12m || {}).map(([month, val]) => [month, val * weight])
                 ),
                 codeGamme: r.codeGamme || null,
+                score: r.score || 0,
+                regularityScore: Object.values(r.sales12m || {}).filter(v => v > 0).length,
             };
         });
 

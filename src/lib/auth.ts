@@ -5,8 +5,10 @@ import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { verifyPassword } from "@/features/auth/logic/auth-logic";
 import { ensureAdminExists } from "@/features/auth/logic/seed-admin";
+import { authConfig } from "./auth.config";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+    ...authConfig,
     providers: [
         Credentials({
             name: "Credentials",
@@ -15,7 +17,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 password: { label: "Mot de passe", type: "password" }
             },
             async authorize(credentials) {
-                // S'assure que le compte admin par défaut existe
                 await ensureAdminExists();
 
                 if (!credentials?.username || !credentials?.password) return null;
@@ -42,23 +43,4 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             }
         })
     ],
-    callbacks: {
-        async jwt({ token, user }) {
-            if (user) {
-                token.role = (user as any).role;
-                token.id = user.id;
-            }
-            return token;
-        },
-        async session({ session, token }) {
-            if (session.user) {
-                (session.user as any).role = token.role as string;
-                (session.user as any).id = token.id as string;
-            }
-            return session;
-        },
-    },
-    pages: {
-        signIn: "/login",
-    }
 });
