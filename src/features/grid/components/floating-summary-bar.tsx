@@ -81,7 +81,10 @@ export function FloatingSummaryBar() {
             }
         } catch (err) {
             console.error(err);
-            if (!labelOverride) alert("Erreur lors de la création du snapshot.");
+            if (!labelOverride) {
+                const msg = err instanceof Error ? err.message : String(err);
+                alert(`Erreur lors de la création du snapshot : ${msg}`);
+            }
         } finally {
             setIsSavingSnapshot(false);
         }
