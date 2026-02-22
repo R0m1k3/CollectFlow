@@ -13,70 +13,20 @@ export function BulkAiAnalyzer() {
 
     const handleAnalyze = async () => {
         const { rows } = useGridStore.getState();
-        const supplierTotalCa = rows.reduce((acc, row) => acc + (row.totalCa || 0), 0);
 
         console.log("[BulkAiAnalyzer] Starting analysis on", rows.length, "rows");
 
-        // --- Statistiques globales pour contextualiser le score ---
-        const allScores = rows.map(r => r.score || 0).sort((a, b) => a - b);
-        const totalProducts = rows.length;
-
-        const maxStoreCount = Math.max(...rows.map(r => r.workingStores?.length || 1), 1);
-
-        // Percentile par produit
-        const scorePercentileMap = new Map<string, number>();
-        rows.forEach(r => {
-            const productScore = r.score || 0;
-            const rank = allScores.filter(s => s <= productScore).length;
-            scorePercentileMap.set(r.codein, Math.round((rank / totalProducts) * 100));
-        });
-
-        // Double poids par nomenclature niveau 2
-        const nomenclature2CaMap = new Map<string, number>();
-        rows.forEach(r => {
-            const n2 = r.libelleNiveau2 || "Non classe";
-            nomenclature2CaMap.set(n2, (nomenclature2CaMap.get(n2) || 0) + (r.totalCa || 0));
-        });
-
-        const nomenclature2WeightMap = new Map<string, number>();
-        nomenclature2CaMap.forEach((ca, n2) => {
-            nomenclature2WeightMap.set(n2, supplierTotalCa > 0
-                ? parseFloat(((ca / supplierTotalCa) * 100).toFixed(1))
-                : 0);
-        });
-
-        // Préparer les payloads enrichis pour chaque produit
-        const productPayloads = rows.map(r => {
-            const rawCaWeight = supplierTotalCa > 0
-                ? parseFloat(((r.totalCa / supplierTotalCa) * 100).toFixed(3))
-                : 0;
-            const storeCount = r.workingStores?.length || 1;
-            const storeRatio = storeCount < maxStoreCount ? maxStoreCount / storeCount : 1;
-            const adjustedCaWeight = parseFloat((rawCaWeight * storeRatio).toFixed(3));
-            const n2 = r.libelleNiveau2 || "Non classe";
-            const n2Ca = nomenclature2CaMap.get(n2) || 1;
-            const weightInNomenclature2 = parseFloat((((r.totalCa || 0) / n2Ca) * 100).toFixed(2));
-            const moisActifs = Object.values(r.sales12m || {}).filter(v => v > 0).length;
-
-            return {
-                codein: r.codein,
-                libelle1: r.libelle1 || "",
-                totalCa: r.totalCa || 0,
-                tauxMarge: r.tauxMarge || 0,
-                totalQuantite: r.totalQuantite || 0,
-                sales12m: r.sales12m || {},
-                codeGamme: r.codeGamme || null,
-                score: r.score || 0,
-                // Champs enrichis
-                weightInNomenclature2,
-                adjustedCaWeight,
-                nomenclature2Weight: nomenclature2WeightMap.get(n2) ?? 0,
-                scorePercentile: scorePercentileMap.get(r.codein) ?? 0,
-                moisActifs,
-                nomenclature: `${r.libelleNiveau1 || ""} > ${r.libelleNiveau2 || ""} > ${r.libelle3 || ""}`,
-                batchMode: true,
-            };
-        });
+        // Payload identique à l'analyse individuelle — aucun enrichissement
+        const productPayloads = rows.map(r => ({
+            codein: r.codein,
+            libelle1: r.libelle1 || "",
+            totalCa: r.totalCa || 0,
+            tauxMarge: r.tauxMarge || 0,
+            totalQuantite: r.totalQuantite || 0,
+            sales12m: r.sales12m || {},
+            codeGamme: r.codeGamme || null,
+            score: r.score || 0,
+        }));
 
         setIsAnalyzing(true);
         let completed = 0;
@@ -119,10 +69,15 @@ export function BulkAiAnalyzer() {
                         errors++;
                     } else {
                         const data = await res.json();
-                        if (data.recommandationGamme) {
-                            setDraftGamme(data.codein, data.recommandationGamme);
-                            const justification = `Gamme ${data.recommandationGamme} — ${data.justificationCourte || "Analyse effectuée."}`;
-                            setInsight(data.codein, justification, data.isDuplicate ?? false);
+                        if (data.insight) {
+                            // Extraire la recommandation (première lettre A, C ou Z)
+                            const match = data.insight.match(/^[^A-Z]*([ACZ])\b/i);
+                            const gamme = match ? match[1].toUpperCase() : null;
+
+                            if (gamme) {
+                                setDraftGamme(data.codein, gamme);
+                                setInsight(data.codein, data.insight, false);
+                            }
                         }
                     }
                 } catch {

@@ -11,20 +11,11 @@ const AnalyzeSchema = z.object({
     sales12m: z.record(z.string(), z.number()),
     codeGamme: z.string().nullable(),
     score: z.number().nullable().optional(),
-    // Champs enrichis (optionnels, envoyés par le batch)
-    weightInNomenclature2: z.number().optional(),
-    adjustedCaWeight: z.number().optional(),
-    nomenclature2Weight: z.number().optional(),
-    scorePercentile: z.number().optional(),
-    moisActifs: z.number().optional(),
-    nomenclature: z.string().optional(),
-    // Mode batch : retourne du JSON structuré au lieu de texte libre
-    batchMode: z.boolean().optional(),
 });
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-const SYSTEM_PROMPT_INDIVIDUAL = `Tu es un expert en stratégie d'achat retail. Ton rôle est de catégoriser ce produit (A=Permanent, C=Saisonnier, Z=Sortie) via une analyse de VALEUR CONTEXTUELLE.
+const SYSTEM_PROMPT = `Tu es un expert en stratégie d'achat retail. Ton rôle est de catégoriser ce produit (A=Permanent, C=Saisonnier, Z=Sortie) via une analyse de VALEUR CONTEXTUELLE.
 
 L'IMPORTANCE ÉCONOMIQUE PRIME SUR LE SCORE DE PERFORMANCE RELATIVE.
 
@@ -40,27 +31,6 @@ DÉFINITION :
 
 Réponse courte, mentionnant la contribution économique et le score. Ne mentionne aucun seuil en euros.
 Format: "[Recommandation]: [Justification basée sur la valeur et le score]"`;
-
-const SYSTEM_PROMPT_BATCH = `Tu es un expert en assortiment retail. Decide si ce produit doit rester en gamme (A) ou sortir (Z).
-
-REPONDS UNIQUEMENT A ou Z. Jamais C. La saisonnalite est geree manuellement par l'acheteur.
-
-DONNEES CLES :
-- weightInNomenclature2 : % du CA du produit dans sa categorie. LE CRITERE PRINCIPAL.
-- adjustedCaWeight : % du CA produit dans le total fournisseur (extrapole reseau).
-- scorePercentile : rang du produit parmi le fournisseur (50 = median).
-- moisActifs : mois avec ventes > 0 sur 12 mois.
-
-REGLES (dans l'ordre, la premiere qui s'applique gagne) :
-1. weightInNomenclature2 >= 5% → A
-2. moisActifs >= 8 → A
-3. scorePercentile >= 50 ET moisActifs >= 4 → A
-4. En cas de doute → A
-5. Z seulement si TOUT est faible : weightInNomenclature2 < 3% ET moisActifs < 5 ET scorePercentile < 30
-
-Ne tiens PAS compte du nom du produit pour ta decision. Base-toi UNIQUEMENT sur les chiffres.
-
-Reponds UNIQUEMENT en JSON : {"recommandationGamme":"A|Z","justificationCourte":"..."}`;
 
 export async function POST(req: NextRequest) {
     const config = await getSavedDatabaseConfig();
@@ -79,42 +49,19 @@ export async function POST(req: NextRequest) {
     }
 
     const p = parsed.data;
-    const isBatch = p.batchMode === true;
 
     // Format monthly sales for the prompt
     const monthlySummary = Object.entries(p.sales12m)
         .map(([k, v]) => `${k}: ${Math.round(v)} unités`)
         .join(", ");
 
-    let userMessage: string;
-    let systemPrompt: string;
-
-    if (isBatch) {
-        // Mode batch : prompt simplifié avec métriques enrichies, PAS de codeGamme
-        systemPrompt = SYSTEM_PROMPT_BATCH;
-        const enrichedLines = [
-            `Produit: "${p.libelle1}" (${p.codein})`,
-            p.nomenclature ? `Nomenclature: ${p.nomenclature}` : null,
-            `CA: ${p.totalCa.toFixed(0)} EUR | Marge: ${p.tauxMarge.toFixed(1)}% | Volume: ${Math.round(p.totalQuantite)} unites`,
-            p.weightInNomenclature2 != null ? `Poids dans sa categorie N2: ${p.weightInNomenclature2}%` : null,
-            p.adjustedCaWeight != null ? `Poids global fournisseur (ajuste): ${p.adjustedCaWeight}%` : null,
-            p.nomenclature2Weight != null ? `Poids de la categorie N2 dans le fournisseur: ${p.nomenclature2Weight}%` : null,
-            p.scorePercentile != null ? `Rang percentile: ${p.scorePercentile}/100` : null,
-            p.moisActifs != null ? `Mois actifs (ventes > 0): ${p.moisActifs}/12` : null,
-            `Historique: ${monthlySummary}`,
-        ].filter(Boolean).join("\n");
-        userMessage = enrichedLines;
-    } else {
-        // Mode individuel : prompt original
-        systemPrompt = SYSTEM_PROMPT_INDIVIDUAL;
-        userMessage = `Produit: "${p.libelle1}" (Code: ${p.codein})
+    const userMessage = `Produit: "${p.libelle1}" (Code: ${p.codein})
 Gamme actuelle: ${p.codeGamme ?? "Non définie"}
 Score de performance: ${p.score ?? "N/A"}/100
 CA total 12m: ${p.totalCa.toFixed(0)}€ | Taux de marge: ${p.tauxMarge.toFixed(1)}% | Volume: ${Math.round(p.totalQuantite)} unités
 Historique mensuel: ${monthlySummary}
 
 Quelle gamme recommandes-tu et pourquoi ?`;
-    }
 
     try {
         const response = await fetch(OPENROUTER_URL, {
@@ -128,10 +75,9 @@ Quelle gamme recommandes-tu et pourquoi ?`;
             body: JSON.stringify({
                 model,
                 messages: [
-                    { role: "system", content: systemPrompt },
+                    { role: "system", content: SYSTEM_PROMPT },
                     { role: "user", content: userMessage },
                 ],
-                ...(isBatch ? { response_format: { type: "json_object" } } : {}),
                 max_tokens: 150,
                 temperature: 0.1,
             }),
@@ -151,24 +97,7 @@ Quelle gamme recommandes-tu et pourquoi ?`;
         const data = await response.json();
         const content: string = data.choices?.[0]?.message?.content ?? "";
 
-        if (isBatch) {
-            // Parse JSON response for batch mode
-            let jsonStr = content;
-            const start = content.indexOf("{");
-            const end = content.lastIndexOf("}");
-            if (start !== -1 && end !== -1) {
-                jsonStr = content.slice(start, end + 1);
-            }
-            const result = JSON.parse(jsonStr);
-            return NextResponse.json({
-                codein: p.codein,
-                recommandationGamme: result.recommandationGamme || "A",
-                justificationCourte: result.justificationCourte || "",
-                isDuplicate: false,
-            });
-        } else {
-            return NextResponse.json({ insight: content, codein: p.codein });
-        }
+        return NextResponse.json({ insight: content, codein: p.codein });
     } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
         return NextResponse.json({ error: msg }, { status: 500 });
