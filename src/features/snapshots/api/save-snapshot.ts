@@ -46,49 +46,46 @@ export async function saveSnapshot(raw: unknown) {
 
         return { success: true, snapshotId: created?.id };
     } catch (err: any) {
-        console.error("Snapshot DB error:", err);
+        console.error("Initial snapshot save failed, attempting auto-repair...", err);
 
-        // Détection plus large (code 42P01 ou texte relation does not exist)
-        const isTableMissing = err.code === '42P01' ||
-            err.message?.toLowerCase().includes("relation") ||
-            err.message?.toLowerCase().includes("does not exist");
+        try {
+            // Tentative systématique de création de table (no-op si déjà là)
+            await db.execute(sql`
+                CREATE TABLE IF NOT EXISTS session_snapshots (
+                    id SERIAL PRIMARY KEY,
+                    code_fournisseur VARCHAR(20) NOT NULL,
+                    nom_fournisseur VARCHAR(255),
+                    magasin VARCHAR(20) NOT NULL,
+                    changes JSONB NOT NULL,
+                    summary_json JSONB,
+                    label TEXT,
+                    created_at TIMESTAMP DEFAULT NOW()
+                );
+            `);
 
-        if (isTableMissing) {
-            console.log("Table missing detected, attempting auto-repair...");
-            try {
-                await db.execute(sql`
-                    CREATE TABLE IF NOT EXISTS session_snapshots (
-                        id SERIAL PRIMARY KEY,
-                        code_fournisseur VARCHAR(20) NOT NULL,
-                        nom_fournisseur VARCHAR(255),
-                        magasin VARCHAR(20) NOT NULL,
-                        changes JSONB NOT NULL,
-                        summary_json JSONB,
-                        label TEXT,
-                        created_at TIMESTAMP DEFAULT NOW()
-                    );
-                `);
+            // Deuxième tentative d'insertion
+            const [retryCreated] = await db
+                .insert(sessionSnapshots)
+                .values({
+                    codeFournisseur,
+                    nomFournisseur: nomFournisseur ?? null,
+                    magasin,
+                    label: label ?? `Snapshot — ${new Date().toLocaleDateString("fr-FR")}`,
+                    changes,
+                    summaryJson: summary ?? null,
+                })
+                .returning({ id: sessionSnapshots.id });
 
-                // On ré-essaie l'insertion une seule fois
-                const [retryCreated] = await db
-                    .insert(sessionSnapshots)
-                    .values({
-                        codeFournisseur,
-                        nomFournisseur: nomFournisseur ?? null,
-                        magasin,
-                        label: label ?? `Snapshot — ${new Date().toLocaleDateString("fr-FR")}`,
-                        changes,
-                        summaryJson: summary ?? null,
-                    })
-                    .returning({ id: sessionSnapshots.id });
-
-                return { success: true, snapshotId: retryCreated?.id };
-            } catch (repairErr: any) {
-                console.error("Repair or retry failed:", repairErr);
-                return { success: false, error: `Repair/Retry failed: ${repairErr.message}` };
-            }
+            return { success: true, snapshotId: retryCreated?.id };
+        } catch (repairErr: any) {
+            console.error("Snapshot auto-repair/retry failed:", repairErr);
+            // On renvoie les deux erreurs pour comprendre si c'est la création ou l'insertion qui échoue
+            const origMsg = (err.message || String(err)).split('\n')[0];
+            const retryMsg = (repairErr.message || String(repairErr)).split('\n')[0];
+            return {
+                success: false,
+                error: `Erreur initiale: ${origMsg} | Erreur après réparation: ${retryMsg}`
+            };
         }
-
-        return { success: false, error: `DB Error: ${err.message || String(err)}` };
     }
 }
