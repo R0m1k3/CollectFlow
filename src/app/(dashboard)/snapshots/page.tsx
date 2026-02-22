@@ -18,7 +18,7 @@ export default function SnapshotsPage() {
                 </div>
             </div>
 
-            <SnapshotList />
+            <SnapshotList type="snapshot" />
         </div>
     );
 }

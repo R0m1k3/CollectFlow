@@ -18,7 +18,7 @@ export default function ExportsPage() {
                 </div>
             </div>
 
-            <SnapshotList />
+            <SnapshotList type="export" />
         </div>
     );
 }

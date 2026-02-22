@@ -59,5 +59,7 @@ export const sessionSnapshots = pgTable("session_snapshots", {
   summaryJson: jsonb("summary_json"),
   /** Label for the snapshot */
   label: text("label"),
+  /** snapshot vs export */
+  type: varchar("type", { length: 20 }).default("snapshot"),
   createdAt: timestamp("created_at").defaultNow(),
 });

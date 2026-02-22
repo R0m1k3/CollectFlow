@@ -44,7 +44,7 @@ export function FloatingSummaryBar() {
         }
     };
 
-    const handleSnapshot = async (labelOverride?: string) => {
+    const handleSnapshot = async (labelOverride?: string, type: "snapshot" | "export" = "snapshot") => {
         if (rows.length === 0) return;
         setIsSavingSnapshot(true);
         try {
@@ -63,8 +63,9 @@ export function FloatingSummaryBar() {
                 codeFournisseur: filters.codeFournisseur || rows[0].codeFournisseur,
                 nomFournisseur: rows[0].nomFournisseur,
                 magasin: filters.magasin || "TOTAL",
-                label: labelOverride || `Session ${rows[0].nomFournisseur} — ${new Date().toLocaleTimeString()}`,
+                label: labelOverride || `${type === 'export' ? 'Export' : 'Session'} ${rows[0].nomFournisseur} — ${new Date().toLocaleTimeString()}`,
                 changes,
+                type,
                 summary: {
                     totalRows: summary.totalRows,
                     totalCa: summary.totalCa,
@@ -167,7 +168,7 @@ export function FloatingSummaryBar() {
                         const nomFournisseur = modifiedRows[0].nomFournisseur;
 
                         // Auto-save snapshot for history
-                        await handleSnapshot(`Export ${nomFournisseur} — ${new Date().toLocaleTimeString()}`);
+                        await handleSnapshot(`Export ${nomFournisseur} — ${new Date().toLocaleTimeString()}`, "export");
 
                         try {
                             const res = await fetch("/api/export/modified-gammes", {

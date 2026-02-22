@@ -14,6 +14,7 @@ const SaveSnapshotSchema = z.object({
         before: z.string().nullable(),
         after: z.string(),
     })),
+    type: z.enum(["snapshot", "export"]).optional(),
     summary: z.object({
         totalRows: z.number(),
         totalCa: z.number(),
@@ -29,7 +30,7 @@ export async function saveSnapshot(raw: unknown) {
         return { success: false, error: "Validation failed: " + parsed.error.issues.map((i: any) => i.message).join(", ") };
     }
 
-    const { codeFournisseur, nomFournisseur, magasin, label, changes, summary } = parsed.data;
+    const { codeFournisseur, nomFournisseur, magasin, label, changes, summary, type } = parsed.data;
 
     try {
         const [created] = await db
@@ -38,9 +39,10 @@ export async function saveSnapshot(raw: unknown) {
                 codeFournisseur,
                 nomFournisseur: nomFournisseur ?? null,
                 magasin,
-                label: label ?? `Snapshot — ${new Date().toLocaleDateString("fr-FR")}`,
+                label: label ?? `${type === 'export' ? 'Export' : 'Snapshot'} — ${new Date().toLocaleDateString("fr-FR")}`,
                 changes,
                 summaryJson: summary ?? null,
+                type: type ?? "snapshot",
             })
             .returning({ id: sessionSnapshots.id });
 
@@ -59,9 +61,17 @@ export async function saveSnapshot(raw: unknown) {
                     changes JSONB NOT NULL,
                     summary_json JSONB,
                     label TEXT,
+                    type VARCHAR(20) DEFAULT 'snapshot',
                     created_at TIMESTAMP DEFAULT NOW()
                 );
             `);
+
+            // Si la table existait déjà mais sans la colonne 'type', on l'ajoute
+            try {
+                await db.execute(sql`ALTER TABLE session_snapshots ADD COLUMN IF NOT EXISTS type VARCHAR(20) DEFAULT 'snapshot'`);
+            } catch (e) {
+                // Ignore if column already exists or other alter errors
+            }
 
             // Deuxième tentative d'insertion
             const [retryCreated] = await db
@@ -70,16 +80,16 @@ export async function saveSnapshot(raw: unknown) {
                     codeFournisseur,
                     nomFournisseur: nomFournisseur ?? null,
                     magasin,
-                    label: label ?? `Snapshot — ${new Date().toLocaleDateString("fr-FR")}`,
+                    label: label ?? `${type === 'export' ? 'Export' : 'Snapshot'} — ${new Date().toLocaleDateString("fr-FR")}`,
                     changes,
                     summaryJson: summary ?? null,
+                    type: type ?? "snapshot",
                 })
                 .returning({ id: sessionSnapshots.id });
 
             return { success: true, snapshotId: retryCreated?.id };
         } catch (repairErr: any) {
             console.error("Snapshot auto-repair/retry failed:", repairErr);
-            // On renvoie les deux erreurs pour comprendre si c'est la création ou l'insertion qui échoue
             const origMsg = (err.message || String(err)).split('\n')[0];
             const retryMsg = (repairErr.message || String(repairErr)).split('\n')[0];
             return {

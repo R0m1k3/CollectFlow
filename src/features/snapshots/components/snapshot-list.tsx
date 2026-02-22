@@ -26,7 +26,11 @@ const formatDate = (date: Date) => {
     }).format(date);
 };
 
-export function SnapshotList() {
+interface SnapshotListProps {
+    type?: "snapshot" | "export";
+}
+
+export function SnapshotList({ type }: SnapshotListProps) {
     const [snapshots, setSnapshots] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -38,10 +42,10 @@ export function SnapshotList() {
     const fetchSnapshots = async () => {
         setLoading(true);
         try {
-            const data = await getSnapshots();
+            const data = await getSnapshots(type);
             setSnapshots(data);
         } catch (err) {
-            setError("Impossible de charger les snapshots.");
+            setError("Impossible de charger les données.");
         } finally {
             setLoading(false);
         }
@@ -49,10 +53,10 @@ export function SnapshotList() {
 
     useEffect(() => {
         fetchSnapshots();
-    }, []);
+    }, [type]);
 
     const handleDelete = async (id: number) => {
-        if (!window.confirm("Supprimer ce snapshot définitivement ?")) return;
+        if (!window.confirm(`Supprimer cet ${type === 'export' ? 'export' : 'snapshot'} définitivement ?`)) return;
         setIsDeleting(id);
         try {
             const res = await deleteSnapshot(id);
@@ -92,7 +96,7 @@ export function SnapshotList() {
         return (
             <div className="flex flex-col items-center justify-center p-20 space-y-4">
                 <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
-                <p className="text-slate-400 text-sm">Récupération de vos sessions...</p>
+                <p className="text-slate-400 text-sm">Récupération de l&apos;historique...</p>
             </div>
         );
     }
@@ -103,9 +107,13 @@ export function SnapshotList() {
                 <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mx-auto mb-4 border border-slate-700">
                     <History className="w-8 h-8 text-slate-500" />
                 </div>
-                <h3 className="text-slate-200 font-bold mb-1">Aucun snapshot pour le moment</h3>
+                <h3 className="text-slate-200 font-bold mb-1">
+                    {type === "export" ? "Aucun export pour le moment" : "Aucun snapshot pour le moment"}
+                </h3>
                 <p className="text-slate-500 text-sm max-w-xs mx-auto">
-                    Capturez l&apos;état de votre travail depuis la grille pour le retrouver ici ultérieurement.
+                    {type === "export"
+                        ? "Vos exports Excel apparaîtront ici pour historique."
+                        : "Capturez l'état de votre travail depuis la grille pour le retrouver ici ultérieurement."}
                 </p>
             </div>
         );
