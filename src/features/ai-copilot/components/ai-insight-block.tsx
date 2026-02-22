@@ -26,6 +26,25 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
         const regScore = Object.values(row.sales12m || {}).filter(v => v > 0).length;
         const weight = (row.workingStores?.length || 1) === 1 ? 2 : 1;
 
+        // Calcul de l'inactivité (Récence)
+        const allMonths = Object.keys(row.sales12m || {});
+        const referenceMonth = allMonths.length > 0 ? Math.max(...allMonths.map(m => parseInt(m))).toString() : "";
+
+        const salesMonths = Object.entries(row.sales12m || {})
+            .filter(([_, qty]) => qty > 0)
+            .map(([m]) => parseInt(m))
+            .sort((a, b) => b - a);
+
+        const lastMonth = salesMonths.length > 0 ? salesMonths[0].toString() : "";
+        let inactivity = 0;
+        if (referenceMonth && lastMonth) {
+            const refY = parseInt(referenceMonth.substring(0, 4));
+            const refM = parseInt(referenceMonth.substring(4, 6));
+            const lastY = parseInt(lastMonth.substring(0, 4));
+            const lastM = parseInt(lastMonth.substring(4, 6));
+            inactivity = (refY - lastY) * 12 + (refM - lastM);
+        }
+
         analyzeProduct({
             codein: row.codein,
             libelle1: row.libelle1,
@@ -38,6 +57,8 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
             regularityScore: regScore,
             projectedTotalQuantite: regScore > 0 ? (row.totalQuantite * weight * (12 / regScore)) : (row.totalQuantite * weight),
             projectedTotalCa: regScore > 0 ? (row.totalCa * weight * (12 / regScore)) : (row.totalCa * weight),
+            lastMonthWithSale: lastMonth,
+            inactivityMonths: inactivity,
         });
     };
 

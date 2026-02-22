@@ -20,6 +20,9 @@ export interface ProductAnalysisInput {
     /** Projection sur 12 mois si le produit est récent (Run Rate) */
     projectedTotalQuantite?: number;
     projectedTotalCa?: number;
+    /** Analyse de saisonnalité */
+    lastMonthWithSale?: string;
+    inactivityMonths?: number;
 }
 
 export interface AnalysisResult {

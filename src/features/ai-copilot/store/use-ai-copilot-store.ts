@@ -13,6 +13,8 @@ interface AiInsight {
 interface AiCopilotState {
     insights: Record<string, AiInsight>;
     setInsight: (codein: string, insight: string, isDuplicate?: boolean) => void;
+    setLoading: (codein: string) => void;
+    setError: (codein: string, error: string) => void;
     analyzeProduct: (payload: {
         codein: string;
         libelle1: string;
@@ -25,6 +27,8 @@ interface AiCopilotState {
         regularityScore?: number;
         projectedTotalQuantite?: number;
         projectedTotalCa?: number;
+        lastMonthWithSale?: string;
+        inactivityMonths?: number;
     }) => Promise<void>;
     resetInsights: () => void;
 }
@@ -39,6 +43,24 @@ export const useAiCopilotStore = create<AiCopilotState>()(
                     insights: {
                         ...s.insights,
                         [codein]: { codein, insight, status: "done", isDuplicate },
+                    },
+                }));
+            },
+
+            setLoading: (codein) => {
+                set((s) => ({
+                    insights: {
+                        ...s.insights,
+                        [codein]: { codein, insight: "", status: "loading" },
+                    },
+                }));
+            },
+
+            setError: (codein, error) => {
+                set((s) => ({
+                    insights: {
+                        ...s.insights,
+                        [codein]: { codein, insight: error, status: "error" },
                     },
                 }));
             },

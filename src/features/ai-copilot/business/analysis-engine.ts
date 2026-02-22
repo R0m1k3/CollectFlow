@@ -12,9 +12,11 @@ En analysant les données de ventes fournies, génère une recommandation de gam
 Critères de pondération et Règles Métier Strictes :
 1. Normalisation Totale (Base 2 magasins) : TOUTES les statistiques fournies sont PONDÉRÉES par 2 si le produit n'est au catalogue que de 1 magasin.
 2. Potentiel Annuel (Run Rate) : Si un produit est récent (Régularité < 12 mois), base ton jugement sur sa "Projection 12m" plutôt que sur son volume brut cumulé.
-3. Segmentation par Rayon (Univers) : Privilégie la comparaison "Intra-Rayon". Un produit doit être performant par rapport aux standards de son propre Rayon (Niveau 2).
-4. Score de Performance Global (0-100) : Un score > 70 est un indicateur fort pour "Permanent" (A). Un score < 30 est un indicateur fort pour "Sortie" (Z).
-5. Équilibre : Un produit "A" doit justifier sa place par son flux, sa rentabilité brute OU son score global.
+3. Détection Saisonnalité/Fin de vie : Si un produit est inactif depuis plus de 2 mois (Inactivité > 2), la projection 12 mois devient INCERTAINE. 
+   - Si Inactivité > 2 et Régularité < 6 : Probable SAISONNIER [C] ou SORTIE [Z].
+   - Si Inactivité <= 2 et Régularité < 12 : Probable LANCEMENT (Permanent [A]).
+4. Segmentation par Rayon (Univers) : Privilégie la comparaison "Intra-Rayon". Un produit doit être performant par rapport aux standards de son propre Rayon (Niveau 2).
+5. Score de Performance Global (0-100) : Un score > 70 est un indicateur fort pour "Permanent" (A). Un score < 30 est un indicateur fort pour "Sortie" (Z).
 
 Ta réponse doit être courte, directe et sans complaisance.
 Format impératif : "[Recommandation] : [Texte brut de l'explication sans aucun préfixe du type 'Justification:' ou 'Pourquoi:']"
@@ -22,7 +24,7 @@ Exemple : "A : Volume de vente et score élevés justifiant le maintien en rayon
     }
 
     static generateUserMessage(p: ProductAnalysisInput): string {
-        const monthlySummary = Object.entries(p.sales12m)
+        const monthlySummary = Object.entries(p.sales12m || {})
             .map(([k, v]) => `${k}: ${Math.round(v)}u`)
             .join(", ");
 
@@ -33,6 +35,10 @@ Stats Pondérées (Base 2 mag) : ${Math.round(p.weightedTotalQuantite || 0)}u ($
 --- ANALYSE DE POTENTIEL (Produit récent : ${p.regularityScore}/12 mois active) ---
 Projection 12 mois (Run Rate) : ${Math.round(p.projectedTotalQuantite || 0)}u (${(p.projectedTotalCa || 0).toFixed(2)}€)` : "";
 
+        const activityAlert = (p.inactivityMonths || 0) > 2
+            ? `\n⚠️ ALERTE : Inactif depuis ${p.inactivityMonths} mois (Dernière vente: ${p.lastMonthWithSale || "Inconnue"})`
+            : "";
+
         const benchmarks = `
 Benchmarks Fournisseur (Global) :
 - Moyenne 1 mag: ${Math.round(p.avgQtyGroup1 || 0)}u | Multi-mag: ${Math.round(p.avgQtyGroup2 || 0)}u
@@ -42,7 +48,7 @@ Benchmarks Rayon ("${p.libelleNiveau2}") :
         return `Produit : "${p.libelle1}" (Ref: ${p.codein})
 Rayon : ${p.libelleNiveau2 || "Non classé"}
 Gamme actuelle : ${p.codeGamme ?? "Non définie"}
-${volumeInfo}${projectionInfo}${benchmarks}
+${volumeInfo}${projectionInfo}${activityAlert}${benchmarks}
 Indicateurs de Performance :
 - Score Global App : ${p.score.toFixed(1)}/100
 - Régularité des ventes : ${p.regularityScore}/12 mois
