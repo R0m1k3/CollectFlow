@@ -105,22 +105,22 @@ export function BulkAiAnalyzer() {
                     const n2Ca = nomenclature2CaMap.get(n2) || 1;
                     const weightInNomenclature2 = parseFloat((((r.totalCa || 0) / n2Ca) * 100).toFixed(2));
 
+                    // Compter les mois actifs (ventes > 0) pré-calculé
+                    const moisActifs = Object.values(r.sales12m || {}).filter(v => v > 0).length;
+
                     return {
                         codein: r.codein,
                         nom: r.libelle1,
                         ca: r.totalCa || 0,
-                        caWeight: rawCaWeight,
                         adjustedCaWeight,
+                        weightInNomenclature2,
+                        nomenclature2Weight: nomenclature2WeightMap.get(n2) ?? 0,
                         ventes: r.totalQuantite || 0,
                         marge: r.totalMarge ? parseFloat(((r.totalMarge / (r.totalCa || 1)) * 100).toFixed(1)) : 0,
-                        score: r.score || 0,
                         scorePercentile: scorePercentileMap.get(r.codein) ?? 0,
-                        codeGamme: r.codeGamme || "N/A",
-                        sales12m: r.sales12m || {},
+                        moisActifs,
                         storeCount,
                         nomenclature: `${r.libelleNiveau1 || ""} > ${r.libelleNiveau2 || ""} > ${r.libelle3 || ""}`,
-                        nomenclature2Weight: nomenclature2WeightMap.get(n2) ?? 0,
-                        weightInNomenclature2,
                     };
                 });
 

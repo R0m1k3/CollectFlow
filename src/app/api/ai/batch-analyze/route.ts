@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getSavedDatabaseConfig } from "@/features/settings/actions";
 
-// Schema for the incoming request
 const BatchAnalyzeSchema = z.object({
     rayon: z.string(),
     supplierTotalCa: z.number().optional(),
@@ -22,23 +21,19 @@ const BatchAnalyzeSchema = z.object({
         codein: z.string(),
         nom: z.string().nullable().optional(),
         ca: z.number().nullable().optional(),
-        caWeight: z.number().optional().default(0),
         adjustedCaWeight: z.number().optional().default(0),
+        weightInNomenclature2: z.number().optional().default(0),
+        nomenclature2Weight: z.number().optional().default(0),
         ventes: z.number().nullable().optional(),
         marge: z.number().nullable().optional(),
-        score: z.number().nullable().optional(),
         scorePercentile: z.number().optional().default(0),
-        codeGamme: z.string().nullable().optional(),
-        sales12m: z.record(z.string(), z.number()).nullable().optional(),
+        moisActifs: z.number().optional().default(0),
         storeCount: z.number().optional().default(1),
         nomenclature: z.string().nullable().optional(),
-        nomenclature2Weight: z.number().optional().default(0),
-        weightInNomenclature2: z.number().optional().default(0),
     })),
 });
 
 export async function POST(req: NextRequest) {
-    // Read the API key from DB config (same pattern as /api/ai/analyze)
     const config = await getSavedDatabaseConfig();
     const apiKey = process.env.OPENROUTER_API_KEY || config?.openRouterKey;
     const model = config?.openRouterModel || "google/gemini-flash-1.5";
@@ -58,99 +53,58 @@ export async function POST(req: NextRequest) {
 
         const { rayon, products, supplierTotalCa, supplierTotalMarge, supplierStats } = parsed.data;
 
-        // Build rich supplier context with distribution awareness
-        const supplierMetricsContext = (() => {
-            const parts: string[] = [];
+        const statsContext = supplierStats
+            ? `Fournisseur : ${supplierStats.totalProducts} produits, ${supplierStats.nomenclature2Count} categories N2, ${supplierStats.maxStoreCount} magasins.
+CA total : ${supplierTotalCa?.toLocaleString('fr-FR') ?? '?'} EUR. Marge totale : ${supplierTotalMarge?.toLocaleString('fr-FR') ?? '?'} EUR.
+Score median du fournisseur : ${supplierStats.medianScore}/100.`
+            : "";
 
-            if (supplierTotalCa && supplierTotalMarge) {
-                parts.push(`CONTEXTE FOURNISSEUR GLOBAL :
-- CA Total Fournisseur : ${supplierTotalCa.toLocaleString('fr-FR')} EUR
-- Marge Totale Fournisseur : ${supplierTotalMarge.toLocaleString('fr-FR')} EUR`);
-            }
+        const systemPrompt = `Tu es un expert en assortiment retail. Categorise chaque produit : A (garder), C (saisonnier), Z (sortir).
 
-            if (supplierStats) {
-                parts.push(`DISTRIBUTION DES SCORES (sur ${supplierStats.totalProducts} produits du fournisseur) :
-- Score median : ${supplierStats.medianScore}/100
-- Produits score > 70 : ${supplierStats.scoreDistribution.above70} (${Math.round(supplierStats.scoreDistribution.above70 / supplierStats.totalProducts * 100)}%)
-- Produits score 30-70 : ${supplierStats.scoreDistribution.between30and70} (${Math.round(supplierStats.scoreDistribution.between30and70 / supplierStats.totalProducts * 100)}%)
-- Produits score < 30 : ${supplierStats.scoreDistribution.below30} (${Math.round(supplierStats.scoreDistribution.below30 / supplierStats.totalProducts * 100)}%)
-- Nomenclatures N2 distinctes : ${supplierStats.nomenclature2Count}
-- Magasins reseau : ${supplierStats.maxStoreCount}
+${statsContext}
 
-ATTENTION CRITIQUE : Le Score est RELATIF au meilleur produit du fournisseur (le top performer a ~100). Un score median de ${supplierStats.medianScore} signifie que la MOITIE des produits ont un score inferieur a cette valeur. Utilise le \`scorePercentile\` (rang centile) pour comparer les produits entre eux, PAS le score brut.`);
-            }
+DONNEES PAR PRODUIT :
+- weightInNomenclature2 : % du CA du produit DANS sa categorie N2. C'est le critere le plus important.
+- adjustedCaWeight : % du CA du produit dans le total fournisseur (extrapole au reseau).
+- nomenclature2Weight : % du CA de toute la categorie N2 dans le fournisseur.
+- scorePercentile : rang du produit parmi tous les produits du fournisseur (0-100, 50 = median).
+- moisActifs : nombre de mois avec des ventes sur les 12 derniers mois.
+- marge : taux de marge (%).
 
-            return parts.join('\n\n');
-        })();
+REGLES DE DECISION (applique dans l'ordre) :
 
-        const systemPrompt = `Tu es un expert en strategie d'achat retail et category manager. Ton role est de categoriser les produits d'un fournisseur (A=Permanent, C=Saisonnier, Z=Sortie).
+REGLE 1 — PILIER DE CATEGORIE → A
+Si weightInNomenclature2 >= 5% → le produit est un pilier de sa categorie → A.
 
-${supplierMetricsContext}
+REGLE 2 — ROTATION REGULIERE → A
+Si moisActifs >= 8 → produit de fond de rayon avec rotation reguliere → A.
 
-REGLE FONDAMENTALE : L'IMPORTANCE ECONOMIQUE PRIME SUR LE SCORE DE PERFORMANCE RELATIVE.
+REGLE 3 — BON PERFORMEUR → A
+Si scorePercentile >= 50 ET moisActifs >= 4 → au-dessus de la moyenne → A.
 
-COMPRENDRE LES DONNEES :
-- \`score\` (0-100) : Performance RELATIVE au meilleur produit du fournisseur. Le top produit a ~100. Ce n'est PAS un score absolu de qualite. Un score de 25 peut etre parfaitement normal si le median est a 20.
-- \`scorePercentile\` (0-100) : Rang centile du produit parmi TOUS les produits du fournisseur. 50 = median, 80 = top 20%. C'EST L'INDICATEUR A UTILISER pour comparer les produits.
-- \`caWeight\` : Poids brut du CA du produit par rapport au total fournisseur (%).
-- \`adjustedCaWeight\` : Poids CA extrapole au reseau complet (si un produit n'est present que dans 1 magasin sur 2, son poids est double). UTILISE CETTE VALEUR pour toute decision de poids global.
-- \`weightInNomenclature2\` : Poids du produit dans sa propre nomenclature de niveau 2 (%). C'EST LE CRITERE LE PLUS IMPORTANT. Un produit qui pese 8% de sa nomenclature N2 est un pilier de cette categorie.
-- \`nomenclature2Weight\` : Poids de la nomenclature N2 entiere dans le CA fournisseur (%). Donne le contexte strategique de la categorie.
-- \`sales12m\` : Historique mensuel des ventes (cle YYYYMM). Regarde la REGULARITE, pas seulement le volume.
+REGLE 4 — SAISONNIER → C
+Si moisActifs entre 2 et 4 ET les ventes sont concentrees sur des mois specifiques → C.
 
-METHODOLOGIE D'ANALYSE (HIERARCHIE STRICTE) :
+REGLE 5 — SORTIE → Z
+Si le produit ne remplit AUCUNE des regles 1-4, c'est un candidat Z.
+Un produit ne doit etre Z que s'il cumule : weightInNomenclature2 faible + moisActifs < 5 + scorePercentile < 30.
 
-1. CONTRIBUTION ECONOMIQUE PAR CATEGORIE (CRITERE PRINCIPAL) :
-   - Regarde d'abord \`weightInNomenclature2\` : c'est le poids du produit dans sa categorie N2. Un produit qui pese > 5% de sa nomenclature N2 est un contributeur important de cette categorie → forte protection.
-   - Puis regarde \`adjustedCaWeight\` : le poids global. Un produit dans le top 20% des contributeurs du fournisseur → Gamme A quasi certaine.
-   - \`nomenclature2Weight\` donne le contexte : si la nomenclature N2 pese > 15% du fournisseur, c'est une categorie strategique et ses contributeurs meritent une protection renforcee.
+REGLE DE COHERENCE OBLIGATOIRE :
+Compare les produits ENTRE EUX dans ce lot. Si le produit X a un meilleur scorePercentile ET un meilleur weightInNomenclature2 que le produit Y, alors X doit avoir une recommandation >= Y. Ne mets JAMAIS en Z un produit meilleur qu'un autre en A.
 
-2. REGULARITE DES VENTES (CRITERE SECONDAIRE) :
-   - Compte les mois avec ventes > 0 dans sales12m.
-   - 10-12 mois actifs = rotation reguliere = signal fort de Gamme A (produit de fond de rayon indispensable, effet de halo sur la categorie).
-   - 4-9 mois actifs = rotation moyenne, a croiser avec la contribution.
-   - 1-3 mois actifs = rotation faible, potentiel produit saisonnier (C) ou candidat sortie (Z).
-   - Un produit avec ventes regulieres sur 10+ mois est un produit de complement indispensable au rayon, meme si son poids individuel est faible.
-
-3. PERFORMANCE RELATIVE (CRITERE TERTIAIRE) :
-   - Utilise \`scorePercentile\` pour situer le produit. PAS le score brut.
-   - scorePercentile > 60 : Produit au-dessus de la moyenne → favorable a Gamme A.
-   - scorePercentile 30-60 : Produit moyen → decider selon contribution et regularite.
-   - scorePercentile < 20 : Produit dans le bas du classement → candidat Z, SAUF si contribution significative dans sa nomenclature ou rotation reguliere.
-
-4. REGLE D'OR DE COHERENCE :
-   - Un produit avec un meilleur scorePercentile ET un meilleur adjustedCaWeight qu'un autre DOIT avoir une recommandation egale ou superieure.
-   - Ne JAMAIS mettre en Z un produit qui est meilleur qu'un autre reste en A.
-
-5. PROTECTION DES PRODUITS DE COMPLEMENT (EFFET HALO) :
-   - Un produit avec une rotation reguliere (8+ mois actifs) et un weightInNomenclature2 > 2% est un produit de complement indispensable au rayon. Il doit rester en A.
-   - Avant de proposer Z, verifie que le produit n'est pas un complement naturel d'un produit A majeur du meme rayon/nomenclature.
-
-DEFINITION DES GAMMES :
-- A (Permanent) : Produits contribuant significativement a leur categorie N2 (weightInNomenclature2 eleve), OU rotation reguliere (fond de rayon), OU forte performance relative.
-- C (Saisonnier) : Profil de ventes avec saisonnalite marquee (pics sur 2-4 mois, quasi-absence le reste).
-- Z (Sortie) : UNIQUEMENT si le produit cumule TOUS ces criteres negatifs : weightInNomenclature2 tres faible (marginal dans sa propre categorie) + adjustedCaWeight negligeable + rotation irreguliere (< 5 mois actifs) + scorePercentile dans le dernier quart (< 25).
-
-IMPORTANT : REPONDS UNIQUEMENT EN JSON VALIDE.
-Ta justification doit etre factuelle. Mentionne le scorePercentile, le weightInNomenclature2, et le nombre de mois actifs.
-
-Format:
+REPONDS EN JSON VALIDE uniquement :
 {
   "results": [
     {
       "codein": "ID",
       "recommandationGamme": "A|C|Z",
-      "isDuplicate": boolean,
-      "justificationCourte": "Poids N2: X%, Poids global: Y%, Percentile: Z, Mois actifs: N -> [Raison]"
+      "isDuplicate": false,
+      "justificationCourte": "N2: X%, Perc: Y, Mois: Z -> Regle N"
     }
   ]
-}
+}`;
 
-Donnees fournies par produit : codein, nom, ca (EUR), caWeight (% global), adjustedCaWeight (% extrapole), weightInNomenclature2 (% dans sa N2), nomenclature2Weight (% de la N2 dans le fournisseur), ventes (unites), marge (%), score (0-100, RELATIF), scorePercentile (0-100, rang centile), codeGamme (actuel), sales12m (historique), storeCount, nomenclature.`;
-
-        const userPrompt = `Ce lot contient ${products.length} produits du rayon "${rayon}" (sur ${supplierStats?.totalProducts ?? products.length} produits au total pour ce fournisseur).
-
-Analyse ces produits :
+        const userPrompt = `${products.length} produits du rayon "${rayon}" (sur ${supplierStats?.totalProducts ?? products.length} au total).
 ${JSON.stringify(products, null, 2)}`;
 
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -192,7 +146,6 @@ ${JSON.stringify(products, null, 2)}`;
             return NextResponse.json({ error: "Réponse vide du modèle." }, { status: 500 });
         }
 
-        // Try to extract JSON block from the response (handles markdown code blocks and raw JSON)
         let jsonStr = content;
         const jsonBlock = content.match(/```json\s*([\s\S]*?)\s*```/);
         if (jsonBlock) {
