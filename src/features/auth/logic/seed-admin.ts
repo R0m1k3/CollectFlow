@@ -1,18 +1,34 @@
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { hashPassword } from "./auth-logic";
-import { count } from "drizzle-orm";
+import { count, eq, sql } from "drizzle-orm";
 
 /**
  * Checks if the users table is empty.
  * If so, creates a default admin account (admin/admin).
+ * Also ensures the table exists (auto-repair).
  */
 export async function ensureAdminExists() {
     try {
-        const [userCount] = await db.select({ value: count() }).from(users);
+        // 1. Auto-repair: Ensure table exists
+        await db.execute(sql`
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(50) NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                role VARCHAR(20) NOT NULL DEFAULT 'user',
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+        `);
 
-        if (userCount.value === 0) {
-            console.log("BMAD: Initializing default admin account (admin/admin)...");
+        // 2. Check if admin specifically exists
+        const adminUser = await db.select()
+            .from(users)
+            .where(eq(users.username, "admin"))
+            .limit(1);
+
+        if (adminUser.length === 0) {
+            console.log("BMAD: Default admin account not found. Initializing (admin/admin)...");
             await db.insert(users).values({
                 username: "admin",
                 passwordHash: hashPassword("admin"),
@@ -21,9 +37,7 @@ export async function ensureAdminExists() {
             return true;
         }
     } catch (err) {
-        // If table doesn't exist, we might need auto-repair like session_snapshots
-        // But for users, it's better to let drizzle handled or handle it here if needed.
-        console.error("BMAD: Error checking/seeding users table.", err);
+        console.error("BMAD: CRITICAL Error checking/seeding users table.", err);
     }
     return false;
 }

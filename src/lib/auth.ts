@@ -26,9 +26,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                         .from(users)
                         .where(eq(users.username, credentials.username as string));
 
+                    console.log(`BMAD: Auth attempt for "${credentials.username}". User found: ${!!user}`);
+
                     if (!user) return null;
 
                     const isValid = verifyPassword(credentials.password as string, user.passwordHash);
+                    console.log(`BMAD: Password valid for "${credentials.username}": ${isValid}`);
+
                     if (!isValid) return null;
 
                     return {
