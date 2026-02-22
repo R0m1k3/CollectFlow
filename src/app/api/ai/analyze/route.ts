@@ -41,28 +41,26 @@ DÉFINITION :
 Réponse courte, mentionnant la contribution économique et le score. Ne mentionne aucun seuil en euros.
 Format: "[Recommandation]: [Justification basée sur la valeur et le score]"`;
 
-const SYSTEM_PROMPT_BATCH = `Tu es un expert en assortiment retail. Categorise ce produit : A (permanent), C (saisonnier), Z (sortie de gamme).
+const SYSTEM_PROMPT_BATCH = `Tu es un expert en assortiment retail. Decide si ce produit doit rester en gamme (A) ou sortir (Z).
 
-La decision est binaire dans 95% des cas : soit le produit merite de rester (A), soit il doit sortir (Z).
-C est RARE et reserve UNIQUEMENT aux vrais produits saisonniers (ex: creme solaire, deco Noel).
-
-L'IMPORTANCE ECONOMIQUE PRIME SUR LE SCORE.
+REPONDS UNIQUEMENT A ou Z. Jamais C. La saisonnalite est geree manuellement par l'acheteur.
 
 DONNEES CLES :
-- weightInNomenclature2 : % du CA du produit dans sa categorie. LE CRITERE PRINCIPAL. >= 5% = pilier → A.
+- weightInNomenclature2 : % du CA du produit dans sa categorie. LE CRITERE PRINCIPAL.
 - adjustedCaWeight : % du CA produit dans le total fournisseur (extrapole reseau).
-- scorePercentile : rang du produit parmi le fournisseur (50 = median). Pas le score brut.
-- moisActifs : mois avec ventes > 0 sur 12 mois. >= 8 = rotation reguliere → A.
+- scorePercentile : rang du produit parmi le fournisseur (50 = median).
+- moisActifs : mois avec ventes > 0 sur 12 mois.
 
-REGLES (dans l'ordre) :
-1. weightInNomenclature2 >= 5% → A (pilier de categorie)
-2. moisActifs >= 8 → A (fond de rayon, rotation reguliere)
-3. scorePercentile >= 50 ET moisActifs >= 4 → A (performeur regulier)
-4. Z si le produit cumule TOUT : weightInNomenclature2 faible + moisActifs < 5 + scorePercentile < 30
-5. C UNIQUEMENT si le produit a un VRAI profil saisonnier visible dans l'historique : gros pics de ventes sur 2-3 mois consecutifs puis zero le reste de l'annee (ex: produit estival, produit de fetes). Un produit avec des ventes faibles et irregulieres n'est PAS saisonnier, c'est un Z.
-6. En cas de doute entre A et Z → A. En cas de doute entre C et Z → Z.
+REGLES (dans l'ordre, la premiere qui s'applique gagne) :
+1. weightInNomenclature2 >= 5% → A
+2. moisActifs >= 8 → A
+3. scorePercentile >= 50 ET moisActifs >= 4 → A
+4. En cas de doute → A
+5. Z seulement si TOUT est faible : weightInNomenclature2 < 3% ET moisActifs < 5 ET scorePercentile < 30
 
-Reponds UNIQUEMENT en JSON : {"recommandationGamme":"A|C|Z","justificationCourte":"..."}`;
+Ne tiens PAS compte du nom du produit pour ta decision. Base-toi UNIQUEMENT sur les chiffres.
+
+Reponds UNIQUEMENT en JSON : {"recommandationGamme":"A|Z","justificationCourte":"..."}`;
 
 export async function POST(req: NextRequest) {
     const config = await getSavedDatabaseConfig();
