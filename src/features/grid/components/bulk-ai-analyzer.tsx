@@ -33,19 +33,28 @@ export function BulkAiAnalyzer() {
         const avgQty1 = rowsGroup1.length > 0 ? rowsGroup1.reduce((s: number, r: any) => s + (r.totalQuantite || 0), 0) / rowsGroup1.length : 0;
         const avgQty2 = rowsGroup2.length > 0 ? rowsGroup2.reduce((s: number, r: any) => s + (r.totalQuantite || 0), 0) / rowsGroup2.length : 0;
 
-        const productPayloads: ProductAnalysisInput[] = rows.map(r => ({
-            codein: r.codein,
-            libelle1: r.libelle1 || "",
-            totalCa: r.totalCa || 0,
-            tauxMarge: r.tauxMarge || 0,
-            totalQuantite: r.totalQuantite || 0,
-            avgTotalQuantite: avgQty,
-            avgQtyGroup1: avgQty1,
-            avgQtyGroup2: avgQty2,
-            storeCount: r.workingStores?.length || 1,
-            sales12m: r.sales12m || {},
-            codeGamme: r.codeGamme || null,
-        }));
+        const productPayloads: ProductAnalysisInput[] = rows.map(r => {
+            const sc = r.workingStores?.length || 1;
+            const weight = sc === 1 ? 2 : 1; // On ramène tout sur une base 2 magasins
+
+            return {
+                codein: r.codein,
+                libelle1: r.libelle1 || "",
+                totalCa: r.totalCa || 0,
+                tauxMarge: r.tauxMarge || 0,
+                totalQuantite: r.totalQuantite || 0,
+                weightedTotalQuantite: (r.totalQuantite || 0) * weight,
+                weightedTotalCa: (r.totalCa || 0) * weight,
+                avgTotalQuantite: avgQty,
+                avgQtyGroup1: avgQty1,
+                avgQtyGroup2: avgQty2,
+                storeCount: sc,
+                sales12m: Object.fromEntries(
+                    Object.entries(r.sales12m || {}).map(([month, val]) => [month, val * weight])
+                ),
+                codeGamme: r.codeGamme || null,
+            };
+        });
 
         setIsAnalyzing(true);
         let completed = 0;

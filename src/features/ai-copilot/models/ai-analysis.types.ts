@@ -4,6 +4,8 @@ export interface ProductAnalysisInput {
     totalCa: number;
     tauxMarge: number;
     totalQuantite: number;
+    weightedTotalQuantite?: number;
+    weightedTotalCa?: number;
     avgTotalQuantite?: number;
     avgQtyGroup1?: number; // Moyenne volume pour produits à 1 magasin
     avgQtyGroup2?: number; // Moyenne volume pour produits à 2 magasins+

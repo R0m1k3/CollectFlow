@@ -35,25 +35,30 @@ export function computeProductScores(
 ): ProductRow[] {
     if (rows.length === 0) return rows;
 
-    // 1. Trouver les valeurs maximales (les "Top 1") pour indexer 0-100
-    const maxQty = Math.max(...rows.map((r) => r.totalQuantite ?? 0));
-    const maxCa = Math.max(...rows.map((r) => r.totalCa ?? 0));
-    const maxMarge = Math.max(...rows.map((r) => r.totalMarge ?? 0));
+    // 1. Calculer les valeurs pondérées pour tout le monde et trouver les max
+    const weightedData = rows.map((r) => {
+        const weight = (r.workingStores?.length || 1) === 1 ? 2 : 1;
+        return {
+            row: r,
+            wQty: (r.totalQuantite ?? 0) * weight,
+            wCa: (r.totalCa ?? 0) * weight,
+            wMarge: (r.totalMarge ?? 0) * weight,
+        };
+    });
 
-    // 2. Pour chaque produit, calculer le score relatif au Top 1
-    for (const row of rows) {
-        // Score de 0 à 100 sur chaque axe (le Top 1 a 100)
-        const scoreQty = maxQty > 0 ? ((row.totalQuantite ?? 0) / maxQty) * 100 : 0;
-        const scoreCa = maxCa > 0 ? ((row.totalCa ?? 0) / maxCa) * 100 : 0;
-        const scoreMarge = maxMarge > 0 ? ((row.totalMarge ?? 0) / maxMarge) * 100 : 0;
+    const maxQty = Math.max(...weightedData.map((d) => d.wQty));
+    const maxCa = Math.max(...weightedData.map((d) => d.wCa));
+    const maxMarge = Math.max(...weightedData.map((d) => d.wMarge));
+
+    // 2. Pour chaque produit, calculer le score relatif aux max pondérés
+    for (const data of weightedData) {
+        // Score de 0 à 100 sur chaque axe pondéré (le Top 1 pondéré a 100)
+        const scoreQty = maxQty > 0 ? (data.wQty / maxQty) * 100 : 0;
+        const scoreCa = maxCa > 0 ? (data.wCa / maxCa) * 100 : 0;
+        const scoreMarge = maxMarge > 0 ? (data.wMarge / maxMarge) * 100 : 0;
 
         // Base = meilleur score d'axe
         const base = Math.max(scoreQty, scoreCa, scoreMarge);
-
-        // Bonus polyvalence : combien d'axes dépassent le seuil demandé (en %, c.a.d en score d'axe)
-        // Attention : settings.seuilAxeFort était pensé pour un % du Total (~2%). 
-        // Maintenant le score max étant 100, un "axe fort" devrait plutôt être un paramètre indexé (ex: > 30% du max).
-        // On va garder la règle, mais l'utilisateur devra probablement ajuster le seuil dans les paramètres.
 
         let axesForts = 0;
         if (scoreQty > settings.seuilAxeFort) axesForts++;
@@ -62,7 +67,7 @@ export function computeProductScores(
 
         const bonus = axesForts * settings.bonusParAxe;
 
-        row.score = Math.round(Math.min(base + bonus, 100) * 10) / 10;
+        data.row.score = Math.round(Math.min(base + bonus, 100) * 10) / 10;
     }
 
     return rows;

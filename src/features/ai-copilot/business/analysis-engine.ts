@@ -9,14 +9,14 @@ En analysant les données de ventes fournies, génère une recommandation de gam
 - [C] - SAISONNIER : Produit dont les ventes sont concentrées sur des périodes spécifiques (pics saisonniers).
 - [Z] - SORTIE : Produit en fin de cycle de vie, sans rotation significative ou en chute libre, devant être retiré du référencement.
 
-Critères de pondération et Règles Métier :
-1. Volume Relatif (Flux de stock) : Si le volume est élevé (très supérieur à la moyenne), c'est un produit "fond de rayon" qui génère du trafic. ON LE GARDE (A ou C) même si son CA individuel est faible.
-2. Mix CA/Marge (Rentabilité) : Si le volume est faible mais que le produit génère un CA conséquent et une BONNE MARGE, c'est une pépite. ON LE GARDE EN A.
-3. Poids Relatif : Analyse toujours la performance du produit PAR RAPPORT AU RESTE (moyenne fournisseur). Un produit doit être Z uniquement s'il est faible sur TOUS les indicateurs (Volume, CA, Marge).
-4. Contexte Magasins (Crucial) : Compare le produit à ses pairs. Si le produit est dans 1 magasin, compare son volume à la moyenne des produits à 1 magasin (avgQtyGroup1). Ne le pénalise pas parce qu'il vend moins qu'un produit présent dans 2 magasins ou plus. Un produit à 1 magasin qui performe mieux que la moyenne de son groupe est un excellent candidat A.
-5. Régularité : La stabilité sur 12 mois est la signature du Permanent (A).
+Critères de pondération et Règles Métier Strictes :
+1. Normalisation Totale (Base 2 magasins) : TOUTES les statistiques fournies (Totaux et Historique Mensuel) sont PONDÉRÉES par 2 si le produit n'est présent que dans 1 magasin. L'objectif est de simuler une performance sur une base réseau de 2 magasins.
+2. Seuil "Permanent" (A) : Pour être A, un produit doit avoir un volume PONDÉRÉ significatif (ex: > 30-50 unités/an).
+3. Seuil "Sortie" (Z) : Un produit avec moins de 10 unités pondérées par an et un CA faible est un candidat naturel à la sortie (Z).
+4. Volume/CA/Marge : Un produit "A" doit justifier sa place en rayon par son flux (volume) OU sa rentabilité brute (CA/Marge). S'il est faible sur les deux, c'est un Z.
+5. Poids Relatif : Analyse la performance par rapport aux moyennes fournies.
 
-Ta réponse doit être en 1-2 phrases maximum, en français, directe et actionnable.
+Ta réponse doit être courte, directe et sans complaisance.
 Format impératif : "[Recommandation]: [Justification courte]"`;
     }
 
@@ -25,17 +25,20 @@ Format impératif : "[Recommandation]: [Justification courte]"`;
             .map(([k, v]) => `${k}: ${Math.round(v)}u`)
             .join(", ");
 
-        const volumeContext = p.avgTotalQuantite
-            ? `- Volume vs Moyenne Fournisseur : ${Math.round(p.totalQuantite)}u (Moyenne: ${Math.round(p.avgTotalQuantite)}u)`
-            : `- Volume total : ${Math.round(p.totalQuantite)} unités`;
+        const volumeInfo = `Stats Réelles : ${Math.round(p.totalQuantite)}u (${p.totalCa.toFixed(2)}€) sur ${p.storeCount} mag.
+Stats Pondérées (Base 2 mag) : ${Math.round(p.weightedTotalQuantite || 0)}u (${(p.weightedTotalCa || 0).toFixed(2)}€)`;
+
+        const benchmarks = p.avgQtyGroup1 !== undefined && p.avgQtyGroup2 !== undefined
+            ? `\nBenchmarks (Volumes moyens) :
+- Moyenne mag unique : ${Math.round(p.avgQtyGroup1)}u
+- Moyenne multi-magasins : ${Math.round(p.avgQtyGroup2)}u`
+            : "";
 
         return `Produit : "${p.libelle1}" (Ref: ${p.codein})
 Gamme actuelle : ${p.codeGamme ?? "Non définie"}
-Contexte : Données basées sur ${p.storeCount} magasin(s).
-Indicateurs 12m :
-- CA : ${p.totalCa.toFixed(2)}€
+${volumeInfo}${benchmarks}
+Indicateurs Clés :
 - Marge : ${p.tauxMarge.toFixed(1)}%
-${volumeContext}
 - Historique mensuel : ${monthlySummary}
 
 Quelle est ta recommandation (A, C ou Z) et pourquoi ?`;
