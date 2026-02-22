@@ -3,6 +3,9 @@
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 
 import { BulkAiAnalyzer } from "./bulk-ai-analyzer";
+import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
+import { Loader2, CheckCircle, AlertCircle } from "lucide-react";
+import { useState, useTransition } from "react";
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
     // Determine color based on label to match the prototype
@@ -17,8 +20,20 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 }
 
 export function FloatingSummaryBar() {
-    const { summary, draftChanges } = useGridStore();
-    const hasDrafts = Object.keys(draftChanges).length > 0;
+    const { summary, draftChanges, rows, filters } = useGridStore();
+    const [isPending, startTransition] = useTransition();
+    const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle");
+
+    const visibleCodeins = rows.map(r => r.codein);
+    const { save, hasDrafts, count } = useSaveDrafts(filters.magasin || "TOTAL", visibleCodeins);
+
+    const handleSave = () => {
+        startTransition(async () => {
+            const result = await save();
+            setSaveStatus(result.success ? "success" : "error");
+            setTimeout(() => setSaveStatus("idle"), 3000);
+        });
+    };
 
     return (
         <div
@@ -30,7 +45,7 @@ export function FloatingSummaryBar() {
             <div className="text-xs font-bold px-4 py-2 rounded-full border flex items-center gap-2 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500">
                 {hasDrafts && (
                     <span className="ml-2 text-[10px] font-black uppercase text-amber-600 dark:text-amber-500 bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
-                        {Object.keys(draftChanges).length} modif.
+                        {count} modif.
                     </span>
                 )}
             </div>
@@ -56,25 +71,29 @@ export function FloatingSummaryBar() {
 
                 <button
                     onClick={async () => {
-                        // Fetch the absolute latest state from the store at the moment of the click
                         const currentState = useGridStore.getState();
                         const currentDrafts = currentState.draftChanges;
                         const currentRows = currentState.rows;
 
-                        if (Object.keys(currentDrafts).length === 0) {
-                            alert("Aucune gamme n'a été modifiée. L'export Excel ne concerne que les modifications en cours.");
+                        // On définit les lignes modifiées comme étant soit dans les drafts, 
+                        // soit ayant une gamme différente de la gamme initiale (déjà sauvegardées)
+                        const modifiedRows = currentRows.filter(r => {
+                            const currentGamme = currentDrafts[r.codein] ?? r.codeGamme;
+                            return currentGamme !== r.codeGammeInit;
+                        });
+
+                        if (modifiedRows.length === 0) {
+                            alert("Aucun changement détecté par rapport à l'état initial. L'export Excel ne contient que les modifications de cette session.");
                             return;
                         }
 
-                        // Prepare payload using fresh state
-                        const modifiedRows = currentRows.filter(r => currentDrafts[r.codein]);
+                        // Prepare payload
                         const changes = modifiedRows.map(r => ({
                             codein: r.codein,
                             gtin: r.gtin,
-                            gamme: currentDrafts[r.codein] as string,
+                            gamme: (currentDrafts[r.codein] ?? r.codeGamme) as string,
                         }));
 
-                        // Extract supplier name from the first row (or a generic name)
                         const nomFournisseur = modifiedRows.length > 0 ? modifiedRows[0].nomFournisseur : "Fournisseur";
 
                         try {
@@ -109,12 +128,21 @@ export function FloatingSummaryBar() {
                 </button>
 
                 <button
-                    className="px-8 py-3 rounded-xl text-sm font-black transition-all shadow-lg active:scale-95 text-white hover:brightness-110"
+                    onClick={handleSave}
+                    disabled={!hasDrafts || isPending}
+                    className="px-8 py-3 flex items-center gap-2 rounded-xl text-sm font-black transition-all shadow-lg active:scale-95 text-white hover:brightness-110 disabled:opacity-50"
                     style={{
                         background: "var(--brand-solid)",
                     }}
                 >
-                    Valider ce Fournisseur
+                    {isPending ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : saveStatus === "success" ? (
+                        <CheckCircle className="w-4 h-4" />
+                    ) : saveStatus === "error" ? (
+                        <AlertCircle className="w-4 h-4" />
+                    ) : null}
+                    {isPending ? "Validation..." : "Valider ce Fournisseur"}
                 </button>
             </div>
         </div>
