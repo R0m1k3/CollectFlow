@@ -37,10 +37,10 @@ export function Sidebar() {
             {/* Logo */}
             <div className="px-5 py-[18px]" style={{ borderBottom: "1px solid var(--border)" }}>
                 <div className="flex items-center gap-2.5">
-                    <div className="w-7 h-7 rounded-[8px] bg-emerald-500 dark:bg-emerald-600 flex items-center justify-center shadow-sm border border-white/10">
+                    <div className="w-7 h-7 rounded-[8px] bg-[var(--accent)] flex items-center justify-center shadow-sm border border-white/10">
                         <Package className="w-[15px] h-[15px] text-white" strokeWidth={2.2} />
                     </div>
-                    <span className="text-[15px] font-semibold tracking-[-0.3px]" style={{ color: "var(--text-primary)" }}>
+                    <span className="text-[15px] font-semibold tracking-[-0.3px] text-[var(--text-primary)]">
                         CollectFlow
                     </span>
                 </div>
@@ -78,13 +78,13 @@ export function Sidebar() {
 
             {/* User Profile & Logout */}
             <div className="px-3 pb-3 space-y-2">
-                <div className="flex items-center gap-3 px-3 py-3 rounded-xl bg-slate-800/20 border border-slate-700/30">
-                    <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
-                        <UserIcon className="w-4 h-4 text-indigo-400" />
+                <div className="flex items-center gap-3 px-3 py-3 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border)]">
+                    <div className="w-8 h-8 rounded-lg bg-[var(--accent-bg)] flex items-center justify-center border border-[var(--accent-border)]">
+                        <UserIcon className="w-4 h-4 text-[var(--accent)]" />
                     </div>
                     <div className="flex-1 min-w-0">
-                        <p className="text-[12px] font-bold text-slate-100 truncate">{session?.user?.name || "Invité"}</p>
-                        <p className="text-[10px] uppercase font-black text-slate-500 tracking-wider">
+                        <p className="text-[12px] font-bold text-[var(--text-primary)] truncate">{session?.user?.name || "Invité"}</p>
+                        <p className="text-[10px] uppercase font-black text-[var(--text-muted)] tracking-wider">
                             {userRole === "admin" ? "Administrateur" : "Utilisateur"}
                         </p>
                     </div>
@@ -92,7 +92,7 @@ export function Sidebar() {
 
                 <button
                     onClick={() => signOut({ callbackUrl: "/login" })}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-rose-500 hover:bg-rose-500/10 transition-colors"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-[var(--accent-error)] hover:bg-[var(--accent-error-bg)] transition-colors"
                 >
                     <LogOut className="w-[15px] h-[15px]" strokeWidth={1.8} />
                     Déconnexion

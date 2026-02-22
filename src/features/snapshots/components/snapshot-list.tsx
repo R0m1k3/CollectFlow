@@ -110,22 +110,22 @@ export function SnapshotList({ type }: SnapshotListProps) {
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center p-20 space-y-4">
-                <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
-                <p className="text-slate-400 text-sm">Récupération de l&apos;historique...</p>
+                <Loader2 className="w-8 h-8 text-[var(--accent)] animate-spin" />
+                <p className="text-[var(--text-muted)] text-sm">Récupération de l&apos;historique...</p>
             </div>
         );
     }
 
     if (snapshots.length === 0) {
         return (
-            <div className="border border-dashed border-slate-700 rounded-2xl p-16 text-center bg-slate-800/20">
-                <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mx-auto mb-4 border border-slate-700">
-                    <History className="w-8 h-8 text-slate-500" />
+            <div className="border border-dashed border-[var(--border-strong)] rounded-2xl p-16 text-center bg-[var(--bg-elevated)]/30">
+                <div className="w-16 h-16 rounded-full bg-[var(--bg-elevated)] flex items-center justify-center mx-auto mb-4 border border-[var(--border)]">
+                    <History className="w-8 h-8 text-[var(--text-muted)]" />
                 </div>
-                <h3 className="text-slate-200 font-bold mb-1">
+                <h3 className="text-[var(--text-primary)] font-bold mb-1">
                     {type === "export" ? "Aucun export pour le moment" : "Aucun snapshot pour le moment"}
                 </h3>
-                <p className="text-slate-500 text-sm max-w-xs mx-auto">
+                <p className="text-[var(--text-secondary)] text-sm max-w-xs mx-auto">
                     {type === "export"
                         ? "Vos exports Excel apparaîtront ici pour historique."
                         : "Capturez l'état de votre travail depuis la grille pour le retrouver ici ultérieurement."}
@@ -135,25 +135,25 @@ export function SnapshotList({ type }: SnapshotListProps) {
     }
 
     return (
-        <div className="grid gap-4">
+        <div className="grid gap-3">
             {snapshots.map((s) => (
                 <div
                     key={s.id}
-                    className="group relative flex items-center gap-6 p-5 rounded-2xl border transition-all hover:shadow-xl bg-slate-800/40 border-slate-700/50 hover:border-indigo-500/50 hover:bg-slate-800/60"
+                    className="group relative flex items-center gap-6 p-5 rounded-xl border transition-all hover:shadow-lg bg-[var(--bg-surface)] border-[var(--border)] hover:border-[var(--accent-border)]"
                 >
-                    <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center shrink-0">
-                        <Store className="w-6 h-6 text-indigo-400" />
+                    <div className="w-11 h-11 rounded-xl bg-[var(--accent-bg)] border border-[var(--accent-border)] flex items-center justify-center shrink-0">
+                        <Store className="w-5 h-5 text-[var(--accent)]" />
                     </div>
 
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-3 mb-1">
-                            <h3 className="text-sm font-bold text-slate-100 truncate">{s.label}</h3>
-                            <span className="px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-[10px] font-black uppercase text-indigo-400 tracking-wider">
+                            <h3 className="text-sm font-bold text-[var(--text-primary)] truncate">{s.label}</h3>
+                            <span className="px-2 py-0.5 rounded-full bg-[var(--accent-bg)] border border-[var(--accent-border)] text-[10px] font-black uppercase text-[var(--accent)] tracking-wider">
                                 {s.magasin || "Magasin Inconnu"}
                             </span>
                         </div>
 
-                        <div className="flex items-center gap-4 text-[11px] text-slate-400 font-medium">
+                        <div className="flex items-center gap-4 text-[11px] text-[var(--text-muted)] font-medium">
                             <span className="flex items-center gap-1.5">
                                 <Calendar className="w-3.5 h-3.5 opacity-60" />
                                 {formatDate(new Date(s.createdAt))}
@@ -166,16 +166,16 @@ export function SnapshotList({ type }: SnapshotListProps) {
                     </div>
 
                     {s.summaryJson && (
-                        <div className="hidden xl:flex items-center gap-8 border-l border-slate-700/50 pl-8 mr-4">
+                        <div className="hidden xl:flex items-center gap-8 border-l border-[var(--border)] pl-8 mr-4">
                             <div className="flex flex-col">
-                                <span className="text-[9px] uppercase font-black text-slate-500 tracking-wider">CA</span>
-                                <span className="text-xs font-bold text-emerald-400">
+                                <span className="text-[9px] uppercase font-black text-[var(--text-muted)] tracking-wider">CA</span>
+                                <span className="text-xs font-bold text-[var(--accent-success)]">
                                     {(s.summaryJson.totalCa || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 })}
                                 </span>
                             </div>
                             <div className="flex flex-col">
-                                <span className="text-[9px] uppercase font-black text-slate-500 tracking-wider">Marge</span>
-                                <span className="text-xs font-bold text-slate-200">
+                                <span className="text-[9px] uppercase font-black text-[var(--text-muted)] tracking-wider">Marge</span>
+                                <span className="text-xs font-bold text-[var(--text-secondary)]">
                                     {s.summaryJson.tauxMargeGlobal?.toFixed(1)}%
                                 </span>
                             </div>
@@ -185,7 +185,7 @@ export function SnapshotList({ type }: SnapshotListProps) {
                     <div className="flex items-center gap-2">
                         <button
                             onClick={() => handleLoad(s)}
-                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[12px] font-black transition-all active:scale-95 shadow-lg shadow-indigo-900/20"
+                            className="apple-btn-primary flex items-center gap-2"
                         >
                             Restaurer
                             <ChevronRight className="w-4 h-4" />
@@ -194,7 +194,7 @@ export function SnapshotList({ type }: SnapshotListProps) {
                         <button
                             onClick={() => handleDelete(s.id)}
                             disabled={isDeleting === s.id}
-                            className="p-2.5 rounded-xl border border-slate-700 text-slate-500 hover:text-rose-500 hover:bg-rose-500/10 hover:border-rose-500/30 transition-all active:scale-95"
+                            className="p-2.5 rounded-xl border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--accent-error)] hover:bg-[var(--accent-error-bg)] hover:border-[var(--accent-error)] transition-all active:scale-95"
                             title="Supprimer"
                         >
                             {isDeleting === s.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
