@@ -6,6 +6,7 @@ import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
 import { Loader2, CheckCircle, AlertCircle, RotateCcw, Camera } from "lucide-react";
 import { useState, useTransition } from "react";
 import { saveSnapshot } from "@/features/snapshots/api/save-snapshot";
+import { SuccessModal } from "@/components/shared/success-modal";
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
     // Determine color based on label to match the prototype
@@ -25,6 +26,11 @@ export function FloatingSummaryBar() {
     const [isPending, startTransition] = useTransition();
     const [isSavingSnapshot, setIsSavingSnapshot] = useState(false);
     const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle");
+    const [modal, setModal] = useState<{ isOpen: boolean, title: string, message: string }>({
+        isOpen: false,
+        title: "",
+        message: ""
+    });
 
     const visibleCodeins = rows.map(r => r.codein);
     const { save, hasDrafts, count } = useSaveDrafts(filters.magasin || "TOTAL", visibleCodeins);
@@ -75,7 +81,13 @@ export function FloatingSummaryBar() {
             });
 
             if (res.success) {
-                if (!labelOverride) alert("Snapshot enregistré avec succès ! Retrouvez-le dans la page Snapshots.");
+                if (!labelOverride) {
+                    setModal({
+                        isOpen: true,
+                        title: "Snapshot Enregistré",
+                        message: "Votre session de travail a été sauvegardée avec succès."
+                    });
+                }
                 return res.snapshotId;
             } else {
                 throw new Error(res.error);
@@ -84,7 +96,11 @@ export function FloatingSummaryBar() {
             console.error(err);
             if (!labelOverride) {
                 const msg = err instanceof Error ? err.message : String(err);
-                alert(`Erreur lors de la création du snapshot : ${msg}`);
+                setModal({
+                    isOpen: true,
+                    title: "Erreur Snapshot",
+                    message: `Impossible de créer le snapshot : ${msg}`
+                });
             }
         } finally {
             setIsSavingSnapshot(false);
@@ -219,6 +235,13 @@ export function FloatingSummaryBar() {
                     {isPending ? "Validation..." : "Valider"}
                 </button>
             </div>
+
+            <SuccessModal
+                isOpen={modal.isOpen}
+                onClose={() => setModal(prev => ({ ...prev, isOpen: false }))}
+                title={modal.title}
+                message={modal.message}
+            />
         </div>
     );
 }

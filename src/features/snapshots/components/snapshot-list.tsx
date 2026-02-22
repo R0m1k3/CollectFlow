@@ -13,8 +13,8 @@ import {
     History,
     ChevronRight,
     Loader2,
-    AlertCircle
 } from "lucide-react";
+import { SuccessModal } from "@/components/shared/success-modal";
 
 const formatDate = (date: Date) => {
     return new Intl.DateTimeFormat("fr-FR", {
@@ -35,6 +35,11 @@ export function SnapshotList({ type }: SnapshotListProps) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isDeleting, setIsDeleting] = useState<number | null>(null);
+    const [modal, setModal] = useState<{ isOpen: boolean, title: string, message: string }>({
+        isOpen: false,
+        title: "",
+        message: ""
+    });
 
     const restoreSnapshot = useGridStore(state => state.restoreSnapshot);
     const router = useRouter();
@@ -62,11 +67,24 @@ export function SnapshotList({ type }: SnapshotListProps) {
             const res = await deleteSnapshot(id);
             if (res.success) {
                 setSnapshots(prev => prev.filter(s => s.id !== id));
+                setModal({
+                    isOpen: true,
+                    title: "Action Réussie",
+                    message: "L'élément a été supprimé de votre historique."
+                });
             } else {
-                alert("Erreur lors de la suppression.");
+                setModal({
+                    isOpen: true,
+                    title: "Erreur",
+                    message: "Impossible de supprimer l'élément."
+                });
             }
         } catch (err) {
-            alert("Erreur technique lors de la suppression.");
+            setModal({
+                isOpen: true,
+                title: "Erreur Technique",
+                message: "Une erreur est survenue lors de la suppression."
+            });
         } finally {
             setIsDeleting(null);
         }
@@ -75,8 +93,6 @@ export function SnapshotList({ type }: SnapshotListProps) {
     const handleLoad = (snapshot: any) => {
         if (!window.confirm(`Charger la session "${snapshot.label}" ? Cela remplacera vos brouillons actuels.`)) return;
 
-        // Les changements sont stockés sous forme d'objet { codein: { before, after } }
-        // On doit re-transformer en Record<string, GammeCode>
         const changes: Record<string, string> = {};
         Object.entries(snapshot.changes as any).forEach(([codein, delta]: [string, any]) => {
             changes[codein] = delta.after;
@@ -84,7 +100,6 @@ export function SnapshotList({ type }: SnapshotListProps) {
 
         restoreSnapshot(changes);
 
-        // Redirection vers la grille avec les filtres du snapshot
         const query = new URLSearchParams();
         if (snapshot.codeFournisseur) query.set("fournisseur", snapshot.codeFournisseur);
         if (snapshot.magasin) query.set("magasin", snapshot.magasin);
@@ -187,6 +202,13 @@ export function SnapshotList({ type }: SnapshotListProps) {
                     </div>
                 </div>
             ))}
+
+            <SuccessModal
+                isOpen={modal.isOpen}
+                onClose={() => setModal(prev => ({ ...prev, isOpen: false }))}
+                title={modal.title}
+                message={modal.message}
+            />
         </div>
     );
 }
