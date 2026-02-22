@@ -20,11 +20,15 @@ export function BulkAiAnalyzer() {
     };
 
     const handleAnalyze = async () => {
-        const { rows } = useGridStore.getState();
-        isCancelledRef.current = false;
-
         const totalQtySum = rows.reduce((sum, r) => sum + (r.totalQuantite || 0), 0);
         const avgQty = rows.length > 0 ? totalQtySum / rows.length : 0;
+
+        // Benchmarks par groupe de magasins
+        const rowsGroup1 = rows.filter(r => (r.workingStores?.length || 1) === 1);
+        const rowsGroup2 = rows.filter(r => (r.workingStores?.length || 1) >= 2);
+
+        const avgQty1 = rowsGroup1.length > 0 ? rowsGroup1.reduce((s, r) => s + (r.totalQuantite || 0), 0) / rowsGroup1.length : 0;
+        const avgQty2 = rowsGroup2.length > 0 ? rowsGroup2.reduce((s, r) => s + (r.totalQuantite || 0), 0) / rowsGroup2.length : 0;
 
         const productPayloads: ProductAnalysisInput[] = rows.map(r => ({
             codein: r.codein,
@@ -33,6 +37,9 @@ export function BulkAiAnalyzer() {
             tauxMarge: r.tauxMarge || 0,
             totalQuantite: r.totalQuantite || 0,
             avgTotalQuantite: avgQty,
+            avgQtyGroup1: avgQty1,
+            avgQtyGroup2: avgQty2,
+            storeCount: r.workingStores?.length || 1,
             sales12m: r.sales12m || {},
             codeGamme: r.codeGamme || null,
         }));
