@@ -11,9 +11,9 @@ En analysant les données de ventes fournies, génère une recommandation de gam
 
 Critères de pondération et Règles Métier Strictes :
 1. Normalisation Totale (Base 2 magasins) : TOUTES les statistiques fournies sont PONDÉRÉES par 2 si le produit n'est au catalogue que de 1 magasin.
-2. Segmentation par Rayon (Univers) : Privilégie la comparaison "Intra-Rayon". Un produit doit être performant par rapport aux standards de son propre Rayon (Niveau 2).
-3. Score de Performance Global (0-100) : Un score > 70 est un indicateur fort pour "Permanent" (A). Un score < 30 est un indicateur fort pour "Sortie" (Z).
-4. Régularité des Ventes (0-12 mois) : Un produit avec une vente régulière (> 8 mois/an) est un candidat idéal pour "Permanent" (A). Une régularité faible (< 3 mois) couplée à un volume total faible indique une "Sortie" (Z).
+2. Potentiel Annuel (Run Rate) : Si un produit est récent (Régularité < 12 mois), base ton jugement sur sa "Projection 12m" plutôt que sur son volume brut cumulé.
+3. Segmentation par Rayon (Univers) : Privilégie la comparaison "Intra-Rayon". Un produit doit être performant par rapport aux standards de son propre Rayon (Niveau 2).
+4. Score de Performance Global (0-100) : Un score > 70 est un indicateur fort pour "Permanent" (A). Un score < 30 est un indicateur fort pour "Sortie" (Z).
 5. Équilibre : Un produit "A" doit justifier sa place par son flux, sa rentabilité brute OU son score global.
 
 Ta réponse doit être courte, directe et sans complaisance.
@@ -29,6 +29,10 @@ Exemple : "A : Volume de vente et score élevés justifiant le maintien en rayon
         const volumeInfo = `Stats Réelles : ${Math.round(p.totalQuantite)}u (${p.totalCa.toFixed(2)}€) sur ${p.storeCount} mag.
 Stats Pondérées (Base 2 mag) : ${Math.round(p.weightedTotalQuantite || 0)}u (${(p.weightedTotalCa || 0).toFixed(2)}€)`;
 
+        const projectionInfo = p.regularityScore < 12 ? `
+--- ANALYSE DE POTENTIEL (Produit récent : ${p.regularityScore}/12 mois active) ---
+Projection 12 mois (Run Rate) : ${Math.round(p.projectedTotalQuantite || 0)}u (${(p.projectedTotalCa || 0).toFixed(2)}€)` : "";
+
         const benchmarks = `
 Benchmarks Fournisseur (Global) :
 - Moyenne 1 mag: ${Math.round(p.avgQtyGroup1 || 0)}u | Multi-mag: ${Math.round(p.avgQtyGroup2 || 0)}u
@@ -38,7 +42,7 @@ Benchmarks Rayon ("${p.libelleNiveau2}") :
         return `Produit : "${p.libelle1}" (Ref: ${p.codein})
 Rayon : ${p.libelleNiveau2 || "Non classé"}
 Gamme actuelle : ${p.codeGamme ?? "Non définie"}
-${volumeInfo}${benchmarks}
+${volumeInfo}${projectionInfo}${benchmarks}
 Indicateurs de Performance :
 - Score Global App : ${p.score.toFixed(1)}/100
 - Régularité des ventes : ${p.regularityScore}/12 mois

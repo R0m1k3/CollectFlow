@@ -22,6 +22,9 @@ interface AiCopilotState {
         sales12m: Record<string, number>;
         codeGamme: string | null;
         score?: number | null;
+        regularityScore?: number;
+        projectedTotalQuantite?: number;
+        projectedTotalCa?: number;
     }) => Promise<void>;
     resetInsights: () => void;
 }

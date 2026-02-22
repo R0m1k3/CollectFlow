@@ -17,6 +17,9 @@ export interface ProductAnalysisInput {
     codeGamme: string | null;
     score: number;
     regularityScore: number;
+    /** Projection sur 12 mois si le produit est récent (Run Rate) */
+    projectedTotalQuantite?: number;
+    projectedTotalCa?: number;
 }
 
 export interface AnalysisResult {

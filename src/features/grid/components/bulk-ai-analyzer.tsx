@@ -82,6 +82,12 @@ export function BulkAiAnalyzer() {
                 codeGamme: r.codeGamme || null,
                 score: r.score || 0,
                 regularityScore: Object.values(r.sales12m || {}).filter(v => v > 0).length,
+                projectedTotalQuantite: (Object.values(r.sales12m || {}).filter(v => v > 0).length > 0)
+                    ? ((r.totalQuantite || 0) * weight * (12 / Object.values(r.sales12m || {}).filter(v => v > 0).length))
+                    : ((r.totalQuantite || 0) * weight),
+                projectedTotalCa: (Object.values(r.sales12m || {}).filter(v => v > 0).length > 0)
+                    ? ((r.totalCa || 0) * weight * (12 / Object.values(r.sales12m || {}).filter(v => v > 0).length))
+                    : ((r.totalCa || 0) * weight),
             };
         });
 

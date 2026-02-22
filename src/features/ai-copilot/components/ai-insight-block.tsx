@@ -23,6 +23,9 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
         // Vider la recommandation actuelle avant de relancer l'IA
         setDraftGamme(row.codein, "Aucune");
 
+        const regScore = Object.values(row.sales12m || {}).filter(v => v > 0).length;
+        const weight = (row.workingStores?.length || 1) === 1 ? 2 : 1;
+
         analyzeProduct({
             codein: row.codein,
             libelle1: row.libelle1,
@@ -32,6 +35,9 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
             sales12m: row.sales12m,
             codeGamme: row.codeGamme,
             score: row.score,
+            regularityScore: regScore,
+            projectedTotalQuantite: regScore > 0 ? (row.totalQuantite * weight * (12 / regScore)) : (row.totalQuantite * weight),
+            projectedTotalCa: regScore > 0 ? (row.totalCa * weight * (12 / regScore)) : (row.totalCa * weight),
         });
     };
 
