@@ -4,7 +4,6 @@ import React, { useState } from "react";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { useAiCopilotStore } from "@/features/ai-copilot/store/use-ai-copilot-store";
 import { Sparkles, Loader2, CheckCircle2 } from "lucide-react";
-import { ProductRow } from "@/types/grid";
 
 export function BulkAiAnalyzer() {
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -15,29 +14,16 @@ export function BulkAiAnalyzer() {
     const handleAnalyze = async () => {
         const { rows } = useGridStore.getState();
         const supplierTotalCa = rows.reduce((acc, row) => acc + (row.totalCa || 0), 0);
-        const supplierTotalMarge = rows.reduce((acc, row) => acc + (row.totalMarge || 0), 0);
 
-        console.log("[BulkAiAnalyzer] Starting analysis on", rows.length, "rows", { supplierTotalCa, supplierTotalMarge });
+        console.log("[BulkAiAnalyzer] Starting analysis on", rows.length, "rows");
 
         // --- Statistiques globales pour contextualiser le score ---
         const allScores = rows.map(r => r.score || 0).sort((a, b) => a - b);
         const totalProducts = rows.length;
 
-        const medianScore = totalProducts > 0
-            ? (totalProducts % 2 === 0
-                ? (allScores[totalProducts / 2 - 1] + allScores[totalProducts / 2]) / 2
-                : allScores[Math.floor(totalProducts / 2)])
-            : 0;
-
-        const scoreDistribution = {
-            above70: allScores.filter(s => s > 70).length,
-            between30and70: allScores.filter(s => s >= 30 && s <= 70).length,
-            below30: allScores.filter(s => s < 30).length,
-        };
-
         const maxStoreCount = Math.max(...rows.map(r => r.workingStores?.length || 1), 1);
 
-        // Percentile par produit (rang centile 0-100)
+        // Percentile par produit
         const scorePercentileMap = new Map<string, number>();
         rows.forEach(r => {
             const productScore = r.score || 0;
@@ -45,7 +31,7 @@ export function BulkAiAnalyzer() {
             scorePercentileMap.set(r.codein, Math.round((rank / totalProducts) * 100));
         });
 
-        // --- Double poids par nomenclature niveau 2 ---
+        // Double poids par nomenclature niveau 2
         const nomenclature2CaMap = new Map<string, number>();
         rows.forEach(r => {
             const n2 = r.libelleNiveau2 || "Non classe";
@@ -59,99 +45,69 @@ export function BulkAiAnalyzer() {
                 : 0);
         });
 
-        const nomenclature2Count = nomenclature2CaMap.size;
+        // Préparer les payloads enrichis pour chaque produit
+        const productPayloads = rows.map(r => {
+            const rawCaWeight = supplierTotalCa > 0
+                ? parseFloat(((r.totalCa / supplierTotalCa) * 100).toFixed(3))
+                : 0;
+            const storeCount = r.workingStores?.length || 1;
+            const storeRatio = storeCount < maxStoreCount ? maxStoreCount / storeCount : 1;
+            const adjustedCaWeight = parseFloat((rawCaWeight * storeRatio).toFixed(3));
+            const n2 = r.libelleNiveau2 || "Non classe";
+            const n2Ca = nomenclature2CaMap.get(n2) || 1;
+            const weightInNomenclature2 = parseFloat((((r.totalCa || 0) / n2Ca) * 100).toFixed(2));
+            const moisActifs = Object.values(r.sales12m || {}).filter(v => v > 0).length;
 
-        console.log("[BulkAiAnalyzer] Stats:", { totalProducts, medianScore, scoreDistribution, nomenclature2Count, maxStoreCount });
+            return {
+                codein: r.codein,
+                libelle1: r.libelle1 || "",
+                totalCa: r.totalCa || 0,
+                tauxMarge: r.tauxMarge || 0,
+                totalQuantite: r.totalQuantite || 0,
+                sales12m: r.sales12m || {},
+                codeGamme: r.codeGamme || null,
+                score: r.score || 0,
+                // Champs enrichis
+                weightInNomenclature2,
+                adjustedCaWeight,
+                nomenclature2Weight: nomenclature2WeightMap.get(n2) ?? 0,
+                scorePercentile: scorePercentileMap.get(r.codein) ?? 0,
+                moisActifs,
+                nomenclature: `${r.libelleNiveau1 || ""} > ${r.libelleNiveau2 || ""} > ${r.libelle3 || ""}`,
+                batchMode: true,
+            };
+        });
 
         setIsAnalyzing(true);
         let completed = 0;
+        let errors = 0;
+
+        setProgress({ current: 0, total: productPayloads.length, message: "Initialisation...", errors: 0 });
 
         try {
-            // Group by Nomenclature (libelle3 or a fallback)
-            const groups: Record<string, ProductRow[]> = {};
-            rows.forEach(r => {
-                const rayon = r.libelle3 || "Non classifié";
-                if (!groups[rayon]) groups[rayon] = [];
-                groups[rayon].push(r);
-            });
-
-            const CHUNK_SIZE = 50;
-            const chunks: { rayon: string; items: ProductRow[] }[] = [];
-
-            for (const [rayon, items] of Object.entries(groups)) {
-                for (let i = 0; i < items.length; i += CHUNK_SIZE) {
-                    chunks.push({ rayon, items: items.slice(i, i + CHUNK_SIZE) });
-                }
-            }
-
-            setProgress({ current: 0, total: chunks.length, message: "Initialisation...", errors: 0 });
-
-            // Process with a continuous concurrency limit
-            const CONCURRENCY = 3;
-            const remainingChunks = [...chunks];
+            const CONCURRENCY = 5;
+            const remaining = [...productPayloads];
 
             const processNext = async () => {
-                const chunk = remainingChunks.shift();
-                if (!chunk) return;
-
-                const payloadProducts = chunk.items.map(r => {
-                    const rawCaWeight = supplierTotalCa > 0
-                        ? parseFloat(((r.totalCa / supplierTotalCa) * 100).toFixed(3))
-                        : 0;
-                    const storeCount = r.workingStores?.length || 1;
-                    const storeRatio = storeCount < maxStoreCount ? maxStoreCount / storeCount : 1;
-                    const adjustedCaWeight = parseFloat((rawCaWeight * storeRatio).toFixed(3));
-                    const n2 = r.libelleNiveau2 || "Non classe";
-                    const n2Ca = nomenclature2CaMap.get(n2) || 1;
-                    const weightInNomenclature2 = parseFloat((((r.totalCa || 0) / n2Ca) * 100).toFixed(2));
-
-                    // Compter les mois actifs (ventes > 0) pré-calculé
-                    const moisActifs = Object.values(r.sales12m || {}).filter(v => v > 0).length;
-
-                    return {
-                        codein: r.codein,
-                        nom: r.libelle1,
-                        ca: r.totalCa || 0,
-                        adjustedCaWeight,
-                        weightInNomenclature2,
-                        nomenclature2Weight: nomenclature2WeightMap.get(n2) ?? 0,
-                        ventes: r.totalQuantite || 0,
-                        marge: r.totalMarge ? parseFloat(((r.totalMarge / (r.totalCa || 1)) * 100).toFixed(1)) : 0,
-                        scorePercentile: scorePercentileMap.get(r.codein) ?? 0,
-                        moisActifs,
-                        storeCount,
-                        nomenclature: `${r.libelleNiveau1 || ""} > ${r.libelleNiveau2 || ""} > ${r.libelle3 || ""}`,
-                    };
-                });
+                const payload = remaining.shift();
+                if (!payload) return;
 
                 try {
                     let res: Response | null = null;
-                    const MAX_CHUNK_RETRIES = 3;
+                    const MAX_RETRIES = 3;
 
-                    for (let attempt = 1; attempt <= MAX_CHUNK_RETRIES; attempt++) {
-                        res = await fetch("/api/ai/batch-analyze", {
+                    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                        res = await fetch("/api/ai/analyze", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                                rayon: chunk.rayon,
-                                products: payloadProducts,
-                                supplierTotalCa,
-                                supplierTotalMarge,
-                                supplierStats: {
-                                    totalProducts,
-                                    medianScore: Math.round(medianScore * 10) / 10,
-                                    scoreDistribution,
-                                    maxStoreCount,
-                                    nomenclature2Count,
-                                }
-                            })
+                            body: JSON.stringify(payload)
                         });
 
-                        if (res.status === 429 && attempt < MAX_CHUNK_RETRIES) {
+                        if (res.status === 429 && attempt < MAX_RETRIES) {
                             const errData = await res.json().catch(() => ({}));
-                            const waitSecs = errData.retryAfter ?? (30 * attempt);
+                            const waitSecs = errData.retryAfter ?? (15 * attempt);
                             for (let t = waitSecs; t > 0; t--) {
-                                setProgress(prev => ({ ...prev, message: `⏳ Lot ${completed + 1}/${chunks.length} — Limite API, reprise dans ${t}s...` }));
+                                setProgress(prev => ({ ...prev, message: `⏳ ${completed}/${productPayloads.length} — Limite API, reprise dans ${t}s...` }));
                                 await new Promise(r => setTimeout(r, 1000));
                             }
                             continue;
@@ -160,41 +116,43 @@ export function BulkAiAnalyzer() {
                     }
 
                     if (!res || !res.ok) {
-                        const errText = await res?.text().catch(() => "");
-                        console.error(`[BulkAiAnalyzer] Erreur HTTP sur le lot ${chunk.rayon}:`, errText);
-                        setProgress(prev => ({ ...prev, errors: prev.errors + 1 }));
+                        errors++;
                     } else {
                         const data = await res.json();
-                        if (data && Array.isArray(data.results)) {
-                            data.results.forEach((reco: any) => {
-                                if (reco.codein && reco.recommandationGamme) {
-                                    setDraftGamme(reco.codein, reco.recommandationGamme);
-                                    const justification = `Gamme ${reco.recommandationGamme} — ${reco.justificationCourte || "Analyse effectuée."}`;
-                                    setInsight(reco.codein, justification, reco.isDuplicate ?? false);
-                                }
-                            });
+                        if (data.recommandationGamme) {
+                            setDraftGamme(data.codein, data.recommandationGamme);
+                            const justification = `Gamme ${data.recommandationGamme} — ${data.justificationCourte || "Analyse effectuée."}`;
+                            setInsight(data.codein, justification, data.isDuplicate ?? false);
                         }
                     }
-                } catch (e) {
-                    console.error(`[BulkAiAnalyzer] Failed fetch for chunk ${chunk.rayon}:`, e);
-                    setProgress(prev => ({ ...prev, errors: prev.errors + 1 }));
+                } catch {
+                    errors++;
                 } finally {
                     completed++;
-                    setProgress(prev => ({
-                        ...prev,
+                    setProgress({
                         current: completed,
-                        message: completed === chunks.length ? "Analyse terminée" : `Analyse: ${completed}/${chunks.length} lots`
-                    }));
-                    // Process next chunk in the same worker
+                        total: productPayloads.length,
+                        message: completed === productPayloads.length
+                            ? "Analyse terminée"
+                            : `Analyse: ${completed}/${productPayloads.length} produits`,
+                        errors,
+                    });
                     await processNext();
                 }
             };
 
-            // Start workers
-            const workers = Array.from({ length: Math.min(CONCURRENCY, chunks.length) }, () => processNext());
+            const workers = Array.from(
+                { length: Math.min(CONCURRENCY, productPayloads.length) },
+                () => processNext()
+            );
             await Promise.all(workers);
 
-            setProgress(prev => ({ ...prev, current: completed, total: chunks.length, message: `Analyse terminée ! (${prev.errors > 0 ? prev.errors + " erreurs" : "succès"})` }));
+            setProgress(prev => ({
+                ...prev,
+                current: completed,
+                total: productPayloads.length,
+                message: `Analyse terminée ! (${errors > 0 ? errors + " erreurs" : "succès"})`,
+            }));
             setTimeout(() => setIsAnalyzing(false), 3000);
 
         } catch (error) {
@@ -227,7 +185,7 @@ export function BulkAiAnalyzer() {
             <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 cursor-default">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-500" />
                 <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
-                    Analyse terminée ({progress.total} lots analysés)
+                    Analyse terminée ({progress.total} produits analysés)
                 </span>
             </div>
         );
