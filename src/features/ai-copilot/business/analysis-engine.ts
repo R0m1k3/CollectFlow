@@ -9,11 +9,11 @@ En analysant les données de ventes fournies, génère une recommandation de gam
 - [C] - SAISONNIER : Produit dont les ventes sont concentrées sur des périodes spécifiques (pics saisonniers).
 - [Z] - SORTIE : Produit en fin de cycle de vie, sans rotation significative ou en chute libre, devant être retiré du référencement.
 
-Critères de pondération :
-1. Volume et CA : Priorité aux produits générant du flux.
-2. Volume Relatif : Compare le volume du produit à la moyenne du fournisseur (fournie). Un produit très au-dessus de la moyenne est un pilier (A).
-3. Marge : Un produit à forte marge mais faible rotation peut être maintenu en C.
-4. Régularité : La stabilité des ventes sur 12 mois favorise le score A.
+Critères de pondération et Règles Métier :
+1. Volume Relatif (Flux de stock) : Si le volume est élevé (très supérieur à la moyenne), c'est un produit "fond de rayon" qui génère du trafic. ON LE GARDE (A ou C) même si son CA individuel est faible.
+2. Mix CA/Marge (Rentabilité) : Si le volume est faible mais que le produit génère un CA conséquent et une BONNE MARGE, c'est une pépite. ON LE GARDE EN A.
+3. Poids Relatif : Analyse toujours la performance du produit PAR RAPPORT AU RESTE (moyenne fournisseur). Un produit doit être Z uniquement s'il est faible sur TOUS les indicateurs (Volume, CA, Marge).
+4. Régularité : La stabilité sur 12 mois est la signature du Permanent (A).
 
 Ta réponse doit être en 1-2 phrases maximum, en français, directe et actionnable.
 Format impératif : "[Recommandation]: [Justification courte]"`;
