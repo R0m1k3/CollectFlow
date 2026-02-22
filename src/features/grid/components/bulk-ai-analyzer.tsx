@@ -20,15 +20,18 @@ export function BulkAiAnalyzer() {
     };
 
     const handleAnalyze = async () => {
-        const totalQtySum = rows.reduce((sum, r) => sum + (r.totalQuantite || 0), 0);
+        const { rows } = useGridStore.getState();
+        isCancelledRef.current = false;
+
+        const totalQtySum = rows.reduce((sum: number, r: any) => sum + (r.totalQuantite || 0), 0);
         const avgQty = rows.length > 0 ? totalQtySum / rows.length : 0;
 
         // Benchmarks par groupe de magasins
         const rowsGroup1 = rows.filter(r => (r.workingStores?.length || 1) === 1);
         const rowsGroup2 = rows.filter(r => (r.workingStores?.length || 1) >= 2);
 
-        const avgQty1 = rowsGroup1.length > 0 ? rowsGroup1.reduce((s, r) => s + (r.totalQuantite || 0), 0) / rowsGroup1.length : 0;
-        const avgQty2 = rowsGroup2.length > 0 ? rowsGroup2.reduce((s, r) => s + (r.totalQuantite || 0), 0) / rowsGroup2.length : 0;
+        const avgQty1 = rowsGroup1.length > 0 ? rowsGroup1.reduce((s: number, r: any) => s + (r.totalQuantite || 0), 0) / rowsGroup1.length : 0;
+        const avgQty2 = rowsGroup2.length > 0 ? rowsGroup2.reduce((s: number, r: any) => s + (r.totalQuantite || 0), 0) / rowsGroup2.length : 0;
 
         const productPayloads: ProductAnalysisInput[] = rows.map(r => ({
             codein: r.codein,
