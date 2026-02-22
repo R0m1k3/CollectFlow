@@ -103,6 +103,8 @@ export function BulkAiAnalyzer() {
 
                 // Marquer temporairement comme loading dans le store pour le feedback visuel individuel
                 setInsight(payload.codein, "", false);
+                // Vider aussi la recommandation (A, C, Z) pour montrer que c'est en cours de recalcul
+                setDraftGamme(payload.codein, "Aucune");
                 // Note: setInsight dans le store actuel met le status à "done". 
                 // Pour bien faire, il faudrait une action setStatusLoading dans le store.
                 // Ici, on va au moins vider l'insight pour montrer que ça bouge.

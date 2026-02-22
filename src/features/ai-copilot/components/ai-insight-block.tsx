@@ -5,17 +5,24 @@ import { useAiCopilotStore } from "@/features/ai-copilot/store/use-ai-copilot-st
 import type { ProductRow } from "@/types/grid";
 import { cn } from "@/lib/utils";
 
+import { useGridStore } from "@/features/grid/store/use-grid-store";
+
 interface AiInsightBlockProps {
     row: ProductRow;
 }
 
 export function AiInsightBlock({ row }: AiInsightBlockProps) {
     const { insights, analyzeProduct } = useAiCopilotStore();
+    const setDraftGamme = useGridStore(state => state.setDraftGamme);
     const insight = insights[row.codein];
     const status = insight?.status ?? "idle";
 
     const handleAnalyze = () => {
         if (status === "loading") return;
+
+        // Vider la recommandation actuelle avant de relancer l'IA
+        setDraftGamme(row.codein, "Aucune");
+
         analyzeProduct({
             codein: row.codein,
             libelle1: row.libelle1,
