@@ -46,10 +46,15 @@ export async function saveSnapshot(raw: unknown) {
 
         return { success: true, snapshotId: created?.id };
     } catch (err: any) {
-        console.error("Snapshot DB error, attempting auto-repair:", err);
+        console.error("Snapshot DB error:", err);
 
-        // Si la table n'existe pas, on tente de la créer
-        if (err.message?.includes("relation") && err.message?.includes("does not exist")) {
+        // Détection plus large (code 42P01 ou texte relation does not exist)
+        const isTableMissing = err.code === '42P01' ||
+            err.message?.toLowerCase().includes("relation") ||
+            err.message?.toLowerCase().includes("does not exist");
+
+        if (isTableMissing) {
+            console.log("Table missing detected, attempting auto-repair...");
             try {
                 await db.execute(sql`
                     CREATE TABLE IF NOT EXISTS session_snapshots (
@@ -63,8 +68,9 @@ export async function saveSnapshot(raw: unknown) {
                         created_at TIMESTAMP DEFAULT NOW()
                     );
                 `);
+
                 // On ré-essaie l'insertion une seule fois
-                const [created] = await db
+                const [retryCreated] = await db
                     .insert(sessionSnapshots)
                     .values({
                         codeFournisseur,
@@ -75,14 +81,14 @@ export async function saveSnapshot(raw: unknown) {
                         summaryJson: summary ?? null,
                     })
                     .returning({ id: sessionSnapshots.id });
-                return { success: true, snapshotId: created?.id };
+
+                return { success: true, snapshotId: retryCreated?.id };
             } catch (repairErr: any) {
-                console.error("Auto-repair failed:", repairErr);
-                return { success: false, error: `Repair failed: ${repairErr.message}` };
+                console.error("Repair or retry failed:", repairErr);
+                return { success: false, error: `Repair/Retry failed: ${repairErr.message}` };
             }
         }
 
-        const errorMessage = err instanceof Error ? err.message : String(err);
-        return { success: false, error: `DB Error: ${errorMessage}` };
+        return { success: false, error: `DB Error: ${err.message || String(err)}` };
     }
 }
