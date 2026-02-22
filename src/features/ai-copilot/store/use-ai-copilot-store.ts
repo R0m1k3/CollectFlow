@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 interface AiInsight {
     codein: string;
@@ -24,49 +25,56 @@ interface AiCopilotState {
     }) => Promise<void>;
 }
 
-export const useAiCopilotStore = create<AiCopilotState>((set) => ({
-    insights: {},
+export const useAiCopilotStore = create<AiCopilotState>()(
+    persist(
+        (set, get) => ({
+            insights: {},
 
-    setInsight: (codein, insight, isDuplicate = false) => {
-        set((s) => ({
-            insights: {
-                ...s.insights,
-                [codein]: { codein, insight, status: "done", isDuplicate },
+            setInsight: (codein, insight, isDuplicate = false) => {
+                set((s) => ({
+                    insights: {
+                        ...s.insights,
+                        [codein]: { codein, insight, status: "done", isDuplicate },
+                    },
+                }));
             },
-        }));
-    },
 
-    analyzeProduct: async (payload) => {
-        const { codein, score } = payload;
+            analyzeProduct: async (payload) => {
+                const { codein } = payload;
 
-        // Mark as loading
-        set((s) => ({
-            insights: { ...s.insights, [codein]: { codein, insight: "", status: "loading" } },
-        }));
+                // Mark as loading
+                set((s) => ({
+                    insights: { ...s.insights, [codein]: { codein, insight: "", status: "loading" } },
+                }));
 
-        try {
-            const res = await fetch("/api/ai/analyze", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-            });
+                try {
+                    const res = await fetch("/api/ai/analyze", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload),
+                    });
 
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const data = await res.json();
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const data = await res.json();
 
-            set((s) => ({
-                insights: {
-                    ...s.insights,
-                    [codein]: { codein, insight: data.insight, status: "done" },
-                },
-            }));
-        } catch {
-            set((s) => ({
-                insights: {
-                    ...s.insights,
-                    [codein]: { codein, insight: "Erreur lors de l'analyse.", status: "error" },
-                },
-            }));
+                    set((s) => ({
+                        insights: {
+                            ...s.insights,
+                            [codein]: { codein, insight: data.insight, status: "done" },
+                        },
+                    }));
+                } catch {
+                    set((s) => ({
+                        insights: {
+                            ...s.insights,
+                            [codein]: { codein, insight: "Erreur lors de l'analyse.", status: "error" },
+                        },
+                    }));
+                }
+            },
+        }),
+        {
+            name: "collectflow-ai-storage",
         }
-    },
-}));
+    )
+);
