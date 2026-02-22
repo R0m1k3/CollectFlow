@@ -1,10 +1,11 @@
 "use client";
 
 import { useGridStore } from "@/features/grid/store/use-grid-store";
+import { useAiCopilotStore } from "@/features/ai-copilot/store/use-ai-copilot-store";
 
 import { BulkAiAnalyzer } from "./bulk-ai-analyzer";
 import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
-import { Loader2, CheckCircle, AlertCircle } from "lucide-react";
+import { Loader2, CheckCircle, AlertCircle, RotateCcw } from "lucide-react";
 import { useState, useTransition } from "react";
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
@@ -20,7 +21,8 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 }
 
 export function FloatingSummaryBar() {
-    const { summary, draftChanges, rows, filters } = useGridStore();
+    const { summary, resetDrafts, rows, filters } = useGridStore();
+    const { resetInsights } = useAiCopilotStore();
     const [isPending, startTransition] = useTransition();
     const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle");
 
@@ -35,6 +37,13 @@ export function FloatingSummaryBar() {
         });
     };
 
+    const handleReset = () => {
+        if (window.confirm("Es-tu sûr de vouloir annuler tous les changements non enregistrés (gammes et analyses IA) ?")) {
+            resetDrafts();
+            resetInsights();
+        }
+    };
+
     return (
         <div
             className="fixed bottom-6 left-[264px] right-6 p-4 flex justify-between items-center shadow-lg border rounded-xl z-50 transition-colors bg-slate-100 dark:bg-slate-800"
@@ -43,8 +52,16 @@ export function FloatingSummaryBar() {
             }}
         >
             <div className="text-xs font-bold px-4 py-2 rounded-full border flex items-center gap-2 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500">
+                <button
+                    onClick={handleReset}
+                    className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-900/20 text-slate-400 hover:text-rose-500 transition-colors rounded-lg border border-transparent hover:border-rose-200"
+                    title="Réinitialiser la page"
+                >
+                    <RotateCcw className="w-4 h-4" />
+                </button>
+                <div className="w-[1px] h-4 bg-slate-200 dark:bg-slate-800 mx-1" />
                 {hasDrafts && (
-                    <span className="ml-2 text-[10px] font-black uppercase text-amber-600 dark:text-amber-500 bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                    <span className="text-[10px] font-black uppercase text-amber-600 dark:text-amber-500 bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
                         {count} modif.
                     </span>
                 )}

@@ -23,6 +23,7 @@ interface AiCopilotState {
         codeGamme: string | null;
         score?: number | null;
     }) => Promise<void>;
+    resetInsights: () => void;
 }
 
 export const useAiCopilotStore = create<AiCopilotState>()(
@@ -37,6 +38,10 @@ export const useAiCopilotStore = create<AiCopilotState>()(
                         [codein]: { codein, insight, status: "done", isDuplicate },
                     },
                 }));
+            },
+
+            resetInsights: () => {
+                set({ insights: {} });
             },
 
             analyzeProduct: async (payload) => {
