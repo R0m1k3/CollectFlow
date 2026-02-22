@@ -1,28 +1,33 @@
 "use client";
 
-import { LayoutGrid, Camera, FileDown, Settings, Package, BarChart3 } from "lucide-react";
+import { LayoutGrid, Camera, FileDown, Settings, Package, BarChart3, LogOut, User as UserIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { useEffect, useState } from "react";
+import { useSession, signOut } from "next-auth/react";
 
 const NAV_ITEMS = [
     { icon: LayoutGrid, label: "Grille", href: "/grid" },
     { icon: Camera, label: "Snapshots", href: "/snapshots" },
     { icon: FileDown, label: "Exports", href: "/exports" },
     { icon: BarChart3, label: "Score", href: "/score" },
-    { icon: Settings, label: "Paramètres", href: "/settings" },
+    { icon: Settings, label: "Paramètres", href: "/settings", adminOnly: true },
 ];
 
 export function Sidebar() {
     const pathname = usePathname();
+    const { data: session } = useSession();
     const activeGridQuery = useGridStore((s) => s.activeGridQuery);
     const [isMounted, setIsMounted] = useState(false);
 
     useEffect(() => {
         setIsMounted(true);
     }, []);
+
+    const userRole = (session?.user as any)?.role;
+    const filteredItems = NAV_ITEMS.filter(item => !item.adminOnly || userRole === "admin");
 
     return (
         <aside
@@ -42,11 +47,10 @@ export function Sidebar() {
             </div>
 
             {/* Navigation */}
-            <nav className="px-2 pt-2.5 space-y-0.5">
-                {NAV_ITEMS.map(({ icon: Icon, label, href }) => {
+            <nav className="px-2 pt-2.5 space-y-0.5 flex-1">
+                {filteredItems.map(({ icon: Icon, label, href }) => {
                     const isActive = pathname.startsWith(href);
 
-                    // Restore grid context if navigating back to the grid
                     let resolvedHref = href;
                     if (href === "/grid" && isMounted && activeGridQuery) {
                         resolvedHref = `/grid${activeGridQuery}`;
@@ -64,12 +68,6 @@ export function Sidebar() {
                                 "flex items-center gap-2.5 px-3 py-[7px] rounded-[8px] text-[13px] font-medium transition-all duration-150",
                                 !isActive && "hover:bg-[var(--bg-elevated)]"
                             )}
-                            onMouseEnter={(e) => {
-                                if (!isActive) (e.currentTarget as HTMLElement).style.background = "var(--bg-elevated)";
-                            }}
-                            onMouseLeave={(e) => {
-                                if (!isActive) (e.currentTarget as HTMLElement).style.background = "transparent";
-                            }}
                         >
                             <Icon className="w-[15px] h-[15px] shrink-0" strokeWidth={1.8} />
                             {label}
@@ -78,8 +76,31 @@ export function Sidebar() {
                 })}
             </nav>
 
+            {/* User Profile & Logout */}
+            <div className="px-3 pb-3 space-y-2">
+                <div className="flex items-center gap-3 px-3 py-3 rounded-xl bg-slate-800/20 border border-slate-700/30">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
+                        <UserIcon className="w-4 h-4 text-indigo-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-[12px] font-bold text-slate-100 truncate">{session?.user?.name || "Invité"}</p>
+                        <p className="text-[10px] uppercase font-black text-slate-500 tracking-wider">
+                            {userRole === "admin" ? "Administrateur" : "Utilisateur"}
+                        </p>
+                    </div>
+                </div>
+
+                <button
+                    onClick={() => signOut({ callbackUrl: "/login" })}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-rose-500 hover:bg-rose-500/10 transition-colors"
+                >
+                    <LogOut className="w-[15px] h-[15px]" strokeWidth={1.8} />
+                    Déconnexion
+                </button>
+            </div>
+
             {/* Footer */}
-            <div className="mt-auto px-4 py-3" style={{ borderTop: "1px solid var(--border)" }}>
+            <div className="px-4 py-3" style={{ borderTop: "1px solid var(--border)" }}>
                 <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>v1.0.0-beta</p>
             </div>
         </aside>

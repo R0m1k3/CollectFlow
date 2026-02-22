@@ -2,14 +2,20 @@
 
 import { db } from "@/db";
 import { sessionSnapshots } from "@/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { auth } from "@/lib/auth";
+import { and, desc, eq } from "drizzle-orm";
 
 export async function getSnapshots(type?: "snapshot" | "export") {
-    let query = db.select().from(sessionSnapshots);
+    const session = await auth();
+    const userId = session?.user ? Number((session.user as any).id) : null;
 
-    if (type) {
-        // @ts-ignore - type column added dynamically
-        return query.where(eq(sessionSnapshots.type, type)).orderBy(desc(sessionSnapshots.createdAt));
+    let query = db.select().from(sessionSnapshots);
+    const conditions = [];
+    if (userId) conditions.push(eq(sessionSnapshots.userId, userId));
+    if (type) conditions.push(eq(sessionSnapshots.type, type));
+
+    if (conditions.length > 0) {
+        return query.where(and(...conditions)).orderBy(desc(sessionSnapshots.createdAt));
     }
 
     return query.orderBy(desc(sessionSnapshots.createdAt));

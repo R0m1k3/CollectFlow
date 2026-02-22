@@ -8,6 +8,9 @@ import { useScoreSettingsStore } from "@/features/score/store/use-score-settings
 import { useDbSettingsStore } from "@/features/settings/store/use-db-settings-store";
 import { testDatabaseConnection, saveDatabaseSettings, getSavedDatabaseConfig } from "@/features/settings/actions";
 import { useEffect } from "react";
+import { UserManagement } from "@/features/admin/components/user-management";
+import { auth } from "@/lib/auth";
+import { redirect } from "next/navigation";
 
 interface OpenRouterModel { id: string; name: string; free: boolean; }
 
@@ -400,6 +403,14 @@ export default function SettingsPage() {
                         Rétablir les valeurs par défaut
                     </button>
                 </div>
+            </Section>
+
+            {/* Gestion des Utilisateurs */}
+            <Section
+                title="Gestion des Utilisateurs"
+                subtitle="Administration des accès et des rôles"
+            >
+                <UserManagement />
             </Section>
 
             {/* Save */}

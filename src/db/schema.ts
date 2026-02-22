@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, numeric, smallint, timestamp, uniqueIndex, index, text, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, varchar, numeric, smallint, timestamp, uniqueIndex, index, text, jsonb, integer } from "drizzle-orm/pg-core";
 
 export const ventesProduits = pgTable("ventes_produits", {
   id: serial("id").primaryKey(),
@@ -47,9 +47,22 @@ export const ventesProduits = pgTable("ventes_produits", {
   ];
 });
 
+/** User management (Epic 6) */
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  username: varchar("username", { length: 50 }).notNull().unique(),
+  /** Hashed password */
+  passwordHash: text("password_hash").notNull(),
+  /** 'admin' or 'user' */
+  role: varchar("role", { length: 20 }).default("user").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 /** Snapshot of a complete arbitrage session (Epic 5) */
 export const sessionSnapshots = pgTable("session_snapshots", {
   id: serial("id").primaryKey(),
+  /** Link to user who created the snapshot */
+  userId: integer("user_id").references(() => users.id),
   codeFournisseur: varchar("code_fournisseur", { length: 20 }).notNull(),
   nomFournisseur: varchar("nom_fournisseur", { length: 255 }),
   magasin: varchar("magasin", { length: 20 }).notNull(),

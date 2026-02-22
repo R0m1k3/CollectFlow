@@ -3,7 +3,8 @@
 import { db } from "@/db";
 import { sessionSnapshots } from "@/db/schema";
 import { z } from "zod";
-import { sql } from "drizzle-orm";
+import { sql, and, eq } from "drizzle-orm";
+import { auth } from "@/lib/auth";
 
 const SaveSnapshotSchema = z.object({
     codeFournisseur: z.string(),
@@ -31,11 +32,14 @@ export async function saveSnapshot(raw: unknown) {
     }
 
     const { codeFournisseur, nomFournisseur, magasin, label, changes, summary, type } = parsed.data;
+    const session = await auth();
+    const userId = session?.user ? Number((session.user as any).id) : null;
 
     try {
         const [created] = await db
             .insert(sessionSnapshots)
             .values({
+                userId,
                 codeFournisseur,
                 nomFournisseur: nomFournisseur ?? null,
                 magasin,
@@ -55,6 +59,7 @@ export async function saveSnapshot(raw: unknown) {
             await db.execute(sql`
                 CREATE TABLE IF NOT EXISTS session_snapshots (
                     id SERIAL PRIMARY KEY,
+                    user_id INTEGER,
                     code_fournisseur VARCHAR(20) NOT NULL,
                     nom_fournisseur VARCHAR(255),
                     magasin VARCHAR(20) NOT NULL,
@@ -66,17 +71,19 @@ export async function saveSnapshot(raw: unknown) {
                 );
             `);
 
-            // Si la table existait déjà mais sans la colonne 'type', on l'ajoute
+            // Si la table existait déjà mais sans la colonne 'type' ou 'user_id', on les ajoute
             try {
                 await db.execute(sql`ALTER TABLE session_snapshots ADD COLUMN IF NOT EXISTS type VARCHAR(20) DEFAULT 'snapshot'`);
+                await db.execute(sql`ALTER TABLE session_snapshots ADD COLUMN IF NOT EXISTS user_id INTEGER`);
             } catch (e) {
-                // Ignore if column already exists or other alter errors
+                // Ignore
             }
 
             // Deuxième tentative d'insertion
             const [retryCreated] = await db
                 .insert(sessionSnapshots)
                 .values({
+                    userId,
                     codeFournisseur,
                     nomFournisseur: nomFournisseur ?? null,
                     magasin,
