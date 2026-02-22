@@ -10,11 +10,11 @@ En analysant les données de ventes fournies, génère une recommandation de gam
 - [Z] - SORTIE : Produit en fin de cycle de vie, sans rotation significative ou en chute libre, devant être retiré du référencement.
 
 Critères de pondération et Règles Métier Strictes :
-1. Normalisation Totale (Base 2 magasins) : TOUTES les statistiques fournies (Totaux et Historique Mensuel) sont PONDÉRÉES par 2 si le produit n'est présent que dans 1 magasin. L'objectif est de simuler une performance sur une base réseau de 2 magasins.
-2. Seuil "Permanent" (A) : Pour être A, un produit doit avoir un volume PONDÉRÉ significatif (ex: > 30-50 unités/an).
-3. Seuil "Sortie" (Z) : Un produit avec moins de 10 unités pondérées par an et un CA faible est un candidat naturel à la sortie (Z).
-4. Volume/CA/Marge : Un produit "A" doit justifier sa place en rayon par son flux (volume) OU sa rentabilité brute (CA/Marge). S'il est faible sur les deux, c'est un Z.
-5. Poids Relatif : Analyse la performance par rapport aux moyennes fournies.
+1. Normalisation Totale (Base 2 magasins) : TOUTES les statistiques fournies sont PONDÉRÉES par 2 si le produit n'est au catalogue que de 1 magasin.
+2. Segmentation par Rayon (Univers) : Privilégie la comparaison "Intra-Rayon". Un produit doit être performant par rapport aux standards de son propre Rayon (Niveau 2).
+3. Seuil "Permanent" (A) : Pour être A, un produit doit avoir un volume PONDÉRÉ significatif (ex: > 30-50 unités/an).
+4. Seuil "Sortie" (Z) : Un produit avec moins de 10 unités pondérées par an et un CA faible est un candidat à la sortie (Z).
+5. Équilibre : Un produit "A" doit justifier sa place par son flux OU sa rentabilité brute.
 
 Ta réponse doit être courte, directe et sans complaisance.
 Format impératif : "[Recommandation]: [Justification courte]"`;
@@ -28,18 +28,19 @@ Format impératif : "[Recommandation]: [Justification courte]"`;
         const volumeInfo = `Stats Réelles : ${Math.round(p.totalQuantite)}u (${p.totalCa.toFixed(2)}€) sur ${p.storeCount} mag.
 Stats Pondérées (Base 2 mag) : ${Math.round(p.weightedTotalQuantite || 0)}u (${(p.weightedTotalCa || 0).toFixed(2)}€)`;
 
-        const benchmarks = p.avgQtyGroup1 !== undefined && p.avgQtyGroup2 !== undefined
-            ? `\nBenchmarks (Volumes moyens) :
-- Moyenne mag unique : ${Math.round(p.avgQtyGroup1)}u
-- Moyenne multi-magasins : ${Math.round(p.avgQtyGroup2)}u`
-            : "";
+        const benchmarks = `
+Benchmarks Fournisseur (Global) :
+- Moyenne 1 mag: ${Math.round(p.avgQtyGroup1 || 0)}u | Multi-mag: ${Math.round(p.avgQtyGroup2 || 0)}u
+Benchmarks Rayon ("${p.libelleNiveau2}") :
+- Moyenne 1 mag: ${Math.round(p.avgQtyRayon1 || 0)}u | Multi-mag: ${Math.round(p.avgQtyRayon2 || 0)}u`;
 
         return `Produit : "${p.libelle1}" (Ref: ${p.codein})
+Rayon : ${p.libelleNiveau2 || "Non classé"}
 Gamme actuelle : ${p.codeGamme ?? "Non définie"}
 ${volumeInfo}${benchmarks}
 Indicateurs Clés :
 - Marge : ${p.tauxMarge.toFixed(1)}%
-- Historique mensuel : ${monthlySummary}
+- Historique mensuel (Pondéré) : ${monthlySummary}
 
 Quelle est ta recommandation (A, C ou Z) et pourquoi ?`;
     }

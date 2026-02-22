@@ -33,13 +33,38 @@ export function BulkAiAnalyzer() {
         const avgQty1 = rowsGroup1.length > 0 ? rowsGroup1.reduce((s: number, r: any) => s + (r.totalQuantite || 0), 0) / rowsGroup1.length : 0;
         const avgQty2 = rowsGroup2.length > 0 ? rowsGroup2.reduce((s: number, r: any) => s + (r.totalQuantite || 0), 0) / rowsGroup2.length : 0;
 
+        // Benchmarks par Rayon (Nomenclature Niveau 2)
+        const rayonStats = new Map<string, { qty1: number[], qty2: number[] }>();
+        rows.forEach((r: any) => {
+            const rayon = r.libelleNiveau2 || "Général";
+            if (!rayonStats.has(rayon)) rayonStats.set(rayon, { qty1: [], qty2: [] });
+            const stats = rayonStats.get(rayon)!;
+            const sc = r.workingStores?.length || 1;
+            if (sc === 1) stats.qty1.push(r.totalQuantite || 0);
+            else stats.qty2.push(r.totalQuantite || 0);
+        });
+
+        const rayonBenchmarks = new Map<string, { avg1: number, avg2: number }>();
+        rayonStats.forEach((stats, rayon) => {
+            const totalCount = stats.qty1.length + stats.qty2.length;
+            // Seuil de 3 produits pour justifier un benchmark spécifique par rayon
+            if (totalCount >= 3) {
+                rayonBenchmarks.set(rayon, {
+                    avg1: stats.qty1.length > 0 ? stats.qty1.reduce((a, b) => a + b, 0) / stats.qty1.length : 0,
+                    avg2: stats.qty2.length > 0 ? stats.qty2.reduce((a, b) => a + b, 0) / stats.qty2.length : 0
+                });
+            }
+        });
+
         const productPayloads: ProductAnalysisInput[] = rows.map(r => {
             const sc = r.workingStores?.length || 1;
             const weight = sc === 1 ? 2 : 1; // On ramène tout sur une base 2 magasins
+            const rb = rayonBenchmarks.get(r.libelleNiveau2 || "Général");
 
             return {
                 codein: r.codein,
                 libelle1: r.libelle1 || "",
+                libelleNiveau2: r.libelleNiveau2 || "Général",
                 totalCa: r.totalCa || 0,
                 tauxMarge: r.tauxMarge || 0,
                 totalQuantite: r.totalQuantite || 0,
@@ -48,6 +73,8 @@ export function BulkAiAnalyzer() {
                 avgTotalQuantite: avgQty,
                 avgQtyGroup1: avgQty1,
                 avgQtyGroup2: avgQty2,
+                avgQtyRayon1: rb ? rb.avg1 : avgQty1,
+                avgQtyRayon2: rb ? rb.avg2 : avgQty2,
                 storeCount: sc,
                 sales12m: Object.fromEntries(
                     Object.entries(r.sales12m || {}).map(([month, val]) => [month, val * weight])
