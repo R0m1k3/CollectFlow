@@ -19,6 +19,50 @@ export function BulkAiAnalyzer() {
 
         console.log("[BulkAiAnalyzer] Starting analysis on", rows.length, "rows", { supplierTotalCa, supplierTotalMarge });
 
+        // --- Statistiques globales pour contextualiser le score ---
+        const allScores = rows.map(r => r.score || 0).sort((a, b) => a - b);
+        const totalProducts = rows.length;
+
+        const medianScore = totalProducts > 0
+            ? (totalProducts % 2 === 0
+                ? (allScores[totalProducts / 2 - 1] + allScores[totalProducts / 2]) / 2
+                : allScores[Math.floor(totalProducts / 2)])
+            : 0;
+
+        const scoreDistribution = {
+            above70: allScores.filter(s => s > 70).length,
+            between30and70: allScores.filter(s => s >= 30 && s <= 70).length,
+            below30: allScores.filter(s => s < 30).length,
+        };
+
+        const maxStoreCount = Math.max(...rows.map(r => r.workingStores?.length || 1), 1);
+
+        // Percentile par produit (rang centile 0-100)
+        const scorePercentileMap = new Map<string, number>();
+        rows.forEach(r => {
+            const productScore = r.score || 0;
+            const rank = allScores.filter(s => s <= productScore).length;
+            scorePercentileMap.set(r.codein, Math.round((rank / totalProducts) * 100));
+        });
+
+        // --- Double poids par nomenclature niveau 2 ---
+        const nomenclature2CaMap = new Map<string, number>();
+        rows.forEach(r => {
+            const n2 = r.libelleNiveau2 || "Non classe";
+            nomenclature2CaMap.set(n2, (nomenclature2CaMap.get(n2) || 0) + (r.totalCa || 0));
+        });
+
+        const nomenclature2WeightMap = new Map<string, number>();
+        nomenclature2CaMap.forEach((ca, n2) => {
+            nomenclature2WeightMap.set(n2, supplierTotalCa > 0
+                ? parseFloat(((ca / supplierTotalCa) * 100).toFixed(1))
+                : 0);
+        });
+
+        const nomenclature2Count = nomenclature2CaMap.size;
+
+        console.log("[BulkAiAnalyzer] Stats:", { totalProducts, medianScore, scoreDistribution, nomenclature2Count, maxStoreCount });
+
         setIsAnalyzing(true);
         let completed = 0;
 
@@ -50,18 +94,35 @@ export function BulkAiAnalyzer() {
                 const chunk = remainingChunks.shift();
                 if (!chunk) return;
 
-                const payloadProducts = chunk.items.map(r => ({
-                    codein: r.codein,
-                    nom: r.libelle1,
-                    ca: r.totalCa || 0,
-                    ventes: r.totalQuantite || 0,
-                    marge: r.totalMarge ? parseFloat(((r.totalMarge / (r.totalCa || 1)) * 100).toFixed(1)) : 0,
-                    score: r.score || 0,
-                    codeGamme: r.codeGamme || "N/A",
-                    sales12m: r.sales12m || {},
-                    storeCount: r.workingStores?.length || 1,
-                    nomenclature: `${r.libelleNiveau1 || ""} > ${r.libelleNiveau2 || ""} > ${r.libelle3 || ""}`
-                }));
+                const payloadProducts = chunk.items.map(r => {
+                    const rawCaWeight = supplierTotalCa > 0
+                        ? parseFloat(((r.totalCa / supplierTotalCa) * 100).toFixed(3))
+                        : 0;
+                    const storeCount = r.workingStores?.length || 1;
+                    const storeRatio = storeCount < maxStoreCount ? maxStoreCount / storeCount : 1;
+                    const adjustedCaWeight = parseFloat((rawCaWeight * storeRatio).toFixed(3));
+                    const n2 = r.libelleNiveau2 || "Non classe";
+                    const n2Ca = nomenclature2CaMap.get(n2) || 1;
+                    const weightInNomenclature2 = parseFloat((((r.totalCa || 0) / n2Ca) * 100).toFixed(2));
+
+                    return {
+                        codein: r.codein,
+                        nom: r.libelle1,
+                        ca: r.totalCa || 0,
+                        caWeight: rawCaWeight,
+                        adjustedCaWeight,
+                        ventes: r.totalQuantite || 0,
+                        marge: r.totalMarge ? parseFloat(((r.totalMarge / (r.totalCa || 1)) * 100).toFixed(1)) : 0,
+                        score: r.score || 0,
+                        scorePercentile: scorePercentileMap.get(r.codein) ?? 0,
+                        codeGamme: r.codeGamme || "N/A",
+                        sales12m: r.sales12m || {},
+                        storeCount,
+                        nomenclature: `${r.libelleNiveau1 || ""} > ${r.libelleNiveau2 || ""} > ${r.libelle3 || ""}`,
+                        nomenclature2Weight: nomenclature2WeightMap.get(n2) ?? 0,
+                        weightInNomenclature2,
+                    };
+                });
 
                 try {
                     let res: Response | null = null;
@@ -75,7 +136,14 @@ export function BulkAiAnalyzer() {
                                 rayon: chunk.rayon,
                                 products: payloadProducts,
                                 supplierTotalCa,
-                                supplierTotalMarge
+                                supplierTotalMarge,
+                                supplierStats: {
+                                    totalProducts,
+                                    medianScore: Math.round(medianScore * 10) / 10,
+                                    scoreDistribution,
+                                    maxStoreCount,
+                                    nomenclature2Count,
+                                }
                             })
                         });
 
