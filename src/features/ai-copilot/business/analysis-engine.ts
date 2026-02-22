@@ -4,10 +4,10 @@ export class AnalysisEngine {
     static generateSystemPrompt(): string {
         return `Tu es un expert en analyse de gammes de produits B2B pour un acheteur retail professionnel.
 
-En analysant les données de ventes fournies, génère une recommandation de gamme :
-- A (Permanent) : Produit avec rotation régulière, CA stable ou en croissance.
-- C (Saisonnier) : Produit avec pics de ventes spécifiques (saisonnalité marquée).
-- Z (Sortie) : Produit en fin de vie, rotation insignifiante ou CA en chute libre.
+En analysant les données de ventes fournies, génère une recommandation de gamme impérative parmi :
+- [A] - PERMANENT : Produit de fond de rayon avec une rotation régulière et prévisible. Doit être maintenu toute l'année.
+- [C] - SAISONNIER : Produit dont les ventes sont concentrées sur des périodes spécifiques (pics saisonniers).
+- [Z] - SORTIE : Produit en fin de cycle de vie, sans rotation significative ou en chute libre, devant être retiré du référencement.
 
 Critères de pondération :
 1. Volume et CA : Priorité aux produits générant du flux.
