@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutGrid, Camera, FileDown, Settings, Package, BarChart3, LogOut, User as UserIcon } from "lucide-react";
+import { LayoutGrid, Camera, FileDown, Settings, Package, BarChart3, LogOut, User as UserIcon, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -83,10 +83,19 @@ export function Sidebar() {
                         <UserIcon className="w-4 h-4 text-[var(--accent)]" />
                     </div>
                     <div className="flex-1 min-w-0">
-                        <p className="text-[12px] font-bold text-[var(--text-primary)] truncate">{session?.user?.name || "Invité"}</p>
-                        <p className="text-[10px] uppercase font-black text-[var(--text-muted)] tracking-wider">
-                            {userRole === "admin" ? "Administrateur" : "Utilisateur"}
-                        </p>
+                        {session?.user ? (
+                            <>
+                                <p className="text-[12px] font-bold text-[var(--text-primary)] truncate">{session.user.name}</p>
+                                <p className="text-[10px] uppercase font-black text-[var(--text-muted)] tracking-wider">
+                                    {userRole === "admin" ? "Administrateur" : "Utilisateur"}
+                                </p>
+                            </>
+                        ) : (
+                            <div className="flex items-center gap-2">
+                                <Loader2 className="w-3 h-3 animate-spin text-[var(--accent)]" />
+                                <p className="text-[10px] text-[var(--text-muted)] animate-pulse">Session...</p>
+                            </div>
+                        )}
                     </div>
                 </div>
 
