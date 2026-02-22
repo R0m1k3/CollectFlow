@@ -12,8 +12,9 @@ export function BulkAiAnalyzer() {
     const [progress, setProgress] = useState({ current: 0, total: 0, message: "", errors: 0 });
     const isCancelledRef = useRef(false);
 
+    const batchSetDraftGamme = useGridStore((s) => s.batchSetDraftGamme);
     const setDraftGamme = useGridStore((s) => s.setDraftGamme);
-    const { setInsight, setLoading, setError } = useAiCopilotStore();
+    const { setInsight, batchSetLoading, setError } = useAiCopilotStore();
 
     const handleStop = () => {
         isCancelledRef.current = true;
@@ -111,6 +112,14 @@ export function BulkAiAnalyzer() {
         const totalItems = productPayloads.length;
         setProgress({ current: 0, total: totalItems, message: "Initialisation...", errors: 0 });
 
+        // Reset global ATOMIQUE et IMMÉDIAT
+        const codeins = productPayloads.map(p => p.codein);
+        batchSetLoading(codeins);
+
+        const gammeChanges: Record<string, GammeCode> = {};
+        codeins.forEach(c => gammeChanges[c] = "Aucune");
+        batchSetDraftGamme(gammeChanges);
+
         const CONCURRENCY = 3;
         const remaining = [...productPayloads];
 
@@ -119,9 +128,6 @@ export function BulkAiAnalyzer() {
                 while (remaining.length > 0 && !isCancelledRef.current) {
                     const payload = remaining.shift();
                     if (!payload) break;
-
-                    setLoading(payload.codein);
-                    setDraftGamme(payload.codein, "Aucune");
 
                     try {
                         let res: Response | null = null;

@@ -12,15 +12,18 @@ interface AiInsightBlockProps {
 }
 
 export function AiInsightBlock({ row }: AiInsightBlockProps) {
-    const { insights, analyzeProduct } = useAiCopilotStore();
-    const setDraftGamme = useGridStore(state => state.setDraftGamme);
-    const insight = insights[row.codein];
+    const insight = useAiCopilotStore((s) => s.insights[row.codein]);
+    const analyzeProduct = useAiCopilotStore((s) => s.analyzeProduct);
+    const setLoading = useAiCopilotStore((s) => s.setLoading);
+    const setDraftGamme = useGridStore((s) => s.setDraftGamme);
+
     const status = insight?.status ?? "idle";
 
     const handleAnalyze = () => {
         if (status === "loading") return;
 
-        // Vider la recommandation actuelle avant de relancer l'IA
+        // Reset Visuel Immédiat
+        setLoading(row.codein);
         setDraftGamme(row.codein, "Aucune");
 
         const regScore = Object.values(row.sales12m || {}).filter(v => v > 0).length;

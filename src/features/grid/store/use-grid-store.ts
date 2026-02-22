@@ -25,6 +25,7 @@ interface GridState {
     setDisplayDensity: (density: "compact" | "normal" | "comfortable") => void;
     setActiveGridQuery: (query: string) => void;
     restoreSnapshot: (changes: Record<string, GammeCode>) => void;
+    batchSetDraftGamme: (changes: Record<string, GammeCode>) => void;
 }
 
 function computeSummary(rows: ProductRow[], drafts: Record<string, GammeCode>): GridSummary {
@@ -104,6 +105,24 @@ export const useGridStore = create<GridState>()(
             setActiveGridQuery: (query) => set({ activeGridQuery: query }),
             restoreSnapshot: (changes) => {
                 set({ draftChanges: changes, summary: computeSummary(get().rows, changes) });
+            },
+
+            batchSetDraftGamme: (newChanges) => {
+                const { rows, draftChanges: oldDrafts } = get();
+                const updatedDrafts = { ...oldDrafts };
+
+                Object.entries(newChanges).forEach(([codein, gamme]) => {
+                    const originalRow = rows.find(r => r.codein === codein);
+                    const originalGamme = originalRow?.codeGamme;
+
+                    if (gamme === originalGamme) {
+                        delete updatedDrafts[codein];
+                    } else {
+                        updatedDrafts[codein] = gamme;
+                    }
+                });
+
+                set({ draftChanges: updatedDrafts, summary: computeSummary(rows, updatedDrafts) });
             },
         }),
         {
