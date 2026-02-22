@@ -7,6 +7,7 @@ const ExportModifiedGammesSchema = z.object({
     changes: z.array(z.object({
         codein: z.string(),
         gtin: z.string(),
+        codeFournisseur: z.string().optional(),
         gamme: z.string(),
     })),
 });
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
     };
 
     sheet.columns = [
-        { header: "CODE FOURNISSEUR", key: "codein", width: 22 },
+        { header: "CODE FOURNISSEUR", key: "codeFournisseur", width: 22 },
         { header: "GENCOD", key: "gtin", width: 18 },
         { header: "GAMME", key: "gamme", width: 12 },
     ];
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest) {
 
     for (const row of changes) {
         sheet.addRow({
-            codein: row.codein,
+            codeFournisseur: row.codeFournisseur || "—",
             gtin: row.gtin || "—",
             gamme: row.gamme || "—",
         });
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
     gammeCol.alignment = { horizontal: "center" };
 
     // Format codein et gtin en texte pour eviter la notation scientifique excel
-    sheet.getColumn("codein").numFmt = "@";
+    sheet.getColumn("codeFournisseur").numFmt = "@";
     sheet.getColumn("gtin").numFmt = "@";
 
     // Generate buffer

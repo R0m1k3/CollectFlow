@@ -91,6 +91,7 @@ export function FloatingSummaryBar() {
                         const changes = modifiedRows.map(r => ({
                             codein: r.codein,
                             gtin: r.gtin,
+                            codeFournisseur: r.codeFournisseur,
                             gamme: (currentDrafts[r.codein] ?? r.codeGamme) as string,
                         }));
 
