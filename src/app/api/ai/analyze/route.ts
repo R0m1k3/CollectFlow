@@ -10,27 +10,19 @@ const AnalyzeSchema = z.object({
     totalQuantite: z.number(),
     sales12m: z.record(z.string(), z.number()),
     codeGamme: z.string().nullable(),
-    score: z.number().nullable().optional(),
 });
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-const SYSTEM_PROMPT = `Tu es un expert en stratégie d'achat retail. Ton rôle est de catégoriser ce produit (A=Permanent, C=Saisonnier, Z=Sortie) via une analyse de VALEUR CONTEXTUELLE.
+const SYSTEM_PROMPT = `Tu es un expert en analyse de gammes de produits B2B pour un acheteur retail professionnel.
 
-L'IMPORTANCE ÉCONOMIQUE PRIME SUR LE SCORE DE PERFORMANCE RELATIVE.
+En analysant les données de ventes fournies, génère une recommandation de gamme (A=Permanent, C=Saisonnier, Z=Sortie).
+- A : Produit permanent avec rotation régulière.
+- C : Produit saisonnier (pics de ventes spécifiques).
+- Z : Produit en sortie (aucune vente ou rotation insignifiante).
 
-HIÉRARCHIE DES CRITÈRES :
-1. APPORT ÉCONOMIQUE : Analyse le CA et la Marge. S'ils sont élevés pour ce type de produit/fournisseur, le produit est stratégique (Gamme A), même si le Score est faible.
-2. RÉGULARITÉ : Une rotation constante sur l'année (sales12m) est un signe fort de Gamme A.
-3. PERFORMANCE RELATIVE : Le Score (0-100) est un indicateur de santé. Un score faible sur un produit qui génère du volume ne justifie PAS une sortie (Z).
-
-DÉFINITION :
-- A (Permanent) : Produit stratégique (CA/Marge significatif) OR rotation régulière.
-- C (Saisonnier) : Ventes concentrées sur des pics temporels.
-- Z (Sortie) : Cumul de : contribution économique insignifiante + marge faible + score médiocre + ventes sporadiques.
-
-Réponse courte, mentionnant la contribution économique et le score. Ne mentionne aucun seuil en euros.
-Format: "[Recommandation]: [Justification basée sur la valeur et le score]"`;
+Ta réponse doit être en 1-2 phrases maximum, en français, directe et actionnable.
+Format: "[Recommandation]: [Justification courte basée sur les données]"`;
 
 export async function POST(req: NextRequest) {
     const config = await getSavedDatabaseConfig();
@@ -57,7 +49,6 @@ export async function POST(req: NextRequest) {
 
     const userMessage = `Produit: "${p.libelle1}" (Code: ${p.codein})
 Gamme actuelle: ${p.codeGamme ?? "Non définie"}
-Score de performance: ${p.score ?? "N/A"}/100
 CA total 12m: ${p.totalCa.toFixed(0)}€ | Taux de marge: ${p.tauxMarge.toFixed(1)}% | Volume: ${Math.round(p.totalQuantite)} unités
 Historique mensuel: ${monthlySummary}
 
@@ -79,7 +70,7 @@ Quelle gamme recommandes-tu et pourquoi ?`;
                     { role: "user", content: userMessage },
                 ],
                 max_tokens: 150,
-                temperature: 0.1,
+                temperature: 0.3,
             }),
         });
 

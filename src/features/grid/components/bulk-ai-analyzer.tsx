@@ -25,7 +25,6 @@ export function BulkAiAnalyzer() {
             totalQuantite: r.totalQuantite || 0,
             sales12m: r.sales12m || {},
             codeGamme: r.codeGamme || null,
-            score: r.score || 0,
         }));
 
         setIsAnalyzing(true);
