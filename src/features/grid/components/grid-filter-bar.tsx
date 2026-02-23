@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { Search, X, ChevronDown } from "lucide-react";
+import { Search, X, ChevronDown, RotateCw } from "lucide-react";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { GammeCode } from "@/types/grid";
 import { cn } from "@/lib/utils";
@@ -29,6 +29,7 @@ export function GridFilterBar({ fournisseurs, magasins, nomenclature }: GridFilt
     const { filters, setFilter, rows, draftChanges } = useGridStore();
     const router = useRouter();
     const searchParams = useSearchParams();
+    const [isRefreshing, setIsRefreshing] = React.useState(false);
 
     // Compute dynamic counts and present Gammes
     const { gammeCounts, activeGammes } = React.useMemo(() => {
@@ -79,8 +80,29 @@ export function GridFilterBar({ fournisseurs, magasins, nomenclature }: GridFilt
         router.push(`/grid?${params.toString()}`);
     };
 
+    const handleRefresh = () => {
+        setIsRefreshing(true);
+        router.refresh();
+        // Visual feedback delay
+        setTimeout(() => setIsRefreshing(false), 800);
+    };
+
     return (
         <div className="flex items-center gap-3 flex-wrap">
+            {/* Refresh Button */}
+            <button
+                onClick={handleRefresh}
+                title="Rafraîchir les données SQL"
+                className={cn(
+                    "flex items-center justify-center w-9 h-9 rounded-lg transition-all",
+                    "bg-[var(--bg-elevated)] border border-[var(--border)]",
+                    "hover:bg-[var(--bg-surface)] hover:text-emerald-500",
+                    isRefreshing && "opacity-50"
+                )}
+            >
+                <RotateCw className={cn("w-4 h-4", isRefreshing && "animate-spin")} />
+            </button>
+
             {/* Supplier Selector */}
             <SupplierCombobox
                 fournisseurs={fournisseurs}

@@ -40,7 +40,7 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
     // ... (allowedPeriods calculation remains the same)
     const now = new Date();
     const allowedPeriods = new Set<string>();
-    for (let i = 12; i >= 1; i--) {
+    for (let i = 12; i >= 0; i--) { // i >= 0 au lieu de 1 pour inclure le mois en cours
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
         allowedPeriods.add(`${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`);
     }
