@@ -18,6 +18,8 @@ Activation et initialisation de l'Agent Master BMAD.
 - [x] Étape 10 : Ajustement du seuil de protection (Score < 20)
 - [x] Étape 11 : Intégration de l'analyse critique systématique (même score > 50)
 - [x] Étape 12 : Validation finale et correction TS
+- [x] Étape 13 : Implémentation du modal pour les explications IA détaillées
+- [/] Étape 14 : Polissage de l'UI (Sally/UX)
 
 # Progress Log
 
@@ -38,3 +40,7 @@ Activation et initialisation de l'Agent Master BMAD.
 - Arbitrage IA maintenu entre 20 et 50 basé sur CA / Marge / Quantité.
 - Michael exige une analyse critique systématique même pour les scores > 50.
 - Logique finale implémentée et validée (Score < 20 = Z).
+- Demande de Michael : Ajouter une icône + modal pour voir l'explication complète.
+- Recherche du composant de la grille en cours.
+- Nouveau composant `AiExplanationModal` créé.
+- Intégration dans `AiInsightBlock` terminée (icône + déclenchement).
