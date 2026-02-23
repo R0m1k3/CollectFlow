@@ -2,22 +2,22 @@ import { ProductAnalysisInput } from "../models/ai-analysis.types";
 
 export class AnalysisEngine {
     static generateSystemPrompt(): string {
-        return `Tu es Mary, experte en analyse de gammes retail B2B. Ta mission est d'aider un acheteur à arbitrer son assortiment.
+        return `Tu es Mary, experte en analyse de gammes retail B2B. Ta mission est d'aider un acheteur à arbitrer son assortiment avec une rigueur absolue.
 
-HIÉRARCHIE D'ANALYSE (CRITIQUE) :
-1. VALEUR BUSINESS (Priorité Maximale) : Analyse le CA et la Marge brute. Un produit à forte marge ou contribution CA significative doit être protégé, même si les volumes sont faibles.
-2. RÉGULARITÉ & SERVICE : Un produit vendu régulièrement (même 1 unité/mois) peut être un "Produit de Service" essentiel pour le client et mérite souvent d'être maintenu en gamme [A].
-3. SCORE GLOBAL (Indicateur Secondaire) : Le score est une aide, pas une sentence. Un score < 30 n'implique PAS automatiquement une sortie [Z].
+RÈGLES D'OR DE DÉCISION :
+1. EXCLUSION AUTOMATIQUE (Score < 20) : Tout produit ayant un score global inférieur à 20 doit être recommandé en [Z] (Sortie). C'est une règle de sécurité non négociable.
+2. ANALYSE CRITIQUE SYSTÉMATIQUE (Score >= 20) : Même pour les scores élevés (> 50 ou > 70), ne valide PAS automatiquement le [A]. Tu dois mener une analyse critique basée sur le CA, la Marge et la Quantité.
+3. VALIDATION PAR LA VALEUR : Pour recommander [A], le produit doit prouver sa valeur réelle (ex: Marge élevée, CA significatif, ou Régularité de service irréprochable). Si les volumes sont dérisoires et la marge faible, propose [Z] même si le score est correct.
 
-RÈGLES D'OR :
-1. VÉRACITÉ ABSOLUE : Ne déforme JAMAIS les chiffres fournis.
-2. PAS DE COUPERET : Évite de recommander [Z] uniquement sur la base d'un score faible.
-3. JUSTIFICATION BUSINESS : Précise toujours si la recommandation est basée sur la rentabilité (marge), le service (régularité) ou la performance globale (score).
+RÈGLES DE RÉDACTION :
+1. VÉRACITÉ : Respecte strictement les chiffres fournis.
+2. SANS COMPLAISANCE : Sois directe. Si un produit est mauvais malgré son score, dis-le.
+3. JUSTIFICATION : Base ta réponse sur la rentabilité (marge), le poids business (CA) ou le service (régularité).
 
 Options de recommandation :
-- [A] - PERMANENT : Rotation régulière ou produit stratégique/marge/service.
+- [A] - PERMANENT : Produit dont la valeur business ou le service client est prouvé.
 - [C] - SAISONNIER : Pics de ventes concentrés, inactivité hors saison.
-- [Z] - SORTIE : Inutilité business prouvée (CA quasi-nul + Marge faible + Score bas + Inactif).
+- [Z] - SORTIE : Inutilité business (Score < 20 OU CA/Marge/Quantité insuffisants).
 
 Ta réponse doit être courte, directe et sans complaisance.
 Format : "[Recommandation] : [Justification factuelle]"`;
@@ -28,37 +28,30 @@ Format : "[Recommandation] : [Justification factuelle]"`;
             .map(([k, v]) => `${k}: ${Math.round(v)}u`)
             .join(", ");
 
-        const volumeInfo = `Stats Réelles : ${Math.round(p.totalQuantite)}u sur ${p.storeCount} mag.
-Stats Pondérées (Base 2 mag) : ${Math.round(p.weightedTotalQuantite || 0)}u`;
+        const volumeInfo = `Volumes : ${Math.round(p.totalQuantite)}u sur ${p.storeCount} mag.`;
 
         const projectionInfo = p.regularityScore > 0 && p.regularityScore < 12 ? `
 --- ANALYSE DE POTENTIEL (Produit récent : ${p.regularityScore}/12 mois active) ---
-Projection 12 mois (Run Rate) : ${Math.round(p.projectedTotalQuantite || 0)}u (${(p.projectedTotalCa || 0).toFixed(2)}€)` : "";
+Projection 12 mois : ${Math.round(p.projectedTotalQuantite || 0)}u (${(p.projectedTotalCa || 0).toFixed(2)}€)` : "";
 
         const activityAlert = (p.inactivityMonths || 0) > 2
-            ? `\n⚠️ ALERTE : Inactif depuis ${p.inactivityMonths} mois (Dernière vente: ${p.lastMonthWithSale || "Inconnue"})`
+            ? `\n⚠️ ALERTE : Inactif depuis ${p.inactivityMonths} mois`
             : "";
-
-        const benchmarks = `
-Benchmarks Rayon ("${p.libelleNiveau2}") :
-- Moyenne 1 mag: ${Math.round(p.avgQtyRayon1 || 0)}u | Multi-mag: ${Math.round(p.avgQtyRayon2 || 0)}u`;
 
         return `IDENTITÉ DU PRODUIT :
 - Libellé : "${p.libelle1}" (Ref: ${p.codein})
 - Rayon : ${p.libelleNiveau2 || "Non classé"}
 - Gamme actuelle : ${p.codeGamme ?? "Non définie"}
 
-INDICATEURS BUSINESS (PRIORITAIRES) :
+DONNÉES BUSINESS :
 - Marge brute : ${p.tauxMarge.toFixed(1)}%
 - Total CA : ${p.totalCa.toFixed(2)}€
-- Régularité des ventes : ${p.regularityScore}/12 mois active
-
-INDICATEURS TECHNIQUES (SECONDAIRES) :
 - Score Global App : ${p.score.toFixed(1)}/100
-${volumeInfo}${projectionInfo}${activityAlert}${benchmarks}
+- Régularité : ${p.regularityScore}/12 mois active
+${volumeInfo}${projectionInfo}${activityAlert}
 - Historique mensuel (Pondéré) : ${monthlySummary}
 
-Quelle est ta recommandation (A, C ou Z) et pourquoi ?`;
+Analyse la pertinence business du produit sans aucune complaisance. Quelle est ta recommandation (A, C ou Z) ?`;
     }
 
     static extractRecommendation(content: string): "A" | "C" | "Z" | null {
