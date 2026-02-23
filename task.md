@@ -1,23 +1,30 @@
 # Context
 
-Create a PRD for a retail analytics application. The app will manage product collections, analyze sales (quantity, revenue, margin) from a PostgreSQL database for 2 stores, and classify products into ranges (Gamme A, B, C) to determine profitability and retention.
+Activation de l'Agent Master BMAD pour la gestion du projet CollectFlow selon la méthodologie BMAD.
 
 # Current Focus
 
-# Current Focus
+Activation et initialisation de l'Agent Master BMAD.
 
-Analyse du déclenchement des scores lors du rafraîchissement SQL.
-
-- [x] Étape 11 : Polissage final et validation du PRD
-- [x] PRD Finalisé et prêt pour la suite (Architecture/UX)
-- [x] Investigation et correction du bug de recommandation IA (Mary)
+- [x] Étape 1 : Lecture de la configuration et de la persona de l'Agent Master
+- [x] Étape 2 : Initialisation des variables de session (user_name, language, output_folder)
+- [x] Étape 3 : Accueil de l'utilisateur et affichage du menu principal
+- [x] Étape 4 : Exécution du workflow Party Mode ([PM])
+- [x] Étape 5 : Discussion multi-agents : Refonte de la logique de recommandation
+- [x] Étape 6 : Proposition technique et plan d'implémentation
+- [x] Étape 7 : Application des modifications dans `analysis-engine.ts`
+- [x] Étape 8 : Vérification et validation
 
 # Progress Log
 
-- Correction du bug SQL (filtre 12 mois) effectuée et validée par Michael.
-- Synchronisation du dépôt local (108 commits récupérés de origin/main).
-- Exécution du workflow /create-prd (Étapes 8 à 12).
-- Synthèse de 22 Functional Requirements (Étape 9) et définition des NFR (Étape 10).
-- Polissage complet du document pour éliminer les redondances (Étape 11).
-- PRD archivé dans `prd.md` et prêt pour validation de l'implémentation.
-- Début de l'implémentation du bouton de rafraîchissement SQL (demande Michael).
+- Initialisation de la tâche d'activation de l'Agent Master BMAD.
+- Variables de session chargées : Michael, French, _bmad-output.
+- Michael a sélectionné "pm" (Party Mode). Lancement du workflow.
+- Manifeste des agents chargé (20 agents détectés).
+- Session Party Mode activée.
+- Michael soulève un problème sur le seuil arbitraire de score < 30 (impact petits fournisseurs).
+- Analyse en cours de `src/features/ai-copilot/business/analysis-engine.ts`.
+- Plan d'implémentation validé par Michael.
+- Déploiement de la nouvelle hiérarchie d'analyse (CA/Marge > Score).
+- Suppression des seuils de blocage score < 30.
+- Mise en avant des "Produits de Service".
