@@ -6,11 +6,11 @@ Create a PRD for a retail analytics application. The app will manage product col
 
 # Current Focus
 
-Ajout d'un bouton de rafraîchissement des données dans la barre de filtres.
+Analyse du déclenchement des scores lors du rafraîchissement SQL.
 
 - [x] Étape 11 : Polissage final et validation du PRD
 - [x] PRD Finalisé et prêt pour la suite (Architecture/UX)
-- [x] Ajout du bouton de rafraîchissement SQL dans l'UI
+- [x] Investigation et correction du bug de recommandation IA (Mary)
 
 # Progress Log
 
