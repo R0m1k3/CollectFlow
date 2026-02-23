@@ -57,6 +57,9 @@ export interface ProductRow {
     score: number;
     workingStores: string[];
     aiRecommendation?: string | null;
+    /** Moyennes de comparaison pour l'IA */
+    avgQtyFournisseur?: number;
+    avgQtyRayon?: number;
 }
 
 /** Summary bar totals for the currently visible/filtered rows */

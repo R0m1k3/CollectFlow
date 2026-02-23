@@ -66,6 +66,8 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
             projectedTotalCa: regScore > 0 ? (row.totalCa * weight * (12 / regScore)) : (row.totalCa * weight),
             lastMonthWithSale: lastMonth,
             inactivityMonths: inactivity,
+            avgQtyFournisseur: row.avgQtyFournisseur,
+            avgQtyRayon: row.avgQtyRayon,
         });
     };
 

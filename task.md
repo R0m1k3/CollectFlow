@@ -22,8 +22,10 @@ Activation et initialisation de l'Agent Master BMAD.
 - [x] Étape 14 : Correction du design et du positionnement du modal (z-index/Portal)
 - [x] Étape 15 : Polissage final et validation Michael
 - [x] Étape 16 : Correction graphique selon la charte CollectFlow (Slate-950/Apple)
+- [x] Étape 17 : Optimisation de l'analyse (Volumes, PMV & Produits de Trafic)
+- [x] Étape 18 : Validation finale des recommandations sur cas réels
 
-# Progress Log
+## Progress Log
 
 - Initialisation de la tâche d'activation de l'Agent Master BMAD.
 - Variables de session chargées : Michael, French, _bmad-output.
@@ -52,3 +54,5 @@ Activation et initialisation de l'Agent Master BMAD.
 - Refonte visuelle complète du modal : passage aux variables CSS de `globals.css`.
 - Suppression des bordures blanches et du fond noir pur pour le thème `Slate-950`.
 - Intégration de `tabular-nums` pour les indicateurs financiers.
+- Ajout du calcul du PMV (CA/Qté) et des indicateurs de volume relatif dans l'IA.
+- Mise à jour du prompt pour protéger les produits "Générateurs de trafic" (Fort volume, faible CA).

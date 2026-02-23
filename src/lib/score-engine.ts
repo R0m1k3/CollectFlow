@@ -50,8 +50,25 @@ export function computeProductScores(
     const maxCa = Math.max(...weightedData.map((d) => d.wCa));
     const maxMarge = Math.max(...weightedData.map((d) => d.wMarge));
 
-    // 2. Pour chaque produit, calculer le score relatif aux max pondérés
+    // 2. Calculer les moyennes globales et par rayon
+    const totalQty = weightedData.reduce((acc, d) => acc + d.wQty, 0);
+    const avgQtyFournisseur = rows.length > 0 ? totalQty / rows.length : 0;
+
+    const rayonTotals = new Map<string, { total: number, count: number }>();
+    weightedData.forEach(d => {
+        const r2 = d.row.code2 || "default";
+        const current = rayonTotals.get(r2) || { total: 0, count: 0 };
+        rayonTotals.set(r2, { total: current.total + d.wQty, count: current.count + 1 });
+    });
+
+    // 3. Pour chaque produit, calculer le score relatif aux max pondérés et injecter les moyennes
     for (const data of weightedData) {
+        // Injection des moyennes pour l'analyse IA
+        data.row.avgQtyFournisseur = avgQtyFournisseur;
+        const r2 = data.row.code2 || "default";
+        const rayonStat = rayonTotals.get(r2);
+        data.row.avgQtyRayon = rayonStat ? rayonStat.total / rayonStat.count : 0;
+
         // Score de 0 à 100 sur chaque axe pondéré (le Top 1 pondéré a 100)
         const scoreQty = maxQty > 0 ? (data.wQty / maxQty) * 100 : 0;
         const scoreCa = maxCa > 0 ? (data.wCa / maxCa) * 100 : 0;

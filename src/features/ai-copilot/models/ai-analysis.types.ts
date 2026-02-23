@@ -8,10 +8,8 @@ export interface ProductAnalysisInput {
     weightedTotalQuantite?: number;
     weightedTotalCa?: number;
     avgTotalQuantite?: number;
-    avgQtyGroup1?: number; // Moyenne volume pour produits à 1 magasin (Fournisseur)
-    avgQtyGroup2?: number; // Moyenne volume pour produits à 2 magasins+ (Fournisseur)
-    avgQtyRayon1?: number; // Moyenne volume pour produits à 1 magasin (Rayon)
-    avgQtyRayon2?: number; // Moyenne volume pour produits à 2 magasins+ (Rayon)
+    avgQtyRayon?: number;
+    avgQtyFournisseur?: number;
     storeCount: number;
     sales12m: Record<string, number>;
     codeGamme: string | null;

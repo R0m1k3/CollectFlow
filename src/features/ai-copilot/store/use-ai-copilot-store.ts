@@ -30,6 +30,8 @@ interface AiCopilotState {
         projectedTotalCa?: number;
         lastMonthWithSale?: string;
         inactivityMonths?: number;
+        avgQtyFournisseur?: number;
+        avgQtyRayon?: number;
     }) => Promise<void>;
     resetInsights: () => void;
 }
