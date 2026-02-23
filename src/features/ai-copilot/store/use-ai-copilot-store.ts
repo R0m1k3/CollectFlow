@@ -32,6 +32,10 @@ interface AiCopilotState {
         inactivityMonths?: number;
         avgQtyFournisseur?: number;
         avgQtyRayon?: number;
+        shareCa?: number;
+        shareMarge?: number;
+        shareQty?: number;
+        totalFournisseurCa?: number;
     }) => Promise<void>;
     resetInsights: () => void;
 }

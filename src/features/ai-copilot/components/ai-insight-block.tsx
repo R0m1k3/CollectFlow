@@ -68,6 +68,10 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
             inactivityMonths: inactivity,
             avgQtyFournisseur: row.avgQtyFournisseur,
             avgQtyRayon: row.avgQtyRayon,
+            shareCa: row.shareCa,
+            shareMarge: row.shareMarge,
+            shareQty: row.shareQty,
+            totalFournisseurCa: row.totalFournisseurCa,
         });
     };
 

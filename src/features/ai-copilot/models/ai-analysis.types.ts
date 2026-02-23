@@ -10,6 +10,12 @@ export interface ProductAnalysisInput {
     avgTotalQuantite?: number;
     avgQtyRayon?: number;
     avgQtyFournisseur?: number;
+    /** Poids relatifs (%) */
+    shareCa?: number;
+    shareMarge?: number;
+    shareQty?: number;
+    /** Référentiels */
+    totalFournisseurCa?: number;
     storeCount: number;
     sales12m: Record<string, number>;
     codeGamme: string | null;

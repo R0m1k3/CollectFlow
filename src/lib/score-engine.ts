@@ -50,8 +50,11 @@ export function computeProductScores(
     const maxCa = Math.max(...weightedData.map((d) => d.wCa));
     const maxMarge = Math.max(...weightedData.map((d) => d.wMarge));
 
-    // 2. Calculer les moyennes globales et par rayon
+    // 2. Calculer les moyennes et totaux globaux
     const totalQty = weightedData.reduce((acc, d) => acc + d.wQty, 0);
+    const totalCa = weightedData.reduce((acc, d) => acc + d.wCa, 0);
+    const totalMarge = weightedData.reduce((acc, d) => acc + d.wMarge, 0);
+
     const avgQtyFournisseur = rows.length > 0 ? totalQty / rows.length : 0;
 
     const rayonTotals = new Map<string, { total: number, count: number }>();
@@ -61,15 +64,22 @@ export function computeProductScores(
         rayonTotals.set(r2, { total: current.total + d.wQty, count: current.count + 1 });
     });
 
-    // 3. Pour chaque produit, calculer le score relatif aux max pondérés et injecter les moyennes
+    // 3. Pour chaque produit, calculer le score relatif et injecter les contextes (poids, moyennes)
     for (const data of weightedData) {
-        // Injection des moyennes pour l'analyse IA
+        // Injection des métriques de poids et contextes
         data.row.avgQtyFournisseur = avgQtyFournisseur;
+        data.row.totalFournisseurCa = totalCa;
+
+        // Calcul des poids (%)
+        data.row.shareQty = totalQty > 0 ? (data.wQty / totalQty) * 100 : 0;
+        data.row.shareCa = totalCa > 0 ? (data.wCa / totalCa) * 100 : 0;
+        data.row.shareMarge = totalMarge > 0 ? (data.wMarge / totalMarge) * 100 : 0;
+
         const r2 = data.row.code2 || "default";
         const rayonStat = rayonTotals.get(r2);
         data.row.avgQtyRayon = rayonStat ? rayonStat.total / rayonStat.count : 0;
 
-        // Score de 0 à 100 sur chaque axe pondéré (le Top 1 pondéré a 100)
+        // Score de 0 à 100 sur chaque axe pondéré
         const scoreQty = maxQty > 0 ? (data.wQty / maxQty) * 100 : 0;
         const scoreCa = maxCa > 0 ? (data.wCa / maxCa) * 100 : 0;
         const scoreMarge = maxMarge > 0 ? (data.wMarge / maxMarge) * 100 : 0;

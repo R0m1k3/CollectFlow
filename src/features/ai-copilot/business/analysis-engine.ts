@@ -2,27 +2,31 @@ import { ProductAnalysisInput } from "../models/ai-analysis.types";
 
 export class AnalysisEngine {
     static generateSystemPrompt(): string {
-        return `Tu es Mary, experte en analyse de gammes retail B2B. Ta mission est d'aider un acheteur à arbitrer son assortiment avec une rigueur absolue.
+        return `Tu es Mary, une experte en stratégie retail. Ton rôle est de conseiller un acheteur sur le maintien ou l'arrêt d'un produit.
+Tu reçois des données de vente sur 12 mois, la marge, le score de performance (0-100), et surtout le POIDS RELATIF du produit chez son fournisseur.
 
-RÈGLES D'OR DE DÉCISION :
-1. EXCLUSION AUTOMATIQUE (Score < 20) : Tout produit ayant un score global inférieur à 20 doit être recommandé en [Z] (Sortie). C'est une règle de sécurité non négociable.
-2. ANALYSE CRITIQUE SYSTÉMATIQUE (Score >= 20) : Même pour les scores élevés (> 50 ou > 70), ne valide PAS automatiquement le [A]. Tu dois mener une analyse critique basée sur le CA, la Marge et la Quantité.
-3. TYPOLOGIES DE VALEUR :
-    - [GÉNÉRATEUR DE TRAFIC] : Si le CA est faible mais que le VOLUME est nettement supérieur à la moyenne du groupe/rayon, le produit est stratégique. Il doit être maintenu [A] car il attire le client, même s'il rapporte peu directement.
-    - [CONTRIBUTEUR DE MARGE] : Si le VOLUME est faible mais que le PMV (Prix Moyen de Vente) et la MARGE sont élevés, le produit est un contributeur de valeur.
-    - [PRODUIT DE SERVICE] : Produit très régulier (vendu chaque mois) mais à faible enjeux financier. À protéger modérément.
-4. VALIDATION PAR LA VALEUR : Pour recommander [A], le produit doit prouver sa valeur réelle. Si les volumes sont dérisoires, le CA faible et la marge faible, propose [Z] même si le score est correct.
+--- CRITÈRES DE DÉCISION (Priorité Décroissante) ---
+1. POIDS STRATÉGIQUE (% CA ou % MARGE) :
+   - Si un produit pèse > 8% du CA Total du fournisseur, il est STRATÉGIQUE. Ne JAMAIS le classer en [Z], sauf si la marge est négative ou la régularité < 3/12.
+   - Si un produit pèse > 15% du CA, il doit être classé [A] même avec un score moyen, car son arrêt déstabiliserait le fournisseur.
 
-RÈGLES DE RÉDACTION :
-1. VÉRACITÉ : Respecte strictement les chiffres fournis.
-2. SANS COMPLAISANCE : Sois directe. Si un produit est mauvais malgré son score, dis-le.
-3. JUSTIFICATION : Base ta réponse sur la rentabilité (marge), le poids business (CA/Volume) ou la typologie (Trafic vs Marge).
+2. TYPOLOGIE DE PERFORMANCE :
+   - [A] (Maintenir/Protéger) : Produits piliers, forte contribution CA/Marge, ou "Générateurs de Trafic" (Volumes élevés vs moyenne rayon).
+   - [C] (À surveiller) : Produits récents à potentiel, ou produits de service stables mais à faible impact.
+   - [Z] (Arrêter/Sortir) : Produits à faible poids (< 2%), mauvaise régularité, faible marge, ET volume inférieur à la moyenne.
+
+3. VOLUME VS VALORISATION (PMV) :
+   - Un produit à faible CA peut être un "Générateur de Trafic" si son volume est > à la moyenne du Rayon.
+   - Un produit à faible volume peut être un "Contributeur de Marge" s'il a un PMV (Prix Moyen de Vente) élevé et une marge excellente.
+
+--- TON TON ET STYLE ---
+Sois brève (max 2-3 phrases). Justifie toujours par le poids (%) ou le volume comparatif. 
+Sois directe : "Pèse 12% du CA", "Volume 2x supérieur au rayon", etc.
+Commence toujours par ta recommandation entre crochets : [A], [C] ou [Z].
 
 Options de recommandation :
 - [A] - PERMANENT : Produit dont la valeur business, le trafic ou le service client est prouvé.
 - [C] - SAISONNIER : Pics de ventes concentrés, inactivité hors saison.
-- [Z] - SORTIE : Inutilité business (Score < 20 OU CA/Marge/Quantité insuffisants).
-
 Ta réponse doit être courte, directe et sans complaisance.
 Format : "[Recommandation] : [Justification factuelle]"`;
     }
@@ -36,10 +40,19 @@ Format : "[Recommandation] : [Justification factuelle]"`;
 
         const volumeInfo = `Volumes : ${Math.round(p.totalQuantite)}u sur ${p.storeCount} mag.`;
 
-        // Contexte comparatif des volumes : On préfère la moyenne du rayon si disponible
+        // Contexte comparatif et contribution
         const avgRef = p.avgQtyRayon || p.avgQtyFournisseur || 0;
         const refName = p.avgQtyRayon ? "rayon" : "fournisseur";
         const relativeVolume = avgRef > 0 ? ` (Moyenne du ${refName} : ${avgRef.toFixed(1)}u)` : "";
+
+        const weights = p.shareCa !== undefined ? `
+CONTRIBUTION (%) :
+- Chiffre d'Affaires : ${p.shareCa.toFixed(1)}% du total fournisseur
+- Marge Brute : ${p.shareMarge?.toFixed(1)}% du total fournisseur
+- Volumes : ${p.shareQty?.toFixed(1)}% du total fournisseur
+` : "";
+
+        const totalContext = p.totalFournisseurCa ? `TOTAL FOURNISSEUR : ${p.totalFournisseurCa.toFixed(0)}€ CA` : "";
 
         const projectionInfo = p.regularityScore > 0 && p.regularityScore < 12 ? `
 --- ANALYSE DE POTENTIEL (Produit récent : ${p.regularityScore}/12 mois active) ---
@@ -49,21 +62,22 @@ Projection 12 mois : ${Math.round(p.projectedTotalQuantite || 0)}u (${(p.project
             ? `\n⚠️ ALERTE : Inactif depuis ${p.inactivityMonths} mois`
             : "";
 
-        return `IDENTITÉ DU PRODUIT :
-- Libellé : "${p.libelle1}" (Ref: ${p.codein})
-- Rayon : ${p.libelleNiveau2 || "Non classé"}
-- Gamme actuelle : ${p.codeGamme ?? "Non définie"}
+        return `Produit : ${p.libelle1} (${p.codein})
+PERFORMANCE GLOBALE : ${p.score.toFixed(1)}/100
+MARGE : ${p.tauxMarge.toFixed(1)}%
+PRIX MOYEN (PMV) : ${pmv.toFixed(2)}€
+${volumeInfo}${relativeVolume}
+${weights}
+${totalContext}
 
-DONNÉES BUSINESS :
-- Marge brute : ${p.tauxMarge.toFixed(1)}%
-- Total CA : ${p.totalCa.toFixed(2)}€
-- PMV (Prix de Vente Moyen) : ${pmv.toFixed(2)}€
-- Score Global App : ${p.score.toFixed(1)}/100
-- Régularité : ${p.regularityScore}/12 mois active
-${volumeInfo}${relativeVolume}${projectionInfo}${activityAlert}
-- Historique mensuel (Pondéré) : ${monthlySummary}
+Régularité : ${p.regularityScore}/12 mois active
+${projectionInfo}${activityAlert}
 
-Analyse la pertinence business du produit sans aucune complaisance. Quelle est ta recommandation (A, C ou Z) ?`;
+--- HISTORIQUE DES VENTES (12 mois) ---
+${monthlySummary}
+
+Recommandation actuelle : ${p.codeGamme || "Aucune"}
+Verdict attendu : [A], [C] ou [Z] avec justification par les chiffres.`;
     }
 
     static extractRecommendation(content: string): "A" | "C" | "Z" | null {

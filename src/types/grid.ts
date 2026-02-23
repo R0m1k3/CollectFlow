@@ -60,6 +60,12 @@ export interface ProductRow {
     /** Moyennes de comparaison pour l'IA */
     avgQtyFournisseur?: number;
     avgQtyRayon?: number;
+    /** Poids relatifs (%) du produit chez le fournisseur */
+    shareCa?: number;
+    shareMarge?: number;
+    shareQty?: number;
+    /** Référentiels globaux */
+    totalFournisseurCa?: number;
 }
 
 /** Summary bar totals for the currently visible/filtered rows */
