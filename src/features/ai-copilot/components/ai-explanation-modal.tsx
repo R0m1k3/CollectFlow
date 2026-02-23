@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { X, Bot, Sparkles, TrendingUp, ShieldAlert, History } from "lucide-react";
 
 interface AiExplanationModalProps {
@@ -21,8 +22,10 @@ export function AiExplanationModal({
     recommandation
 }: AiExplanationModalProps) {
     const [isVisible, setIsVisible] = useState(false);
+    const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
+        setMounted(true);
         if (isOpen) {
             setIsVisible(true);
         } else {
@@ -36,6 +39,7 @@ export function AiExplanationModal({
     };
 
     if (!isOpen && !isVisible) return null;
+    if (!mounted) return null;
 
     const getGammeColor = (g?: string | null) => {
         switch (g) {
@@ -46,24 +50,23 @@ export function AiExplanationModal({
         }
     };
 
-    return (
+    const modalContent = (
         <div
-            className={`fixed inset-0 z-[300] flex items-center justify-center p-4 transition-all duration-250 ${isVisible ? "opacity-100 backdrop-blur-md" : "opacity-0 backdrop-blur-0"}`}
+            className={`fixed inset-0 z-[9999] flex items-center justify-center p-4 transition-all duration-250 ${isVisible ? "opacity-100 backdrop-blur-md" : "opacity-0 backdrop-blur-0"}`}
         >
             {/* Backdrop */}
             <div
                 className="fixed inset-0"
-                style={{ background: "rgba(0,0,0,0.6)" }}
+                style={{ background: "rgba(0,0,0,0.85)" }}
                 onClick={handleClose}
             />
 
             {/* Panel */}
             <div
-                className={`relative w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl transition-all duration-250 ${isVisible ? "scale-100 translate-y-0" : "scale-95 translate-y-8"}`}
+                className={`relative w-full max-w-lg rounded-3xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.8)] transition-all duration-250 ${isVisible ? "scale-100 translate-y-0" : "scale-95 translate-y-8"}`}
                 style={{
-                    background: "var(--bg-surface)",
+                    background: "#111111", // Opaque black background
                     border: "1px solid var(--border-strong)",
-                    boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)"
                 }}
             >
                 {/* Header with Mary Icon */}
@@ -133,12 +136,7 @@ export function AiExplanationModal({
                 <div className="p-6 pt-0">
                     <button
                         onClick={handleClose}
-                        className="w-full py-3 rounded-2xl font-black text-sm transition-all hover:scale-[1.02] active:scale-95"
-                        style={{
-                            background: "var(--bg-elevated)",
-                            border: "1px solid var(--border-strong)",
-                            color: "var(--text-primary)"
-                        }}
+                        className="w-full py-3 rounded-2xl font-black text-sm transition-all hover:scale-[1.02] active:scale-95 text-[#f5f5f7] bg-[#1c1c1e] hover:bg-[#2c2c2e] border border-white/10"
                     >
                         Fermer l'Analyse
                     </button>
@@ -153,4 +151,6 @@ export function AiExplanationModal({
             `}</style>
         </div>
     );
+
+    return createPortal(modalContent, document.body);
 }

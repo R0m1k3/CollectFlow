@@ -19,7 +19,8 @@ Activation et initialisation de l'Agent Master BMAD.
 - [x] Étape 11 : Intégration de l'analyse critique systématique (même score > 50)
 - [x] Étape 12 : Validation finale et correction TS
 - [x] Étape 13 : Implémentation du modal pour les explications IA détaillées
-- [/] Étape 14 : Polissage de l'UI (Sally/UX)
+- [x] Étape 14 : Correction du design et du positionnement du modal (z-index/Portal)
+- [x] Étape 15 : Polissage final et validation Michael
 
 # Progress Log
 
@@ -44,3 +45,6 @@ Activation et initialisation de l'Agent Master BMAD.
 - Recherche du composant de la grille en cours.
 - Nouveau composant `AiExplanationModal` créé.
 - Intégration dans `AiInsightBlock` terminée (icône + déclenchement).
+- Correction du modal : utilisation de `createPortal` et `z-index: 9999` pour passer au-dessus de tout.
+- Opacité du fond renforcée (0.85).
+- Validation Michael reçue (LGTM).
