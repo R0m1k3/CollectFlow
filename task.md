@@ -21,6 +21,7 @@ Activation et initialisation de l'Agent Master BMAD.
 - [x] Étape 13 : Implémentation du modal pour les explications IA détaillées
 - [x] Étape 14 : Correction du design et du positionnement du modal (z-index/Portal)
 - [x] Étape 15 : Polissage final et validation Michael
+- [x] Étape 16 : Correction graphique selon la charte CollectFlow (Slate-950/Apple)
 
 # Progress Log
 
@@ -48,3 +49,6 @@ Activation et initialisation de l'Agent Master BMAD.
 - Correction du modal : utilisation de `createPortal` et `z-index: 9999` pour passer au-dessus de tout.
 - Opacité du fond renforcée (0.85).
 - Validation Michael reçue (LGTM).
+- Refonte visuelle complète du modal : passage aux variables CSS de `globals.css`.
+- Suppression des bordures blanches et du fond noir pur pour le thème `Slate-950`.
+- Intégration de `tabular-nums` pour les indicateurs financiers.

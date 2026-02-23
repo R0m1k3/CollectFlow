@@ -35,108 +35,101 @@ export function AiExplanationModal({
 
     const handleClose = () => {
         setIsVisible(false);
-        setTimeout(onClose, 250);
+        setTimeout(onClose, 200);
     };
 
     if (!isOpen && !isVisible) return null;
     if (!mounted) return null;
 
-    const getGammeColor = (g?: string | null) => {
+    const getGammeStyles = (g?: string | null) => {
         switch (g) {
-            case "A": return "text-emerald-500 border-emerald-500/50 bg-emerald-500/10";
-            case "C": return "text-amber-500 border-amber-500/50 bg-amber-500/10";
-            case "Z": return "text-rose-500 border-rose-500/50 bg-rose-500/10";
-            default: return "text-slate-500 border-slate-500/50 bg-slate-500/10";
+            case "A": return "text-[var(--accent-success)] border-[var(--accent-success-bg)] bg-[var(--accent-success-bg)]";
+            case "C": return "text-[var(--accent-warning)] border-[var(--accent-warning-bg)] bg-[var(--accent-warning-bg)]";
+            case "Z": return "text-[var(--accent-error)] border-[var(--accent-error-bg)] bg-[var(--accent-error-bg)]";
+            default: return "text-[var(--text-muted)] border-[var(--border)] bg-[var(--bg-elevated)]";
         }
     };
 
     const modalContent = (
         <div
-            className={`fixed inset-0 z-[9999] flex items-center justify-center p-4 transition-all duration-250 ${isVisible ? "opacity-100 backdrop-blur-md" : "opacity-0 backdrop-blur-0"}`}
+            className={`fixed inset-0 z-[9999] flex items-center justify-center p-6 transition-all duration-200 ${isVisible ? "opacity-100 backdrop-blur-sm" : "opacity-0 backdrop-blur-0"}`}
         >
-            {/* Backdrop */}
+            {/* Backdrop - consistent with Apple overlay */}
             <div
-                className="fixed inset-0"
-                style={{ background: "rgba(0,0,0,0.85)" }}
+                className="fixed inset-0 bg-black/40"
                 onClick={handleClose}
             />
 
-            {/* Panel */}
+            {/* Panel - Using var(--bg-surface) and strict spacing */}
             <div
-                className={`relative w-full max-w-lg rounded-3xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.8)] transition-all duration-250 ${isVisible ? "scale-100 translate-y-0" : "scale-95 translate-y-8"}`}
+                className={`relative w-full max-w-xl rounded-2xl overflow-hidden shadow-2xl border border-[var(--border-strong)] transition-all duration-200 ${isVisible ? "scale-100 translate-y-0" : "scale-[0.98] translate-y-4"}`}
                 style={{
-                    background: "#111111", // Opaque black background
-                    border: "1px solid var(--border-strong)",
+                    background: "var(--bg-surface)",
                 }}
             >
-                {/* Header with Mary Icon */}
-                <div className="p-6 pb-0 flex items-start justify-between">
-                    <div className="flex gap-4">
-                        <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center shrink-0">
-                            <Bot className="w-6 h-6 text-indigo-500" />
+                {/* Header - Clean & Monochromatic */}
+                <div className="px-6 py-5 border-b border-[var(--border)] flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border)] flex items-center justify-center shrink-0">
+                            <Bot className="w-5 h-5 text-[var(--text-secondary)]" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-black tracking-tight" style={{ color: "var(--text-primary)" }}>
-                                Analyse de Mary 🧙
+                            <h2 className="text-sm font-bold tracking-tight text-[var(--text-primary)]">
+                                Analyse Décisionnelle IA
                             </h2>
-                            <p className="text-xs font-bold opacity-60 uppercase tracking-widest mt-0.5">
-                                {productName} <span className="opacity-40">({productCode})</span>
+                            <p className="text-[11px] font-medium text-[var(--text-muted)] truncate max-w-[300px]">
+                                {productName} <span className="opacity-60 tabular-numbers">({productCode})</span>
                             </p>
                         </div>
                     </div>
                     <button
                         onClick={handleClose}
-                        className="p-2 rounded-xl hover:bg-white/5 text-[var(--text-muted)] transition-colors"
+                        className="p-1.5 rounded-md hover:bg-[var(--bg-elevated)] text-[var(--text-muted)] transition-colors"
                     >
-                        <X className="w-5 h-5" />
+                        <X className="w-4 h-4" />
                     </button>
                 </div>
 
-                {/* Content */}
-                <div className="p-6">
-                    <div className="space-y-6">
-                        {/* Recommandation Badge */}
-                        <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-black uppercase tracking-widest opacity-40">Verdict :</span>
-                            <div className={`px-3 py-1 rounded-full border text-xs font-black flex items-center gap-1.5 ${getGammeColor(recommandation)}`}>
-                                {recommandation === "A" && <Sparkles className="w-3 h-3" />}
-                                {recommandation === "C" && <TrendingUp className="w-3 h-3" />}
-                                {recommandation === "Z" && <ShieldAlert className="w-3 h-3" />}
-                                {recommandation ? `GAMME ${recommandation}` : "AUCUN"}
+                {/* Body */}
+                <div className="p-6 space-y-6">
+                    {/* Recommendation Row */}
+                    <div className="flex items-center justify-between px-1">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Arbitrage suggéré</span>
+                        <div className={`px-2.5 py-1 rounded-md border text-[11px] font-bold flex items-center gap-1.5 ${getGammeStyles(recommandation)}`}>
+                            {recommandation === "A" && <Sparkles className="w-3 h-3" />}
+                            {recommandation === "C" && <TrendingUp className="w-3 h-3" />}
+                            {recommandation === "Z" && <ShieldAlert className="w-3 h-3" />}
+                            {recommandation ? `GAMME ${recommandation}` : "NON DÉFINI"}
+                        </div>
+                    </div>
+
+                    {/* Explanation Box - Monospace for figures */}
+                    <div
+                        className="p-5 rounded-xl border border-[var(--border)] bg-[var(--bg-base)]/50 relative overflow-hidden"
+                    >
+                        <div className="flex gap-4">
+                            <History className="w-4 h-4 mt-0.5 text-[var(--accent)] shrink-0 opacity-80" />
+                            <div className="text-[13px] leading-relaxed text-[var(--text-secondary)] font-medium">
+                                <span className="font-mono-nums leading-relaxed whitespace-pre-wrap">
+                                    {explanation}
+                                </span>
                             </div>
                         </div>
+                    </div>
 
-                        {/* Explanation Text */}
-                        <div
-                            className="text-[14px] leading-relaxed p-5 rounded-2xl border"
-                            style={{
-                                background: "var(--bg-elevated)",
-                                borderColor: "var(--border)",
-                                color: "var(--text-secondary)"
-                            }}
-                        >
-                            <div className="flex gap-3">
-                                <History className="w-4 h-4 mt-1 text-indigo-400 shrink-0" />
-                                <div className="whitespace-pre-wrap font-medium italic italic-custom">
-                                    "{explanation}"
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="flex flex-col gap-2">
-                            <div className="h-px w-full bg-gradient-to-r from-transparent via-[var(--border)] to-transparent" />
-                            <p className="text-[10px] text-center opacity-40 font-bold italic">
-                                Analyse générée en temps réel selon les indicateurs CA, Marge et Régularité.
-                            </p>
+                    {/* Meta Info */}
+                    <div className="flex items-center justify-center gap-4 py-2 border-t border-[var(--border)]">
+                        <div className="flex items-center gap-2 text-[10px] text-[var(--text-muted)] font-medium italic">
+                            <span>Basé sur CA, Marge & Volumes réels</span>
                         </div>
                     </div>
                 </div>
 
-                {/* Footers / Action */}
-                <div className="p-6 pt-0">
+                {/* Footer Action */}
+                <div className="px-6 py-4 bg-[var(--bg-elevated)]/50 border-t border-[var(--border)] flex justify-end">
                     <button
                         onClick={handleClose}
-                        className="w-full py-3 rounded-2xl font-black text-sm transition-all hover:scale-[1.02] active:scale-95 text-[#f5f5f7] bg-[#1c1c1e] hover:bg-[#2c2c2e] border border-white/10"
+                        className="apple-btn-secondary px-6"
                     >
                         Fermer l'Analyse
                     </button>
@@ -144,9 +137,9 @@ export function AiExplanationModal({
             </div>
 
             <style jsx>{`
-                .italic-custom {
-                    font-family: var(--font-serif, serif);
-                    font-style: italic;
+                .font-mono-nums {
+                    font-family: inherit;
+                    font-variant-numeric: tabular-nums;
                 }
             `}</style>
         </div>
