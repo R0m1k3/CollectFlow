@@ -2,82 +2,74 @@ import { ProductAnalysisInput } from "../models/ai-analysis.types";
 
 export class AnalysisEngine {
     static generateSystemPrompt(): string {
-        return `Tu es Mary, une experte en stratégie retail. Ton rôle est de conseiller un acheteur sur le maintien ou l'arrêt d'un produit.
-Tu reçois des données de vente sur 12 mois, la marge, le score de performance (0-100), et surtout le POIDS RELATIF du produit chez son fournisseur.
+        return `Tu es Mary, une experte Senior en Stratégie Retail et Category Management. Ton rôle est d'arbitrer l'assortiment avec une rigueur de consultant.
+Tu analyses les performances d'un produit par rapport à son Fournisseur et son Rayon (Niveau 2).
 
---- CRITÈRES DE DÉCISION (Priorité Décroissante) ---
-1. POIDS STRATÉGIQUE (% CA ou % MARGE) :
-   - Si un produit pèse > 8% du CA Total du fournisseur, il est STRATÉGIQUE. Ne JAMAIS le classer en [Z], sauf si la marge est négative ou la régularité < 3/12.
-   - Si un produit pèse > 15% du CA, il doit être classé [A] même avec un score moyen, car son arrêt déstabiliserait le fournisseur.
+--- HIÉRARCHIE DE DÉCISION MÉTIER (Priorité Décroissante) ---
 
-2. TYPOLOGIE DE PERFORMANCE :
-   - [A] (Maintenir/Protéger) : Produits piliers, forte contribution CA/Marge, ou "Générateurs de Trafic" (Volumes élevés vs moyenne rayon).
-   - [C] (À surveiller) : Produits récents à potentiel, ou produits de service stables mais à faible impact.
-   - [Z] (Arrêter/Sortir) : Produits à faible poids (< 2%), mauvaise régularité, faible marge, ET volume inférieur à la moyenne.
+1. INDISCUTABLES (Poids Stratégique > 10% du CA Fournisseur) :
+   - Ce sont les "Piliers" du fournisseur. Ne JAMAIS suggérer [Z] (Sortie), sauf accident industriel (Marge < 0 ET Régularité < 3/12). 
+   - Si Poids > 15%, la recommandation [A] est quasi-obligatoire pour protéger la relation fournisseur.
 
-3. VOLUME VS VALORISATION (PMV) :
-   - Un produit à faible CA peut être un "Générateur de Trafic" si son volume est > à la moyenne du Rayon.
-   - Un produit à faible volume peut être un "Contributeur de Marge" s'il a un PMV (Prix Moyen de Vente) élevé et une marge excellente.
+2. PILIERS & VACHES À LAIT (Score > 65 + Régularité > 8/12) :
+   - Produits performants et stables. Recommandation [A] (Permanent).
+   - Justifie par la "Moyenne Rayon" : Si Volume > Moyenne Rayon, c'est un moteur de trafic.
 
---- TON TON ET STYLE ---
-Sois brève (max 2-3 phrases). Justifie toujours par le poids (%) ou le volume comparatif. 
-Sois directe : "Pèse 12% du CA", "Volume 2x supérieur au rayon", etc.
-Commence toujours par ta recommandation entre crochets : [A], [C] ou [Z].
+3. DILEMMES & SAISONNIERS (Score moyen OU Régularité faible OU Inactivité > 2) :
+   - [C] (À surveiller) : Produits récents avec fort "Run Rate" (Projection 12m) ou produits au comportement saisonnier cyclique.
+   - Un produit récent (Régularité < 6) mais avec une projection 12m élevée mérite d'être protégé [C] pour lui laisser sa chance.
 
-Options de recommandation :
-- [A] - PERMANENT : Produit dont la valeur business, le trafic ou le service client est prouvé.
-- [C] - SAISONNIER : Pics de ventes concentrés, inactivité hors saison.
-Ta réponse doit être courte, directe et sans complaisance.
-Format : "[Recommandation] : [Justification factuelle]"`;
+4. POIDS MORTS (Poids < 2% + Score < 30 + Volume < Moyenne Rayon) :
+   - [Z] (Sortie) : Produits marginaux qui encombrent le linéaire sans rentabilité ni débit suffisant.
+
+--- TON, STYLE & FORMAT ---
+- Sois chirurgicale : Cite toujours le poids (%) et compare le volume au benchmark.
+- Maximum 2-3 phrases. Pas de blabla, juste des faits.
+- Format strict : "[Recommandation] : [Justification factuelle]"
+- Exemple : "[A] : Produit pilier (12% du CA Fournisseur) avec un volume 1.5x supérieur à la moyenne du rayon."`;
     }
 
     static generateUserMessage(p: ProductAnalysisInput): string {
         const pmv = p.totalQuantite > 0 ? p.totalCa / p.totalQuantite : 0;
-
         const monthlySummary = Object.entries(p.sales12m || {})
             .map(([k, v]) => `${k}: ${Math.round(v)}u`)
             .join(", ");
 
-        const volumeInfo = `Volumes : ${Math.round(p.totalQuantite)}u sur ${p.storeCount} mag.`;
+        const volumeInfo = `VOLUMES : ${Math.round(p.totalQuantite)}u sur ${p.storeCount} mag.`;
 
-        // Contexte comparatif et contribution
+        // Contexte comparatif
         const avgRef = p.avgQtyRayon || p.avgQtyFournisseur || 0;
         const refName = p.avgQtyRayon ? "rayon" : "fournisseur";
         const relativeVolume = avgRef > 0 ? ` (Moyenne du ${refName} : ${avgRef.toFixed(1)}u)` : "";
 
+        // Poids Stratégique
         const weights = p.shareCa !== undefined ? `
 CONTRIBUTION (%) :
 - Chiffre d'Affaires : ${p.shareCa.toFixed(1)}% du total fournisseur
 - Marge Brute : ${p.shareMarge?.toFixed(1)}% du total fournisseur
-- Volumes : ${p.shareQty?.toFixed(1)}% du total fournisseur
-` : "";
+- Volumes : ${p.shareQty?.toFixed(1)}% du total fournisseur` : "";
 
-        const totalContext = p.totalFournisseurCa ? `TOTAL FOURNISSEUR : ${p.totalFournisseurCa.toFixed(0)}€ CA` : "";
+        const totalContext = p.totalFournisseurCa ? `\nVALEUR TOTALE FOURNISSEUR : ${p.totalFournisseurCa.toFixed(0)}€ CA` : "";
 
-        const projectionInfo = p.regularityScore > 0 && p.regularityScore < 12 ? `
---- ANALYSE DE POTENTIEL (Produit récent : ${p.regularityScore}/12 mois active) ---
-Projection 12 mois : ${Math.round(p.projectedTotalQuantite || 0)}u (${(p.projectedTotalCa || 0).toFixed(2)}€)` : "";
+        const projectionInfo = (p.regularityScore || 0) > 0 && (p.regularityScore || 0) < 12 ? `
+--- ANALYSE DE POTENTIEL (Produit récent : ${p.regularityScore}/12 mois) ---
+Projection 12 mois (Run Rate) : ${Math.round(p.projectedTotalQuantite || 0)}u (${(p.projectedTotalCa || 0).toFixed(2)}€)` : "";
 
         const activityAlert = (p.inactivityMonths || 0) > 2
-            ? `\n⚠️ ALERTE : Inactif depuis ${p.inactivityMonths} mois`
+            ? `\n⚠️ ALERTE INACTIVITÉ : ${p.inactivityMonths} mois sans vente.`
             : "";
 
-        return `Produit : ${p.libelle1} (${p.codein})
-PERFORMANCE GLOBALE : ${p.score.toFixed(1)}/100
-MARGE : ${p.tauxMarge.toFixed(1)}%
-PRIX MOYEN (PMV) : ${pmv.toFixed(2)}€
-${volumeInfo}${relativeVolume}
-${weights}
-${totalContext}
+        return `PRODUIT : ${p.libelle1} (${p.codein})
+PERFORMANCE : Score ${p.score.toFixed(1)}/100 | Marge ${p.tauxMarge.toFixed(1)}% | PMV ${pmv.toFixed(2)}€
+${volumeInfo}${relativeVolume}${weights}${totalContext}
 
-Régularité : ${p.regularityScore}/12 mois active
-${projectionInfo}${activityAlert}
+CYCLE DE VIE : ${p.regularityScore}/12 mois active${projectionInfo}${activityAlert}
 
---- HISTORIQUE DES VENTES (12 mois) ---
+--- HISTORIQUE MENSUEL PONDÉRÉ ---
 ${monthlySummary}
 
 Recommandation actuelle : ${p.codeGamme || "Aucune"}
-Verdict attendu : [A], [C] ou [Z] avec justification par les chiffres.`;
+Verdict attendu (A, C ou Z) ?`;
     }
 
     static extractRecommendation(content: string): "A" | "C" | "Z" | null {

@@ -25,76 +25,63 @@ export default function AiAnalysisDocPage() {
 
             {/* Grid of Rules */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* 1. Équité Territoriale */}
+                {/* 1. Loi de Pareto */}
                 <DocCard
                     icon={ShieldCheck}
-                    title="Normalisation Magasins (x2)"
-                    description="Équilibre les chances entre les produits mono-magasin et multi-magasins."
+                    title="Loi de Pareto (Poids %)"
+                    description="Priorité n°1 : Le poids du produit chez le fournisseur."
                     accent="teal"
                 >
                     <p className="text-[13px] leading-relaxed">
-                        Pour éviter qu'un produit présent dans un seul magasin ne soit pénalisé par son volume brut, le système
-                        <strong> double automatiquement</strong> toutes ses statistiques (Ventes, CA, Marge).
-                        Cela simule sa performance s'il était présent sur les deux points de vente de référence.
+                        L'IA identifie les produits <strong>Indiscutables</strong>. Si un produit pèse
+                        <strong> {"> 10%"}</strong> du CA total de son fournisseur, il est jugé stratégique.
+                        Mary refusera de suggérer sa sortie [Z] pour protéger la relation fournisseur et
+                        garantir la stabilité de l'assortiment.
                     </p>
                 </DocCard>
 
-                {/* 2. Run Rate */}
-                <DocCard
-                    icon={TrendingUp}
-                    title="Potentiel Annuel (Run Rate)"
-                    description="Évalue les lancements sur leur dynamique réelle, pas sur leur cumul."
-                    accent="indigo"
-                >
-                    <p className="text-[13px] leading-relaxed">
-                        Si un produit a moins de 12 mois de présence, l'IA calcule un <strong>Run Rate 12 mois</strong>.
-                        <br /><br />
-                        <code className="bg-[var(--bg-muted)] px-2 py-0.5 rounded text-indigo-600 dark:text-indigo-400 font-mono text-[11px]">
-                            Projection = Volume_Réel * (12 / Mois_Présence)
-                        </code>
-                        <br /><br />
-                        Cela permet de confirmer un produit <strong>Permanent [A]</strong> dès ses premiers mois s'il a une forte vélocité.
-                    </p>
-                </DocCard>
-
-                {/* 3. Saisonnalité */}
-                <DocCard
-                    icon={Calendar}
-                    title="Détection Saisonnalité"
-                    description="Distingue les ruptures temporaires des fins de vie ou saisons."
-                    accent="amber"
-                >
-                    <p className="text-[13px] leading-relaxed">
-                        L'IA analyse la <strong>récence</strong> des ventes. Si aucune vente n'est constatée depuis plus de
-                        <strong> 2 mois</strong> :
-                    </p>
-                    <ul className="mt-2 space-y-1 text-[13px]">
-                        <li className="flex items-center gap-2">
-                            <Zap className="w-3 h-3 text-emerald-500" />
-                            <span>{"< 2 mois : Lancement probable (actif)"}</span>
-                        </li>
-                        <li className="flex items-center gap-2">
-                            <AlertTriangle className="w-3 h-3 text-amber-500" />
-                            <span>{"> 2 mois : Alerte Saison [C] ou Sortie [Z]"}</span>
-                        </li>
-                    </ul>
-                </DocCard>
-
-                {/* 4. Score Global */}
+                {/* 2. Équité & Normalisation */}
                 <DocCard
                     icon={Scale}
-                    title="Score de Performance"
-                    description="La source de vérité mathématique (0 à 100)."
+                    title="Normalisation & Équité"
+                    description="Égalité de traitement entre mono et multi-magasins."
                     accent="rose"
                 >
                     <p className="text-[13px] leading-relaxed">
-                        Le score affiché dans la grille combine la Quantité, le CA et la Marge.
-                        L'IA utilise ce score comme garde-fou :
+                        Pour une comparaison juste, les statistiques des produits présents sur un seul magasin sont
+                        <strong> doublées (x2)</strong>. L'IA compare ensuite ces données pondérées aux
+                        <strong> Benchmarks du Rayon</strong> (Moyenne du Niveau 2) pour détecter les sur-performances.
+                    </p>
+                </DocCard>
+
+                {/* 3. Cycle de Vie */}
+                <DocCard
+                    icon={TrendingUp}
+                    title="Potentiel & Cycle de Vie"
+                    description="Détection des lancements et des fins de vie."
+                    accent="indigo"
+                >
+                    <p className="text-[13px] leading-relaxed">
+                        Mary distingue les produits récents des produits établis :
                     </p>
                     <ul className="mt-2 space-y-1 text-[13px]">
-                        <li>• <strong>{"> 70"}</strong> : Candidat naturel au maintien.</li>
-                        <li>• <strong>{"< 30"}</strong> : Signal fort de déréférencement.</li>
+                        <li>• <strong>Run Rate</strong> : Projection sur 12 mois pour les produits de moins d'un an.</li>
+                        <li>• <strong>Inactivité</strong> : Une alerte est levée après <strong>2 mois sans vente</strong>,
+                            orientant le verdict vers le [C] (Saisonnier) ou [Z] (Sortie).</li>
                     </ul>
+                </DocCard>
+
+                {/* 4. PMV & Trafic */}
+                <DocCard
+                    icon={Zap}
+                    title="Volumes vs Valeur (PMV)"
+                    description="Identifier les générateurs de trafic."
+                    accent="amber"
+                >
+                    <p className="text-[13px] leading-relaxed">
+                        Un produit peut être maintenu même avec un faible CA s'il génère du <strong>Trafic</strong> (Volumes {">"} Moyenne Rayon).
+                        À l'inverse, un produit à faible volume peut être un <strong>Contributeur de Marge</strong> précieux s'il possède un Prix Moyen de Vente (PMV) élevé.
+                    </p>
                 </DocCard>
             </div>
 
