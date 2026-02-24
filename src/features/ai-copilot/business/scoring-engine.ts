@@ -79,24 +79,31 @@ export class ScoringEngine {
 
         // 6. Décision (Moyenne - Sigma)
         const allScores = processedProducts.map(p => {
-            // On doit simuler le score composite pour tout le monde pour avoir la moyenne/sigma
-            // Pour simplifier ici, on recalculerait ça proprement
             return this.calculateQuickScore(p, processedProducts, medVol, medMarge, isSaisonnierRayon);
         });
 
         const mean = allScores.reduce((a, b) => a + b, 0) / allScores.length;
-        const stdDev = Math.sqrt(allScores.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / allScores.length);
-        const threshold = mean - stdDev;
+        const variance = allScores.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / allScores.length;
+        const stdDev = Math.sqrt(variance);
+        const threshold = Math.max(0.1, mean - 1.0 * stdDev); // Seuil plancher à 10/100
 
         let recommendation: "A" | "Z" = compositeScore >= threshold ? "A" : "Z";
 
-        // 7. Gardes-fous
+        // 7. Gardes-fous et Labels
         const isRecent = (target.regularityScore || 0) < 3;
         const isTop30Supplier = this.checkTop30Supplier(target, processedProducts);
         const isLastProduct = target.isLastProductOfSupplier || false;
 
-        if (isRecent || isTop30Supplier || isLastProduct) {
+        let finalLabel = labelProfil;
+        if (isRecent) {
             recommendation = "A";
+            finalLabel = "Nouveauté (Protégée)";
+        } else if (isTop30Supplier) {
+            recommendation = "A";
+            finalLabel = `${labelProfil} / Leader Fournisseur (Protégé)`;
+        } else if (isLastProduct) {
+            recommendation = "A";
+            finalLabel = "Dernière Réf Fournisseur (Protégée)";
         }
 
         return {
@@ -109,7 +116,7 @@ export class ScoringEngine {
                 isTop30Supplier,
                 isLastProduct,
                 isRecent,
-                labelProfil
+                labelProfil: finalLabel
             },
             metrics: {
                 caNormalise: target.caNormalise,
@@ -135,8 +142,16 @@ export class ScoringEngine {
     private static calculatePercentile(value: number, distribution: number[]): number {
         if (distribution.length <= 1) return 1;
         const sorted = [...distribution].sort((a, b) => a - b);
-        const rank = sorted.indexOf(value);
-        return rank / (distribution.length - 1);
+
+        // Trouver tous les index de la valeur pour gérer les ex-aequos
+        const first = sorted.indexOf(value);
+        const last = sorted.lastIndexOf(value);
+
+        if (first === -1) return 0;
+
+        // Rang moyen
+        const avgRank = (first + last) / 2;
+        return avgRank / (distribution.length - 1);
     }
 
     private static calculateMedian(values: number[]): number {
