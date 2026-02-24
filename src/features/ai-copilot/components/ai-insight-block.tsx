@@ -3,12 +3,14 @@
 import React, { useState } from "react";
 
 import { Bot, Loader2, AlertCircle, Sparkles, Maximize2 } from "lucide-react";
-import { useAiCopilotStore } from "@/features/ai-copilot/store/use-ai-copilot-store";
 import { AiExplanationModal } from "./ai-explanation-modal";
+import { useAiCopilotStore } from "../store/use-ai-copilot-store";
+import { ProductAnalysisInput } from "../models/ai-analysis.types";
+import { ScoringEngine } from "../business/scoring-engine";
+import { useGridStore } from "@/features/grid/store/use-grid-store";
 import type { ProductRow } from "@/types/grid";
 import { cn } from "@/lib/utils";
 
-import { useGridStore } from "@/features/grid/store/use-grid-store";
 
 interface AiInsightBlockProps {
     row: ProductRow;
@@ -30,18 +32,17 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
         setLoading(row.codein);
         setDraftGamme(row.codein, "Aucune");
 
-        const regScore = Object.values(row.sales12m || {}).filter(v => v > 0).length;
+        const allRows = useGridStore.getState().rows;
+        const rayonRows = allRows.filter(r => r.libelleNiveau2 === row.libelleNiveau2);
+
+        // Préparation du ScoringEngine
+        const regScore = Object.values(row.sales12m || {}).filter((v: any) => v > 0).length;
         const weight = (row.workingStores?.length || 1) === 1 ? 2 : 1;
 
-        // Calcul de l'inactivité (Récence)
+        // Calcul de l'inactivité
         const allMonths = Object.keys(row.sales12m || {});
         const referenceMonth = allMonths.length > 0 ? Math.max(...allMonths.map(m => parseInt(m))).toString() : "";
-
-        const salesMonths = Object.entries(row.sales12m || {})
-            .filter(([_, qty]) => qty > 0)
-            .map(([m]) => parseInt(m))
-            .sort((a, b) => b - a);
-
+        const salesMonths = Object.entries(row.sales12m || {}).filter(([_, qty]: [string, any]) => qty > 0).map(([m]) => parseInt(m)).sort((a, b) => b - a);
         const lastMonth = salesMonths.length > 0 ? salesMonths[0].toString() : "";
         let inactivity = 0;
         if (referenceMonth && lastMonth) {
@@ -51,6 +52,27 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
             const lastM = parseInt(lastMonth.substring(4, 6));
             inactivity = (refY - lastY) * 12 + (refM - lastM);
         }
+
+        // Mapping pour le moteur de scoring
+        const mapToInput = (r: ProductRow) => ({
+            codein: r.codein,
+            libelle1: r.libelle1,
+            totalCa: r.totalCa,
+            tauxMarge: r.tauxMarge,
+            totalQuantite: r.totalQuantite,
+            codeFournisseur: r.codeFournisseur,
+            storeCount: r.workingStores?.length || 1,
+            totalMagasins: 2,
+            regularityScore: Object.values(r.sales12m || {}).filter((v: any) => v > 0).length,
+            inactivityMonths: 0,
+            isLastProductOfSupplier: false,
+            sales12m: r.sales12m,
+            codeGamme: r.codeGamme,
+            score: r.score
+        });
+
+        // Calcul du ScoringEngine
+        const scoringResult = ScoringEngine.analyzeRayon(mapToInput(row), rayonRows.map(mapToInput));
 
         analyzeProduct({
             codein: row.codein,
@@ -62,8 +84,6 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
             codeGamme: row.codeGamme,
             score: row.score,
             regularityScore: regScore,
-            projectedTotalQuantite: regScore > 0 ? (row.totalQuantite * weight * (12 / regScore)) : (row.totalQuantite * weight),
-            projectedTotalCa: regScore > 0 ? (row.totalCa * weight * (12 / regScore)) : (row.totalCa * weight),
             lastMonthWithSale: lastMonth,
             inactivityMonths: inactivity,
             avgQtyFournisseur: row.avgQtyFournisseur,
@@ -72,6 +92,17 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
             shareMarge: row.shareMarge,
             shareQty: row.shareQty,
             totalFournisseurCa: row.totalFournisseurCa,
+            codeFournisseur: row.codeFournisseur,
+            totalMagasins: 2,
+            scoring: {
+                compositeScore: scoringResult.compositeScore,
+                decision: scoringResult.decision.recommendation,
+                labelProfil: scoringResult.decision.labelProfil,
+                isTop30Supplier: scoringResult.decision.isTop30Supplier,
+                isRecent: scoringResult.decision.isRecent,
+                isLastProduct: scoringResult.decision.isLastProduct,
+                threshold: scoringResult.decision.threshold
+            }
         });
     };
 

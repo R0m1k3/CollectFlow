@@ -2,77 +2,38 @@ import { ProductAnalysisInput } from "../models/ai-analysis.types";
 
 export class AnalysisEngine {
     static generateSystemPrompt(): string {
-        return `Tu es Mary, une experte Senior en Stratégie Retail et Category Management. Ton rôle est d'arbitrer l'assortiment avec une rigueur de consultant.
-Tu analyses les performances d'un produit par rapport à son Fournisseur et son Rayon (Niveau 2).
+        return `Tu es Mary, experte Senior en Stratégie Retail. Ta mission est d'expliquer le verdict du moteur de scoring algorithmique.
+Le scoring est basé sur 5 axes : CA normalisé (35%), Volume (25%), Marge (20%), Profil/Quadrant (10%) et Activité (10%).
 
---- HIÉRARCHIE DE DÉCISION MÉTIER (Priorité Décroissante) ---
+--- TON RÔLE ---
+1. JUSTIFIER : Explique pourquoi le produit a obtenu son score (Score / [100]) par rapport au seuil du rayon.
+2. ÉVALUER LE PROFIL : Utilise le libellé du profil (Star, Contributeur Marge, Générateur Trafic, Sous-performant).
+3. VÉRIFIER LES GARDES-FOUS : Si le verdict est [A] malgré un score faible, explique si c'est dû à sa position de Leader Fournisseur (Top 30%), à son statut de Produit Récent ou de Dernier Produit Fournisseur.
+4. ÊTRE CONCISE : Maximum 2 phrases percutantes.
 
-1. INDISCUTABLES (Poids Stratégique > 10% du CA Fournisseur) :
-   - Ce sont les "Piliers" du fournisseur. Ne JAMAIS suggérer [Z] (Sortie), sauf accident industriel (Marge < 0 ET Régularité < 3/12). 
-   - Si Poids > 15%, la recommandation [A] est quasi-obligatoire pour protéger la relation fournisseur.
-
-2. PILIERS & VACHES À LAIT (Score > 65 + Régularité > 8/12) :
-   - Produits performants et stables. Recommandation [A] (Permanent).
-   - Justifie par la "Moyenne Rayon" : Si Volume > Moyenne Rayon, c'est un moteur de trafic.
-
-3. DILEMMES & SAISONNIERS (Score moyen OU Régularité faible OU Inactivité > 2) :
-   - [C] (À surveiller) : Réservé EXCLUSIVEMENT aux produits saisonniers.
-   - Un produit est considéré comme saisonnier SI ET SEULEMENT SI :
-     a) Sa nomenclature (Libellé) contient des indicateurs clairs (ex: "SAIS", "ETE", "NOEL", "HIVER", "PAQUES", "PROMO", "PERIPH").
-     b) Son historique de vente montre des pics cycliques annuels évidents malgré une inactivité prolongée.
-   - Ne JAMAIS mettre un produit en [C] simplement à cause d'une régularité faible ou de ventes fluctuantes s'il n'y a pas d'indice de saisonnalité. Dans ce cas, préférer [A] (si stratégique) ou [Z] (si performance insuffisante).
-
-4. POIDS MORTS (Poids < 2% + Score < 30 + Volume < Moyenne Rayon) :
-   - [Z] (Sortie) : Produits marginaux qui encombrent le linéaire sans rentabilité ni débit suffisant.
-
---- TON, STYLE & FORMAT ---
-- Sois chirurgicale : Cite toujours le poids (%) et compare le volume au benchmark.
-- Maximum 2-3 phrases. Pas de blabla, juste des faits.
-- Format strict : "[Recommandation] : [Justification factuelle]"
-- Exemple : "[A] : Produit pilier (12% du CA Fournisseur) avec un volume 1.5x supérieur à la moyenne du rayon."`;
+--- FORMAT ATTENDU ---
+"[Recommandation] : [Justification factuelle incluant le Score et les axes clés]"`;
     }
 
     static generateUserMessage(p: ProductAnalysisInput): string {
         const pmv = p.totalQuantite > 0 ? p.totalCa / p.totalQuantite : 0;
-        const monthlySummary = Object.entries(p.sales12m || {})
-            .map(([k, v]) => `${k}: ${Math.round(v)}u`)
-            .join(", ");
-
-        const volumeInfo = `VOLUMES : ${Math.round(p.totalQuantite)}u sur ${p.storeCount} mag.`;
-
-        // Contexte comparatif
-        const avgRef = p.avgQtyRayon || p.avgQtyFournisseur || 0;
-        const refName = p.avgQtyRayon ? "rayon" : "fournisseur";
-        const relativeVolume = avgRef > 0 ? ` (Moyenne du ${refName} : ${avgRef.toFixed(1)}u)` : "";
-
-        // Poids Stratégique
         const weights = p.shareCa !== undefined ? `
 CONTRIBUTION (%) :
 - Chiffre d'Affaires : ${p.shareCa.toFixed(1)}% du total fournisseur
-- Marge Brute : ${p.shareMarge?.toFixed(1)}% du total fournisseur
-- Volumes : ${p.shareQty?.toFixed(1)}% du total fournisseur` : "";
+- Marge Brute : ${p.shareMarge?.toFixed(1)}% du total fournisseur` : "";
 
-        const totalContext = p.totalFournisseurCa ? `\nVALEUR TOTALE FOURNISSEUR : ${p.totalFournisseurCa.toFixed(0)}€ CA` : "";
-
-        const projectionInfo = (p.regularityScore || 0) > 0 && (p.regularityScore || 0) < 12 ? `
---- ANALYSE DE POTENTIEL (Produit récent : ${p.regularityScore}/12 mois) ---
-Projection 12 mois (Run Rate) : ${Math.round(p.projectedTotalQuantite || 0)}u (${(p.projectedTotalCa || 0).toFixed(2)}€)` : "";
-
-        const activityAlert = (p.inactivityMonths || 0) > 2
-            ? `\n⚠️ ALERTE INACTIVITÉ : ${p.inactivityMonths} mois sans vente.`
-            : "";
+        const scoringInfo = p.scoring ? `
+--- RÉSULTATS SCORING ALGORIHTMIQUE ---
+SCORE FINAL : ${p.scoring.compositeScore}/100 (Seuil Rayon Z : ${p.scoring.threshold})
+PROFIL : ${p.scoring.labelProfil}
+GARDES-FOUS : ${p.scoring.isTop30Supplier ? "Oui (Top 30% Fournisseur)" : "Non"} | Récent : ${p.scoring.isRecent ? "Oui" : "Non"} | Dernier Prod : ${p.scoring.isLastProduct ? "Oui" : "Non"}
+` : "";
 
         return `PRODUIT : ${p.libelle1} (${p.codein})
-PERFORMANCE : Score ${p.score.toFixed(1)}/100 | Marge ${p.tauxMarge.toFixed(1)}% | PMV ${pmv.toFixed(2)}€
-${volumeInfo}${relativeVolume}${weights}${totalContext}
-
-CYCLE DE VIE : ${p.regularityScore}/12 mois active${projectionInfo}${activityAlert}
-
---- HISTORIQUE MENSUEL PONDÉRÉ ---
-${monthlySummary}
-
-Recommandation actuelle : ${p.codeGamme || "Aucune"}
-Verdict attendu (A, C ou Z) ?`;
+PERFORMANCE : Score Global ${p.score.toFixed(1)}/100 | Marge ${p.tauxMarge.toFixed(1)}% | PMV ${pmv.toFixed(2)}€
+${weights}${scoringInfo}
+Verdict algorithmique : ${p.scoring?.decision || "Non calculé"}
+Justifie ce verdict auprès de l'utilisateur.`;
     }
 
     static extractRecommendation(content: string): "A" | "C" | "Z" | null {
