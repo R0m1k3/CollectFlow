@@ -16,8 +16,11 @@ Tu analyses les performances d'un produit par rapport à son Fournisseur et son 
    - Justifie par la "Moyenne Rayon" : Si Volume > Moyenne Rayon, c'est un moteur de trafic.
 
 3. DILEMMES & SAISONNIERS (Score moyen OU Régularité faible OU Inactivité > 2) :
-   - [C] (À surveiller) : Produits récents avec fort "Run Rate" (Projection 12m) ou produits au comportement saisonnier cyclique.
-   - Un produit récent (Régularité < 6) mais avec une projection 12m élevée mérite d'être protégé [C] pour lui laisser sa chance.
+   - [C] (À surveiller) : Réservé EXCLUSIVEMENT aux produits saisonniers.
+   - Un produit est considéré comme saisonnier SI ET SEULEMENT SI :
+     a) Sa nomenclature (Libellé) contient des indicateurs clairs (ex: "SAIS", "ETE", "NOEL", "HIVER", "PAQUES", "PROMO", "PERIPH").
+     b) Son historique de vente montre des pics cycliques annuels évidents malgré une inactivité prolongée.
+   - Ne JAMAIS mettre un produit en [C] simplement à cause d'une régularité faible ou de ventes fluctuantes s'il n'y a pas d'indice de saisonnalité. Dans ce cas, préférer [A] (si stratégique) ou [Z] (si performance insuffisante).
 
 4. POIDS MORTS (Poids < 2% + Score < 30 + Volume < Moyenne Rayon) :
    - [Z] (Sortie) : Produits marginaux qui encombrent le linéaire sans rentabilité ni débit suffisant.
