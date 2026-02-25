@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, TrendingUp, Calendar, Zap, AlertTriangle, ShieldCheck, Scale, Info } from "lucide-react";
+import { Bot, TrendingUp, Calendar, Zap, AlertTriangle, ShieldCheck, Scale, Info, Brain } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default function AiAnalysisDocPage() {
@@ -81,6 +81,20 @@ export default function AiAnalysisDocPage() {
                     <p className="text-[13px] leading-relaxed">
                         Un produit peut être maintenu même avec un faible CA s'il génère du <strong>Trafic</strong> (Volumes {">"} Moyenne Rayon).
                         À l'inverse, un produit à faible volume peut être un <strong>Contributeur de Marge</strong> précieux s'il possède un Prix Moyen de Vente (PMV) élevé.
+                    </p>
+                </DocCard>
+
+                {/* 5. Règles IA Fournisseur */}
+                <DocCard
+                    icon={Brain}
+                    title="Règles Métier Fournisseur"
+                    description="Priorité absolue aux directives personnalisées."
+                    accent="indigo"
+                >
+                    <p className="text-[13px] leading-relaxed">
+                        Vous pouvez définir des <strong>Règles IA</strong> spécifiques pour chaque fournisseur (via le bouton avec le cerveau 🧠).
+                        Ces directives sont mémorisées d'une session à l'autre et l'IA a pour consigne stricte de les <strong>respecter en priorité absolue</strong>
+                        sur les calculs algorithmiques standards.
                     </p>
                 </DocCard>
             </div>

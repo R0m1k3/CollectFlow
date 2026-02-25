@@ -76,3 +76,13 @@ export const sessionSnapshots = pgTable("session_snapshots", {
   type: varchar("type", { length: 20 }).default("snapshot"),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+/** AI Context rules per supplier (Epic: AI Context) */
+export const aiSupplierContext = pgTable("ai_supplier_context", {
+  /** Supplier code serving as the primary key */
+  codeFournisseur: varchar("code_fournisseur", { length: 20 }).primaryKey(),
+  /** The business rules text provided by the user */
+  context: text("context").notNull(),
+  /** When it was last updated */
+  updatedAt: timestamp("updated_at").defaultNow(),
+});

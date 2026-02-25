@@ -38,9 +38,15 @@ CONTRIBUTION(%) :
     GARDES-FOUS : ${p.scoring.isTop30Supplier ? "Oui (Top 30% Fournisseur)" : "Non"} | Récent : ${p.scoring.isRecent ? "Oui" : "Non"} | Dernier Prod: ${p.scoring.isLastProduct ? "Oui" : "Non"}
 ` : "";
 
+        const contextRules = p.supplierContext ? `
+--- RÈGLES MÉTIER SPÉCIFIQUES ---
+Le manager a défini ces règles absolues pour ce fournisseur (TU DOIS LES RESPECTER EN PRIORITÉ) :
+"${p.supplierContext}"
+` : "";
+
         return `PRODUIT: ${p.libelle1} (${p.codein})
 PERFORMANCE: Score Global ${p.score.toFixed(1)}/100 | Marge ${p.tauxMarge.toFixed(1)}% | PMV ${pmv.toFixed(2)}€
-${weights}${scoringInfo}
+${weights}${scoringInfo}${contextRules}
 Verdict algorithmique: ${p.scoring?.decision || "Non calculé"}
 Justifie ce verdict auprès de l'utilisateur.`;
     }

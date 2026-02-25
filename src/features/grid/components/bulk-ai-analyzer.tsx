@@ -7,8 +7,13 @@ import { ScoringEngine } from "@/features/ai-copilot/business/scoring-engine";
 import { Sparkles, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { ProductRow, GammeCode } from "@/types/grid";
 import { ProductAnalysisInput } from "@/features/ai-copilot/models/ai-analysis.types";
+import { SupplierAiContextModal } from "./supplier-ai-context-modal";
 
 export function BulkAiAnalyzer() {
+    const rows = useGridStore((s) => s.rows);
+    const supplierCode = rows.length > 0 ? rows[0].codeFournisseur : null;
+    const supplierName = rows.length > 0 ? rows[0].nomFournisseur : null;
+
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [progress, setProgress] = useState({ current: 0, total: 0, message: "", errors: 0 });
     const isCancelledRef = useRef(false);
@@ -243,12 +248,15 @@ export function BulkAiAnalyzer() {
     }
 
     return (
-        <button
-            onClick={handleAnalyze}
-            className="group flex items-center justify-center gap-2 h-10 px-6 rounded-xl text-sm font-black transition-all shadow-md bg-[var(--accent)] text-white hover:brightness-110 active:scale-95 border border-white/10"
-        >
-            <Sparkles className="w-4 h-4" />
-            Analyse IA
-        </button>
+        <div className="flex items-center gap-3">
+            <SupplierAiContextModal codeFournisseur={supplierCode} nomFournisseur={supplierName} />
+            <button
+                onClick={handleAnalyze}
+                className="group flex items-center justify-center gap-2 h-10 px-6 rounded-xl text-sm font-black transition-all shadow-md bg-[var(--accent)] text-white hover:brightness-110 active:scale-95 border border-white/10"
+            >
+                <Sparkles className="w-4 h-4" />
+                Analyse IA
+            </button>
+        </div>
     );
 }

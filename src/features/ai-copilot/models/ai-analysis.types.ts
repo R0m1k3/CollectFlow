@@ -31,16 +31,18 @@ export interface ProductAnalysisInput {
     codeFournisseur?: string;
     totalMagasins?: number;
     isLastProductOfSupplier?: boolean;
-    /** Résultats du ScoringEngine (optionnel pour l'IA) */
+    /** Scoring metadata */
     scoring?: {
         compositeScore: number;
-        decision: string;
+        decision: "A" | "Z";
         labelProfil: string;
         isTop30Supplier: boolean;
         isRecent: boolean;
         isLastProduct: boolean;
         threshold: number;
     };
+    /** Optional context rules for the supplier */
+    supplierContext?: string;
 }
 
 export interface AnalysisResult {
