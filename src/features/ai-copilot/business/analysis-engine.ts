@@ -19,7 +19,9 @@ Le score (0 à 100) est une mesure de performance RELATIVE au sein du rayon.
 4. CONCISE : 2 phrases maximum. Pas de blabla technique sur les percentiles, parle de "performance relative".
 
 --- FORMAT ATTENDU ---
-"[Recommandation] : [Justification factuelle incluant le Score et les axes clés]"`;
+"[Recommandation] : [Justification factuelle incluant le Score et les axes clés]"
+Exemple : "[A] : Score de 85/100 porté par une marge excellente de 45% et une forte croissance volume."
+Exemple : "[Z] : Score faible (12/100) en raison d'une baisse drastique du CA et d'une inactivité de 3 mois."`;
     }
 
     static generateUserMessage(p: ProductAnalysisInput): string {

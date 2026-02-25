@@ -3,6 +3,7 @@
 import React, { useState, useRef } from "react";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { useAiCopilotStore } from "@/features/ai-copilot/store/use-ai-copilot-store";
+import { ScoringEngine } from "@/features/ai-copilot/business/scoring-engine";
 import { Sparkles, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { ProductRow, GammeCode } from "@/types/grid";
 import { ProductAnalysisInput } from "@/features/ai-copilot/models/ai-analysis.types";
@@ -55,7 +56,7 @@ export function BulkAiAnalyzer() {
             }
         });
 
-        const productPayloads: ProductAnalysisInput[] = rows.map((r) => {
+        const initialPayloads: ProductAnalysisInput[] = rows.map((r) => {
             const sc = r.workingStores?.length || 1;
             const weight = sc === 1 ? 2 : 1;
             const rb = rayonBenchmarks.get(r.libelleNiveau2 || "Général");
@@ -102,6 +103,23 @@ export function BulkAiAnalyzer() {
                 projectedTotalCa: regScore > 0 ? (r.totalCa || 0) * weight * (12 / regScore) : (r.totalCa || 0) * weight,
                 lastMonthWithSale: lastMonth,
                 inactivityMonths: inactivity,
+            };
+        });
+
+        // 2. Calculer le scoring algorithmique pour chaque produit
+        const productPayloads = initialPayloads.map(p => {
+            const scoringRes = ScoringEngine.analyzeRayon(p, initialPayloads);
+            return {
+                ...p,
+                scoring: {
+                    compositeScore: scoringRes.compositeScore,
+                    decision: scoringRes.decision.recommendation,
+                    labelProfil: scoringRes.decision.labelProfil,
+                    isTop30Supplier: scoringRes.decision.isTop30Supplier,
+                    isRecent: scoringRes.decision.isRecent,
+                    isLastProduct: scoringRes.decision.isLastProduct,
+                    threshold: scoringRes.decision.threshold,
+                }
             };
         });
 
