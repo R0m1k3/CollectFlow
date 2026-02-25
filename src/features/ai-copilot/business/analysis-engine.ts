@@ -15,7 +15,7 @@ Le score (0 à 100) est une mesure de performance RELATIVE au sein du rayon.
 --- TON RÔLE ---
 1. JUSTIFIER : Explique le score par les axes (CA, Volume, Marge). Ne dis JAMAIS que le score est une erreur ou "non calculé" s'il est présent.
 2. EXPLIQUER LE VERDICT [A] : Si le verdict est [A] malgré un score faible, c'est une PROTECTION MÉTIER (ex: Produit Récent, Leader Fournisseur, Dernier Produit). Explique cette protection avec bienveillance.
-3. PROFIL : Utilise le libellé du profil fourni (Star, Contributeur Marge, etc.).
+3. FACTUEL : Utilise les chiffres transmis (Score Global, Marge, PMV). Si tu mentionnes le score, utilise toujours le "Score Global" qui est celui visible par l'utilisateur.
 4. CONCISE : 2 phrases maximum. Pas de blabla technique sur les percentiles, parle de "performance relative".
 
 --- FORMAT ATTENDU ---
@@ -32,10 +32,10 @@ CONTRIBUTION(%) :
     - Marge Brute: ${p.shareMarge?.toFixed(1)}% du total fournisseur` : "";
 
         const scoringInfo = p.scoring ? `
---- RÉSULTATS SCORING ALGORIHTMIQUE-- -
-    SCORE FINAL: ${p.scoring.compositeScore}/100 (Seuil Rayon Z : ${p.scoring.threshold})
-PROFIL: ${p.scoring.labelProfil}
-GARDES - FOUS : ${p.scoring.isTop30Supplier ? "Oui (Top 30% Fournisseur)" : "Non"} | Récent : ${p.scoring.isRecent ? "Oui" : "Non"} | Dernier Prod: ${p.scoring.isLastProduct ? "Oui" : "Non"}
+--- RÉSULTATS DÉCISION RAYON ---
+    INDICE RAYON: ${p.scoring.compositeScore}/100 (Seuil Z : ${p.scoring.threshold})
+    PROFIL: ${p.scoring.labelProfil}
+    GARDES-FOUS : ${p.scoring.isTop30Supplier ? "Oui (Top 30% Fournisseur)" : "Non"} | Récent : ${p.scoring.isRecent ? "Oui" : "Non"} | Dernier Prod: ${p.scoring.isLastProduct ? "Oui" : "Non"}
 ` : "";
 
         return `PRODUIT: ${p.libelle1} (${p.codein})
