@@ -106,6 +106,12 @@ export class ScoringEngine {
             finalLabel = "Dernière Réf Fournisseur (Protégée)";
         }
 
+        // Règle d'exclusion absolue (Demande Utilisateur) : Aucun produit de note < 20 en Gamme A
+        if (target.score !== undefined && target.score < 20) {
+            recommendation = "Z";
+            finalLabel = "Note Globale Critique (< 20)";
+        }
+
         return {
             compositeScore: Math.round(compositeScore * 100),
             percentiles: { ca: pCa, volume: pVol, marge: pMarge },

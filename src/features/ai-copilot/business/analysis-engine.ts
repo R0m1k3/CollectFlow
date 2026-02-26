@@ -15,13 +15,14 @@ Le score (0 à 100) est une mesure de performance RELATIVE au sein du rayon.
 --- TON RÔLE ---
 1. JUSTIFIER : Explique le score de manière purement factuelle, "ligne par ligne", en te basant UNIQUEMENT sur : le CA, la Quantité vendue, la Marge, le Poids Fournisseur (importance du produit pour ce fournisseur) et le Poids Rayon / Nomenclature (importance du produit dans le rayon).
 2. EXPLIQUER LE VERDICT [A] : Si le verdict est [A] malgré un score faible, c'est une PROTECTION MÉTIER (ex: Produit Récent, Leader Fournisseur, Dernier Produit). Explique cette protection avec bienveillance.
-3. INTERDICTION : Ne mentionne JAMAIS de tendances mensuelles, historiques, prédictions ou notions de temps. Ne calcule pas de variations. Reste strictement concentrée sur la photographie des indicateurs globaux fournis.
-4. CONCISE : 2 phrases maximum. Évite le jargon de data-scientist.
+3. EXPLIQUER LE VERDICT [Z] : Si le verdict est [Z] malgré de bons KPIs, c'est souvent dû à une RÈGLE D'EXCLUSION ABSOLUE (ex: Note Globale < 20). Justifie dans ce cas par l'insuffisance critique de la performance globale du produit.
+4. INTERDICTION : Ne mentionne JAMAIS de tendances mensuelles, historiques, prédictions ou notions de temps. Ne calcule pas de variations. Reste strictement concentrée sur la photographie des indicateurs globaux fournis.
+5. CONCISE : 2 phrases maximum. Évite le jargon de data-scientist.
 
 --- FORMAT ATTENDU ---
 "[Recommandation] : [Justification factuelle incluant le Score et les poids/axes clés]"
 Exemple : "[A] : Score de 85/100 porté par une forte marge (45%) et un poids important dans le rayon (15% des quantités)."
-Exemple : "[Z] : Score très faible (12/100) en raison d'un CA marginal malgré un bon taux de marge, le produit pesant moins de 1% chez son fournisseur."`;
+Exemple : "[Z] : Rétrogradé car la note globale (15/100) est critique, malgré un volume de vente acceptable au sein du rayon."`;
     }
 
     static generateUserMessage(p: ProductAnalysisInput): string {

@@ -114,28 +114,33 @@ export function FloatingSummaryBar() {
                 borderColor: hasDrafts ? "rgba(234, 179, 8, 0.5)" : "var(--border-strong)",
             }}
         >
-            <div className="text-xs font-bold px-4 py-2 rounded-full border flex items-center bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500">
+            <div className="flex items-center bg-white dark:bg-slate-900 shadow-sm border border-slate-200 dark:border-slate-800 rounded-full px-1.5 py-1.5 h-10">
                 <button
                     onClick={handleReset}
-                    className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-900/20 text-slate-400 hover:text-rose-500 transition-colors rounded-lg border border-transparent hover:border-rose-200"
+                    className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors rounded-full"
                     title="Réinitialiser la page"
                 >
                     <RotateCcw className="w-4 h-4" />
                 </button>
-                <div className="w-[1px] h-4 bg-slate-200 dark:bg-slate-800 mx-1.5" />
+
+                <div className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-1" />
+
                 <button
                     onClick={() => handleSnapshot()}
                     disabled={isSavingSnapshot}
-                    className="p-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 text-slate-400 hover:text-indigo-500 transition-colors rounded-lg border border-transparent hover:border-indigo-200 disabled:opacity-50"
+                    className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors rounded-full disabled:opacity-50"
                     title="Prendre un snapshot de la session"
                 >
                     {isSavingSnapshot ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
                 </button>
-                <div className="w-[1px] h-4 bg-slate-200 dark:bg-slate-800 mx-1.5" />
+
                 {hasDrafts && (
-                    <span className="text-[12px] font-black tracking-tight text-[#b45309] bg-[#fef08a] px-3 py-1 rounded-md border border-[#fde047] ml-2">
-                        {count} MODIF.
-                    </span>
+                    <>
+                        <div className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-1" />
+                        <span className="ml-1 px-3 h-7 flex items-center justify-center rounded-full text-[11px] font-black tracking-wide text-[#b45309] dark:text-[#78350f] bg-[#fdf08a] hover:bg-[#fde047] transition-colors border border-[#fde047]/50 shadow-sm uppercase">
+                            {count} MODIF.
+                        </span>
+                    </>
                 )}
             </div>
 

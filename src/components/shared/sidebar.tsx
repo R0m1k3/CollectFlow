@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutGrid, Camera, FileDown, Settings, Package, BarChart3, LogOut, User as UserIcon, Loader2, Bot } from "lucide-react";
+import { LayoutGrid, Camera, FileDown, Settings, Package, BarChart3, LogOut, User as UserIcon, Loader2, Bot, ChevronRight, ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -22,28 +22,56 @@ export function Sidebar() {
     const { data: session } = useSession();
     const activeGridQuery = useGridStore((s) => s.activeGridQuery);
     const [isMounted, setIsMounted] = useState(false);
+    const [isExpanded, setIsExpanded] = useState(false);
 
     useEffect(() => {
         setIsMounted(true);
+        // Load expanded state from local storage
+        const stored = localStorage.getItem("sidebar_expanded");
+        if (stored === "true") setIsExpanded(true);
     }, []);
+
+    const toggleSidebar = () => {
+        const next = !isExpanded;
+        setIsExpanded(next);
+        localStorage.setItem("sidebar_expanded", String(next));
+    };
 
     const userRole = (session?.user as any)?.role;
     const filteredItems = NAV_ITEMS.filter(item => !item.adminOnly || userRole === "admin");
 
     return (
         <aside
-            className="w-16 flex-shrink-0 flex flex-col items-center h-screen fixed left-0 top-0 z-30 glass"
+            className={cn(
+                "flex-shrink-0 flex flex-col h-screen z-30 glass transition-all duration-300 relative",
+                isExpanded ? "w-60" : "w-16 items-center"
+            )}
             style={{ borderRight: "1px solid var(--border)" }}
         >
+            {/* Toggle Button */}
+            <button
+                onClick={toggleSidebar}
+                className="absolute -right-3 top-6 w-6 h-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full flex items-center justify-center shadow-sm text-slate-500 hover:text-slate-800 dark:hover:text-slate-300 transition-colors z-40"
+            >
+                {isExpanded ? <ChevronLeft className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            </button>
+
             {/* Logo */}
-            <div className="py-[18px] w-full flex justify-center" style={{ borderBottom: "1px solid var(--border)" }}>
-                <div className="w-8 h-8 rounded-xl bg-[var(--accent)] flex items-center justify-center shadow-sm border border-white/10" title="CollectFlow">
-                    <Package className="w-[18px] h-[18px] text-white" strokeWidth={2.2} />
+            <div className={cn("py-[18px] w-full flex", isExpanded ? "px-5" : "justify-center")} style={{ borderBottom: "1px solid var(--border)" }}>
+                <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-[var(--accent)] flex items-center justify-center shrink-0 shadow-sm border border-white/10" title="CollectFlow">
+                        <Package className="w-[18px] h-[18px] text-white" strokeWidth={2.2} />
+                    </div>
+                    {isExpanded && (
+                        <span className="text-[15px] font-semibold tracking-[-0.3px] text-[var(--text-primary)] whitespace-nowrap overflow-hidden">
+                            CollectFlow
+                        </span>
+                    )}
                 </div>
             </div>
 
             {/* Navigation */}
-            <nav className="w-full flex-1 flex flex-col items-center py-4 space-y-2">
+            <nav className={cn("w-full flex-1 flex flex-col py-4 space-y-2", isExpanded ? "px-2" : "items-center px-0")}>
                 {filteredItems.map(({ icon: Icon, label, href }) => {
                     const isActive = pathname.startsWith(href);
 
@@ -56,26 +84,55 @@ export function Sidebar() {
                         <Link
                             key={href}
                             href={resolvedHref}
-                            title={label}
+                            title={!isExpanded ? label : undefined}
                             style={{
                                 color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
                                 background: isActive ? "var(--bg-elevated)" : "transparent",
                             }}
                             className={cn(
-                                "flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-150",
+                                "flex items-center rounded-xl transition-all duration-150 overflow-hidden",
+                                isExpanded ? "px-3 py-[7px] gap-2.5 w-full" : "justify-center w-10 h-10",
                                 !isActive && "hover:bg-[var(--bg-elevated)]"
                             )}
                         >
-                            <Icon className="w-[18px] h-[18px] shrink-0" strokeWidth={1.8} />
+                            <Icon className={cn("shrink-0", isExpanded ? "w-[15px] h-[15px]" : "w-[18px] h-[18px]")} strokeWidth={1.8} />
+                            {isExpanded && <span className="text-[13px] font-medium whitespace-nowrap">{label}</span>}
                         </Link>
                     );
                 })}
             </nav>
 
             {/* User Profile & Logout */}
-            <div className="w-full pb-4 flex flex-col items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border)] flex items-center justify-center shadow-sm" title={session?.user?.name || "Profil"}>
-                    <UserIcon className="w-5 h-5 text-[var(--accent)]" />
+            <div className={cn("w-full pb-4 flex flex-col gap-3", isExpanded ? "px-3" : "items-center")}>
+                <div className={cn(
+                    "rounded-xl bg-[var(--bg-elevated)] border border-[var(--border)] flex items-center shadow-sm overflow-hidden",
+                    isExpanded ? "px-3 py-3 gap-3 w-full" : "justify-center w-10 h-10"
+                )}
+                    title={!isExpanded ? (session?.user?.name || "Profil") : undefined}
+                >
+                    <div className={cn(
+                        "rounded-lg bg-[var(--accent-bg)] flex items-center justify-center border border-[var(--accent-border)] shrink-0",
+                        isExpanded ? "w-8 h-8" : "w-6 h-6 border-transparent bg-transparent"
+                    )}>
+                        <UserIcon className={cn("text-[var(--accent)]", isExpanded ? "w-4 h-4" : "w-5 h-5")} />
+                    </div>
+                    {isExpanded && (
+                        <div className="flex-1 min-w-0">
+                            {session?.user ? (
+                                <>
+                                    <p className="text-[12px] font-bold text-[var(--text-primary)] truncate">{session.user.name}</p>
+                                    <p className="text-[10px] uppercase font-black text-[var(--text-muted)] tracking-wider">
+                                        {userRole === "admin" ? "Administrateur" : "Utilisateur"}
+                                    </p>
+                                </>
+                            ) : (
+                                <div className="flex items-center gap-2">
+                                    <Loader2 className="w-3 h-3 animate-spin text-[var(--accent)]" />
+                                    <p className="text-[10px] text-[var(--text-muted)] animate-pulse">Session...</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 <button
@@ -83,10 +140,14 @@ export function Sidebar() {
                         await signOut({ redirect: false });
                         window.location.href = "/login";
                     }}
-                    title="Déconnexion"
-                    className="w-10 h-10 flex items-center justify-center rounded-xl text-[var(--accent-error)] hover:bg-[var(--accent-error-bg)] transition-colors"
+                    title={!isExpanded ? "Déconnexion" : undefined}
+                    className={cn(
+                        "flex items-center text-[var(--accent-error)] hover:bg-[var(--accent-error-bg)] transition-colors rounded-xl overflow-hidden",
+                        isExpanded ? "w-full gap-2.5 px-3 py-2 text-[13px] font-medium" : "justify-center w-10 h-10"
+                    )}
                 >
-                    <LogOut className="w-[18px] h-[18px]" strokeWidth={1.8} />
+                    <LogOut className={cn("shrink-0", isExpanded ? "w-[15px] h-[15px]" : "w-[18px] h-[18px]")} strokeWidth={1.8} />
+                    {isExpanded && "Déconnexion"}
                 </button>
             </div>
         </aside>
