@@ -1,16 +1,15 @@
-import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
-import * as schema from "../src/db/schema";
-import fs from "fs";
-import path from "path";
+const { Pool } = require('pg');
+const fs = require('fs');
+const path = require('path');
+
+const cwd = path.resolve(__dirname, '..'); // get app root when inside /scripts
 
 async function main() {
     console.log("[DB Init] Starting database migration & initialization...");
     let connectionString = process.env.DATABASE_URL;
 
     try {
-        const CONFIG_PATH = path.join(process.cwd(), "data", ".db-config.json");
+        const CONFIG_PATH = path.join(cwd, "data", ".db-config.json");
         if (fs.existsSync(CONFIG_PATH)) {
             const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
             if (config.url) {
@@ -29,15 +28,8 @@ async function main() {
 
     try {
         const tempPool = new Pool({ connectionString, max: 1 });
-        const tempDb = drizzle(tempPool, { schema });
 
-        console.log("[DB Init] Connection established. Running migrations...");
-
-        // Note: For Drizzle without pre-generated SQL migrations (using drizzle-kit push in dev), 
-        // running migrations programmatically requires the generated sql files.
-        // Since we want to auto-create tables without requiring dev dependencies in production, 
-        // we will create the specific missing table `ai_supplier_context` directly if it doesn't exist to ensure the app works.
-        // A full robust migration system would use `npx drizzle-kit push` but that is not available in the standalone build easily.
+        console.log("[DB Init] Connection established. Running migrations via raw SQL...");
 
         await tempPool.query(`
             CREATE TABLE IF NOT EXISTS "ai_supplier_context" (
