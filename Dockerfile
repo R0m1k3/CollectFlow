@@ -49,6 +49,8 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # Grant write access to /app for settings persistence
 RUN chown -R nextjs:nodejs /app
 
+COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
+
 USER nextjs
 
 EXPOSE 5643
@@ -57,5 +59,5 @@ ENV PORT=5643
 # set hostname to localhost
 ENV HOSTNAME="0.0.0.0"
 
-# Run the standalone server
-CMD ["node", "server.js"]
+# Run the DB init script, then start the standalone server
+CMD node scripts/db-init.js && node server.js

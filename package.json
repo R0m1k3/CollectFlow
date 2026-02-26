@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node scripts/db-init.js && next start",
     "lint": "eslint",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
