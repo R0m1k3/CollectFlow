@@ -84,7 +84,7 @@ export function SupplierAiContextModal({ codeFournisseur, nomFournisseur }: Supp
                     <Textarea
                         placeholder="Ex: Les produits dont le nom contient 'Agenda' doivent toujours être classés en [A]..."
                         value={context}
-                        onChange={(e) => setContext(e.target.value)}
+                        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setContext(e.target.value)}
                         disabled={isLoading}
                         className="min-h-[150px]"
                     />
