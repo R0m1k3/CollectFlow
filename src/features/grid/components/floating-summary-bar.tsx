@@ -133,8 +133,8 @@ export function FloatingSummaryBar() {
                 </button>
                 <div className="w-[1px] h-4 bg-slate-200 dark:bg-slate-800 mx-1.5" />
                 {hasDrafts && (
-                    <span className="text-[10px] font-black uppercase text-amber-600 dark:text-amber-500 bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
-                        {count} modif.
+                    <span className="text-[12px] font-black tracking-tight text-[#b45309] bg-[#fef08a] px-3 py-1 rounded-md border border-[#fde047] ml-2">
+                        {count} MODIF.
                     </span>
                 )}
             </div>

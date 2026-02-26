@@ -210,53 +210,48 @@ export function BulkAiAnalyzer() {
         setTimeout(() => setIsAnalyzing(false), 3000);
     };
 
-    if (isAnalyzing) {
-        return (
-            <div className="flex items-center gap-4 h-10 px-4 rounded-xl bg-[var(--accent-bg)] border border-[var(--accent-border)] shadow-sm">
-                <Loader2 className="w-4 h-4 text-[var(--accent)] animate-spin" />
-                <div className="flex flex-col min-w-[150px]">
-                    <span className="text-[10px] font-bold text-[var(--accent)] leading-none">
-                        {progress.message}
-                    </span>
-                    <div className="w-full bg-[var(--bg-elevated)] rounded-full h-1 mt-1 overflow-hidden">
-                        <div
-                            className="bg-[var(--accent)] h-1 rounded-full transition-all duration-300"
-                            style={{ width: `${Math.max(5, (progress.current / progress.total) * 100)}%` }}
-                        ></div>
-                    </div>
-                </div>
-                <button
-                    onClick={handleStop}
-                    className="p-1 hover:bg-[var(--bg-elevated)] rounded-lg transition-colors text-[var(--text-muted)] hover:text-[var(--accent-error)]"
-                    title="Arrêter l'analyse"
-                >
-                    <XCircle className="w-4 h-4" />
-                </button>
-            </div>
-        );
-    }
-
-    if (progress.current > 0 && !isAnalyzing) {
-        return (
-            <div className="flex items-center gap-2 h-10 px-4 rounded-xl bg-[var(--accent-success-bg)] border border-[var(--accent-success)] shadow-sm cursor-default">
-                <CheckCircle2 className="w-4 h-4 text-[var(--accent-success)]" />
-                <span className="text-xs font-bold text-[var(--accent-success)]">
-                    {progress.errors > 0 ? `Terminé (${progress.current - progress.errors}/${progress.total})` : `Analyse Terminée`}
-                </span>
-            </div>
-        );
-    }
-
     return (
         <div className="flex items-center gap-3">
             <SupplierAiContextModal codeFournisseur={supplierCode} nomFournisseur={supplierName} />
-            <button
-                onClick={handleAnalyze}
-                className="group flex items-center justify-center gap-2 h-10 px-6 rounded-xl text-sm font-black transition-all shadow-md bg-[var(--accent)] text-white hover:brightness-110 active:scale-95 border border-white/10"
-            >
-                <Sparkles className="w-4 h-4" />
-                Analyse IA
-            </button>
+
+            {isAnalyzing ? (
+                <div className="flex items-center gap-4 h-10 px-4 rounded-xl bg-[var(--accent-bg)] border border-[var(--accent-border)] shadow-sm">
+                    <Loader2 className="w-4 h-4 text-[var(--accent)] animate-spin" />
+                    <div className="flex flex-col min-w-[150px]">
+                        <span className="text-[10px] font-bold text-[var(--accent)] leading-none">
+                            {progress.message}
+                        </span>
+                        <div className="w-full bg-[var(--bg-elevated)] rounded-full h-1 mt-1 overflow-hidden">
+                            <div
+                                className="bg-[var(--accent)] h-1 rounded-full transition-all duration-300"
+                                style={{ width: `${Math.max(5, (progress.current / progress.total) * 100)}%` }}
+                            ></div>
+                        </div>
+                    </div>
+                    <button
+                        onClick={handleStop}
+                        className="p-1 hover:bg-[var(--bg-elevated)] rounded-lg transition-colors text-[var(--text-muted)] hover:text-[var(--accent-error)]"
+                        title="Arrêter l'analyse"
+                    >
+                        <XCircle className="w-4 h-4" />
+                    </button>
+                </div>
+            ) : progress.current > 0 ? (
+                <div className="flex items-center gap-2 h-10 px-4 rounded-xl bg-[var(--accent-success-bg)] border border-[var(--accent-success)] shadow-sm cursor-default">
+                    <CheckCircle2 className="w-4 h-4 text-[var(--accent-success)]" />
+                    <span className="text-xs font-bold text-[var(--accent-success)]">
+                        {progress.errors > 0 ? `Terminé (${progress.current - progress.errors}/${progress.total})` : `Analyse Terminée`}
+                    </span>
+                </div>
+            ) : (
+                <button
+                    onClick={handleAnalyze}
+                    className="group flex items-center justify-center gap-2 h-10 px-6 rounded-xl text-sm font-black transition-all shadow-md bg-[var(--accent)] text-white hover:brightness-110 active:scale-95 border border-white/10"
+                >
+                    <Sparkles className="w-4 h-4" />
+                    Analyse IA
+                </button>
+            )}
         </div>
     );
 }

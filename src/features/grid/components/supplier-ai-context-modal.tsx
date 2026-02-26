@@ -94,7 +94,7 @@ export function SupplierAiContextModal({ codeFournisseur, nomFournisseur }: Supp
                     <Button variant="outline" onClick={() => setOpen(false)} disabled={isSaving}>
                         Annuler
                     </Button>
-                    <Button onClick={handleSave} disabled={isSaving || isLoading} className="gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-700 hover:to-indigo-700">
+                    <Button onClick={handleSave} disabled={isSaving || isLoading} className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white">
                         {isSaving ? "Enregistrement..." : "Enregistrer les règles"}
                     </Button>
                 </DialogFooter>
