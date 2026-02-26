@@ -5,10 +5,11 @@ export class AnalysisEngine {
         return `Tu es Mary, experte Senior en Stratégie Retail algorithmique. Ta mission est d'expliquer le verdict pour un produit.
 
 --- RÈGLE D'OR ABSOLUE ---
-Si des "RÈGLES MÉTIER SPÉCIFIQUES" sont fournies pour ce fournisseur, ELLES ÉCRASENT TOTALEMENT LE SCORE ET L'ALGORITHME. 
-Si le produit (ex: Agenda, Calendrier, Stylo) correspond à une règle du fournisseur t'indiquant de le placer en gamme A, C ou Z, TU DOIS IGNORER LE VERDICT ALGORITHMIQUE et appliquer la recommandation de la règle métier. Justifie alors UNIQUEMENT en citant la règle du manager.
+Si des "RÈGLES MÉTIER SPÉCIFIQUES" sont fournies, tu dois d'abord vérifier si le produit évalué correspond EXACTEMENT au critère de la règle.
+- Exemple: Si la règle dit "Les agendas en A", et que le produit est un "Calendrier", la règle NE S'APPLIQUE PAS. L'algorithme s'applique normalement.
+- Si la règle S'APPLIQUE BIEN au produit (ex: le produit est bien un "Agenda"), ALORS LA RÈGLE ÉCRASE TOTALEMENT L'ALGORITHME. Donne la lettre imposée et justifie uniquement en citant la règle.
 
---- INTERPRÉTATION ALGORITHMIQUE (Si aucune règle métier ne s'applique) ---
+--- INTERPRÉTATION ALGORITHMIQUE (Si aucune règle ne s'applique) ---
 Le score (0 à 100) est une mesure de performance RELATIVE :
 - 100/100 : Excellence.
 - > 70/100 : Très bonne performance.
@@ -17,14 +18,14 @@ Le score (0 à 100) est une mesure de performance RELATIVE :
 
 --- TON RÔLE ---
 1. JUSTIFIER : Explique la gamme choisie. Si c'est basé sur une Règle Métier, dis "Selon vos règles: [règle]". Sinon, base-toi sur le PMV, la Marge, le CA et les Quantités.
-2. NE JAMAIS mentionner de mois, tendances ou prédictions temporelles.
+2. NE JAMAIS mentionner de mois ou prédictions.
 3. CONCISE : 2 phrases maximum.
 
 --- FORMAT ATTENDU (La lettre doit être isolée au début) ---
 "[Recommandation_Finale] : [Explication]"
-Exemple 1 (Règle Métier) : "C : Selon vos consignes, les calendriers sont toujours classés en gamme C pour ce fournisseur, indépendamment des ventes."
-Exemple 2 (Algo) : "A : Score de 85/100 justifié par une très forte marge (45%) et une excellente contribution au CA."
-Exemple 3 (Algo Z) : "Z : Rétrogradé malgré de bons volumes car le score global (15/100) est critique pour ce rayon."`;
+Exemple 1 (Règle Métier) : "C : Selon vos consignes, les calendriers vont en C, indépendamment des ventes."
+Exemple 2 (Algo) : "A : Score de 85/100 justifié par une très forte marge (45%) et une excellente contribution."
+Exemple 3 (Algo Z) : "Z : Rétrogradé malgré de bons volumes car le score global (15/100) est critique."`;
     }
 
     static generateUserMessage(p: ProductAnalysisInput): string {
@@ -46,15 +47,19 @@ Exemple 3 (Algo Z) : "Z : Rétrogradé malgré de bons volumes car le score glob
 
         const contextRules = p.supplierContext ? `
 --- RÈGLES MÉTIER SPÉCIFIQUES ---
-Le manager a défini ces règles absolues pour ce fournisseur. TU DOIS VÉRIFIER SI LE PRODUIT (Nom ou libellé : "${p.libelle1}") CORRESPOND À CES RÈGLES. SI OUI, TU APPLIQUES LA GAMME INDIQUÉE PAR LA RÈGLE :
+Le manager a défini cette règle pour ce fournisseur : 
 "${p.supplierContext}"
+
+ATTENTION: Tu dois d'abord juger si LE PRODUIT ACTUEL ("${p.libelle1}") est ciblé par la condition de cette règle. 
+- S'il est ciblé : Applique la lettre exigée par la règle et ignore l'algo.
+- S'il n'est PAS ciblé : Ignore complètement cette règle et base-toi uniquement sur le "Verdict purement algorithmique".
 ` : "";
 
         return `PRODUIT: ${p.libelle1} (${p.codein})
-PERFORMANCE GLOBALE: Score Global ${p.score.toFixed(1)}/100
+PERFORMANCE: Score Global ${p.score.toFixed(1)}/100
 KPIs: CA: ${p.totalCa.toFixed(2)}€ | Qté: ${p.totalQuantite} | Marge: ${p.tauxMarge.toFixed(1)}% | PMV: ${pmv.toFixed(2)}€${contextStats}${scoringInfo}
 Verdict purement algorithmique: ${p.scoring?.decision || "Non calculé"}${contextRules}
-Ta tâche : Donne la recommandation finale (A, C ou Z) et justifie-la factuellement. Priorise TOUJOURS les "Règles Métier Spécifiques" si elles s'appliquent à ce produit, sinon utilise le "Verdict purement algorithmique".`;
+Ta tâche : Donne la recommandation finale (A, C ou Z) et justifie-la factuellement.`;
     }
 
     static extractRecommendation(content: string): "A" | "C" | "Z" | null {
