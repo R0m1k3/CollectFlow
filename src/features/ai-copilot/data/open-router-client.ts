@@ -26,8 +26,9 @@ export class OpenRouterClient {
                     { role: "system", content: AnalysisEngine.generateSystemPrompt() },
                     { role: "user", content: AnalysisEngine.generateUserMessage(p) },
                 ],
-                max_tokens: 150,
-                temperature: 0.3,
+                response_format: { type: "json_object" },
+                max_tokens: 200,
+                temperature: 0.1,
             }),
         });
 
@@ -42,8 +43,29 @@ export class OpenRouterClient {
 
         const data = await response.json();
         const content = data.choices?.[0]?.message?.content ?? "";
-        const reco = AnalysisEngine.extractRecommendation(content);
-        const cleanInsight = AnalysisEngine.cleanInsight(content);
+
+        let reco: "A" | "C" | "Z" | null = null;
+        let cleanInsight = "Erreur de génération.";
+
+        try {
+            // Some models might wrap JSON in markdown blocks despite instructions
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            const jsonText = jsonMatch ? jsonMatch[0] : content;
+            const parsed = JSON.parse(jsonText);
+
+            reco = parsed.recommendation as "A" | "C" | "Z";
+            cleanInsight = parsed.justification || "";
+
+            // Override recommendation if it doesn't match extracted reco for safety
+            if (!reco || !["A", "C", "Z"].includes(reco)) {
+                reco = AnalysisEngine.extractRecommendation(cleanInsight) || "A";
+            }
+        } catch (e) {
+            console.error("Failed to parse AI JSON response:", content, e);
+            // Fallback to text parsing
+            reco = AnalysisEngine.extractRecommendation(content);
+            cleanInsight = AnalysisEngine.cleanInsight(content);
+        }
 
         return {
             insight: reco ? `[${reco}] ${cleanInsight}` : cleanInsight,
