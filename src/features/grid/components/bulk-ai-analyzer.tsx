@@ -252,16 +252,16 @@ export function BulkAiAnalyzer() {
                     </button>
                 </div>
             ) : progress.current > 0 ? (
-                <div className="flex items-center gap-2 h-10 px-4 rounded-xl bg-[var(--accent-success-bg)] border border-[var(--accent-success)] shadow-sm cursor-default">
-                    <CheckCircle2 className="w-4 h-4 text-[var(--accent-success)]" />
-                    <span className="text-xs font-bold text-[var(--accent-success)]">
+                <div className="btn-action btn-action-success">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>
                         {progress.errors > 0 ? `Terminé (${progress.current - progress.errors}/${progress.total})` : `Analyse Terminée`}
                     </span>
                 </div>
             ) : (
                 <button
                     onClick={handleAnalyze}
-                    className="group flex items-center justify-center gap-2 h-10 px-6 rounded-xl text-sm font-black transition-all shadow-md bg-[var(--accent)] text-white hover:brightness-110 active:scale-95 border border-white/10"
+                    className="btn-action btn-action-ai"
                 >
                     <Sparkles className="w-4 h-4" />
                     Analyse IA

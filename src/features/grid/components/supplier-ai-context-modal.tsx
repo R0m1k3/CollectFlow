@@ -66,10 +66,10 @@ export function SupplierAiContextModal({ codeFournisseur, nomFournisseur }: Supp
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-2">
+                <button className="btn-action btn-action-secondary">
                     <Brain className="w-4 h-4" />
                     Règles IA
-                </Button>
+                </button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[500px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl">
                 <DialogHeader>
@@ -91,12 +91,12 @@ export function SupplierAiContextModal({ codeFournisseur, nomFournisseur }: Supp
                 </div>
 
                 <DialogFooter>
-                    <Button variant="outline" onClick={() => setOpen(false)} disabled={isSaving}>
+                    <button className="btn-action btn-action-secondary" onClick={() => setOpen(false)} disabled={isSaving}>
                         Annuler
-                    </Button>
-                    <Button onClick={handleSave} disabled={isSaving || isLoading} className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white">
+                    </button>
+                    <button onClick={handleSave} disabled={isSaving || isLoading} className="btn-action btn-action-primary">
                         {isSaving ? "Enregistrement..." : "Enregistrer les règles"}
-                    </Button>
+                    </button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

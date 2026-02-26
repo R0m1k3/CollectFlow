@@ -212,12 +212,7 @@ export function FloatingSummaryBar() {
                             alert("Une erreur s'est produite lors de l'export Excel.");
                         }
                     }}
-                    className="h-10 px-6 rounded-xl text-sm font-bold transition-all active:scale-95 border hover:brightness-105"
-                    style={{
-                        background: "var(--action-secondary-bg)",
-                        color: "var(--action-secondary-text)",
-                        borderColor: "var(--action-secondary-border)"
-                    }}
+                    className="btn-action btn-action-secondary"
                 >
                     Export Excel
                 </button>
@@ -225,10 +220,7 @@ export function FloatingSummaryBar() {
                 <button
                     onClick={handleSave}
                     disabled={!hasDrafts || isPending}
-                    className="h-10 px-6 flex items-center justify-center gap-2 rounded-xl text-sm font-black transition-all shadow-lg active:scale-95 text-white hover:brightness-110 disabled:opacity-50"
-                    style={{
-                        background: "var(--brand-solid)",
-                    }}
+                    className="btn-action btn-action-primary"
                 >
                     {isPending ? (
                         <Loader2 className="w-4 h-4 animate-spin" />

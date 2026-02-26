@@ -273,47 +273,72 @@
   box-shadow: 0 0 0 3px var(--accent-bg);
 }
 
-/* ── Apple-style button ── */
-.apple-btn-primary {
+/* ── Apple-style Action Buttons ── */
+.btn-action {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 18px;
-  background: var(--brand-solid);
-  color: #fff;
+  justify-content: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 10px;
   font-size: 13px;
   font-weight: 600;
-  border-radius: 8px;
+  transition: all 0.15s ease-out;
   cursor: pointer;
-  transition: opacity 0.15s, transform 0.1s;
-  border: none;
 }
 
-.apple-btn-primary:hover {
-  opacity: 0.88;
+.btn-action:active {
+  transform: scale(0.96);
 }
 
-.apple-btn-primary:active {
-  transform: scale(0.97);
+.btn-action:disabled {
+  opacity: 0.5;
+  pointer-events: none;
 }
 
-.apple-btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-strong);
+.btn-action-primary {
+  background: var(--brand-solid);
+  color: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.btn-action-primary:hover {
+  filter: brightness(1.1);
+}
+
+.btn-action-secondary {
+  background: var(--bg-surface);
   color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.15s, opacity 0.15s;
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
-.apple-btn-secondary:hover {
-  background: var(--bg-overlay);
+.btn-action-secondary:hover {
+  background: var(--bg-elevated);
+}
+
+.btn-action-ai {
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.btn-action-ai:hover {
+  filter: brightness(1.1);
+}
+
+.btn-action-success {
+  background: var(--accent-success-bg);
+  color: var(--accent-success);
+  border: 1px solid var(--accent-success);
+  cursor: default;
+}
+
+.btn-action-success:active {
+  transform: none;
 }
 
 /* ── Segment control (theme toggle) ── */

@@ -2,27 +2,29 @@ import { ProductAnalysisInput } from "../models/ai-analysis.types";
 
 export class AnalysisEngine {
     static generateSystemPrompt(): string {
-        return `Tu es Mary, experte Senior en Stratégie Retail. Ta mission est d'expliquer le verdict du moteur de scoring algorithmique.
-Le score (0 à 100) est une mesure de performance RELATIVE au sein du rayon.
+        return `Tu es Mary, experte Senior en Stratégie Retail algorithmique. Ta mission est d'expliquer le verdict pour un produit.
 
---- INTERPRÉTATION DU SCORE ---
-- 100/100 : Excellence absolue (Élite du rayon).
+--- RÈGLE D'OR ABSOLUE ---
+Si des "RÈGLES MÉTIER SPÉCIFIQUES" sont fournies pour ce fournisseur, ELLES ÉCRASENT TOTALEMENT LE SCORE ET L'ALGORITHME. 
+Si le produit (ex: Agenda, Calendrier, Stylo) correspond à une règle du fournisseur t'indiquant de le placer en gamme A, C ou Z, TU DOIS IGNORER LE VERDICT ALGORITHMIQUE et appliquer la recommandation de la règle métier. Justifie alors UNIQUEMENT en citant la règle du manager.
+
+--- INTERPRÉTATION ALGORITHMIQUE (Si aucune règle métier ne s'applique) ---
+Le score (0 à 100) est une mesure de performance RELATIVE :
+- 100/100 : Excellence.
 - > 70/100 : Très bonne performance.
 - 30-70/100 : Performance moyenne.
-- < 30/100 : Performance faible.
-- 0/100 : Aucune performance enregistrée (ou dernier du classement).
+- < 30/100 : Faible.
 
 --- TON RÔLE ---
-1. JUSTIFIER : Explique le score de manière purement factuelle, "ligne par ligne", en te basant UNIQUEMENT sur : le CA, la Quantité vendue, la Marge, le Poids Fournisseur (importance du produit pour ce fournisseur) et le Poids Rayon / Nomenclature (importance du produit dans le rayon).
-2. EXPLIQUER LE VERDICT [A] : Si le verdict est [A] malgré un score faible, c'est une PROTECTION MÉTIER (ex: Produit Récent, Leader Fournisseur, Dernier Produit). Explique cette protection avec bienveillance.
-3. EXPLIQUER LE VERDICT [Z] : Si le verdict est [Z] malgré de bons KPIs, c'est souvent dû à une RÈGLE D'EXCLUSION ABSOLUE (ex: Note Globale < 20). Justifie dans ce cas par l'insuffisance critique de la performance globale du produit.
-4. INTERDICTION : Ne mentionne JAMAIS de tendances mensuelles, historiques, prédictions ou notions de temps. Ne calcule pas de variations. Reste strictement concentrée sur la photographie des indicateurs globaux fournis.
-5. CONCISE : 2 phrases maximum. Évite le jargon de data-scientist.
+1. JUSTIFIER : Explique la gamme choisie. Si c'est basé sur une Règle Métier, dis "Selon vos règles: [règle]". Sinon, base-toi sur le PMV, la Marge, le CA et les Quantités.
+2. NE JAMAIS mentionner de mois, tendances ou prédictions temporelles.
+3. CONCISE : 2 phrases maximum.
 
---- FORMAT ATTENDU ---
-"[Recommandation] : [Justification factuelle incluant le Score et les poids/axes clés]"
-Exemple : "[A] : Score de 85/100 porté par une forte marge (45%) et un poids important dans le rayon (15% des quantités)."
-Exemple : "[Z] : Rétrogradé car la note globale (15/100) est critique, malgré un volume de vente acceptable au sein du rayon."`;
+--- FORMAT ATTENDU (La lettre doit être isolée au début) ---
+"[Recommandation_Finale] : [Explication]"
+Exemple 1 (Règle Métier) : "C : Selon vos consignes, les calendriers sont toujours classés en gamme C pour ce fournisseur, indépendamment des ventes."
+Exemple 2 (Algo) : "A : Score de 85/100 justifié par une très forte marge (45%) et une excellente contribution au CA."
+Exemple 3 (Algo Z) : "Z : Rétrogradé malgré de bons volumes car le score global (15/100) est critique pour ce rayon."`;
     }
 
     static generateUserMessage(p: ProductAnalysisInput): string {
@@ -44,15 +46,15 @@ Exemple : "[Z] : Rétrogradé car la note globale (15/100) est critique, malgré
 
         const contextRules = p.supplierContext ? `
 --- RÈGLES MÉTIER SPÉCIFIQUES ---
-Le manager a défini ces règles absolues pour ce fournisseur (TU DOIS LES RESPECTER EN PRIORITÉ) :
+Le manager a défini ces règles absolues pour ce fournisseur. TU DOIS VÉRIFIER SI LE PRODUIT (Nom ou libellé : "${p.libelle1}") CORRESPOND À CES RÈGLES. SI OUI, TU APPLIQUES LA GAMME INDIQUÉE PAR LA RÈGLE :
 "${p.supplierContext}"
 ` : "";
 
         return `PRODUIT: ${p.libelle1} (${p.codein})
 PERFORMANCE GLOBALE: Score Global ${p.score.toFixed(1)}/100
-KPIs: CA: ${p.totalCa.toFixed(2)}€ | Qté: ${p.totalQuantite} | Marge: ${p.tauxMarge.toFixed(1)}% | PMV: ${pmv.toFixed(2)}€${contextStats}${scoringInfo}${contextRules}
-Verdict algorithmique: ${p.scoring?.decision || "Non calculé"}
-Justifie ce verdict factuellement.`;
+KPIs: CA: ${p.totalCa.toFixed(2)}€ | Qté: ${p.totalQuantite} | Marge: ${p.tauxMarge.toFixed(1)}% | PMV: ${pmv.toFixed(2)}€${contextStats}${scoringInfo}
+Verdict purement algorithmique: ${p.scoring?.decision || "Non calculé"}${contextRules}
+Ta tâche : Donne la recommandation finale (A, C ou Z) et justifie-la factuellement. Priorise TOUJOURS les "Règles Métier Spécifiques" si elles s'appliquent à ce produit, sinon utilise le "Verdict purement algorithmique".`;
     }
 
     static extractRecommendation(content: string): "A" | "C" | "Z" | null {
