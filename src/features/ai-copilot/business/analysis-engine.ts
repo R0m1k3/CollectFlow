@@ -13,23 +13,26 @@ Le score (0 à 100) est une mesure de performance RELATIVE au sein du rayon.
 - 0/100 : Aucune performance enregistrée (ou dernier du classement).
 
 --- TON RÔLE ---
-1. JUSTIFIER : Explique le score par les axes (CA, Volume, Marge). Ne dis JAMAIS que le score est une erreur ou "non calculé" s'il est présent.
+1. JUSTIFIER : Explique le score de manière purement factuelle, "ligne par ligne", en te basant UNIQUEMENT sur : le CA, la Quantité vendue, la Marge, le Poids Fournisseur (importance du produit pour ce fournisseur) et le Poids Rayon / Nomenclature (importance du produit dans le rayon).
 2. EXPLIQUER LE VERDICT [A] : Si le verdict est [A] malgré un score faible, c'est une PROTECTION MÉTIER (ex: Produit Récent, Leader Fournisseur, Dernier Produit). Explique cette protection avec bienveillance.
-3. FACTUEL : Utilise les chiffres transmis (Score Global, Marge, PMV). Si tu mentionnes le score, utilise toujours le "Score Global" qui est celui visible par l'utilisateur.
-4. CONCISE : 2 phrases maximum. Pas de blabla technique sur les percentiles, parle de "performance relative".
+3. INTERDICTION : Ne mentionne JAMAIS de tendances mensuelles, historiques, prédictions ou notions de temps. Ne calcule pas de variations. Reste strictement concentrée sur la photographie des indicateurs globaux fournis.
+4. CONCISE : 2 phrases maximum. Évite le jargon de data-scientist.
 
 --- FORMAT ATTENDU ---
-"[Recommandation] : [Justification factuelle incluant le Score et les axes clés]"
-Exemple : "[A] : Score de 85/100 porté par une marge excellente de 45% et une forte croissance volume."
-Exemple : "[Z] : Score faible (12/100) en raison d'une baisse drastique du CA et d'une inactivité de 3 mois."`;
+"[Recommandation] : [Justification factuelle incluant le Score et les poids/axes clés]"
+Exemple : "[A] : Score de 85/100 porté par une forte marge (45%) et un poids important dans le rayon (15% des quantités)."
+Exemple : "[Z] : Score très faible (12/100) en raison d'un CA marginal malgré un bon taux de marge, le produit pesant moins de 1% chez son fournisseur."`;
     }
 
     static generateUserMessage(p: ProductAnalysisInput): string {
         const pmv = p.totalQuantite > 0 ? p.totalCa / p.totalQuantite : 0;
-        const weights = p.shareCa !== undefined ? `
-CONTRIBUTION(%) :
-- Chiffre d'Affaires : ${p.shareCa.toFixed(1)}% du total fournisseur
-    - Marge Brute: ${p.shareMarge?.toFixed(1)}% du total fournisseur` : "";
+
+        let contextStats = "";
+        if (p.shareCa !== undefined && p.shareQty !== undefined) {
+            contextStats += `\nPOIDS DU PRODUIT :
+- Poids Fournisseur (CA) : ${p.shareCa.toFixed(1)}% du CA de son fournisseur
+- Poids Secteur/Rayon (Quantité) : ${p.shareQty.toFixed(1)}% des ventes du rayon`;
+        }
 
         const scoringInfo = p.scoring ? `
 --- RÉSULTATS DÉCISION RAYON ---
@@ -45,10 +48,10 @@ Le manager a défini ces règles absolues pour ce fournisseur (TU DOIS LES RESPE
 ` : "";
 
         return `PRODUIT: ${p.libelle1} (${p.codein})
-PERFORMANCE: Score Global ${p.score.toFixed(1)}/100 | Marge ${p.tauxMarge.toFixed(1)}% | PMV ${pmv.toFixed(2)}€
-${weights}${scoringInfo}${contextRules}
+PERFORMANCE GLOBALE: Score Global ${p.score.toFixed(1)}/100
+KPIs: CA: ${p.totalCa.toFixed(2)}€ | Qté: ${p.totalQuantite} | Marge: ${p.tauxMarge.toFixed(1)}% | PMV: ${pmv.toFixed(2)}€${contextStats}${scoringInfo}${contextRules}
 Verdict algorithmique: ${p.scoring?.decision || "Non calculé"}
-Justifie ce verdict auprès de l'utilisateur.`;
+Justifie ce verdict factuellement.`;
     }
 
     static extractRecommendation(content: string): "A" | "C" | "Z" | null {
