@@ -71,7 +71,7 @@ export function SupplierAiContextModal({ codeFournisseur, nomFournisseur }: Supp
                     Règles IA
                 </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent className="sm:max-w-[500px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl">
                 <DialogHeader>
                     <DialogTitle>Contexte IA - {nomFournisseur || codeFournisseur}</DialogTitle>
                     <DialogDescription>

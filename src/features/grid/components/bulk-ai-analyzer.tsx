@@ -61,6 +61,20 @@ export function BulkAiAnalyzer() {
             }
         });
 
+        // 1. Fetch AI Context for the Supplier
+        let supplierContext = "";
+        if (supplierCode) {
+            try {
+                const ctxRes = await fetch(`/api/ai/context?fournisseur=${supplierCode}`);
+                if (ctxRes.ok) {
+                    const data = await ctxRes.json();
+                    supplierContext = data.context || "";
+                }
+            } catch (err) {
+                console.error("Failed to load supplier context for AI", err);
+            }
+        }
+
         const initialPayloads: ProductAnalysisInput[] = rows.map((r) => {
             const sc = r.workingStores?.length || 1;
             const weight = sc === 1 ? 2 : 1;
@@ -108,6 +122,7 @@ export function BulkAiAnalyzer() {
                 projectedTotalCa: regScore > 0 ? (r.totalCa || 0) * weight * (12 / regScore) : (r.totalCa || 0) * weight,
                 lastMonthWithSale: lastMonth,
                 inactivityMonths: inactivity,
+                supplierContext: supplierContext
             };
         });
 

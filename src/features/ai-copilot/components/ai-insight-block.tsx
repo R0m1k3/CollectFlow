@@ -25,7 +25,7 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
 
     const status = insight?.status ?? "idle";
 
-    const handleAnalyze = () => {
+    const handleAnalyze = async () => {
         if (status === "loading") return;
 
         // Reset Visuel Immédiat
@@ -34,6 +34,20 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
 
         const allRows = useGridStore.getState().rows;
         const rayonRows = allRows.filter(r => r.libelleNiveau2 === row.libelleNiveau2);
+
+        // Fetch local context if needed
+        let supplierContext = "";
+        if (row.codeFournisseur) {
+            try {
+                const ctxRes = await fetch(`/api/ai/context?fournisseur=${row.codeFournisseur}`);
+                if (ctxRes.ok) {
+                    const data = await ctxRes.json();
+                    supplierContext = data.context || "";
+                }
+            } catch (err) {
+                console.error("Failed to load supplier context for AI", err);
+            }
+        }
 
         // Préparation du ScoringEngine
         const regScore = Object.values(row.sales12m || {}).filter((v: any) => v > 0).length;
@@ -94,6 +108,7 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
             totalFournisseurCa: row.totalFournisseurCa,
             codeFournisseur: row.codeFournisseur,
             totalMagasins: 2,
+            supplierContext: supplierContext,
             scoring: {
                 compositeScore: scoringResult.compositeScore,
                 decision: scoringResult.decision.recommendation,
