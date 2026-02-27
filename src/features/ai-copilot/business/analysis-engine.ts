@@ -22,8 +22,8 @@ IMPORTANT : La gamme C est RÉSERVÉE aux produits saisonniers et gérée MANUEL
 
 --- ORDRE DE PRIORITÉ (STRICT) ---
 
-1. GARDE-FOU PROTECTION : Si isProtected = true (Nouveauté / Dernier Produit / Top30) → A obligatoire.
-   EXCEPTION : La protection est déjà neutralisée pour les produits à CA réseau < 10€ ou marge ≤ 0%. Si tu ne vois pas le signal 🛡️, le produit n'est PAS protégé.
+1. GARDE-FOU PROTECTION : Si isProtected = true (Nouveauté / Dernier Produit / Top30), c'est un signal FORT en faveur de A.
+   Cependant, si les performances réelles du produit sont clairement insuffisantes (CA dérisoire, marge nulle ou négative), tu PEUX passer outre la protection et recommander Z avec justification.
 
 2. SEUIL PLANCHER ABSOLU (règle critique) :
    Si isLowContribution = true [poids CA < 0.5% ET poids QTÉ < 0.5% du fournisseur]
