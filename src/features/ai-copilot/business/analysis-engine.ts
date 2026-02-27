@@ -36,10 +36,12 @@ IMPORTANT : La gamme C est RÉSERVÉE aux produits saisonniers et gérée MANUEL
    Utilise les données de la fiche pour raisonner. Les quadrants sont des INDICES, pas des verdicts.
 
    — Quadrant STAR ⭐ : Fort signal positif → A sauf inactivité ≥ 3 mois.
-   — Quadrant TRAFIC 🚶 : Signal positif SEULEMENT si poids QTÉ fournisseur > 1%.
-     Si poids < 1% et score < 40 → Z.
-   — Quadrant MARGE 💎 : Ce produit contribue par la rentabilité, pas le volume. C'est son rôle attendu.
-     Si percentileMarge >= 70 → A (capital rentabilité du lot, protéger absolument).
+   — Quadrant TRAFIC 🚶 : Générateur de flux local.
+     Si percentileQty >= 60 → A (bon volume relatif).
+     Si percentileQty < 40 ET poids CA fournisseur < 0.5% ET score < 35 → Z (marginal ET sous-performant).
+     Sinon → A si actif (inactivité < 3 mois), Z si inactif ≥ 3 mois.
+   — Quadrant MARGE 💎 : Ce produit contribue par la rentabilité, pas le volume.
+     Si percentileMarge >= 70 → A (capital rentabilité du lot).
      Si percentileMarge < 70 ET poids CA fournisseur < 0.5% ET score < 35 → Z (marginal ET sous-performant).
      Sinon → A si actif (inactivité < 3 mois), Z si inactif ≥ 3 mois.
    — Quadrant WATCH ⚠️ : Signal négatif.
