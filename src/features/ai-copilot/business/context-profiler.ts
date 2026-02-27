@@ -1,18 +1,25 @@
 /**
- * CollectFlow — Context Profiler
+ * CollectFlow — Context Profiler (v2 — Anti sur-classement)
  *
  * Génère une fiche de contexte normalisée et adaptative pour chaque produit
- * AVANT de le soumettre à l'IA. Ce profiler se base sur la distribution RÉELLE
- * du lot (fournisseur × rayon) et ne contient aucune règle fixe de seuil.
+ * AVANT de le soumettre à l'IA.
  *
- * L'objectif est de donner à Mary un contexte statistique riche qui lui permet
- * de raisonner de manière autonome et cohérente, y compris pour les produits
- * à fort volume/faible marge (Générateurs de Trafic) ou à faible volume/forte
- * marge (Contributeurs de Marge).
+ * v2 — Correctifs :
+ *  - Ajout du signal `isLowContribution` (poids CA ET QTÉ < 0.5% du fournisseur)
+ *  - Désactivation des signaux Trafic/Marge si rayonSize < MIN_RAYON_SIZE (évite
+ *    les faux positifs dans les micro-rayons de 3-5 produits).
+ *  - Le profiler ne prescrit plus de verdict : il produit des données brutes
+ *    que le prompt de Mary interprète avec un guide de décision pondéré.
  */
 
 import type { ProductAnalysisInput } from "../models/ai-analysis.types";
 import type { ScoringResult } from "./scoring-engine";
+
+// ---------------------------------------------------------------------------
+// Constante : seuil minimal de produits dans un rayon pour activer les signaux
+// Trafic/Marge. En dessous = statistiques non significatives.
+// ---------------------------------------------------------------------------
+const MIN_RAYON_SIZE = 6;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,7 +33,7 @@ export interface ProductContextProfile {
     libelle1: string;
     libelleNiveau2: string;
 
-    // Profil Quadrant (issu de la position Quantité vs Marge dans le lot)
+    // Profil Quadrant
     quadrant: Quadrant;
     quadrantLabel: string;
     quadrantEmoji: string;
@@ -41,39 +48,54 @@ export interface ProductContextProfile {
     weightCaFournisseur: number;   // % du CA total fournisseur
     weightQtyFournisseur: number;  // % des QTÉ totales fournisseur
 
-    // Poids réels dans le rayon (N2)
-    weightCaRayon: number;         // % du CA de sa catégorie N2
-    weightQtyRayon: number;        // % des QTÉ de sa catégorie N2
+    // Poids réels dans le rayon (Niveau 2 de nomenclature)
+    weightCaRayon: number;
+    weightQtyRayon: number;
 
     // Santé temporelle
     tauxMarge: number;
     inactivityMonths: number;
-    regularityScore: number;       // Nombre de mois actifs sur 12
+    regularityScore: number;
 
     // Contexte du lot
     lotSize: number;
     rayonSize: number;
 
-    // Signaux booléens (calculés sans seuil fixe — relatifs à la distribution)
+    // Signaux positifs (calculés sur la distribution réelle)
     isAboveMedianComposite: boolean;
-    isTop20Ca: boolean;             // Top 20% CA du fournisseur
-    isTop20Qty: boolean;            // Top 20% QTÉ du fournisseur
-    isHighVolumeWithLowMargin: boolean; // Vol > P60 ET marge < P40 → Trafic
-    isMargePure: boolean;               // Marge > P70 MÊME si vol < médiane → Marge
+    isTop20Ca: boolean;
+    isTop20Qty: boolean;
+    /**
+     * Fort volume ET marge < P40 du lot → rôle de "locomotive".
+     * Désactivé si rayonSize < MIN_RAYON_SIZE (percentiles non significatifs).
+     */
+    isHighVolumeWithLowMargin: boolean;
+    /**
+     * Marge > P70 du lot même si volume faible → capital rentabilité.
+     * Désactivé si rayonSize < MIN_RAYON_SIZE.
+     */
+    isMargePure: boolean;
+
+    // Signal négatif fort
+    /**
+     * Le produit pèse moins de 0.5% du CA ET des QTÉ du fournisseur.
+     * Même un quadrant TRAFIC ne justifie pas un A si ce signal est actif
+     * et que le score est faible.
+     */
+    isLowContribution: boolean;
 
     // Gardes-fous (issus du ScoringEngine)
     isProtected: boolean;
     protectionReason: string;
 
-    // Règle absolue (seule règle fixe du système)
-    scoreCritique: boolean; // score brut < 20 = candidat Z direct
+    // Règle absolue
+    scoreCritique: boolean; // score brut < 20
 }
 
 // ---------------------------------------------------------------------------
-// Helpers statistiques (purs, sans effet de bord)
+// Helpers statistiques (purs)
 // ---------------------------------------------------------------------------
 
-/** Calcule le percentile d'une valeur dans une distribution (0 à 100). */
 function computePercentile(value: number, distribution: number[]): number {
     if (distribution.length <= 1) return 100;
     const sorted = [...distribution].sort((a, b) => a - b);
@@ -84,7 +106,6 @@ function computePercentile(value: number, distribution: number[]): number {
     return Math.round((avgRank / (sorted.length - 1)) * 100);
 }
 
-/** Calcule la médiane d'une liste de nombres. */
 function computeMedian(values: number[]): number {
     if (values.length === 0) return 0;
     const sorted = [...values].sort((a, b) => a - b);
@@ -94,7 +115,6 @@ function computeMedian(values: number[]): number {
         : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-/** Retourne la valeur au Pième percentile d'une distribution. */
 function valueAtPercentile(values: number[], p: number): number {
     if (values.length === 0) return 0;
     const sorted = [...values].sort((a, b) => a - b);
@@ -103,21 +123,15 @@ function valueAtPercentile(values: number[], p: number): number {
 }
 
 /**
- * Extrait la clé de groupement pour le rayon de niveau 2.
- *
- * Règles de priorité :
- *   1. Utilise `codeNomenclatureN2` si disponible (4 premiers chiffres du code à 6 chiffres).
- *   2. Sinon, tente d'extraire les 4 premiers chiffres de `libelleNiveau2`
- *      (fallback si les codes ne sont pas transmis).
- *   3. Sinon, retourne la valeur brute de `libelleNiveau2` pour ne pas perdre le groupement.
- *
- * Cela évite les "faux petits rayons" (groupement trop fin sur N3).
+ * Extrait la clé de groupement pour le rayon au niveau 2 de nomenclature.
+ * Priorité : `codeNomenclatureN2` (4 premiers chiffres) > extraction numérique
+ * depuis libelleNiveau2 > valeur brute de libelleNiveau2.
  */
 function getRayonKey(p: ProductAnalysisInput): string {
     if (p.codeNomenclatureN2) {
         return p.codeNomenclatureN2;
     }
-    // Fallback : si libelleNiveau2 commence par 4 chiffres, les extraire
+    // Fallback : extraire les 4 premiers chiffres si le libellé commence par un code numérique
     const numericPrefix = p.libelleNiveau2?.match(/^(\d{4})/);
     if (numericPrefix) {
         return numericPrefix[1];
@@ -132,10 +146,6 @@ function getRayonKey(p: ProductAnalysisInput): string {
 export class ContextProfiler {
     /**
      * Génère le profil contextuel d'un produit au sein de son lot fournisseur.
-     *
-     * @param target    - Le produit à profiler
-     * @param allProds  - Tous les produits du fournisseur (lot complet)
-     * @param scoring   - Résultat du ScoringEngine pour ce produit
      */
     static buildProfile(
         target: ProductAnalysisInput,
@@ -146,19 +156,17 @@ export class ContextProfiler {
             throw new Error("[ContextProfiler] Le lot de produits est vide.");
         }
 
-        // --- 1. Totaux fournisseur ---
+        // 1. Totaux fournisseur
         const totalCaFournisseur = allProds.reduce((s, p) => s + (p.totalCa ?? 0), 0);
         const totalQtyFournisseur = allProds.reduce((s, p) => s + (p.totalQuantite ?? 0), 0);
 
-        // --- 2. Totaux du rayon (Niveau 2 de nomenclature = 4 premiers chiffres) ---
-        //    On groupe sur le code N2 pour éviter les "faux petits rayons" issus d'un
-        //    groupement trop fin sur le niveau 3 (code à 6 chiffres).
+        // 2. Totaux du rayon (Niveau 2 de nomenclature = 4 premiers chiffres du code)
         const targetRayonKey = getRayonKey(target);
         const rayonProds = allProds.filter(p => getRayonKey(p) === targetRayonKey);
         const totalCaRayon = rayonProds.reduce((s, p) => s + (p.totalCa ?? 0), 0);
         const totalQtyRayon = rayonProds.reduce((s, p) => s + (p.totalQuantite ?? 0), 0);
 
-        // --- 3. Percentiles dans le lot fournisseur ---
+        // 3. Percentiles dans le lot fournisseur
         const allCaValues = allProds.map(p => p.totalCa ?? 0);
         const allQtyValues = allProds.map(p => p.totalQuantite ?? 0);
         const allMargeValues = allProds.map(p => p.tauxMarge ?? 0);
@@ -166,37 +174,52 @@ export class ContextProfiler {
         const pCa = computePercentile(target.totalCa ?? 0, allCaValues);
         const pQty = computePercentile(target.totalQuantite ?? 0, allQtyValues);
         const pMarge = computePercentile(target.tauxMarge ?? 0, allMargeValues);
-        const pComposite = scoring.compositeScore; // Déjà 0-100
+        const pComposite = scoring.compositeScore;
 
-        // --- 4. Tops (seuils adaptatifs sur la distribution réelle) ---
+        // 4. Tops adaptatifs
         const top20CaThreshold = valueAtPercentile(allCaValues, 80);
         const top20QtyThreshold = valueAtPercentile(allQtyValues, 80);
         const isTop20Ca = (target.totalCa ?? 0) >= top20CaThreshold;
         const isTop20Qty = (target.totalQuantite ?? 0) >= top20QtyThreshold;
-
-        // --- 5. Médiane du lot (pour les signaux) ---
-        const medianComposite = computeMedian(
-            allProds.map((_, i) => i) // Approximation : le ScoringEngine ne donne pas tous les composites
-        );
-        // On utilise directement le percentile composite pour isAboveMedian
         const isAboveMedianComposite = pComposite >= 50;
 
-        // --- 6. Signaux Trafic / Marge (seuils P40/P60/P70 sur la distribution) ---
-        const qty60 = valueAtPercentile(allQtyValues, 60);
-        const qty40 = valueAtPercentile(allQtyValues, 40);
-        const marge40 = valueAtPercentile(allMargeValues, 40);
-        const marge70 = valueAtPercentile(allMargeValues, 70);
+        // 5. Signal négatif fort : contribution insignifiante au fournisseur
+        const weightCaFournisseur =
+            totalCaFournisseur > 0
+                ? Math.round(((target.totalCa ?? 0) / totalCaFournisseur) * 1000) / 10
+                : 0;
+        const weightQtyFournisseur =
+            totalQtyFournisseur > 0
+                ? Math.round(((target.totalQuantite ?? 0) / totalQtyFournisseur) * 1000) / 10
+                : 0;
+
+        // isLowContribution = vrai si le produit représente < 0.5% du CA ET < 0.5% des QTÉ
+        const isLowContribution = weightCaFournisseur < 0.5 && weightQtyFournisseur < 0.5;
+
+        // 6. Signaux Trafic / Marge — désactivés si rayon trop petit (bruit statistique)
+        const rayonSizeForSignals = rayonProds.length;
+        const signalsActive = rayonSizeForSignals >= MIN_RAYON_SIZE;
+
+        let isHighVolumeWithLowMargin = false;
+        let isMargePure = false;
+
+        if (signalsActive) {
+            const marge40 = valueAtPercentile(allMargeValues, 40);
+            const marge70 = valueAtPercentile(allMargeValues, 70);
+            const qty60 = valueAtPercentile(allQtyValues, 60);
+            const medianQty = computeMedian(allQtyValues);
+
+            isHighVolumeWithLowMargin =
+                (target.totalQuantite ?? 0) >= qty60 &&
+                (target.tauxMarge ?? 0) < marge40;
+
+            isMargePure =
+                (target.tauxMarge ?? 0) >= marge70 &&
+                (target.totalQuantite ?? 0) < medianQty;
+        }
+
+        // 7. Quadrant (basé sur les médianes du lot fournisseur)
         const medianQty = computeMedian(allQtyValues);
-
-        const isHighVolumeWithLowMargin =
-            (target.totalQuantite ?? 0) >= qty60 &&
-            (target.tauxMarge ?? 0) < marge40;
-
-        const isMargePure =
-            (target.tauxMarge ?? 0) >= marge70 &&
-            (target.totalQuantite ?? 0) < medianQty;
-
-        // --- 7. Quadrant (basé sur médiane QTÉ et médiane Marge du lot) ---
         const medianMarge = computeMedian(allMargeValues);
         const { quadrant, quadrantLabel, quadrantEmoji } = ContextProfiler.resolveQuadrant(
             target.totalQuantite ?? 0,
@@ -205,7 +228,7 @@ export class ContextProfiler {
             medianMarge
         );
 
-        // --- 8. Gardes-fous (issus du ScoringEngine) ---
+        // 8. Gardes-fous (issus du ScoringEngine)
         const isProtected =
             scoring.decision.isRecent ||
             scoring.decision.isTop30Supplier ||
@@ -216,7 +239,7 @@ export class ContextProfiler {
         else if (scoring.decision.isTop30Supplier) protectionReason = "Top 30% CA Fournisseur";
         else if (scoring.decision.isLastProduct) protectionReason = "Dernière référence du fournisseur";
 
-        // --- 9. Règle absolue : score brut < 20 ---
+        // 9. Règle absolue
         const scoreCritique = (target.score ?? 0) < 20;
 
         return {
@@ -233,14 +256,8 @@ export class ContextProfiler {
             percentileMarge: pMarge,
             percentileComposite: pComposite,
 
-            weightCaFournisseur:
-                totalCaFournisseur > 0
-                    ? Math.round(((target.totalCa ?? 0) / totalCaFournisseur) * 1000) / 10
-                    : 0,
-            weightQtyFournisseur:
-                totalQtyFournisseur > 0
-                    ? Math.round(((target.totalQuantite ?? 0) / totalQtyFournisseur) * 1000) / 10
-                    : 0,
+            weightCaFournisseur,
+            weightQtyFournisseur,
             weightCaRayon:
                 totalCaRayon > 0
                     ? Math.round(((target.totalCa ?? 0) / totalCaRayon) * 1000) / 10
@@ -255,13 +272,14 @@ export class ContextProfiler {
             regularityScore: target.regularityScore ?? 0,
 
             lotSize: allProds.length,
-            rayonSize: rayonProds.length,
+            rayonSize: rayonSizeForSignals,
 
             isAboveMedianComposite,
             isTop20Ca,
             isTop20Qty,
             isHighVolumeWithLowMargin,
             isMargePure,
+            isLowContribution,
 
             isProtected,
             protectionReason,
@@ -270,7 +288,6 @@ export class ContextProfiler {
         };
     }
 
-    /** Résout le quadrant en fonction des médianes du lot. */
     private static resolveQuadrant(
         qty: number,
         marge: number,

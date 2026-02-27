@@ -1,9 +1,11 @@
 /**
- * CollectFlow — Analysis Engine (v3 — Prompt Contextuel Multi-Dimensionnel)
+ * CollectFlow — Analysis Engine (v4 — Anti sur-classement)
  *
- * Mary ne reçoit plus le verdict algorithmique pré-mâché. Elle reçoit une
- * fiche de contexte normalisée (ProductContextProfile) qui lui permet de
- * raisonner de façon autonome et cohérente sur la vraie valeur d'un produit.
+ * v4 — Correctifs :
+ *  - Suppression des prescriptions directes "→ A" dans le guide des quadrants.
+ *  - Ajout du seuil plancher absolu : contribution insignifiante + score faible → Z.
+ *  - Affichage du signal isLowContribution en rouge dans le message.
+ *  - Les quadrants sont des INDICES, pas des verdicts. Mary doit croiser avec les poids.
  */
 
 import type { ProductAnalysisInput } from "../models/ai-analysis.types";
@@ -11,49 +13,53 @@ import type { ProductContextProfile } from "./context-profiler";
 
 export class AnalysisEngine {
     // -----------------------------------------------------------------------
-    // SYSTEM PROMPT
+    // SYSTEM PROMPT v4
     // -----------------------------------------------------------------------
 
     static generateSystemPrompt(): string {
         return `Tu es Mary, Senior Retail Strategist. Tu analyses des produits pour recommander A (garder), C (saisonnier), ou Z (sortir).
 
---- PHILOSOPHIE ---
-Un produit avec un score faible peut être VITAL s'il génère du trafic ou des marges.
-Un produit "moyen" peut être un pilier discret de son rayon.
-Ne jamais classer Z sans vérifier sa contribution réelle au chiffre d'affaires et aux volumes.
+--- ORDRE DE PRIORITÉ (STRICT) ---
 
---- ORDRE DE PRIORITÉ ---
-1. RÈGLE ABSOLUE : Score critique (< 20 sur 100) + aucun signal positif → TOUJOURS Z. Pas de discussion.
-2. GARDE-FOU : Si isProtected = true (Nouveauté / Dernier Produit / Top30) → TOUJOURS A. Priorité absolue.
-3. RÈGLE MANAGER : Si le manager a défini une consigne ET que le produit est concerné → Appliquer la consigne (rule_applies = true).
-4. ANALYSE CONTEXTUELLE : Utiliser la fiche de positionnement (percentiles, poids, signaux) pour raisonner.
+1. GARDE-FOU PROTECTION : Si isProtected = true (Nouveauté / Dernier Produit / Top30) → A obligatoire.
 
---- GUIDE D'ANALYSE CONTEXTUELLE ---
-• Quadrant STAR ⭐ : Volume ET Marge > médiane → A sauf cas exceptionnel
-• Quadrant TRAFIC 🚶 : Fort volume, marge faible → Rôle de locomotive → A, justifier le rôle de trafic
-• Quadrant MARGE 💎 : Volume faible, forte marge → Capital rentabilité → A, justifier la contribution marge
-• Quadrant WATCH ⚠️ : Volume ET Marge < médiane → Analyser la santé (inactivité, poids CA, poids QTÉ)
-  - Si poids CA ou poids QTÉ rayon > 5% → A ou C selon l'inactivité
-  - Si poids faibles ET inactivité ≥ 2 mois → Z
+2. SEUIL PLANCHER ABSOLU (règle critique) :
+   Si isLowContribution = true [poids CA < 0.5% ET poids QTÉ < 0.5% du fournisseur]
+   ET score composite < 35
+   ET scoreCritique = true [score brut < 20]
+   → Z DIRECT. Ce produit est marginal et sous-performant. Aucun signal ne peut l'annuler.
 
---- COHÉRENCE INTER-PRODUITS (OBLIGATOIRE) ---
-Ne mets JAMAIS Z un produit dont le percentile CA et le percentile QTÉ sont tous les deux supérieurs à un autre produit déjà recommandé en A.
+3. RÈGLE MANAGER : Si le manager a défini une consigne ET que le produit est concerné → Appliquer.
 
---- FORMAT DE RÉPONSE OBLIGATOIRE ---
-Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans \`\`\`json.
+4. ANALYSE CONTEXTUELLE (si aucune règle ci-dessus ne s'applique) :
+   Utilise les données de la fiche pour raisonner. Les quadrants sont des INDICES, pas des verdicts.
+
+   — Quadrant STAR ⭐ : Fort signal positif. A sauf inactivité ≥ 3 mois.
+   — Quadrant TRAFIC 🚶 : Signal positif SEULEMENT si poids QTÉ fournisseur > 1%.
+     Si poids < 1% et score < 40 → tendance Z ou C.
+   — Quadrant MARGE 💎 : Signal positif SEULEMENT si poids CA fournisseur > 0.5%.
+     Si poids < 0.5% et score < 35 → tendance Z.
+   — Quadrant WATCH ⚠️ : Signal négatif par défaut.
+     Si poids CA rayon > 5% ou poids QTÉ rayon > 5% → A ou C selon inactivité.
+     Sinon → Z si inactivité ≥ 2 mois, C si 1 mois, A si actif mais surveiller.
+
+--- COHÉRENCE INTER-PRODUITS ---
+Ne mets jamais Z un produit si son percentile CA ET son percentile QTÉ sont tous les deux supérieurs à un autre produit déjà classé A dans ce lot.
+
+--- FORMAT OBLIGATOIRE ---
+JSON uniquement, sans markdown.
 {
   "rule_applies": boolean,
   "recommendation": "A" | "C" | "Z",
-  "justification": "2 phrases max. Cite les données clés : percentile, poids, quadrant, signal."
+  "justification": "2 phrases max. Cite poids, percentile, quadrant, score."
 }`;
     }
 
     // -----------------------------------------------------------------------
-    // USER MESSAGE — avec la fiche contextuelle
+    // USER MESSAGE
     // -----------------------------------------------------------------------
 
     static generateUserMessage(p: ProductAnalysisInput): string {
-        // Utilise la fiche ContextProfile si disponible, sinon fallback sur le mode legacy
         if (p.contextProfile) {
             return AnalysisEngine.buildContextualMessage(p, p.contextProfile);
         }
@@ -61,7 +67,7 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans \`\`\`json.
     }
 
     // -----------------------------------------------------------------------
-    // Message contextuel enrichi (nouveau mode MPC)
+    // Message contextuel enrichi (v4)
     // -----------------------------------------------------------------------
 
     private static buildContextualMessage(
@@ -70,56 +76,66 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans \`\`\`json.
     ): string {
         const lines: string[] = [];
 
-        // --- En-tête produit ---
         lines.push(`PRODUIT : ${ctx.libelle1} (${ctx.codein})`);
-        lines.push(`CATÉGORIE : ${ctx.libelleNiveau2} (${ctx.rayonSize} produits dans ce rayon sur ${ctx.lotSize} au total)`);
+        lines.push(`CATÉGORIE : ${ctx.libelleNiveau2} (rayon: ${ctx.rayonSize} produits | lot total: ${ctx.lotSize} produits)`);
         lines.push("");
 
-        // --- Quadrant ---
-        lines.push(`--- PROFIL QUADRANT ---`);
+        // Quadrant — présenté comme un indice, sans prescription
+        lines.push(`--- PROFIL QUADRANT (indice, pas un verdict) ---`);
         lines.push(`${ctx.quadrantEmoji} ${ctx.quadrantLabel}`);
         lines.push(`Santé : ${ctx.regularityScore}/12 mois actifs | ${ctx.inactivityMonths} mois sans vente | Marge : ${ctx.tauxMarge.toFixed(1)}%`);
         lines.push("");
 
-        // --- Positionnement dans le lot ---
-        lines.push(`--- POSITION DANS LE LOT FOURNISSEUR (${ctx.lotSize} produits) ---`);
-        lines.push(`• CA       : ${ctx.percentileCa}e percentile | Poids fournisseur : ${ctx.weightCaFournisseur}% | Poids rayon : ${ctx.weightCaRayon}%`);
-        lines.push(`• Quantité : ${ctx.percentileQty}e percentile | Poids fournisseur : ${ctx.weightQtyFournisseur}% | Poids rayon : ${ctx.weightQtyRayon}%`);
+        // Position / poids — données brutes
+        lines.push(`--- POSITION DANS LE LOT FOURNISSEUR ---`);
+        lines.push(`• CA       : ${ctx.percentileCa}e percentile | Poids fournisseur : ${ctx.weightCaFournisseur}% | Poids rayon N2 : ${ctx.weightCaRayon}%`);
+        lines.push(`• Quantité : ${ctx.percentileQty}e percentile | Poids fournisseur : ${ctx.weightQtyFournisseur}% | Poids rayon N2 : ${ctx.weightQtyRayon}%`);
         lines.push(`• Marge    : ${ctx.percentileMarge}e percentile`);
         lines.push(`• Score composite : ${ctx.percentileComposite}/100`);
         lines.push("");
 
-        // --- Signaux ---
+        // Signaux — tous présentés factuellement, sans recommandation inline
         lines.push(`--- SIGNAUX ---`);
+
+        // Signal rouge prioritaire
+        if (ctx.isLowContribution) {
+            lines.push(`[⛔ CONTRIBUTION FAIBLE] Poids CA : ${ctx.weightCaFournisseur}% et Poids QTÉ : ${ctx.weightQtyFournisseur}% → produit marginal pour le fournisseur`);
+        }
+        if (ctx.scoreCritique) {
+            lines.push(`[⛔ SCORE CRITIQUE] Score brut < 20 → sous-seuil absolu`);
+        }
+
+        // Signaux positifs
         lines.push(`${ctx.isTop20Ca ? "[✓]" : "[ ]"} Top 20% CA fournisseur`);
         lines.push(`${ctx.isTop20Qty ? "[✓]" : "[ ]"} Top 20% Quantités fournisseur`);
-        lines.push(`${ctx.isHighVolumeWithLowMargin ? "[✓]" : "[ ]"} Signal Trafic : fort volume ET marge < P40 du lot → rôle de locomotive`);
-        lines.push(`${ctx.isMargePure ? "[✓]" : "[ ]"} Signal Marge : marge > P70 du lot → capital rentabilité`);
+        lines.push(`${ctx.isHighVolumeWithLowMargin ? "[✓]" : "[ ]"} Fort volume (> P60 lot) avec marge faible`);
+        lines.push(`${ctx.isMargePure ? "[✓]" : "[ ]"} Forte marge (> P70 lot) malgré volume faible`);
         lines.push(`${ctx.isAboveMedianComposite ? "[✓]" : "[ ]"} Au-dessus de la médiane composite`);
-        lines.push(`${ctx.scoreCritique ? "[✗ CRITIQUE]" : "[ ]"} Score brut critique (< 20) — candidat Z direct si aucun signal positif`);
+        if (!ctx.isHighVolumeWithLowMargin && !ctx.isMargePure) {
+            lines.push(`[i] Signaux Trafic/Marge non activés (rayon de ${ctx.rayonSize} produits${ctx.rayonSize < 6 ? " — trop petit pour stats fiables" : ""})`);
+        }
         lines.push("");
 
-        // --- Protection ---
+        // Protection
         if (ctx.isProtected) {
-            lines.push(`🛡️ GARDE-FOU ACTIF : ${ctx.protectionReason} → Recommandation A obligatoire`);
+            lines.push(`🛡️ GARDE-FOU : ${ctx.protectionReason} → A obligatoire`);
             lines.push("");
         }
 
-        // --- Règles manager ---
+        // Règle manager
         if (p.supplierContext) {
             lines.push(`--- RÈGLE MANAGER ---`);
             lines.push(`"${p.supplierContext}"`);
-            lines.push(`→ Évalue si ce produit ("${ctx.libelle1}") est concerné par cette consigne.`);
+            lines.push(`→ Ce produit ("${ctx.libelle1}") est-il concerné ? rule_applies = true/false.`);
             lines.push("");
         }
 
         lines.push(`Génère UNIQUEMENT le JSON :`);
-
         return lines.join("\n");
     }
 
     // -----------------------------------------------------------------------
-    // Fallback legacy (si contextProfile absent — compatibilité ascendante)
+    // Fallback legacy
     // -----------------------------------------------------------------------
 
     private static buildLegacyMessage(p: ProductAnalysisInput): string {
@@ -128,33 +144,26 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans \`\`\`json.
         let contextStats = "";
         if (p.shareCa !== undefined && p.shareQty !== undefined) {
             contextStats += `\nPOIDS DU PRODUIT :
-- Poids Fournisseur (CA) : ${p.shareCa.toFixed(1)}% du CA de son fournisseur
-- Poids Secteur/Rayon (Quantité) : ${p.shareQty.toFixed(1)}% des ventes du rayon`;
+- Poids Fournisseur (CA) : ${p.shareCa.toFixed(1)}%
+- Poids Secteur/Rayon (Quantité) : ${p.shareQty.toFixed(1)}%`;
         }
 
         const scoringInfo = p.scoring
             ? `\n--- RÉSULTATS DÉCISION RAYON ---
     INDICE RAYON: ${p.scoring.compositeScore}/100 (Seuil Z : ${p.scoring.threshold})
     PROFIL: ${p.scoring.labelProfil}
-    GARDES-FOUS : ${p.scoring.isTop30Supplier ? "Oui (Top 30% Fournisseur)" : "Non"} | Récent : ${p.scoring.isRecent ? "Oui" : "Non"} | Dernier Prod: ${p.scoring.isLastProduct ? "Oui" : "Non"}
+    GARDES-FOUS : Top30: ${p.scoring.isTop30Supplier ? "Oui" : "Non"} | Récent: ${p.scoring.isRecent ? "Oui" : "Non"} | Dernier: ${p.scoring.isLastProduct ? "Oui" : "Non"}
 `
             : "";
 
         const contextRules = p.supplierContext
-            ? `\n--- RÈGLES MÉTIER SPÉCIFIQUES ---
-Le manager a défini cette consigne pour ce fournisseur :
-"${p.supplierContext}"
-
-Attention : Évalue d'abord si le produit ("${p.libelle1}") est concerné par cette consigne. Si oui, \`rule_applies\` doit être \`true\`. Sinon, \`false\`.
-`
+            ? `\n--- RÈGLE MANAGER ---\n"${p.supplierContext}"\n→ Évalue si le produit ("${p.libelle1}") est concerné. rule_applies = true/false.\n`
             : "";
 
         return `PRODUIT : ${p.libelle1} (${p.codein})
 Famille / Rayon : ${p.libelleNiveau2}
 Score Algorithmique : ${p.score.toFixed(1)}/100
-KPIs : CA: ${p.totalCa.toFixed(2)}€ | Qté: ${p.totalQuantite} | Marge: ${p.tauxMarge.toFixed(1)}% | PMV: ${pmv.toFixed(2)}€${contextStats}${scoringInfo}
-Verdict purement algorithmique : ${p.scoring?.decision || "Non calculé"}${contextRules}
-
+KPIs : CA: ${p.totalCa.toFixed(2)}€ | Qté: ${p.totalQuantite} | Marge: ${p.tauxMarge.toFixed(1)}% | PMV: ${pmv.toFixed(2)}€${contextStats}${scoringInfo}${contextRules}
 Génère UNIQUEMENT le JSON :`;
     }
 
@@ -164,9 +173,7 @@ Génère UNIQUEMENT le JSON :`;
 
     static extractRecommendation(content: string): "A" | "C" | "Z" | null {
         const match = content.match(/\b([ACZ])\b/i);
-        if (match) {
-            return match[1].toUpperCase() as "A" | "C" | "Z";
-        }
+        if (match) return match[1].toUpperCase() as "A" | "C" | "Z";
         return null;
     }
 
