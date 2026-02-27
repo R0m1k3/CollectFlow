@@ -4,6 +4,7 @@ import React, { useState, useRef } from "react";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { useAiCopilotStore } from "@/features/ai-copilot/store/use-ai-copilot-store";
 import { ScoringEngine } from "@/features/ai-copilot/business/scoring-engine";
+import { ContextProfiler } from "@/features/ai-copilot/business/context-profiler";
 import { Sparkles, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { ProductRow, GammeCode } from "@/types/grid";
 import { ProductAnalysisInput } from "@/features/ai-copilot/models/ai-analysis.types";
@@ -103,6 +104,9 @@ export function BulkAiAnalyzer() {
                 codein: r.codein,
                 libelle1: r.libelle1 || "",
                 libelleNiveau2: r.libelleNiveau2 || "Général",
+                // Code nomenclature niveau 2 (4 premiers chiffres) — utilisé par le ContextProfiler
+                // pour calculer le poids rayon sur un périmètre cohérent (pas trop fin = niveau 3).
+                codeNomenclatureN2: r.code2 || undefined,
                 totalCa: r.totalCa || 0,
                 tauxMarge: r.tauxMarge || 0,
                 totalQuantite: r.totalQuantite || 0,
@@ -114,7 +118,7 @@ export function BulkAiAnalyzer() {
                 avgQtyRayon1: rb ? rb.avg1 : avgQty1,
                 avgQtyRayon2: rb ? rb.avg2 : avgQty2,
                 storeCount: sc,
-                sales12m: Object.fromEntries(Object.entries(r.sales12m || {}).map(([month, val]) => [month, val * weight])),
+                sales12m: Object.fromEntries(Object.entries(r.sales12m || {}).map(([month, val]) => [month, (val as number) * weight])),
                 codeGamme: r.codeGamme || null,
                 score: r.score || 0,
                 regularityScore: regScore,
@@ -124,13 +128,32 @@ export function BulkAiAnalyzer() {
                 inactivityMonths: inactivity,
                 supplierContext: supplierContext
             };
+
         });
 
         // 2. Calculer le scoring algorithmique pour chaque produit
+        const scoringResults = new Map(
+            initialPayloads.map(p => [p.codein, ScoringEngine.analyzeRayon(p, initialPayloads)])
+        );
+
+        // 3. Générer la fiche de contexte enrichie (ContextProfiler v3)
+        //    On transmet TOUS les produits du lot pour que les percentiles et poids
+        //    soient calculés sur la distribution réelle (fournisseur complet).
         const productPayloads = initialPayloads.map(p => {
-            const scoringRes = ScoringEngine.analyzeRayon(p, initialPayloads);
+            const scoringRes = scoringResults.get(p.codein)!;
+
+            // Fiche contextuelle (poids CA/QTÉ fournisseur + rayon, percentiles, signaux)
+            let contextProfile: ProductAnalysisInput["contextProfile"];
+            try {
+                contextProfile = ContextProfiler.buildProfile(p, initialPayloads, scoringRes);
+            } catch (err) {
+                console.warn(`[BulkAnalyzer] ContextProfiler failed for ${p.codein}:`, err);
+                contextProfile = undefined;
+            }
+
             return {
                 ...p,
+                contextProfile,
                 scoring: {
                     compositeScore: scoringRes.compositeScore,
                     decision: scoringRes.decision.recommendation,
@@ -139,7 +162,7 @@ export function BulkAiAnalyzer() {
                     isRecent: scoringRes.decision.isRecent,
                     isLastProduct: scoringRes.decision.isLastProduct,
                     threshold: scoringRes.decision.threshold,
-                }
+                },
             };
         });
 

@@ -1,7 +1,15 @@
+import type { ProductContextProfile } from "../business/context-profiler";
+
 export interface ProductAnalysisInput {
     codein: string;
     libelle1: string;
     libelleNiveau2?: string;
+    /**
+     * Code de nomenclature au niveau 2 (4 premiers chiffres du code à 6 chiffres).
+     * Utilisé pour calculer les poids rayon sur le bon périmètre (pas trop fin = niveau 3).
+     * Correspond à `code2` dans ProductRow.
+     */
+    codeNomenclatureN2?: string;
     totalCa: number;
     tauxMarge: number;
     totalQuantite: number;
@@ -43,6 +51,12 @@ export interface ProductAnalysisInput {
     };
     /** Optional context rules for the supplier */
     supplierContext?: string;
+
+    /**
+     * Fiche de contexte enrichie générée par le ContextProfiler.
+     * Transmise au prompt de l'IA pour une analyse multi-dimensionnelle.
+     */
+    contextProfile?: ProductContextProfile;
 }
 
 export interface AnalysisResult {

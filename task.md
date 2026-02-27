@@ -1,27 +1,29 @@
-# Tâches en cours : Optimisation de l'Analyse IA (Phase 2 - Contextualisation)
+# Tâches en cours : Refonte du Moteur de Recommandation IA (Multi-Dimensionnel)
 
 ## Contexte
 
-L'IA (Mary) donne des recommandations incohérentes (ex: [Z] pour un produit plus performant qu'un [A]) car elle manque de repères relatifs. Elle ne connaît pas le poids réel d'un produit dans le chiffre d'affaires total du fournisseur ou du rayon.
+Mary (IA) donnait des recommandations basées sur le score brut sans analyse contextuelle. La refonte introduit un profilage statistique adaptatif (poids CA, poids QTÉ, marge, profil quadrant) avant de soumettre à l'IA.
 
 ## Focus Actuel
 
-**Recherche & Développement** : Mieux définir les critères de ranking pour Mary afin d'éliminer les faux négatifs (Score 70+ classé en Z).
+**Implémentation** : Création du `context-profiler.ts`, refonte du prompt `analysis-engine.ts`, injection dans `bulk-ai-analyzer.tsx`.
 
 ## Master Plan
 
-- [x] Correction graphique du modal (Slate-950/Apple)
-- [x] Étape 20 : Intégration des poids (%) et contribution relative (Analyse de Cohérence)
-- [x] Étape 21 : Sanctuarisation des produits stratégiques dans le prompt
-- [x] Étape 22 : Test et validation des recommandations (Élimination des faux Z)
-- [ ] Recherche de meilleures pratiques pour le ranking IA (Analyse ABC/XYZ enrichie)
-- [ ] Implémentation du calcul des poids (%) dans `score-engine.ts`
-- [ ] Mise à jour des types `ProductAnalysisInput`
-- [ ] Enrichissement du prompt Mary avec les notions de contribution (%)
-- [ ] Test et validation sur les cas limites (Score 70+ classé en Z par erreur)
+- [x] Diagnostic et analyse du pipeline existant
+- [x] Rédaction du plan d'implémentation (validé par Michael)
+- [x] Créer `context-profiler.ts` (profilage adaptatif, percentiles dynamiques)
+- [x] Modifier `ai-analysis.types.ts` (ajout `contextProfile` + `codeNomenclatureN2`)
+- [x] Refondre `analysis-engine.ts` (nouveau prompt Mary v3)
+- [x] Modifier `bulk-ai-analyzer.tsx` (injection ContextProfiler + `r.code2`)
+- [/] Vérification TypeScript (`tsc --noEmit` en cours)
+- [ ] Tests manuels sur cas critiques (à faire par Michael)
 
 ## Progress Log
 
-- **Phase 1 terminée** : Modal UI polie et Portail React opérationnel.
-- **Phase 1.5 terminée** : Mary prend désormais en compte le volume moyen du rayon et le PMV.
-- **Découverte** : Mary a besoin du "Poids CA" et du "Total Fournisseur" pour donner un avis juste. Un CA de 552€ est faible pour un géant, mais vital pour un petit artisan.
+- **Diagnostic** : Problème identifié — Mary ratifiait le verdict sans interpréter le contexte statistique.
+- **Plan** : Architecture MPC validée par Michael.
+- **context-profiler.ts** : Créé. Calcule percentiles, poids CA/QTÉ fournisseur ET rayon N2, signaux Trafic/Marge, quadrant — tout adaptatif sur la distribution réelle.
+- **Correction N2** : Michael a signalé que le poids rayon doit être au niveau 2 (4 premiers chiffres). Corrigé avec `getRayonKey()` qui utilise `codeNomenclatureN2` (= `r.code2`) au lieu de `libelleNiveau2` (N3 trop fin).
+- **analysis-engine.ts** : Refonte complète. Mary reçoit une fiche normalisée (percentiles, poids, signaux) au lieu d'un verdict pré-mâché.
+- **bulk-ai-analyzer.tsx** : Injection du ContextProfiler dans le pipeline. `r.code2` transmis pour le groupement N2.
