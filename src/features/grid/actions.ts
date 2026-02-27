@@ -2,7 +2,7 @@
 
 import { db } from "@/db";
 import { ventesProduits } from "@/db/schema";
-import { sql } from "drizzle-orm";
+import { sql, and, eq } from "drizzle-orm";
 import { getProductRows } from "./api/get-product-rows";
 import type { ProductRow, GridFilters } from "@/types/grid";
 
@@ -75,15 +75,28 @@ const NOMENCLATURE_LABELS: Record<string, string> = {
 /**
  * Get the list of all unique nomenclature levels available in the database.
  */
-export async function getAvailableNomenclature() {
+export async function getAvailableNomenclature(
+    codeFournisseur?: string,
+    magasin?: string
+) {
     try {
+        const conditions = [sql`${ventesProduits.code3} IS NOT NULL`];
+
+        if (codeFournisseur) {
+            conditions.push(eq(ventesProduits.codeFournisseur, codeFournisseur));
+        }
+
+        if (magasin && magasin !== "TOTAL") {
+            conditions.push(eq(ventesProduits.magasin, magasin));
+        }
+
         const results = await db
             .select({
                 code3: ventesProduits.code3,
                 libelle3: ventesProduits.libelle3,
             })
             .from(ventesProduits)
-            .where(sql`${ventesProduits.code3} IS NOT NULL`)
+            .where(and(...conditions))
             .groupBy(ventesProduits.code3, ventesProduits.libelle3);
 
         const hierarchy: Record<string, { label: string, children: Record<string, { label: string, children: { code: string, label: string }[] }> }> = {};

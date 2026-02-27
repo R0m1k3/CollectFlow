@@ -26,7 +26,7 @@ export default async function GridPage({ searchParams }: GridPageProps) {
     const [fournisseurs, magasins, nomenclature] = await Promise.all([
         getFournisseurs(),
         getMagasins(),
-        getAvailableNomenclature()
+        getAvailableNomenclature(codeFournisseur, magasin)
     ]);
 
     // 2. If no supplier selected, show compact selection UI
