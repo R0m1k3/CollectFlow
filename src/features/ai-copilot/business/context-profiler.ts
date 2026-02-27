@@ -270,15 +270,24 @@ export class ContextProfiler {
         );
 
         // 8. Gardes-fous
-        const isProtected =
+        // Neutralisation : un produit à CA réseau trivial (< 10€) ou marge ≤ 0%
+        // n'a pas d'activité économique réelle. Le protéger serait absurde.
+        const rawCa = target.totalCa ?? 0;
+        const rawMarge = target.tauxMarge ?? 0;
+        const isEconomicallyViable = rawCa >= 10 && rawMarge > 0;
+
+        const isProtected = isEconomicallyViable && (
             scoring.decision.isRecent ||
             scoring.decision.isTop30Supplier ||
-            scoring.decision.isLastProduct;
+            scoring.decision.isLastProduct
+        );
 
         let protectionReason = "";
-        if (scoring.decision.isRecent) protectionReason = "Nouveauté (< 3 mois de données)";
-        else if (scoring.decision.isTop30Supplier) protectionReason = "Top 30% CA Fournisseur";
-        else if (scoring.decision.isLastProduct) protectionReason = "Dernière référence du fournisseur";
+        if (isProtected) {
+            if (scoring.decision.isRecent) protectionReason = "Nouveauté (< 3 mois de données)";
+            else if (scoring.decision.isTop30Supplier) protectionReason = "Top 30% CA Fournisseur";
+            else if (scoring.decision.isLastProduct) protectionReason = "Dernière référence du fournisseur";
+        }
 
         // 9. Règle absolue
         const scoreCritique = (target.score ?? 0) < 20;
