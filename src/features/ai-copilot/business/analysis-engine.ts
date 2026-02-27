@@ -75,9 +75,19 @@ JSON uniquement, sans markdown.
         ctx: ProductContextProfile
     ): string {
         const lines: string[] = [];
+        const storeLabel = ctx.storeCount > 1 ? `${ctx.storeCount} magasins` : `1 magasin`;
 
         lines.push(`PRODUIT : ${ctx.libelle1} (${ctx.codein})`);
         lines.push(`CATÉGORIE : ${ctx.libelleNiveau2} (rayon: ${ctx.rayonSize} produits | lot total: ${ctx.lotSize} produits)`);
+        lines.push(`DISTRIBUTION : ${storeLabel} référençant ce produit`);
+        lines.push("");
+
+        // KPIs bruts réseau + valeurs normalisées par magasin
+        lines.push(`--- PERFORMANCE (brute réseau / par magasin) ---`);
+        lines.push(`• CA réseau : ${ctx.totalCaRaw.toLocaleString('fr-FR')}€ | CA par magasin : ${ctx.caPerStore.toFixed(0)}€`);
+        lines.push(`• Quantité réseau : ${ctx.totalQtyRaw} unités | QTÉ par magasin : ${ctx.qtyPerStore.toFixed(0)} unités`);
+        lines.push(`• Marge : ${ctx.tauxMarge.toFixed(1)}%`);
+        lines.push(`⚠️ Les percentiles ci-dessous sont calculés sur les valeurs PAR MAGASIN pour comparer équitablement les produits 1-magasin et 2-magasins.`);
         lines.push("");
 
         // Quadrant — présenté comme un indice, sans prescription
@@ -87,10 +97,10 @@ JSON uniquement, sans markdown.
         lines.push("");
 
         // Position / poids — données brutes
-        lines.push(`--- POSITION DANS LE LOT FOURNISSEUR ---`);
-        lines.push(`• CA       : ${ctx.percentileCa}e percentile | Poids fournisseur : ${ctx.weightCaFournisseur}% | Poids rayon N2 : ${ctx.weightCaRayon}%`);
-        lines.push(`• Quantité : ${ctx.percentileQty}e percentile | Poids fournisseur : ${ctx.weightQtyFournisseur}% | Poids rayon N2 : ${ctx.weightQtyRayon}%`);
-        lines.push(`• Marge    : ${ctx.percentileMarge}e percentile`);
+        lines.push(`--- POSITION DANS LE LOT FOURNISSEUR (percentiles sur valeurs par magasin) ---`);
+        lines.push(`• CA/magasin   : ${ctx.percentileCa}e percentile | Poids CA réseau fournisseur : ${ctx.weightCaFournisseur}% | Poids CA réseau rayon N2 : ${ctx.weightCaRayon}%`);
+        lines.push(`• QTÉ/magasin  : ${ctx.percentileQty}e percentile | Poids QTÉ réseau fournisseur : ${ctx.weightQtyFournisseur}% | Poids QTÉ réseau rayon N2 : ${ctx.weightQtyRayon}%`);
+        lines.push(`• Marge        : ${ctx.percentileMarge}e percentile`);
         lines.push(`• Score composite : ${ctx.percentileComposite}/100`);
         lines.push("");
 
@@ -99,17 +109,17 @@ JSON uniquement, sans markdown.
 
         // Signal rouge prioritaire
         if (ctx.isLowContribution) {
-            lines.push(`[⛔ CONTRIBUTION FAIBLE] Poids CA : ${ctx.weightCaFournisseur}% et Poids QTÉ : ${ctx.weightQtyFournisseur}% → produit marginal pour le fournisseur`);
+            lines.push(`[⛔ CONTRIBUTION FAIBLE] Poids CA réseau : ${ctx.weightCaFournisseur}% et Poids QTÉ réseau : ${ctx.weightQtyFournisseur}% → produit marginal pour le fournisseur`);
         }
         if (ctx.scoreCritique) {
             lines.push(`[⛔ SCORE CRITIQUE] Score brut < 20 → sous-seuil absolu`);
         }
 
         // Signaux positifs
-        lines.push(`${ctx.isTop20Ca ? "[✓]" : "[ ]"} Top 20% CA fournisseur`);
-        lines.push(`${ctx.isTop20Qty ? "[✓]" : "[ ]"} Top 20% Quantités fournisseur`);
-        lines.push(`${ctx.isHighVolumeWithLowMargin ? "[✓]" : "[ ]"} Fort volume (> P60 lot) avec marge faible`);
-        lines.push(`${ctx.isMargePure ? "[✓]" : "[ ]"} Forte marge (> P70 lot) malgré volume faible`);
+        lines.push(`${ctx.isTop20Ca ? "[✓]" : "[ ]"} Top 20% CA/magasin fournisseur`);
+        lines.push(`${ctx.isTop20Qty ? "[✓]" : "[ ]"} Top 20% Quantités/magasin fournisseur`);
+        lines.push(`${ctx.isHighVolumeWithLowMargin ? "[✓]" : "[ ]"} Fort volume/magasin (>P60 lot) avec marge faible`);
+        lines.push(`${ctx.isMargePure ? "[✓]" : "[ ]"} Forte marge (>P70 lot) malgré volume/magasin faible`);
         lines.push(`${ctx.isAboveMedianComposite ? "[✓]" : "[ ]"} Au-dessus de la médiane composite`);
         if (!ctx.isHighVolumeWithLowMargin && !ctx.isMargePure) {
             lines.push(`[i] Signaux Trafic/Marge non activés (rayon de ${ctx.rayonSize} produits${ctx.rayonSize < 6 ? " — trop petit pour stats fiables" : ""})`);

@@ -91,7 +91,7 @@ export class ScoringEngine {
 
         // 7. Gardes-fous et Labels
         const isRecent = (target.regularityScore || 0) < 3;
-        const isTop30Supplier = this.checkTop30Supplier(target, processedProducts);
+        const isTop30Supplier = this.checkTop30Supplier(target, processedProducts, compositeScore);
         const isLastProduct = target.isLastProductOfSupplier || false;
 
         let finalLabel = labelProfil;
@@ -167,14 +167,39 @@ export class ScoringEngine {
         return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
     }
 
-    private static checkTop30Supplier(target: any, allProducts: any[]): boolean {
-        const supplierProds = allProducts.filter(p => p.codeFournisseur === target.codeFournisseur);
+    /**
+     * Vérifie si le produit est dans le Top 30% CA de son lot fournisseur.
+     *
+     * IMPORTANT : La protection n'est accordée que si le compositeScore est
+     * suffisamment solide (>= 30/100). Sans ce garde-fou, on protège des
+     * produits "Top 30% CA" qui ont en réalité un score catastrophique —
+     * par exemple parce que leur CA est gonflé par un seul mois exceptionnel
+     * ou parce que le lot fournisseur est très petit.
+     *
+     * Le seuil de 30% s'applique sur les valeurs normalisées (projetées
+     * sur 12 mois et pondérées par réseau) pour éviter qu'un produit
+     * avec beaucoup de mois de présence soit défavorisé.
+     */
+    private static checkTop30Supplier(
+        target: any,
+        allProducts: any[],
+        compositeScore: number
+    ): boolean {
+        // Condition minimale de performance — si le score composite est < 30,
+        // la protection CA seule ne suffit pas à classer en A.
+        if (compositeScore < 30) return false;
+
+        // Tous les produits du lot sont du même fournisseur en pratique,
+        // mais on garde le filtre pour être robuste.
+        const supplierProds = allProducts.length > 0 ? allProducts : [];
         if (supplierProds.length === 0) return false;
-        const sorted = supplierProds.sort((a, b) => b.caNormalise - a.caNormalise);
+
+        const sorted = [...supplierProds].sort((a, b) => b.caNormalise - a.caNormalise);
         const topCount = Math.ceil(supplierProds.length * 0.30);
-        const topIds = sorted.slice(0, topCount).map(p => p.codein);
+        const topIds = sorted.slice(0, topCount).map((p) => p.codein);
         return topIds.includes(target.codein);
     }
+
 
     private static calculateQuickScore(p: any, rayon: any[], medVol: number, medMarge: number, isSaisonnier: boolean): number {
         const pCa = this.calculatePercentile(p.caNormalise, rayon.map(x => x.caNormalise));

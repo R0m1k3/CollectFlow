@@ -1,15 +1,16 @@
 /**
- * CollectFlow — Context Profiler (v2 — Anti sur-classement)
+ * CollectFlow — Context Profiler (v3 — Normalisation multi-magasin)
  *
  * Génère une fiche de contexte normalisée et adaptative pour chaque produit
  * AVANT de le soumettre à l'IA.
  *
- * v2 — Correctifs :
- *  - Ajout du signal `isLowContribution` (poids CA ET QTÉ < 0.5% du fournisseur)
- *  - Désactivation des signaux Trafic/Marge si rayonSize < MIN_RAYON_SIZE (évite
- *    les faux positifs dans les micro-rayons de 3-5 produits).
- *  - Le profiler ne prescrit plus de verdict : il produit des données brutes
- *    que le prompt de Mary interprète avec un guide de décision pondéré.
+ * v3 — Correctifs :
+ *  - Normalisation par `storeCount` : tous les calculs de percentile, poids
+ *    et quadrant utilisent les valeurs PAR MAGASIN (CA/store, QTÉ/store).
+ *    Cela évite qu'un produit en 2 magasins soit mécaniquement favorisé
+ *    dans les comparaisons par rapport à un produit en 1 seul magasin.
+ *  - Le profil expose caPerStore et qtyPerStore pour que Mary voie les
+ *    deux dimensions : réeau brut ET performance par magasin.
  */
 
 import type { ProductAnalysisInput } from "../models/ai-analysis.types";
@@ -33,18 +34,31 @@ export interface ProductContextProfile {
     libelle1: string;
     libelleNiveau2: string;
 
-    // Profil Quadrant
+    // Profil Quadrant (basé sur valeurs PAR MAGASIN pour comparaison équitable)
     quadrant: Quadrant;
     quadrantLabel: string;
     quadrantEmoji: string;
 
+    // Nombre de magasins référençant le produit
+    storeCount: number;
+
+    // Valeurs brutes réseau
+    totalCaRaw: number;
+    totalQtyRaw: number;
+
+    // Valeurs normalisées PAR MAGASIN (pour comparaisons justes)
+    caPerStore: number;
+    qtyPerStore: number;
+
     // Percentiles dans le lot fournisseur (0 = plus faible, 100 = meilleur)
+    // Calculés sur les valeurs normalisées par magasin
     percentileCa: number;
     percentileQty: number;
     percentileMarge: number;
     percentileComposite: number;
 
     // Poids réels dans le lot fournisseur
+    // Calculés sur les valeurs brutes réseau (représentativité réelle du chiffre)
     weightCaFournisseur: number;   // % du CA total fournisseur
     weightQtyFournisseur: number;  // % des QTÉ totales fournisseur
 
@@ -63,11 +77,11 @@ export interface ProductContextProfile {
 
     // Signaux positifs (calculés sur la distribution réelle)
     isAboveMedianComposite: boolean;
-    isTop20Ca: boolean;
-    isTop20Qty: boolean;
+    isTop20Ca: boolean;     // Top 20% sur valeur PAR MAGASIN
+    isTop20Qty: boolean;    // Top 20% sur valeur PAR MAGASIN
     /**
      * Fort volume ET marge < P40 du lot → rôle de "locomotive".
-     * Désactivé si rayonSize < MIN_RAYON_SIZE (percentiles non significatifs).
+     * Désactivé si rayonSize < MIN_RAYON_SIZE.
      */
     isHighVolumeWithLowMargin: boolean;
     /**
@@ -79,8 +93,6 @@ export interface ProductContextProfile {
     // Signal négatif fort
     /**
      * Le produit pèse moins de 0.5% du CA ET des QTÉ du fournisseur.
-     * Même un quadrant TRAFIC ne justifie pas un A si ce signal est actif
-     * et que le score est faible.
      */
     isLowContribution: boolean;
 
@@ -89,7 +101,7 @@ export interface ProductContextProfile {
     protectionReason: string;
 
     // Règle absolue
-    scoreCritique: boolean; // score brut < 20
+    scoreCritique: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,34 +168,48 @@ export class ContextProfiler {
             throw new Error("[ContextProfiler] Le lot de produits est vide.");
         }
 
-        // 1. Totaux fournisseur
+        // ---------------------------------------------------------------------------
+        // Normalisation par magasin — cœur de la v3
+        // Raison : un produit en 2 magasins a mécaniquement 2x plus de CA/QTÉ
+        // qu'un produit identique en 1 magasin. Sans normalisation, les percentiles
+        // et le quadrant sont fausss par le réseau de distribution, pas la perf.
+        // ---------------------------------------------------------------------------
+        const getNormStoreCount = (p: ProductAnalysisInput) => Math.max(1, p.storeCount ?? 1);
+        const normCa = (p: ProductAnalysisInput) => (p.totalCa ?? 0) / getNormStoreCount(p);
+        const normQty = (p: ProductAnalysisInput) => (p.totalQuantite ?? 0) / getNormStoreCount(p);
+
+        const targetStoreCount = getNormStoreCount(target);
+        const targetCaPerStore = normCa(target);
+        const targetQtyPerStore = normQty(target);
+
+        // 1. Totaux fournisseur (valeurs brutes pour les poids de représentativité réseau)
         const totalCaFournisseur = allProds.reduce((s, p) => s + (p.totalCa ?? 0), 0);
         const totalQtyFournisseur = allProds.reduce((s, p) => s + (p.totalQuantite ?? 0), 0);
 
-        // 2. Totaux du rayon (Niveau 2 de nomenclature = 4 premiers chiffres du code)
+        // 2. Totaux du rayon (Niveau 2 de nomenclature)
         const targetRayonKey = getRayonKey(target);
         const rayonProds = allProds.filter(p => getRayonKey(p) === targetRayonKey);
         const totalCaRayon = rayonProds.reduce((s, p) => s + (p.totalCa ?? 0), 0);
         const totalQtyRayon = rayonProds.reduce((s, p) => s + (p.totalQuantite ?? 0), 0);
 
-        // 3. Percentiles dans le lot fournisseur
-        const allCaValues = allProds.map(p => p.totalCa ?? 0);
-        const allQtyValues = allProds.map(p => p.totalQuantite ?? 0);
+        // 3. Distributions normalisées (PAR MAGASIN) — pour les percentiles et le quadrant
+        const allCaPerStore = allProds.map(normCa);
+        const allQtyPerStore = allProds.map(normQty);
         const allMargeValues = allProds.map(p => p.tauxMarge ?? 0);
 
-        const pCa = computePercentile(target.totalCa ?? 0, allCaValues);
-        const pQty = computePercentile(target.totalQuantite ?? 0, allQtyValues);
+        const pCa = computePercentile(targetCaPerStore, allCaPerStore);
+        const pQty = computePercentile(targetQtyPerStore, allQtyPerStore);
         const pMarge = computePercentile(target.tauxMarge ?? 0, allMargeValues);
         const pComposite = scoring.compositeScore;
 
-        // 4. Tops adaptatifs
-        const top20CaThreshold = valueAtPercentile(allCaValues, 80);
-        const top20QtyThreshold = valueAtPercentile(allQtyValues, 80);
-        const isTop20Ca = (target.totalCa ?? 0) >= top20CaThreshold;
-        const isTop20Qty = (target.totalQuantite ?? 0) >= top20QtyThreshold;
+        // 4. Tops 20% (sur valeurs PAR MAGASIN)
+        const top20CaThreshold = valueAtPercentile(allCaPerStore, 80);
+        const top20QtyThreshold = valueAtPercentile(allQtyPerStore, 80);
+        const isTop20Ca = targetCaPerStore >= top20CaThreshold;
+        const isTop20Qty = targetQtyPerStore >= top20QtyThreshold;
         const isAboveMedianComposite = pComposite >= 50;
 
-        // 5. Signal négatif fort : contribution insignifiante au fournisseur
+        // 5. Poids bruts (valeurs réseau pour représentativité commerciale réelle)
         const weightCaFournisseur =
             totalCaFournisseur > 0
                 ? Math.round(((target.totalCa ?? 0) / totalCaFournisseur) * 1000) / 10
@@ -193,10 +219,9 @@ export class ContextProfiler {
                 ? Math.round(((target.totalQuantite ?? 0) / totalQtyFournisseur) * 1000) / 10
                 : 0;
 
-        // isLowContribution = vrai si le produit représente < 0.5% du CA ET < 0.5% des QTÉ
         const isLowContribution = weightCaFournisseur < 0.5 && weightQtyFournisseur < 0.5;
 
-        // 6. Signaux Trafic / Marge — désactivés si rayon trop petit (bruit statistique)
+        // 6. Signaux Trafic / Marge (sur valeurs PAR MAGASIN)
         const rayonSizeForSignals = rayonProds.length;
         const signalsActive = rayonSizeForSignals >= MIN_RAYON_SIZE;
 
@@ -206,29 +231,29 @@ export class ContextProfiler {
         if (signalsActive) {
             const marge40 = valueAtPercentile(allMargeValues, 40);
             const marge70 = valueAtPercentile(allMargeValues, 70);
-            const qty60 = valueAtPercentile(allQtyValues, 60);
-            const medianQty = computeMedian(allQtyValues);
+            const qty60PerStore = valueAtPercentile(allQtyPerStore, 60);
+            const medianQtyPerStore = computeMedian(allQtyPerStore);
 
             isHighVolumeWithLowMargin =
-                (target.totalQuantite ?? 0) >= qty60 &&
+                targetQtyPerStore >= qty60PerStore &&
                 (target.tauxMarge ?? 0) < marge40;
 
             isMargePure =
                 (target.tauxMarge ?? 0) >= marge70 &&
-                (target.totalQuantite ?? 0) < medianQty;
+                targetQtyPerStore < medianQtyPerStore;
         }
 
-        // 7. Quadrant (basé sur les médianes du lot fournisseur)
-        const medianQty = computeMedian(allQtyValues);
+        // 7. Quadrant (basé sur les médianes PAR MAGASIN)
+        const medianQtyPerStore = computeMedian(allQtyPerStore);
         const medianMarge = computeMedian(allMargeValues);
         const { quadrant, quadrantLabel, quadrantEmoji } = ContextProfiler.resolveQuadrant(
-            target.totalQuantite ?? 0,
+            targetQtyPerStore,
             target.tauxMarge ?? 0,
-            medianQty,
+            medianQtyPerStore,
             medianMarge
         );
 
-        // 8. Gardes-fous (issus du ScoringEngine)
+        // 8. Gardes-fous
         const isProtected =
             scoring.decision.isRecent ||
             scoring.decision.isTop30Supplier ||
@@ -247,9 +272,13 @@ export class ContextProfiler {
             libelle1: target.libelle1,
             libelleNiveau2: target.libelleNiveau2 ?? "Général",
 
-            quadrant,
-            quadrantLabel,
-            quadrantEmoji,
+            quadrant, quadrantLabel, quadrantEmoji,
+
+            storeCount: targetStoreCount,
+            totalCaRaw: target.totalCa ?? 0,
+            totalQtyRaw: target.totalQuantite ?? 0,
+            caPerStore: targetCaPerStore,
+            qtyPerStore: targetQtyPerStore,
 
             percentileCa: pCa,
             percentileQty: pQty,
@@ -283,7 +312,6 @@ export class ContextProfiler {
 
             isProtected,
             protectionReason,
-
             scoreCritique,
         };
     }
