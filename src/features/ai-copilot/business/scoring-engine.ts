@@ -131,12 +131,23 @@ export class ScoringEngine {
         };
     }
 
+    /**
+     * Normalise les KPIs d'un produit pour comparaison équitable.
+     *
+     * Utilise les valeurs pondérées (weightedTotalCa / weightedTotalQuantite)
+     * qui projettent les produits 1-magasin sur une base réseau comparable
+     * (×2 si 1 magasin, ×1 si 2 magasins). Cela évite de pénaliser un
+     * produit vendu uniquement dans 1 magasin face à un produit vendu dans 2.
+     *
+     * Applique ensuite la projection Run Rate pour les produits récents
+     * (\< 12 mois d'historique) afin de comparer sur une base annuelle.
+     */
     private static preprocess(p: ProductAnalysisInput) {
-        const coef = (p.totalMagasins || 1) / (p.storeCount || 1);
-        let caNorm = (p.totalCa || 0) * coef;
-        let volNorm = (p.totalQuantite || 0) * coef;
+        // Valeurs pondérées réseau — si absentes, fallback sur les brutes
+        let caNorm = p.weightedTotalCa ?? p.totalCa ?? 0;
+        let volNorm = p.weightedTotalQuantite ?? p.totalQuantite ?? 0;
 
-        // Run Rate Projection
+        // Run Rate Projection (produits avec 3-11 mois d'historique)
         if ((p.regularityScore || 0) >= 3 && (p.regularityScore || 0) < 12) {
             caNorm = (caNorm / (p.regularityScore || 3)) * 12;
             volNorm = (volNorm / (p.regularityScore || 3)) * 12;

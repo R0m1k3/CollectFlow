@@ -182,15 +182,19 @@ export class ContextProfiler {
         const targetCaPerStore = normCa(target);
         const targetQtyPerStore = normQty(target);
 
-        // 1. Totaux fournisseur (valeurs brutes pour les poids de représentativité réseau)
-        const totalCaFournisseur = allProds.reduce((s, p) => s + (p.totalCa ?? 0), 0);
-        const totalQtyFournisseur = allProds.reduce((s, p) => s + (p.totalQuantite ?? 0), 0);
+        // 1. Totaux fournisseur (valeurs PONDÉRÉES pour comparaison équitable réseau)
+        //    weightedTotalCa/Qty projettent les 1-magasin sur une base réseau (×2).
+        const getWeightedCa = (p: ProductAnalysisInput) => p.weightedTotalCa ?? p.totalCa ?? 0;
+        const getWeightedQty = (p: ProductAnalysisInput) => p.weightedTotalQuantite ?? p.totalQuantite ?? 0;
+
+        const totalCaFournisseur = allProds.reduce((s, p) => s + getWeightedCa(p), 0);
+        const totalQtyFournisseur = allProds.reduce((s, p) => s + getWeightedQty(p), 0);
 
         // 2. Totaux du rayon (Niveau 2 de nomenclature)
         const targetRayonKey = getRayonKey(target);
         const rayonProds = allProds.filter(p => getRayonKey(p) === targetRayonKey);
-        const totalCaRayon = rayonProds.reduce((s, p) => s + (p.totalCa ?? 0), 0);
-        const totalQtyRayon = rayonProds.reduce((s, p) => s + (p.totalQuantite ?? 0), 0);
+        const totalCaRayon = rayonProds.reduce((s, p) => s + getWeightedCa(p), 0);
+        const totalQtyRayon = rayonProds.reduce((s, p) => s + getWeightedQty(p), 0);
 
         // 3. Distributions normalisées (PAR MAGASIN) — pour les percentiles et le quadrant
         const allCaPerStore = allProds.map(normCa);
@@ -209,14 +213,14 @@ export class ContextProfiler {
         const isTop20Qty = targetQtyPerStore >= top20QtyThreshold;
         const isAboveMedianComposite = pComposite >= 50;
 
-        // 5. Poids bruts (valeurs réseau pour représentativité commerciale réelle)
+        // 5. Poids pondérés (valeurs réseau projetées pour représentativité réaliste)
         const weightCaFournisseur =
             totalCaFournisseur > 0
-                ? Math.round(((target.totalCa ?? 0) / totalCaFournisseur) * 1000) / 10
+                ? Math.round((getWeightedCa(target) / totalCaFournisseur) * 1000) / 10
                 : 0;
         const weightQtyFournisseur =
             totalQtyFournisseur > 0
-                ? Math.round(((target.totalQuantite ?? 0) / totalQtyFournisseur) * 1000) / 10
+                ? Math.round((getWeightedQty(target) / totalQtyFournisseur) * 1000) / 10
                 : 0;
 
         const isLowContribution = weightCaFournisseur < 0.5 && weightQtyFournisseur < 0.5;
@@ -289,11 +293,11 @@ export class ContextProfiler {
             weightQtyFournisseur,
             weightCaRayon:
                 totalCaRayon > 0
-                    ? Math.round(((target.totalCa ?? 0) / totalCaRayon) * 1000) / 10
+                    ? Math.round((getWeightedCa(target) / totalCaRayon) * 1000) / 10
                     : 0,
             weightQtyRayon:
                 totalQtyRayon > 0
-                    ? Math.round(((target.totalQuantite ?? 0) / totalQtyRayon) * 1000) / 10
+                    ? Math.round((getWeightedQty(target) / totalQtyRayon) * 1000) / 10
                     : 0,
 
             tauxMarge: target.tauxMarge ?? 0,
