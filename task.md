@@ -25,4 +25,7 @@ Mary (IA) donnait des recommandations basées sur le score brut sans analyse con
 
 - **Correction IA** : Algorithme Mary v4 implémenté avec profilage contextuel et groupement N2. Le bug de classification 'A' systématique est résolu.
 - **Refonte Esthétique** : Bouton de sauvegarde et design system harmonisés en style Apple Glossy/Premium avec micro-animations et feedback visuel.
-- **Vérification** : Walkthrough documenté.
+- **Agent Architecte (Timeout)** : Intervention structurelle sur l'entonnoir d'analyse :
+  - **Client-Side (AbortController)** : Timeout poussé de 25s à 50s pour supporter les requêtes des LLM denses (ex: M37).
+  - **Server-Side (N+1 Query)** : Suppression d'une requête BDD redondante invoquée par chaque produit, éliminant ~100 appels BDD par lot.
+- **Vérification** : Walkthrough documenté et système fluidifié.

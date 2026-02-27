@@ -2,9 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSavedDatabaseConfig } from "@/features/settings/actions";
 import { OpenRouterClient } from "@/features/ai-copilot/data/open-router-client";
 import { ProductAnalysisInput } from "@/features/ai-copilot/models/ai-analysis.types";
-import { db } from "@/db";
-import { aiSupplierContext } from "@/db/schema";
-import { eq } from "drizzle-orm";
 
 // Limite max acceptable pour la route (Node.js self-hosted).
 // Evite que le process tourne indéfiniment en cas de deadlock.
@@ -23,20 +20,9 @@ export async function POST(req: NextRequest) {
     try {
         const body: ProductAnalysisInput = await req.json();
 
-        // Inject supplier context if available
-        if (body.codeFournisseur) {
-            try {
-                const contextRecord = await db.select()
-                    .from(aiSupplierContext)
-                    .where(eq(aiSupplierContext.codeFournisseur, body.codeFournisseur))
-                    .limit(1);
-                if (contextRecord.length > 0 && contextRecord[0].context) {
-                    body.supplierContext = contextRecord[0].context;
-                }
-            } catch (err) {
-                console.error("[AI] Failed to fetch supplier context:", err);
-            }
-        }
+        // Le supplierContext est déjà injecté par le client (BulkAiAnalyzer) 
+        // via une requête unique avant de lancer le batch.
+        // Cela nous évite une requête DB N+1 pour chaque produit analysé.
 
         const client = new OpenRouterClient({ apiKey, model });
         const result = await client.analyzeProduct(body);

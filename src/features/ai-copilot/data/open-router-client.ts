@@ -12,10 +12,10 @@ export class OpenRouterClient {
     constructor(private config: OpenRouterConfig) { }
 
     async analyzeProduct(p: ProductAnalysisInput): Promise<AnalysisResult> {
-        // Timeout de 25 secondes : évite le blocage indéfini si OpenRouter est lent.
-        // On préfère un échec propre avec message d'erreur plutôt qu'un timeout navigateur.
+        // Timeout de 50 secondes : évite le blocage indéfini si OpenRouter est lent,
+        // tout en laissant assez de temps aux modèles complexes pour répondre (maxDuration serveur = 55s).
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 25_000);
+        const timeoutId = setTimeout(() => controller.abort(), 50_000);
 
         let response: Response;
         try {
