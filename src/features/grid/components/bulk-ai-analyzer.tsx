@@ -131,47 +131,65 @@ export function BulkAiAnalyzer() {
 
         });
 
-        // 2. Calculer le scoring algorithmique pour chaque produit
-        const scoringResults = new Map(
-            initialPayloads.map(p => [p.codein, ScoringEngine.analyzeRayon(p, initialPayloads)])
-        );
+        // 2. Calculer scoring + context profiling en micro-batches asynchrones
+        //    pour ne pas bloquer le thread UI (Chrome "Page ne répondant pas").
+        setIsAnalyzing(true);
+        setProgress({ current: 0, total: initialPayloads.length, message: "Calcul du scoring...", errors: 0 });
 
-        // 3. Générer la fiche de contexte enrichie (ContextProfiler v3)
-        //    On transmet TOUS les produits du lot pour que les percentiles et poids
-        //    soient calculés sur la distribution réelle (fournisseur complet).
-        const productPayloads = initialPayloads.map(p => {
-            const scoringRes = scoringResults.get(p.codein)!;
+        const SCORING_BATCH_SIZE = 25;
+        const scoringResults = new Map<string, ReturnType<typeof ScoringEngine.analyzeRayon>>();
+        const productPayloads: (ProductAnalysisInput & { scoring: any })[] = [];
 
-            // Fiche contextuelle (poids CA/QTÉ fournisseur + rayon, percentiles, signaux)
-            let contextProfile: ProductAnalysisInput["contextProfile"];
-            try {
-                contextProfile = ContextProfiler.buildProfile(p, initialPayloads, scoringRes);
-            } catch (err) {
-                console.warn(`[BulkAnalyzer] ContextProfiler failed for ${p.codein}:`, err);
-                contextProfile = undefined;
+        for (let i = 0; i < initialPayloads.length; i += SCORING_BATCH_SIZE) {
+            if (isCancelledRef.current) break;
+
+            const batch = initialPayloads.slice(i, i + SCORING_BATCH_SIZE);
+
+            for (const p of batch) {
+                const scoringRes = ScoringEngine.analyzeRayon(p, initialPayloads);
+                scoringResults.set(p.codein, scoringRes);
+
+                let contextProfile: ProductAnalysisInput["contextProfile"];
+                try {
+                    contextProfile = ContextProfiler.buildProfile(p, initialPayloads, scoringRes);
+                } catch (err) {
+                    console.warn(`[BulkAnalyzer] ContextProfiler failed for ${p.codein}:`, err);
+                    contextProfile = undefined;
+                }
+
+                productPayloads.push({
+                    ...p,
+                    contextProfile,
+                    scoring: {
+                        compositeScore: scoringRes.compositeScore,
+                        decision: scoringRes.decision.recommendation,
+                        labelProfil: scoringRes.decision.labelProfil,
+                        isTop30Supplier: scoringRes.decision.isTop30Supplier,
+                        isRecent: scoringRes.decision.isRecent,
+                        isLastProduct: scoringRes.decision.isLastProduct,
+                        threshold: scoringRes.decision.threshold,
+                    },
+                });
             }
 
-            return {
-                ...p,
-                contextProfile,
-                scoring: {
-                    compositeScore: scoringRes.compositeScore,
-                    decision: scoringRes.decision.recommendation,
-                    labelProfil: scoringRes.decision.labelProfil,
-                    isTop30Supplier: scoringRes.decision.isTop30Supplier,
-                    isRecent: scoringRes.decision.isRecent,
-                    isLastProduct: scoringRes.decision.isLastProduct,
-                    threshold: scoringRes.decision.threshold,
-                },
-            };
-        });
+            // Yield au navigateur entre chaque batch pour éviter le freeze
+            setProgress(prev => ({
+                ...prev,
+                current: Math.min(i + SCORING_BATCH_SIZE, initialPayloads.length),
+                message: `Scoring : ${Math.min(i + SCORING_BATCH_SIZE, initialPayloads.length)}/${initialPayloads.length}`,
+            }));
+            await new Promise(r => setTimeout(r, 0));
+        }
 
-        setIsAnalyzing(true);
+        if (isCancelledRef.current) {
+            setIsAnalyzing(false);
+            return;
+        }
         let completed = 0;
         let errorsCount = 0;
 
         const totalItems = productPayloads.length;
-        setProgress({ current: 0, total: totalItems, message: "Initialisation...", errors: 0 });
+        setProgress({ current: 0, total: totalItems, message: "Envoi aux modèles IA...", errors: 0 });
 
         // Reset global ATOMIQUE et IMMÉDIAT
         const codeins = productPayloads.map(p => p.codein);
