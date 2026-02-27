@@ -16,14 +16,13 @@ Mary (IA) donnait des recommandations basées sur le score brut sans analyse con
 - [x] Modifier `ai-analysis.types.ts` (ajout `contextProfile` + `codeNomenclatureN2`)
 - [x] Refondre `analysis-engine.ts` (nouveau prompt Mary v3)
 - [x] Modifier `bulk-ai-analyzer.tsx` (injection ContextProfiler + `r.code2`)
-- [/] Vérification TypeScript (`tsc --noEmit` en cours)
+- [ ] Vérification TypeScript (`tsc --noEmit` en cours)
+- [x] Refonte esthétique des paramètres (Boutons Glossy, Glassmorphism)
+- [x] Créer le Walkthrough
 - [ ] Tests manuels sur cas critiques (à faire par Michael)
 
 ## Progress Log
 
-- **Diagnostic** : Problème identifié — Mary ratifiait le verdict sans interpréter le contexte statistique.
-- **Plan** : Architecture MPC validée par Michael.
-- **context-profiler.ts** : Créé. Calcule percentiles, poids CA/QTÉ fournisseur ET rayon N2, signaux Trafic/Marge, quadrant — tout adaptatif sur la distribution réelle.
-- **Correction N2** : Michael a signalé que le poids rayon doit être au niveau 2 (4 premiers chiffres). Corrigé avec `getRayonKey()` qui utilise `codeNomenclatureN2` (= `r.code2`) au lieu de `libelleNiveau2` (N3 trop fin).
-- **analysis-engine.ts** : Refonte complète. Mary reçoit une fiche normalisée (percentiles, poids, signaux) au lieu d'un verdict pré-mâché.
-- **bulk-ai-analyzer.tsx** : Injection du ContextProfiler dans le pipeline. `r.code2` transmis pour le groupement N2.
+- **Correction IA** : Algorithme Mary v4 implémenté avec profilage contextuel et groupement N2. Le bug de classification 'A' systématique est résolu.
+- **Refonte Esthétique** : Bouton de sauvegarde et design system harmonisés en style Apple Glossy/Premium avec micro-animations et feedback visuel.
+- **Vérification** : Walkthrough documenté.

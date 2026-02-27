@@ -115,8 +115,7 @@ export function ConfirmModal({
                         <button
                             ref={confirmBtnRef}
                             onClick={handleConfirm}
-                            className={`apple-btn-primary ${isDanger ? "!bg-[var(--accent-error)] hover:opacity-90" : ""}`}
-                            style={isDanger ? { background: "var(--accent-error)" } : undefined}
+                            className={isDanger ? "apple-btn-danger" : "apple-btn-primary"}
                         >
                             {confirmLabel}
                         </button>

@@ -12,25 +12,42 @@ export class OpenRouterClient {
     constructor(private config: OpenRouterConfig) { }
 
     async analyzeProduct(p: ProductAnalysisInput): Promise<AnalysisResult> {
-        const response = await fetch(OPENROUTER_URL, {
-            method: "POST",
-            headers: {
-                Authorization: `Bearer ${this.config.apiKey}`,
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://collectflow.app",
-                "X-Title": "CollectFlow AI Copilot",
-            },
-            body: JSON.stringify({
-                model: this.config.model,
-                messages: [
-                    { role: "system", content: AnalysisEngine.generateSystemPrompt() },
-                    { role: "user", content: AnalysisEngine.generateUserMessage(p) },
-                ],
-                response_format: { type: "json_object" },
-                max_tokens: 200,
-                temperature: 0.1,
-            }),
-        });
+        // Timeout de 25 secondes : évite le blocage indéfini si OpenRouter est lent.
+        // On préfère un échec propre avec message d'erreur plutôt qu'un timeout navigateur.
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 25_000);
+
+        let response: Response;
+        try {
+            response = await fetch(OPENROUTER_URL, {
+                method: "POST",
+                signal: controller.signal,
+                headers: {
+                    Authorization: `Bearer ${this.config.apiKey}`,
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://collectflow.app",
+                    "X-Title": "CollectFlow AI Copilot",
+                },
+                body: JSON.stringify({
+                    model: this.config.model,
+                    messages: [
+                        { role: "system", content: AnalysisEngine.generateSystemPrompt() },
+                        { role: "user", content: AnalysisEngine.generateUserMessage(p) },
+                    ],
+                    response_format: { type: "json_object" },
+                    max_tokens: 200,
+                    temperature: 0.1,
+                }),
+            });
+        } catch (err: unknown) {
+            if (err instanceof Error && err.name === "AbortError") {
+                throw new Error("timeout"); // Géré proprement plus haut
+            }
+            throw err;
+        } finally {
+            clearTimeout(timeoutId);
+        }
+
 
         if (response.status === 429) {
             throw new Error("rate_limited");

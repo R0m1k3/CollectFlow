@@ -192,7 +192,8 @@ export function BulkAiAnalyzer() {
 
                     try {
                         let res: Response | null = null;
-                        for (let i = 0; i < 3; i++) {
+                        // Jusqu'à 3 tentatives par produit
+                        for (let attempt = 0; attempt < 3; attempt++) {
                             if (isCancelledRef.current) break;
                             try {
                                 res = await fetch("/api/ai/analyze", {
@@ -200,17 +201,30 @@ export function BulkAiAnalyzer() {
                                     headers: { "Content-Type": "application/json" },
                                     body: JSON.stringify(payload),
                                 });
-                                if (res.ok) break;
+                                if (res.ok) break; // Succès → sortie de boucle
+
                                 if (res.status === 429) {
-                                    await new Promise((resolve) => setTimeout(resolve, 2000 * (i + 1)));
+                                    // Rate-limit : on attend avant de réessayer
+                                    const retryData = await res.json().catch(() => ({}));
+                                    const wait = (retryData.retryAfter ?? 30) * 1000;
+                                    console.warn(`[BulkAI] Rate limited, retry in ${wait / 1000}s`);
+                                    await new Promise((r) => setTimeout(r, Math.min(wait, 15_000)));
+                                } else if (res.status === 504) {
+                                    // Timeout serveur : retry rapide (le modèle était peut-être surchargé)
+                                    console.warn(`[BulkAI] Timeout (504) for ${payload.codein}, retry #${attempt + 1}`);
+                                    await new Promise((r) => setTimeout(r, 2_000));
+                                } else {
+                                    // Autre erreur (500, etc.) : ne pas réessayer inutilement
+                                    break;
                                 }
-                            } catch (e) {
-                                console.error(`Retry ${i} failed for ${payload.codein}`, e);
+                            } catch (fetchErr) {
+                                console.error(`[BulkAI] Fetch error (attempt ${attempt + 1}) for ${payload.codein}`, fetchErr);
+                                await new Promise((r) => setTimeout(r, 1_000)); // Petite pause avant retry réseau
                             }
                         }
 
                         if (!res || !res.ok) {
-                            setError(payload.codein, "Erreur API");
+                            setError(payload.codein, res?.status === 504 ? "Timeout IA" : "Erreur API");
                             errorsCount++;
                         } else {
                             const data = await res.json();
@@ -220,7 +234,7 @@ export function BulkAiAnalyzer() {
                             }
                         }
                     } catch (err) {
-                        console.error(`Error processing ${payload.codein}`, err);
+                        console.error(`[BulkAI] Error processing ${payload.codein}`, err);
                         setError(payload.codein, "Erreur");
                         errorsCount++;
                     } finally {
@@ -284,7 +298,7 @@ export function BulkAiAnalyzer() {
             ) : (
                 <button
                     onClick={handleAnalyze}
-                    className="btn-action btn-action-ai"
+                    className="apple-btn-ai"
                 >
                     <Sparkles className="w-4 h-4" />
                     Analyse IA

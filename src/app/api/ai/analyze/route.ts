@@ -6,6 +6,10 @@ import { db } from "@/db";
 import { aiSupplierContext } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
+// Limite max acceptable pour la route (Node.js self-hosted).
+// Evite que le process tourne indéfiniment en cas de deadlock.
+export const maxDuration = 55;
+
 export async function POST(req: NextRequest) {
     const config = await getSavedDatabaseConfig();
     const apiKey = process.env.OPENROUTER_API_KEY || config?.openRouterKey;
@@ -41,6 +45,11 @@ export async function POST(req: NextRequest) {
     } catch (err) {
         if (err instanceof Error && err.message === "rate_limited") {
             return NextResponse.json({ error: "rate_limited", retryAfter: 30 }, { status: 429 });
+        }
+        // Timeout explicite déclenché par l'AbortController du client
+        if (err instanceof Error && err.message === "timeout") {
+            console.warn(`[AI] Timeout for product analysis — OpenRouter too slow.`);
+            return NextResponse.json({ error: "timeout", retryAfter: 5 }, { status: 504 });
         }
         const msg = err instanceof Error ? err.message : "Unknown error";
         return NextResponse.json({ error: msg }, { status: 500 });

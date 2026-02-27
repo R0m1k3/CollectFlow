@@ -214,7 +214,7 @@ export default function SettingsPage() {
                     <label htmlFor="ssl" className="text-[12px] cursor-pointer text-[var(--text-secondary)]">Connexion SSL</label>
                 </div>
                 <div className="flex items-center gap-3">
-                    <button onClick={testDb} disabled={dbStatus === "testing"} className="apple-btn-secondary">
+                    <button onClick={testDb} disabled={dbStatus === "testing"} className="apple-btn-secondary h-9 px-4">
                         {dbStatus === "testing" && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                         {dbStatus === "ok" && <CheckCircle className="w-3.5 h-3.5 text-teal-500" />}
                         {dbStatus === "error" && <AlertCircle className="w-3.5 h-3.5 text-red-400" />}
@@ -233,9 +233,9 @@ export default function SettingsPage() {
                 <div className="pt-2">
                     <button
                         onClick={reloadFromServer}
-                        className="flex items-center gap-2 text-[12px] font-medium transition-colors hover:text-[var(--accent)] text-[var(--text-secondary)]"
+                        className="apple-btn-secondary h-8 px-3 text-[11px] opacity-80 hover:opacity-100"
                     >
-                        <RotateCcw className="w-3.5 h-3.5" />
+                        <RotateCcw className="w-3 h-3" />
                         Recharger la configuration enregistrée sur le serveur
                     </button>
                 </div>
@@ -263,7 +263,7 @@ export default function SettingsPage() {
                         <button
                             onClick={() => fetchModels(apiKey)}
                             disabled={!apiKey || modelsStatus === "loading"}
-                            className="apple-btn-secondary whitespace-nowrap"
+                            className="apple-btn-secondary h-9 px-4 whitespace-nowrap"
                         >
                             {modelsStatus === "loading" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                             Charger les modèles
@@ -390,9 +390,9 @@ export default function SettingsPage() {
                 <div className="pt-2">
                     <button
                         onClick={resetScoreDefaults}
-                        className="flex items-center gap-2 text-[12px] font-medium transition-colors hover:text-[var(--accent)] text-[var(--text-secondary)]"
+                        className="apple-btn-secondary h-8 px-3 text-[11px] opacity-80 hover:opacity-100"
                     >
-                        <RotateCcw className="w-3.5 h-3.5" />
+                        <RotateCcw className="w-3 h-3" />
                         Rétablir les valeurs par défaut
                     </button>
                 </div>
@@ -406,16 +406,28 @@ export default function SettingsPage() {
                 <UserManagement />
             </Section>
 
-            {/* Save */}
-            <div className="flex items-center gap-3">
+            {/* Save Button — Floating/Sticky style at bottom */}
+            <div className="sticky bottom-6 flex justify-end pt-4 pb-2">
                 <button
                     onClick={handleSave}
                     disabled={saveStatus === "saving"}
-                    className="apple-btn-primary"
-                    style={{ background: "var(--accent)" }}
+                    className={`apple-btn-primary min-w-[240px] shadow-lg ${saveStatus === "saving" ? "animate-pulse" : saveStatus === "saved" ? "animate-apple-save" : ""}`}
+                    style={{ background: saveStatus === "saved" ? "var(--accent-success)" : "var(--brand-solid)" }}
                 >
-                    {saveStatus === "saving" ? <Loader2 className="w-4 h-4 animate-spin" /> : saveStatus === "saved" ? <CheckCircle className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-                    {saveStatus === "saving" ? "Enregistrement..." : saveStatus === "saved" ? "Sauvegardé !" : "Sauvegarder la configuration"}
+                    {saveStatus === "saving" ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : saveStatus === "saved" ? (
+                        <CheckCircle className="w-4 h-4" />
+                    ) : (
+                        <Save className="w-4 h-4" />
+                    )}
+                    <span className="ml-1">
+                        {saveStatus === "saving"
+                            ? "Enregistrement en cours..."
+                            : saveStatus === "saved"
+                                ? "Configuration enregistrée !"
+                                : "Sauvegarder la configuration"}
+                    </span>
                 </button>
             </div>
         </div>
