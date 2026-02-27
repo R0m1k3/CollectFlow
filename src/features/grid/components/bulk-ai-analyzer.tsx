@@ -289,7 +289,7 @@ export function BulkAiAnalyzer() {
                     </button>
                 </div>
             ) : progress.current > 0 ? (
-                <div className="btn-action btn-action-success">
+                <div className="apple-btn-primary opacity-80 cursor-default">
                     <CheckCircle2 className="w-4 h-4" />
                     <span>
                         {progress.errors > 0 ? `Terminé (${progress.current - progress.errors}/${progress.total})` : `Analyse Terminée`}
