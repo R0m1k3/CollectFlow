@@ -223,33 +223,45 @@ export class ContextProfiler {
                 ? Math.round((getWeightedQty(target) / totalQtyFournisseur) * 1000) / 10
                 : 0;
 
-        const isLowContribution = weightCaFournisseur < 0.5 && weightQtyFournisseur < 0.5;
+        // Bug fix : un produit dans le top 30% de marge du lot apporte une valeur
+        // réelle en rentabilité. L'exclure du signal isLowContribution évite de le
+        // pénaliser uniquement parce que son volume/CA est faible (profil 💎 pur).
+        const isLowContribution = weightCaFournisseur < 0.5 && weightQtyFournisseur < 0.5 && pMarge <= 70;
 
-        // 6. Signaux Trafic / Marge (sur valeurs PAR MAGASIN)
+        // 6. Signaux Trafic / Marge + Quadrant (sur valeurs PAR MAGASIN)
+        // Médianes calculées ici pour être disponibles dans les sections 6 ET 7.
+        const medianQtyPerStore = computeMedian(allQtyPerStore);
+        const medianMarge = computeMedian(allMargeValues);
+
         const rayonSizeForSignals = rayonProds.length;
         const signalsActive = rayonSizeForSignals >= MIN_RAYON_SIZE;
 
         let isHighVolumeWithLowMargin = false;
         let isMargePure = false;
 
-        if (signalsActive) {
+        // Bug fix : isMargePure est désormais calculé sur tous les rayons, même petits.
+        // Raison : la marge absolue est une donnée fiable quelle que soit la taille du lot.
+        // Le signal isHighVolumeWithLowMargin (trafic) garde le seuil MIN_RAYON_SIZE car
+        // il nécessite une distribution volumique suffisante pour être statistiquement valide.
+        {
             const marge40 = valueAtPercentile(allMargeValues, 40);
-            const marge70 = valueAtPercentile(allMargeValues, 70);
             const qty60PerStore = valueAtPercentile(allQtyPerStore, 60);
-            const medianQtyPerStore = computeMedian(allQtyPerStore);
 
-            isHighVolumeWithLowMargin =
-                targetQtyPerStore >= qty60PerStore &&
-                (target.tauxMarge ?? 0) < marge40;
+            // Signal trafic : nécessite un rayon suffisamment large
+            if (signalsActive) {
+                isHighVolumeWithLowMargin =
+                    targetQtyPerStore >= qty60PerStore &&
+                    (target.tauxMarge ?? 0) < marge40;
+            }
 
+            // Signal marge pure : au-dessus de la médiane marge + volume faible.
+            // Utilise la médiane (P50) plutôt que P70 pour être robuste sur petits lots.
             isMargePure =
-                (target.tauxMarge ?? 0) >= marge70 &&
+                (target.tauxMarge ?? 0) > medianMarge &&
                 targetQtyPerStore < medianQtyPerStore;
         }
 
-        // 7. Quadrant (basé sur les médianes PAR MAGASIN)
-        const medianQtyPerStore = computeMedian(allQtyPerStore);
-        const medianMarge = computeMedian(allMargeValues);
+        // 7. Quadrant (basé sur les médianes PAR MAGASIN — déjà calculées en section 6)
         const { quadrant, quadrantLabel, quadrantEmoji } = ContextProfiler.resolveQuadrant(
             targetQtyPerStore,
             target.tauxMarge ?? 0,
