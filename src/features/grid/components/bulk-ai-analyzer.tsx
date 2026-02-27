@@ -227,12 +227,12 @@ export function BulkAiAnalyzer() {
                                     const wait = (retryData.retryAfter ?? 30) * 1000;
                                     console.warn(`[BulkAI] Rate limited, retry in ${wait / 1000}s`);
                                     await new Promise((r) => setTimeout(r, Math.min(wait, 15_000)));
-                                } else if (res.status === 504) {
-                                    // Timeout serveur : retry rapide (le modèle était peut-être surchargé)
-                                    console.warn(`[BulkAI] Timeout (504) for ${payload.codein}, retry #${attempt + 1}`);
-                                    await new Promise((r) => setTimeout(r, 2_000));
+                                } else if (res.status === 504 || res.status === 502 || res.status === 503 || res.status === 529) {
+                                    // Timeout ou réseau surchargé : on tente de réessayer de suite
+                                    console.warn(`[BulkAI] Network issue (${res.status}) for ${payload.codein}, retry #${attempt + 1}`);
+                                    await new Promise((r) => setTimeout(r, 2_000 * (attempt + 1))); // Exponential backoff (2s, 4s, 6s)
                                 } else {
-                                    // Autre erreur (500, etc.) : ne pas réessayer inutilement
+                                    // Autre erreur (500 local, auth, etc.) : ne pas réessayer inutilement
                                     break;
                                 }
                             } catch (fetchErr) {
@@ -242,7 +242,18 @@ export function BulkAiAnalyzer() {
                         }
 
                         if (!res || !res.ok) {
-                            setError(payload.codein, res?.status === 504 ? "Timeout IA" : "Erreur API");
+                            let errorMsg = res?.status === 504 ? "Timeout IA" : (res?.status === 502 ? "API Surchargée" : `Erreur HTTP ${res?.status}`);
+
+                            // On tente d'extraire le message original s'il y en a un
+                            if (res && res.headers.get("content-type")?.includes("application/json")) {
+                                try {
+                                    const errData = await res.json();
+                                    if (errData.error) errorMsg += ` - ${errData.error}`;
+                                    if (errData.detail) errorMsg += ` (${errData.detail})`;
+                                } catch (e) { /* ignore JSON parse error on error */ }
+                            }
+
+                            setError(payload.codein, errorMsg);
                             errorsCount++;
                         } else {
                             const data = await res.json();

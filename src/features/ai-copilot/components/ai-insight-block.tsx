@@ -145,7 +145,10 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
 
     if (status === "error") {
         return (
-            <div className="flex items-center gap-1.5 text-[11px] text-rose-600 dark:text-rose-500">
+            <div
+                className="flex items-center gap-1.5 text-[11px] text-rose-600 dark:text-rose-500 cursor-help"
+                title={insight?.insight || "Une erreur inconnue est survenue"}
+            >
                 <AlertCircle className="w-3 h-3" />
                 <span>Erreur</span>
             </div>

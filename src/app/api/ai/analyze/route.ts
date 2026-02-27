@@ -37,7 +37,15 @@ export async function POST(req: NextRequest) {
             console.warn(`[AI] Timeout for product analysis — OpenRouter too slow.`);
             return NextResponse.json({ error: "timeout", retryAfter: 5 }, { status: 504 });
         }
+
         const msg = err instanceof Error ? err.message : "Unknown error";
+
+        // Propager l'état de surcharge Open Router (502 Gateway, 503 Unavailable, 529 Overloaded)
+        if (msg.includes("502") || msg.includes("503") || msg.includes("529") || msg.includes("Bad Gateway") || msg.includes("overloaded")) {
+            console.warn(`[AI] External API overload detected: ${msg}`);
+            return NextResponse.json({ error: "gateway_timeout", detail: msg }, { status: 502 });
+        }
+
         return NextResponse.json({ error: msg }, { status: 500 });
     }
 }
