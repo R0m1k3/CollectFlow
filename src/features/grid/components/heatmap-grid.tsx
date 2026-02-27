@@ -419,6 +419,12 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
         getSortedRowModel: getSortedRowModel(),
         getFilteredRowModel: getFilteredRowModel(),
         enableRowSelection: true,
+        globalFilterFn: (row, columnId, filterValue) => {
+            const search = String(filterValue).toLowerCase();
+            const libelle = String(row.original.libelle1 || "").toLowerCase();
+            const code = String(row.original.codein || "").toLowerCase();
+            return libelle.includes(search) || code.includes(search);
+        },
     });
 
     const { rows: tableRows } = table.getRowModel();
