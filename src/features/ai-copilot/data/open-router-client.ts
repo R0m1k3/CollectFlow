@@ -35,7 +35,7 @@ export class OpenRouterClient {
                         { role: "user", content: AnalysisEngine.generateUserMessage(p) },
                     ],
                     response_format: { type: "json_object" },
-                    max_tokens: 200,
+                    max_tokens: 150,
                     temperature: 0.1,
                 }),
             });
@@ -73,8 +73,12 @@ export class OpenRouterClient {
             reco = parsed.recommendation as "A" | "C" | "Z";
             cleanInsight = parsed.justification || "";
 
+            // Garde-fou : C est réservé aux saisonniers (gestion manuelle).
+            // Si l'IA recommande C malgré l'interdiction dans le prompt → forcer A.
+            if (reco === "C") reco = "A";
+
             // Override recommendation if it doesn't match extracted reco for safety
-            if (!reco || !["A", "C", "Z"].includes(reco)) {
+            if (!reco || !["A", "Z"].includes(reco)) {
                 reco = AnalysisEngine.extractRecommendation(cleanInsight) || "A";
             }
         } catch (e) {

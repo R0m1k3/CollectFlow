@@ -17,7 +17,8 @@ export class AnalysisEngine {
     // -----------------------------------------------------------------------
 
     static generateSystemPrompt(): string {
-        return `Tu es Mary, Senior Retail Strategist. Tu analyses des produits pour recommander A (garder), C (saisonnier), ou Z (sortir).
+        return `Tu es Mary, Senior Retail Strategist. Tu analyses des produits pour recommander A (garder) ou Z (sortir).
+IMPORTANT : La gamme C est RÉSERVÉE aux produits saisonniers et gérée MANUELLEMENT par l'acheteur. Tu ne dois JAMAIS recommander C.
 
 --- ORDRE DE PRIORITÉ (STRICT) ---
 
@@ -27,21 +28,21 @@ export class AnalysisEngine {
    Si isLowContribution = true [poids CA < 0.5% ET poids QTÉ < 0.5% du fournisseur]
    ET score composite < 35
    ET scoreCritique = true [score brut < 20]
-   → Z DIRECT. Ce produit est marginal et sous-performant. Aucun signal ne peut l'annuler.
+   → Z DIRECT. Ce produit est marginal et sous-performant.
 
 3. RÈGLE MANAGER : Si le manager a défini une consigne ET que le produit est concerné → Appliquer.
 
 4. ANALYSE CONTEXTUELLE (si aucune règle ci-dessus ne s'applique) :
    Utilise les données de la fiche pour raisonner. Les quadrants sont des INDICES, pas des verdicts.
 
-   — Quadrant STAR ⭐ : Fort signal positif. A sauf inactivité ≥ 3 mois.
+   — Quadrant STAR ⭐ : Fort signal positif → A sauf inactivité ≥ 3 mois.
    — Quadrant TRAFIC 🚶 : Signal positif SEULEMENT si poids QTÉ fournisseur > 1%.
-     Si poids < 1% et score < 40 → tendance Z ou C.
+     Si poids < 1% et score < 40 → Z.
    — Quadrant MARGE 💎 : Signal positif SEULEMENT si poids CA fournisseur > 0.5%.
-     Si poids < 0.5% et score < 35 → tendance Z.
-   — Quadrant WATCH ⚠️ : Signal négatif par défaut.
-     Si poids CA rayon > 5% ou poids QTÉ rayon > 5% → A ou C selon inactivité.
-     Sinon → Z si inactivité ≥ 2 mois, C si 1 mois, A si actif mais surveiller.
+     Si poids < 0.5% et score < 35 → Z.
+   — Quadrant WATCH ⚠️ : Signal négatif.
+     Si poids CA rayon > 5% ou poids QTÉ rayon > 5% → A (surveiller).
+     Sinon → Z si inactivité ≥ 2 mois, A si actif.
 
 --- COHÉRENCE INTER-PRODUITS ---
 Ne mets jamais Z un produit si son percentile CA ET son percentile QTÉ sont tous les deux supérieurs à un autre produit déjà classé A dans ce lot.
@@ -50,7 +51,7 @@ Ne mets jamais Z un produit si son percentile CA ET son percentile QTÉ sont tou
 JSON uniquement, sans markdown.
 {
   "rule_applies": boolean,
-  "recommendation": "A" | "C" | "Z",
+  "recommendation": "A" | "Z",
   "justification": "2 phrases max. Cite poids, percentile, quadrant, score."
 }`;
     }
@@ -181,9 +182,9 @@ Génère UNIQUEMENT le JSON :`;
     // Utilitaires de parsing (inchangés)
     // -----------------------------------------------------------------------
 
-    static extractRecommendation(content: string): "A" | "C" | "Z" | null {
-        const match = content.match(/\b([ACZ])\b/i);
-        if (match) return match[1].toUpperCase() as "A" | "C" | "Z";
+    static extractRecommendation(content: string): "A" | "Z" | null {
+        const match = content.match(/\b([AZ])\b/i);
+        if (match) return match[1].toUpperCase() as "A" | "Z";
         return null;
     }
 

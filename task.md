@@ -23,9 +23,9 @@ Mary (IA) donnait des recommandations basées sur le score brut sans analyse con
 
 ## Progress Log
 
-- **Correction IA** : Algorithme Mary v4 implémenté avec profilage contextuel et groupement N2. Le bug de classification 'A' systématique est résolu.
-- **Refonte Esthétique** : Bouton de sauvegarde et design system harmonisés en style Apple Glossy/Premium avec micro-animations et feedback visuel.
 - **Agent Architecte (Timeout)** : Intervention structurelle sur l'entonnoir d'analyse :
   - **Client-Side (AbortController)** : Timeout poussé de 25s à 50s pour supporter les requêtes des LLM denses (ex: M37).
   - **Server-Side (N+1 Query)** : Suppression d'une requête BDD redondante invoquée par chaque produit, éliminant ~100 appels BDD par lot.
+- **Agent Architecte (Gamme C)** : Prompt v5 → Mary ne recommande plus que A ou Z. Gamme C interdite (réservée saisonniers). Garde-fou C→A côté client. Concurrence réduite à 2 workers, max_tokens réduit à 150.
+- **Bouton Analyse IA** : Refactorisé en `apple-btn-secondary` (sobre, conforme PRD Apple-style) avec icône Sparkles colorée en accent.
 - **Vérification** : Walkthrough documenté et système fluidifié.

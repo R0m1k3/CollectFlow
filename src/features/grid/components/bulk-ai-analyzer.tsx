@@ -181,7 +181,7 @@ export function BulkAiAnalyzer() {
         codeins.forEach(c => gammeChanges[c] = "Aucune");
         batchSetDraftGamme(gammeChanges);
 
-        const CONCURRENCY = 3;
+        const CONCURRENCY = 2;
         const remaining = [...productPayloads];
 
         const processBatch = async () => {
@@ -298,9 +298,9 @@ export function BulkAiAnalyzer() {
             ) : (
                 <button
                     onClick={handleAnalyze}
-                    className="apple-btn-ai"
+                    className="apple-btn-secondary"
                 >
-                    <Sparkles className="w-4 h-4" />
+                    <Sparkles className="w-4 h-4" style={{ color: "var(--accent)" }} />
                     Analyse IA
                 </button>
             )}
