@@ -74,8 +74,103 @@ interface HeatmapGridProps {
     onSelectionChange?: (codeins: string[]) => void;
 }
 
+// =========================================================================
+// OPTIMISATION PERFORMANCES (React.memo + Zustand Selectors granulaires)
+// =========================================================================
+
+// 1. Composant isolé pour la Cellule Gamme (évite le re-render des colonnes)
+const GammeCell = React.memo(({ row }: { row: ProductRow }) => {
+    // Abonnement ultra-ciblé : la cellule ne re-render que si SA valeur change
+    const codein = row.codein;
+    const isDraft = useGridStore((s) => s.draftChanges[codein] !== undefined);
+    const effectiveGamme = useGridStore((s) => s.draftChanges[codein] ?? row.codeGamme);
+    const setDraftGamme = useGridStore((s) => s.setDraftGamme);
+
+    const isModified = row.codeGamme !== row.codeGammeInit && row.codeGammeInit !== null;
+
+    return (
+        <div className="relative group/gamme">
+            <GammeSelect
+                value={effectiveGamme as GammeCode | null}
+                isDraft={isDraft}
+                onChange={(g: GammeCode) => setDraftGamme(codein, g)}
+            />
+            {isModified && !isDraft && (
+                <div className="absolute -right-2 -top-2 bg-emerald-500 text-white rounded-full p-0.5 shadow-sm z-10 animate-in zoom-in-50" title="Modifié et validé">
+                    <Check className="w-2.5 h-2.5" />
+                </div>
+            )}
+        </div>
+    );
+});
+GammeCell.displayName = "GammeCell";
+
+import { Row } from "@tanstack/react-table";
+import { VirtualItem } from "@tanstack/react-virtual";
+
+// 2. Composant isolé pour la Ligne Virtuelle 
+// (Gère l'état grisé "Z" localement sans faire re-render toute la grid)
+interface VirtualRowProps {
+    virtualRow: VirtualItem;
+    row: Row<ProductRow>;
+    rowHeight: number;
+    isSelected: boolean;
+}
+
+const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected }: VirtualRowProps) => {
+    // Uniquement la ligne concernée écoute son propre changement pour l'effet visuel
+    const effectiveGamme = useGridStore((s) => s.draftChanges[row.original.codein] ?? row.original.codeGamme);
+
+    return (
+        <tr
+            data-index={virtualRow.index}
+            onClick={() => row.toggleSelected()}
+            className={cn(
+                "absolute w-full flex items-center cursor-pointer transition-all duration-200 group/row",
+                effectiveGamme === "Z" && "opacity-40 grayscale-[0.5] hover:grayscale-0 hover:opacity-100"
+            )}
+            style={{
+                height: `${rowHeight}px`,
+                transform: `translateY(${virtualRow.start}px)`,
+                borderBottom: "1px solid var(--border)",
+                background: isSelected ? "var(--accent-bg)" : "transparent",
+                borderLeft: isSelected ? "3px solid var(--accent)" : "3px solid transparent",
+            }}
+        >
+            {row.getVisibleCells().map((cell: any) => {
+                const isFlexible = cell.column.id === "libelle1" || cell.column.id === "ai" || cell.column.id === "libelle3";
+                const isCenter = cell.column.id === "totalQuantite" || cell.column.id === "totalCa" || cell.column.id === "totalMarge" || cell.column.id.startsWith("month_") || cell.column.id === "gammeInitial" || cell.column.id === "score" || cell.column.id === "gamme";
+                const size = cell.column.getSize();
+                return (
+                    <td
+                        key={cell.id}
+                        className={cn(
+                            "px-2 overflow-hidden flex items-center transition-colors group-hover/row:bg-white/5",
+                            isSelected && "bg-transparent"
+                        )}
+                        style={{
+                            width: isFlexible ? "100%" : size,
+                            flex: isFlexible ? `1 1 ${size}px` : `0 0 ${size}px`,
+                            minWidth: size,
+                            maxWidth: isFlexible ? "none" : size,
+                            height: `${rowHeight}px`,
+                            justifyContent: isCenter ? "center" : "flex-start"
+                        }}
+                    >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                );
+            })}
+        </tr>
+    );
+});
+GridRow.displayName = "GridRow";
+
+// =========================================================================
+
 export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
-    const { rows, draftChanges, setDraftGamme, filters, displayDensity } = useGridStore();
+    // L'abonnement doit être minimal ici ! PAS de draftChanges ni de setDraftGamme.
+    const { rows, filters, displayDensity } = useGridStore();
     const [sorting, setSorting] = useState<SortingState>([]);
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
     const [isMounted, setIsMounted] = useState(false);
@@ -303,25 +398,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
             id: "gamme",
             header: () => <div className="text-center w-full">Gamme</div>,
             size: 110,
-            cell: ({ row }) => {
-                const effectiveGamme = (draftChanges[row.original.codein] ?? row.original.codeGamme) as GammeCode | null;
-                const isModified = row.original.codeGamme !== row.original.codeGammeInit && row.original.codeGammeInit !== null;
-
-                return (
-                    <div className="relative group/gamme">
-                        <GammeSelect
-                            value={effectiveGamme}
-                            isDraft={!!draftChanges[row.original.codein]}
-                            onChange={(g: GammeCode) => setDraftGamme(row.original.codein, g)}
-                        />
-                        {isModified && !draftChanges[row.original.codein] && (
-                            <div className="absolute -right-2 -top-2 bg-emerald-500 text-white rounded-full p-0.5 shadow-sm z-10 animate-in zoom-in-50" title="Modifié et validé">
-                                <Check className="w-2.5 h-2.5" />
-                            </div>
-                        )}
-                    </div>
-                );
-            },
+            cell: ({ row }) => <GammeCell row={row.original} />,
         },
         {
             id: "ai",
@@ -330,7 +407,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
             enableSorting: false,
             cell: ({ row }) => <AiInsightBlock row={row.original} />,
         },
-    ], [draftChanges, setDraftGamme, MONTHS_12]);
+    ], [MONTHS_12]); // Dépendances extrêmement stables : pas de re-render du header !
 
     const table = useReactTable({
         data: rows,
@@ -428,51 +505,17 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                 <tbody key={displayDensity} style={{ height: rowVirtualizer.getTotalSize(), position: "relative", display: "block" }}>
                     {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                         const row = tableRows[virtualRow.index];
-                        const effectiveGamme = draftChanges[row.original.codein] ?? row.original.codeGamme;
                         const isSelected = row.getIsSelected();
+
                         return (
-                            <tr
-                                key={row.id}
-                                data-index={virtualRow.index}
-                                ref={rowVirtualizer.measureElement}
-                                onClick={() => row.toggleSelected()}
-                                className={cn(
-                                    "absolute w-full flex items-center cursor-pointer transition-all duration-200 group/row",
-                                    effectiveGamme === "Z" && "opacity-40 grayscale-[0.5] hover:grayscale-0 hover:opacity-100"
-                                )}
-                                style={{
-                                    height: `${rowHeight}px`,
-                                    transform: `translateY(${virtualRow.start}px)`,
-                                    borderBottom: "1px solid var(--border)",
-                                    background: isSelected ? "var(--accent-bg)" : "transparent",
-                                    borderLeft: isSelected ? "3px solid var(--accent)" : "3px solid transparent",
-                                }}
-                            >
-                                {row.getVisibleCells().map((cell) => {
-                                    const isFlexible = cell.column.id === "libelle1" || cell.column.id === "ai" || cell.column.id === "libelle3";
-                                    const isCenter = cell.column.id === "totalQuantite" || cell.column.id === "totalCa" || cell.column.id === "totalMarge" || cell.column.id.startsWith("month_") || cell.column.id === "gammeInitial" || cell.column.id === "score" || cell.column.id === "gamme";
-                                    const size = cell.column.getSize();
-                                    return (
-                                        <td
-                                            key={cell.id}
-                                            className={cn(
-                                                "px-2 overflow-hidden flex items-center transition-colors group-hover/row:bg-white/5",
-                                                isSelected && "bg-transparent"
-                                            )}
-                                            style={{
-                                                width: isFlexible ? "100%" : size,
-                                                flex: isFlexible ? `1 1 ${size}px` : `0 0 ${size}px`,
-                                                minWidth: size,
-                                                maxWidth: isFlexible ? "none" : size,
-                                                height: `${rowHeight}px`,
-                                                justifyContent: isCenter ? "center" : "flex-start"
-                                            }}
-                                        >
-                                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                        </td>
-                                    );
-                                })}
-                            </tr>
+                            <div key={row.id} ref={rowVirtualizer.measureElement} style={{ position: 'absolute', top: 0, left: 0, width: '100%' }}>
+                                <GridRow
+                                    virtualRow={virtualRow}
+                                    row={row}
+                                    rowHeight={rowHeight}
+                                    isSelected={isSelected}
+                                />
+                            </div>
                         );
                     })}
                 </tbody>
