@@ -276,16 +276,6 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
             },
         },
         {
-            accessorKey: "reference",
-            header: () => <div className="text-left w-full">Réf. Fournisseur</div>,
-            size: 130,
-            cell: ({ getValue }) => (
-                <span className="text-[12px] truncate block text-left w-full font-mono-nums opacity-80" style={{ color: "var(--text-primary)" }}>
-                    {getValue<string>() || "-"}
-                </span>
-            ),
-        },
-        {
             accessorKey: "libelle1",
             header: "Désignation",
             size: 280,
