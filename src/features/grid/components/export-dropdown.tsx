@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Download, FileSpreadsheet, FileText, ChevronDown } from "lucide-react";
 import * as ExcelJS from "exceljs";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 
 export function ExportDropdown() {
@@ -54,7 +56,76 @@ export function ExportDropdown() {
 
     const handlePrintPDF = () => {
         setIsOpen(false);
-        window.print();
+        const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+
+        doc.setFontSize(16);
+        doc.text("Analyse d'Assortiment", 14, 15);
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+        doc.text(`Export généré le : ${new Date().toLocaleDateString("fr-FR")}`, 14, 22);
+
+        // Dynamically get last 12 months for headers
+        const months: string[] = [];
+        const now = new Date();
+        for (let i = 12; i >= 1; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            months.push(`${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`);
+        }
+
+        const formatMonth = (key: string) => {
+            const m = parseInt(key.slice(4, 6), 10);
+            const names = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"];
+            return `${names[m - 1]} ${key.slice(2, 4)}`;
+        };
+
+        const head = [
+            ["Mag", "Code In", "Réf.", "Libellé", "Score", ...months.map(formatMonth), "Vol.", "CA", "Marge", "Gamme"]
+        ];
+
+        const body = rows.map(r => {
+            const effectiveGamme = draftChanges[r.codein] ?? r.codeGamme;
+            return [
+                r.workingStores.join(","),
+                r.codein,
+                r.reference || "-",
+                r.libelle1 ? r.libelle1.substring(0, 40) + (r.libelle1.length > 40 ? "..." : "") : "",
+                r.score.toString(),
+                ...months.map(m => r.sales12m[m] ? Math.round(r.sales12m[m]).toString() : ""),
+                Math.round(r.totalQuantite).toLocaleString("fr-FR"),
+                `${Math.round(r.totalCa).toLocaleString("fr-FR")} €`,
+                `${Math.round(r.totalMarge).toLocaleString("fr-FR")} €\n(${r.tauxMarge.toFixed(1)}%)`,
+                effectiveGamme || "-"
+            ];
+        });
+
+        // @ts-ignore (autotable acts as a plugin)
+        autoTable(doc, {
+            head,
+            body,
+            startY: 28,
+            styles: { fontSize: 6.5, cellPadding: 1.5, lineColor: [200, 200, 200], lineWidth: 0.1 },
+            headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: "bold", halign: "center" },
+            columnStyles: {
+                0: { cellWidth: 10, halign: "center" }, // Magasins
+                1: { cellWidth: 14, fontStyle: "bold" }, // Code In
+                2: { cellWidth: 18 }, // Réf
+                3: { cellWidth: 45 }, // Libellé
+                4: { cellWidth: 10, halign: "center", fontStyle: "bold", textColor: [16, 185, 129] }, // Score
+                // The next 12 columns are the months. Let autotable size them.
+            },
+            theme: "grid",
+            didDrawPage: (data: any) => {
+                // Footer pagination
+                doc.setFontSize(8);
+                doc.text(
+                    `Page ${data.pageNumber}`,
+                    data.settings.margin.left,
+                    doc.internal.pageSize.height - 10
+                );
+            }
+        });
+
+        doc.save(`Assortiment_${new Date().toISOString().split("T")[0]}.pdf`);
     };
 
     return (
