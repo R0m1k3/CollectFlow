@@ -62,6 +62,6 @@ export interface ProductAnalysisInput {
 export interface AnalysisResult {
     insight: string;
     codein: string;
-    recommandation: "A" | "C" | "Z" | null;
+    recommandation: "A" | "B" | "C" | "D" | "Z" | null;
     scoring?: any; // On peut typer plus finement si nécessaire
 }

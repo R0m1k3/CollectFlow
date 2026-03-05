@@ -61,7 +61,7 @@ export class OpenRouterClient {
         const data = await response.json();
         const content = data.choices?.[0]?.message?.content ?? "";
 
-        let reco: "A" | "C" | "Z" | null = null;
+        let reco: "A" | "B" | "C" | "D" | "Z" | null = null;
         let cleanInsight = "Erreur de génération.";
 
         try {
@@ -70,16 +70,21 @@ export class OpenRouterClient {
             const jsonText = jsonMatch ? jsonMatch[0] : content;
             const parsed = JSON.parse(jsonText);
 
-            reco = parsed.recommendation as "A" | "C" | "Z";
+            reco = parsed.recommendation as "A" | "B" | "C" | "D" | "Z";
             cleanInsight = parsed.justification || "";
 
-            // Garde-fou : C est réservé aux saisonniers (gestion manuelle).
-            // Si l'IA recommande C malgré l'interdiction dans le prompt → forcer A.
-            if (reco === "C") reco = "A";
+            const ruleApplies = parsed.rule_applies === true;
+
+            // Garde-fou de sécurité : On n'autorise B, C ou D QUE si une règle manager s'applique.
+            if (!ruleApplies && (reco === "B" || reco === "C" || reco === "D")) {
+                reco = "A";
+            }
 
             // Override recommendation if it doesn't match extracted reco for safety
-            if (!reco || !["A", "Z"].includes(reco)) {
+            if (!reco || !["A", "B", "C", "D", "Z"].includes(reco)) {
                 reco = AnalysisEngine.extractRecommendation(cleanInsight) || "A";
+                // Ré-appliquer le garde-fou pour la reco extraite du texte.
+                if (!ruleApplies && (reco === "B" || reco === "C" || reco === "D")) reco = "A";
             }
         } catch (e) {
             console.error("Failed to parse AI JSON response:", content, e);

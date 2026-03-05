@@ -31,10 +31,11 @@ IMPORTANT : La gamme C est RÉSERVÉE aux produits saisonniers et gérée MANUEL
    ET scoreCritique = true [score brut < 20]
    → Z DIRECT. Ce produit est marginal et sous-performant.
 
-3. RÈGLE MANAGER : Si le manager a défini une consigne ET que le produit est concerné → Appliquer.
+3. RÈGLE MANAGER : Si le manager a défini une consigne ET que le produit est concerné → Appliquer la consigne À LA LETTRE.
+   Si la règle ordonne explicitement une Gamme B, C ou D, TU DOIS SORTIR "B", "C" ou "D" dans la recommandation JSON. C'est la SEULE exception où tu es autorisé à utiliser B, C ou D. "rule_applies" doit être 'true'.
 
 4. ANALYSE CONTEXTUELLE (si aucune règle ci-dessus ne s'applique) :
-   Utilise les données de la fiche pour raisonner. Les quadrants sont des INDICES, pas des verdicts.
+   Utilise les données de la fiche pour raisonner. Les quadrants sont des INDICES, pas des verdicts. Par défaut, génère "A" ou "Z".
 
    — Quadrant STAR ⭐ : Fort signal positif → A sauf inactivité ≥ 3 mois.
    — Quadrant TRAFIC 🚶 : Générateur de flux local.
@@ -56,7 +57,7 @@ Ne mets jamais Z un produit si son percentile CA ET son percentile QTÉ sont tou
 JSON uniquement, sans markdown.
 {
   "rule_applies": boolean,
-  "recommendation": "A" | "Z",
+  "recommendation": "A" | "B" | "C" | "D" | "Z",
   "justification": "2 phrases max. Cite poids, percentile, quadrant, score."
 }`;
     }
@@ -187,15 +188,15 @@ Génère UNIQUEMENT le JSON :`;
     // Utilitaires de parsing (inchangés)
     // -----------------------------------------------------------------------
 
-    static extractRecommendation(content: string): "A" | "Z" | null {
-        const match = content.match(/\b([AZ])\b/i);
-        if (match) return match[1].toUpperCase() as "A" | "Z";
+    static extractRecommendation(content: string): "A" | "B" | "C" | "D" | "Z" | null {
+        const match = content.match(/\b([ABCDZ])\b/i);
+        if (match) return match[1].toUpperCase() as "A" | "B" | "C" | "D" | "Z";
         return null;
     }
 
     static cleanInsight(content: string): string {
         let cleaned = content;
-        cleaned = cleaned.replace(/^\[?[ACZ]\]?\s*[:\s-]+\s*/i, "");
+        cleaned = cleaned.replace(/^\[?[ABCDZ]\]?\s*[:\s-]+\s*/i, "");
         cleaned = cleaned.replace(
             /^(justification|explication|pourquoi|justification courte|raison|avis)\s*[:\s-]+\s*/i,
             ""
