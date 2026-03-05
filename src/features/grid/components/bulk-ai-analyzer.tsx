@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { useAiCopilotStore } from "@/features/ai-copilot/store/use-ai-copilot-store";
 import { ScoringEngine } from "@/features/ai-copilot/business/scoring-engine";
@@ -22,6 +22,16 @@ export function BulkAiAnalyzer() {
     const batchSetDraftGamme = useGridStore((s) => s.batchSetDraftGamme);
     const setDraftGamme = useGridStore((s) => s.setDraftGamme);
     const { setInsight, batchSetLoading, setError } = useAiCopilotStore();
+
+    const prevSupplierRef = useRef(supplierCode);
+    useEffect(() => {
+        if (supplierCode !== prevSupplierRef.current) {
+            if (!isAnalyzing) {
+                setProgress({ current: 0, total: 0, message: "", errors: 0 });
+            }
+            prevSupplierRef.current = supplierCode;
+        }
+    }, [supplierCode, isAnalyzing]);
 
     const handleStop = () => {
         isCancelledRef.current = true;

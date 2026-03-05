@@ -90,7 +90,7 @@ export class ScoringEngine {
         let recommendation: "A" | "Z" = compositeScore >= threshold ? "A" : "Z";
 
         // 7. Gardes-fous et Labels
-        const isRecent = (target.regularityScore || 0) < 3;
+        const isRecent = (target.regularityScore || 0) < 3 && (target.inactivityMonths || 0) <= 1;
         const isTop30Supplier = this.checkTop30Supplier(target, processedProducts, compositeScore);
         const isLastProduct = target.isLastProductOfSupplier || false;
 
