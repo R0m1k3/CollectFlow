@@ -7,7 +7,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 
-export function ExportDropdown() {
+export function ExportDropdown({ nomFournisseur }: { nomFournisseur?: string }) {
     const [isOpen, setIsOpen] = useState(false);
     const { rows, draftChanges } = useGridStore();
 
@@ -60,37 +60,29 @@ export function ExportDropdown() {
 
         doc.setFontSize(16);
         doc.text("Analyse d'Assortiment", 14, 15);
-        doc.setFontSize(10);
-        doc.setTextColor(100);
-        doc.text(`Export généré le : ${new Date().toLocaleDateString("fr-FR")}`, 14, 22);
 
-        // Dynamically get last 12 months for headers
-        const months: string[] = [];
-        const now = new Date();
-        for (let i = 12; i >= 1; i--) {
-            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-            months.push(`${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`);
+        doc.setFontSize(14);
+        doc.setTextColor(50);
+        if (nomFournisseur) {
+            doc.text(nomFournisseur, 14, 23);
         }
 
-        const formatMonth = (key: string) => {
-            const m = parseInt(key.slice(4, 6), 10);
-            const names = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"];
-            return `${names[m - 1]} ${key.slice(2, 4)}`;
-        };
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+        doc.text(`Export généré le : ${new Date().toLocaleDateString("fr-FR")}`, 14, 30);
 
         const head = [
-            ["Mag", "Code In", "Réf.", "Libellé", "Score", ...months.map(formatMonth), "Vol.", "CA", "Marge", "Gamme"]
+            ["Gencode", "Code In", "Réf.", "Libellé", "Score", "Vol.", "CA", "Marge", "Gamme"]
         ];
 
         const body = rows.map(r => {
             const effectiveGamme = draftChanges[r.codein] ?? r.codeGamme;
             return [
-                r.workingStores.join(","),
+                r.gtin || r.codein,
                 r.codein,
                 r.reference || "-",
-                r.libelle1 ? r.libelle1.substring(0, 40) + (r.libelle1.length > 40 ? "..." : "") : "",
+                r.libelle1 ? r.libelle1.substring(0, 60) + (r.libelle1.length > 60 ? "..." : "") : "",
                 r.score.toString(),
-                ...months.map(m => r.sales12m[m] ? Math.round(r.sales12m[m]).toString() : ""),
                 Math.round(r.totalQuantite).toLocaleString("fr-FR"),
                 `${Math.round(r.totalCa).toLocaleString("fr-FR")} €`,
                 `${Math.round(r.totalMarge).toLocaleString("fr-FR")} €\n(${r.tauxMarge.toFixed(1)}%)`,
@@ -102,16 +94,15 @@ export function ExportDropdown() {
         autoTable(doc, {
             head,
             body,
-            startY: 28,
-            styles: { fontSize: 6.5, cellPadding: 1.5, lineColor: [200, 200, 200], lineWidth: 0.1 },
+            startY: 35,
+            styles: { fontSize: 8, cellPadding: 2, lineColor: [200, 200, 200], lineWidth: 0.1 },
             headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: "bold", halign: "center" },
             columnStyles: {
-                0: { cellWidth: 10, halign: "center" }, // Magasins
-                1: { cellWidth: 14, fontStyle: "bold" }, // Code In
-                2: { cellWidth: 18 }, // Réf
-                3: { cellWidth: 45 }, // Libellé
-                4: { cellWidth: 10, halign: "center", fontStyle: "bold", textColor: [16, 185, 129] }, // Score
-                // The next 12 columns are the months. Let autotable size them.
+                0: { cellWidth: 28 }, // Gencode
+                1: { cellWidth: 18, fontStyle: "bold", halign: "center" }, // Code In
+                2: { cellWidth: 25 }, // Réf
+                3: { cellWidth: 80 }, // Libellé
+                4: { cellWidth: 12, halign: "center", fontStyle: "bold", textColor: [16, 185, 129] }, // Score
             },
             theme: "grid",
             didDrawPage: (data: any) => {
