@@ -41,33 +41,30 @@ function formatMonthLabel(key: string): string {
 }
 
 /**
- * Returns premium styling and icons for stores.
- * Indigo for first store, Amber for second, Slate for others.
+ * Returns premium styling and color for stores based on the store name's hash.
+ * This guarantees a consistent color for a given store, regardless of its position in the list.
  */
-function getStoreConfig(name: string, index: number) {
-    const initial = name.charAt(0).toUpperCase();
-    if (index === 0) {
-        return {
-            bg: "rgba(99, 102, 241, 0.1)", // Indigo
-            text: "#818cf8",
-            border: "rgba(99, 102, 241, 0.2)",
-            label: initial
-        };
+function getStoreConfig(name: string) {
+    const words = name.trim().split(/\s+/);
+    let label = words[0].charAt(0).toUpperCase();
+    if (words.length > 1) {
+        label += words[1].charAt(0).toUpperCase();
     }
-    if (index === 1) {
-        return {
-            bg: "rgba(245, 158, 11, 0.1)", // Amber
-            text: "#fbbf24",
-            border: "rgba(245, 158, 11, 0.2)",
-            label: initial
-        };
+
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+        hash = name.charCodeAt(i) + ((hash << 5) - hash);
     }
-    return {
-        bg: "var(--bg-elevated)",
-        text: "var(--text-muted)",
-        border: "var(--border)",
-        label: initial
-    };
+    const colorInt = Math.abs(hash) % 5;
+
+    switch (colorInt) {
+        case 0: return { bg: "rgba(99, 102, 241, 0.1)", text: "#818cf8", border: "rgba(99, 102, 241, 0.2)", label }; // Indigo
+        case 1: return { bg: "rgba(245, 158, 11, 0.1)", text: "#fbbf24", border: "rgba(245, 158, 11, 0.2)", label }; // Amber
+        case 2: return { bg: "rgba(16, 185, 129, 0.1)", text: "#10b981", border: "rgba(16, 185, 129, 0.2)", label }; // Emerald
+        case 3: return { bg: "rgba(236, 72, 153, 0.1)", text: "#ec4899", border: "rgba(236, 72, 153, 0.2)", label }; // Pink
+        case 4: return { bg: "rgba(14, 165, 233, 0.1)", text: "#0ea5e9", border: "rgba(14, 165, 233, 0.2)", label }; // Sky
+        default: return { bg: "var(--bg-elevated)", text: "var(--text-muted)", border: "var(--border)", label };
+    }
 }
 
 interface HeatmapGridProps {
@@ -279,6 +276,16 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
             },
         },
         {
+            accessorKey: "reference",
+            header: () => <div className="text-left w-full">Réf. Fournisseur</div>,
+            size: 130,
+            cell: ({ getValue }) => (
+                <span className="text-[12px] truncate block text-left w-full font-mono-nums opacity-80" style={{ color: "var(--text-primary)" }}>
+                    {getValue<string>() || "-"}
+                </span>
+            ),
+        },
+        {
             accessorKey: "libelle1",
             header: "Désignation",
             size: 280,
@@ -288,12 +295,12 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                         {row.original.libelle1}
                     </span>
                     <div className="flex gap-1.5 shrink-0">
-                        {row.original.workingStores.map((magasin, idx) => {
-                            const config = getStoreConfig(magasin, idx);
+                        {row.original.workingStores.map((magasin) => {
+                            const config = getStoreConfig(magasin);
                             return (
                                 <div
                                     key={magasin}
-                                    title={`Travaillé par : ${magasin} (${idx + 1 === 1 ? 'Magasin 1' : 'Magasin 2'})`}
+                                    title={`Travaillé par : ${magasin}`}
                                     className="px-1.5 py-0.5 rounded-md flex items-center gap-1 text-[10px] font-black border shadow-sm transition-transform hover:scale-110"
                                     style={{
                                         background: config.bg,
@@ -386,10 +393,10 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
         },
         {
             id: "gammeInitial",
-            header: () => <div className="text-center w-full">Init.</div>,
+            header: () => <div className="text-center w-full print:hidden">Init.</div>,
             size: 56,
             cell: ({ row }) => (
-                <div className="text-center font-bold text-[12px]" style={{ color: "var(--text-secondary)" }}>
+                <div className="text-center font-bold text-[12px] print:hidden" style={{ color: "var(--text-secondary)" }}>
                     {row.original.codeGammeInit || "-"}
                 </div>
             ),
@@ -402,10 +409,14 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
         },
         {
             id: "ai",
-            header: "Recommandation IA",
+            header: () => <div className="print:hidden">Recommandation IA</div>,
             size: 230,
             enableSorting: false,
-            cell: ({ row }) => <AiInsightBlock row={row.original} />,
+            cell: ({ row }) => (
+                <div className="print:hidden w-full h-full">
+                    <AiInsightBlock row={row.original} />
+                </div>
+            ),
         },
     ], [MONTHS_12]); // Dépendances extrêmement stables : pas de re-render du header !
 

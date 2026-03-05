@@ -5,6 +5,7 @@ import { HeatmapGrid } from "@/features/grid/components/heatmap-grid";
 import { FloatingSummaryBar } from "@/features/grid/components/floating-summary-bar";
 import { BulkActionToolbar } from "@/features/grid/components/bulk-action-toolbar";
 import { GridFilterBar } from "@/features/grid/components/grid-filter-bar";
+import { ExportDropdown } from "@/features/grid/components/export-dropdown";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
 import type { ProductRow } from "@/types/grid";
@@ -89,37 +90,40 @@ export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins
                         {" "}• {initialRows.length} références
                     </p>
                 </div>
-                {hasDrafts && (
-                    <button
-                        onClick={handleSave}
-                        disabled={isPending}
-                        className="flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-semibold rounded-lg disabled:opacity-60 transition-colors"
-                    >
-                        {isPending ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : saveStatus === "success" ? (
-                            <CheckCircle className="w-4 h-4" />
-                        ) : saveStatus === "error" ? (
-                            <AlertCircle className="w-4 h-4" />
-                        ) : null}
-                        {isPending
-                            ? "Sauvegarde..."
-                            : saveStatus === "success"
-                                ? "Sauvegardé !"
-                                : saveStatus === "error"
-                                    ? "Erreur"
-                                    : `Valider ${count} changement${count > 1 ? "s" : ""}`}
-                    </button>
-                )}
+                <div className="flex items-center gap-3">
+                    <ExportDropdown />
+                    {hasDrafts && (
+                        <button
+                            onClick={handleSave}
+                            disabled={isPending}
+                            className="flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-semibold rounded-lg disabled:opacity-60 transition-colors"
+                        >
+                            {isPending ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : saveStatus === "success" ? (
+                                <CheckCircle className="w-4 h-4" />
+                            ) : saveStatus === "error" ? (
+                                <AlertCircle className="w-4 h-4" />
+                            ) : null}
+                            {isPending
+                                ? "Sauvegarde..."
+                                : saveStatus === "success"
+                                    ? "Sauvegardé !"
+                                    : saveStatus === "error"
+                                        ? "Erreur"
+                                        : `Valider ${count} changement${count > 1 ? "s" : ""}`}
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Filters */}
-            <div className="shrink-0">
+            <div className="shrink-0 print:hidden">
                 <GridFilterBar fournisseurs={fournisseurs} magasins={magasins} nomenclature={nomenclature} />
             </div>
 
             {/* Bulk toolbar (contextual) */}
-            <div className="shrink-0">
+            <div className="shrink-0 print:hidden">
                 <BulkActionToolbar
                     selectedCodeins={selectedCodeins}
                     onClearSelection={() => setSelectedCodeins([])}
@@ -134,7 +138,9 @@ export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins
             </div>
 
             {/* Summary bar */}
-            <FloatingSummaryBar />
+            <div className="print:hidden">
+                <FloatingSummaryBar />
+            </div>
         </div>
     );
 }
