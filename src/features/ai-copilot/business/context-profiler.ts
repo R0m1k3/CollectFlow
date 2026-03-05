@@ -92,7 +92,7 @@ export interface ProductContextProfile {
 
     // Signal négatif fort
     /**
-     * Le produit pèse moins de 0.5% du CA ET des QTÉ du fournisseur.
+     * Le produit appartient aux 30% les moins performants en CA et Quantité.
      */
     isLowContribution: boolean;
 
@@ -226,7 +226,9 @@ export class ContextProfiler {
         // Bug fix : un produit dans le top 30% de marge du lot apporte une valeur
         // réelle en rentabilité. L'exclure du signal isLowContribution évite de le
         // pénaliser uniquement parce que son volume/CA est faible (profil 💎 pur).
-        const isLowContribution = weightCaFournisseur < 0.5 && weightQtyFournisseur < 0.5 && pMarge <= 70;
+        // Le seuil de faible contribution utilise désormais des percentiles plutôt
+        // que des valeurs absolues pour ne pas pénaliser les gros fournisseurs.
+        const isLowContribution = pCa <= 30 && pQty <= 30 && pMarge <= 70;
 
         // 6. Signaux Trafic / Marge + Quadrant (sur valeurs PAR MAGASIN)
         // Médianes calculées ici pour être disponibles dans les sections 6 ET 7.

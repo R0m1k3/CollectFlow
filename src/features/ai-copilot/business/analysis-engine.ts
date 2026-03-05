@@ -26,7 +26,7 @@ IMPORTANT : La gamme C est RÉSERVÉE aux produits saisonniers et gérée MANUEL
    Cependant, si les performances réelles du produit sont clairement insuffisantes (CA dérisoire, marge nulle ou négative), tu PEUX passer outre la protection et recommander Z avec justification.
 
 2. SEUIL PLANCHER ABSOLU (règle critique) :
-   Si isLowContribution = true [poids CA < 0.5% ET poids QTÉ < 0.5% du fournisseur]
+   Si isLowContribution = true [percentile CA <= 30 ET percentile QTÉ <= 30 du fournisseur]
    ET score composite < 35
    ET scoreCritique = true [score brut < 20]
    → Z DIRECT. Ce produit est marginal et sous-performant.
@@ -48,6 +48,7 @@ IMPORTANT : La gamme C est RÉSERVÉE aux produits saisonniers et gérée MANUEL
      Sinon → A si actif (inactivité < 3 mois), Z si inactif ≥ 3 mois.
    — Quadrant WATCH ⚠️ : Signal négatif.
      Si poids CA rayon > 5% ou poids QTÉ rayon > 5% → A (surveiller).
+     Si percentileCa >= 50 ou percentileQty >= 50 → A (produit trop important au fournisseur).
      Sinon → Z si inactivité ≥ 2 mois, A si actif.
 
 --- COHÉRENCE INTER-PRODUITS ---
@@ -116,7 +117,7 @@ JSON uniquement, sans markdown.
 
         // Signal rouge prioritaire
         if (ctx.isLowContribution) {
-            lines.push(`[⛔ CONTRIBUTION FAIBLE] Poids CA réseau : ${ctx.weightCaFournisseur}% et Poids QTÉ réseau : ${ctx.weightQtyFournisseur}% → produit marginal pour le fournisseur`);
+            lines.push(`[⛔ CONTRIBUTION FAIBLE] Percentiles CA (${ctx.percentileCa}) et QTÉ (${ctx.percentileQty}) dans les 30% inférieurs → produit marginal`);
         }
         if (ctx.scoreCritique) {
             lines.push(`[⛔ SCORE CRITIQUE] Score brut < 20 → sous-seuil absolu`);
