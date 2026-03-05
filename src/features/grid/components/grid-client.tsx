@@ -78,9 +78,9 @@ export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins
     const activeStoreNom = magasins.find(m => m.code === magasin)?.nom || "National (Total)";
 
     return (
-        <div className="space-y-3 pb-20">
+        <div className="flex flex-col h-full space-y-3 min-h-0 pb-12">
             {/* Header */}
-            <div className="flex items-end justify-between">
+            <div className="flex items-end justify-between shrink-0">
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight">Révision d&apos;Assortiment</h1>
                     <p className="text-[13px] mt-0.5" style={{ color: "var(--text-secondary)" }}>
@@ -114,18 +114,24 @@ export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins
             </div>
 
             {/* Filters */}
-            <GridFilterBar fournisseurs={fournisseurs} magasins={magasins} nomenclature={nomenclature} />
+            <div className="shrink-0">
+                <GridFilterBar fournisseurs={fournisseurs} magasins={magasins} nomenclature={nomenclature} />
+            </div>
 
             {/* Bulk toolbar (contextual) */}
-            <BulkActionToolbar
-                selectedCodeins={selectedCodeins}
-                onClearSelection={() => setSelectedCodeins([])}
-            />
+            <div className="shrink-0">
+                <BulkActionToolbar
+                    selectedCodeins={selectedCodeins}
+                    onClearSelection={() => setSelectedCodeins([])}
+                />
+            </div>
 
             {/* Main grid */}
-            <HeatmapGrid
-                onSelectionChange={setSelectedCodeins}
-            />
+            <div className="flex-1 min-h-0 min-w-0">
+                <HeatmapGrid
+                    onSelectionChange={setSelectedCodeins}
+                />
+            </div>
 
             {/* Summary bar */}
             <FloatingSummaryBar />

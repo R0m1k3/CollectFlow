@@ -441,9 +441,8 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     if (!isMounted) {
         return (
             <div
-                className="overflow-auto rounded-[12px] flex items-center justify-center"
+                className="h-full w-full overflow-auto rounded-[12px] flex items-center justify-center"
                 style={{
-                    height: "calc(100vh - 240px)",
                     background: "var(--bg-surface)",
                     border: "1px solid var(--border)",
                 }}
@@ -456,9 +455,8 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     return (
         <div
             ref={tableContainerRef}
-            className="overflow-auto rounded-[12px] scroll-smooth"
+            className="h-full w-full overflow-auto rounded-[12px] scroll-smooth"
             style={{
-                height: "calc(100vh - 240px)",
                 background: "var(--bg-surface)",
                 border: "1px solid var(--border)",
                 boxShadow: "var(--shadow-sm)"
