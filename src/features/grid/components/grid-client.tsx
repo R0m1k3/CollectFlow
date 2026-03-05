@@ -55,9 +55,11 @@ export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins
 
     useEffect(() => {
         if (!isMounted) return;
-        // Deep clone to avoid mutating the React prop directly across re-renders
-        const rowsCopy = JSON.parse(JSON.stringify(initialRows));
-        const scoredRows = computeProductScores(rowsCopy, { seuilAxeFort, bonusParAxe });
+
+        // Optimisation : On évite le JSON.parse(JSON.stringify()) qui est très lourd sur 1000 lignes
+        // On passe directement les initialRows au moteur de score, ou on fait une copie superficielle si nécessaire.
+        // Le moteur de score doit idéalement retourner de nouveaux objets.
+        const scoredRows = computeProductScores([...initialRows], { seuilAxeFort, bonusParAxe });
         setRows(scoredRows);
     }, [initialRows, setRows, seuilAxeFort, bonusParAxe, isMounted]);
 

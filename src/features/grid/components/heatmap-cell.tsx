@@ -1,4 +1,4 @@
-"use client";
+import React from "react";
 
 interface HeatmapCellProps {
     value: number | null;
@@ -13,7 +13,7 @@ function getHeatmapClass(value: number | null): string {
     return "heatmap-zero";
 }
 
-export function HeatmapCell({ value }: HeatmapCellProps) {
+export const HeatmapCell = React.memo(({ value }: HeatmapCellProps) => {
     const heatClass = getHeatmapClass(value);
     const display = value === null || value === 0 ? "—" : Math.round(Math.abs(value)).toString();
 
@@ -25,4 +25,6 @@ export function HeatmapCell({ value }: HeatmapCellProps) {
             {display}
         </div>
     );
-}
+});
+
+HeatmapCell.displayName = "HeatmapCell";
