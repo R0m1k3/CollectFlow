@@ -179,7 +179,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     const { rows, filters, displayDensity } = useGridStore();
     const [sorting, setSorting] = useState<SortingState>([]);
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-    const [columnVisibility, setColumnVisibility] = useState({});
+    const { columnVisibility, setColumnVisibility } = useGridStore();
     const [isMounted, setIsMounted] = useState(false);
     const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
     const tableContainerRef = useRef<HTMLDivElement>(null);

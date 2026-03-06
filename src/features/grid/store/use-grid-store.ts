@@ -14,6 +14,8 @@ interface GridState {
     displayDensity: "compact" | "normal" | "comfortable";
     /** The active URL search parameters (e.g. ?fournisseur=123&magasin=TOTAL) */
     activeGridQuery: string;
+    /** Persisted column visibility state */
+    columnVisibility: Record<string, boolean>;
 
     // Actions
     setRows: (rows: ProductRow[]) => void;
@@ -26,6 +28,7 @@ interface GridState {
     setActiveGridQuery: (query: string) => void;
     restoreSnapshot: (changes: Record<string, GammeCode>) => void;
     batchSetDraftGamme: (changes: Record<string, GammeCode>) => void;
+    setColumnVisibility: (updater: Record<string, boolean> | ((old: Record<string, boolean>) => Record<string, boolean>)) => void;
 }
 
 function computeSummary(rows: ProductRow[], drafts: Record<string, GammeCode>): GridSummary {
@@ -67,6 +70,7 @@ export const useGridStore = create<GridState>()(
             },
             displayDensity: "normal",
             activeGridQuery: "",
+            columnVisibility: {},
 
             setRows: (rows) => {
                 set({ rows, summary: computeSummary(rows, get().draftChanges) });
@@ -124,15 +128,22 @@ export const useGridStore = create<GridState>()(
 
                 set({ draftChanges: updatedDrafts, summary: computeSummary(rows, updatedDrafts) });
             },
+
+            setColumnVisibility: (updater) => {
+                set((state) => ({
+                    columnVisibility: typeof updater === 'function' ? updater(state.columnVisibility) : updater
+                }));
+            },
         }),
         {
             name: "collectflow-grid-storage",
-            // Only persist filters, display density, drafts, and active grid query
+            // Only persist filters, display density, drafts, active grid query, and column visibility
             partialize: (state) => ({
                 filters: state.filters,
                 displayDensity: state.displayDensity,
                 draftChanges: state.draftChanges,
                 activeGridQuery: state.activeGridQuery,
+                columnVisibility: state.columnVisibility,
             }),
         }
     )
