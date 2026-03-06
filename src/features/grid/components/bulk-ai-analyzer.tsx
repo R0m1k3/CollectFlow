@@ -150,6 +150,9 @@ export function BulkAiAnalyzer() {
         const scoringResults = new Map<string, ReturnType<typeof ScoringEngine.analyzeRayon>>();
         const productPayloads: (ProductAnalysisInput & { scoring: any })[] = [];
 
+        // Pre-compute context thresholds to prevent O(N^2) and O(N^2 log N) performance freezes
+        const contextCache = ContextProfiler.prepareCache(initialPayloads);
+
         for (let i = 0; i < initialPayloads.length; i += SCORING_BATCH_SIZE) {
             if (isCancelledRef.current) break;
 
@@ -161,7 +164,7 @@ export function BulkAiAnalyzer() {
 
                 let contextProfile: ProductAnalysisInput["contextProfile"];
                 try {
-                    contextProfile = ContextProfiler.buildProfile(p, initialPayloads, scoringRes);
+                    contextProfile = ContextProfiler.buildProfile(p, initialPayloads, scoringRes, contextCache);
                 } catch (err) {
                     console.warn(`[BulkAnalyzer] ContextProfiler failed for ${p.codein}:`, err);
                     contextProfile = undefined;
