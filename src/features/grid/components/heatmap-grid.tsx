@@ -120,12 +120,14 @@ interface VirtualRowProps {
     rowHeight: number;
     isSelected: boolean;
     columnVisibility: Record<string, boolean>;
+    columnSizing: Record<string, number>;
 }
 
-const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnVisibility }: VirtualRowProps) => {
+const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnVisibility, columnSizing }: VirtualRowProps) => {
     // Uniquement la ligne concernée écoute son propre changement pour l'effet visuel
     const effectiveGamme = useGridStore((s) => s.draftChanges[row.original.codein] ?? row.original.codeGamme);
     void columnVisibility; // Force re-render via React.memo when visibility changes
+    void columnSizing; // Force re-render via React.memo when resizing columns
 
     return (
         <tr
@@ -179,7 +181,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     const { rows, filters, displayDensity } = useGridStore();
     const [sorting, setSorting] = useState<SortingState>([]);
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-    const { columnVisibility, setColumnVisibility } = useGridStore();
+    const { columnVisibility, setColumnVisibility, columnSizing, setColumnSizing } = useGridStore();
     const [isMounted, setIsMounted] = useState(false);
     const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
     const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -452,10 +454,12 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     const table = useReactTable({
         data: rows,
         columns,
-        state: { sorting, globalFilter: filters.search, rowSelection, columnVisibility },
+        state: { sorting, globalFilter: filters.search, rowSelection, columnVisibility, columnSizing },
         onSortingChange: setSorting,
         onRowSelectionChange: handleRowSelectionChange,
         onColumnVisibilityChange: setColumnVisibility,
+        onColumnSizingChange: setColumnSizing,
+        columnResizeMode: "onChange",
         getCoreRowModel: getCoreRowModel(),
         getSortedRowModel: getSortedRowModel(),
         getFilteredRowModel: getFilteredRowModel(),
@@ -560,7 +564,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                                     return (
                                         <th
                                             key={header.id}
-                                            className="px-2 py-3 text-[10px] font-black uppercase tracking-[0.05em] whitespace-nowrap select-none flex items-center transition-colors hover:bg-white/5"
+                                            className="px-2 py-3 text-[10px] font-black uppercase tracking-[0.05em] whitespace-nowrap select-none flex items-center transition-colors hover:bg-white/5 relative group/header"
                                             style={{
                                                 width: isFlexible ? "100%" : size,
                                                 flex: isFlexible ? `1 1 ${size}px` : `0 0 ${size}px`,
@@ -582,6 +586,15 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                                                     </div>
                                                 )}
                                             </div>
+                                            {/* Handle de redimensionnement de la colonne */}
+                                            {header.column.getCanResize() && (
+                                                <div
+                                                    onMouseDown={header.getResizeHandler()}
+                                                    onTouchStart={header.getResizeHandler()}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    className={`absolute right-0 top-0 h-full w-1.5 cursor-col-resize user-select-none touch-none hover:bg-emerald-500/50 ${header.column.getIsResizing() ? "bg-emerald-500" : ""}`}
+                                                />
+                                            )}
                                         </th>
                                     );
                                 })}
@@ -601,6 +614,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                                         rowHeight={rowHeight}
                                         isSelected={isSelected}
                                         columnVisibility={columnVisibility}
+                                        columnSizing={columnSizing}
                                     />
                                 </div>
                             );
