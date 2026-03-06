@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useRef, useState, useCallback, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
     useReactTable,
     getCoreRowModel,
@@ -178,6 +179,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
     const [columnVisibility, setColumnVisibility] = useState({});
     const [isMounted, setIsMounted] = useState(false);
+    const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
     const tableContainerRef = useRef<HTMLDivElement>(null);
 
     // Calculer les mois dynamiquement pour éviter le mismatch entre serveur et client
@@ -185,6 +187,8 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
 
     useEffect(() => {
         setIsMounted(true);
+        const container = document.getElementById('grid-toolbar-actions');
+        setPortalContainer(container);
     }, []);
 
     const rowHeight = displayDensity === "compact" ? 32 : displayDensity === "normal" ? 40 : 48;
@@ -473,7 +477,8 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
         overscan: 20,
     });
 
-    const totalWidth = columns.reduce((s, c) => s + ((c as { size?: number }).size ?? 150), 0);
+    const visibleColumns = table.getVisibleLeafColumns();
+    const totalWidth = visibleColumns.reduce((s, c) => s + ((c.columnDef as { size?: number }).size ?? 150), 0);
 
     if (!isMounted) {
         return (
@@ -490,8 +495,8 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     }
 
     return (
-        <div className="flex flex-col h-full w-full gap-3 relative">
-            <div className="flex justify-end items-center w-full px-1">
+        <div className="h-full w-full relative">
+            {portalContainer && createPortal(
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <button
@@ -524,12 +529,13 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                                 );
                             })}
                     </DropdownMenuContent>
-                </DropdownMenu>
-            </div>
+                </DropdownMenu>,
+                portalContainer
+            )}
 
             <div
                 ref={tableContainerRef}
-                className="flex-1 min-h-0 w-full overflow-auto rounded-[12px] scroll-smooth relative"
+                className="h-full w-full overflow-auto rounded-[12px] scroll-smooth relative"
                 style={{
                     background: "var(--bg-surface)",
                     border: "1px solid var(--border)",

@@ -91,6 +91,7 @@ export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins
                     </p>
                 </div>
                 <div className="flex items-center gap-3">
+                    <div id="grid-toolbar-actions"></div>
                     <ExportDropdown nomFournisseur={nomFournisseur} />
                     {hasDrafts && (
                         <button
