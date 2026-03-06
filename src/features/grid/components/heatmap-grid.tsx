@@ -493,7 +493,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                                         className="capitalize text-xs cursor-pointer"
                                         checked={column.getIsVisible()}
                                         onCheckedChange={(value) => column.toggleVisibility(!!value)}
-                                        onSelect={(e: React.SyntheticEvent) => e.preventDefault()}
+                                        onSelect={(e: Event) => e.preventDefault()}
                                     >
                                         {typeof column.columnDef.header === 'string'
                                             ? column.columnDef.header
