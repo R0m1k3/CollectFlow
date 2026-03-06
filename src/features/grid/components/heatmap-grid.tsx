@@ -12,7 +12,13 @@ import {
     RowSelectionState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal } from "lucide-react";
+import {
+    DropdownMenu,
+    DropdownMenuCheckboxItem,
+    DropdownMenuContent,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { GammeSelect } from "@/features/grid/components/gamme-select";
 import { HeatmapCell } from "@/features/grid/components/heatmap-cell";
@@ -170,6 +176,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     const { rows, filters, displayDensity } = useGridStore();
     const [sorting, setSorting] = useState<SortingState>([]);
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+    const [columnVisibility, setColumnVisibility] = useState({});
     const [isMounted, setIsMounted] = useState(false);
     const tableContainerRef = useRef<HTMLDivElement>(null);
 
@@ -413,9 +420,10 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     const table = useReactTable({
         data: rows,
         columns,
-        state: { sorting, globalFilter: filters.search, rowSelection },
+        state: { sorting, globalFilter: filters.search, rowSelection, columnVisibility },
         onSortingChange: setSorting,
         onRowSelectionChange: handleRowSelectionChange,
+        onColumnVisibilityChange: setColumnVisibility,
         getCoreRowModel: getCoreRowModel(),
         getSortedRowModel: getSortedRowModel(),
         getFilteredRowModel: getFilteredRowModel(),
@@ -456,13 +464,49 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     return (
         <div
             ref={tableContainerRef}
-            className="h-full w-full overflow-auto rounded-[12px] scroll-smooth"
+            className="h-full w-full overflow-auto rounded-[12px] scroll-smooth relative"
             style={{
                 background: "var(--bg-surface)",
                 border: "1px solid var(--border)",
                 boxShadow: "var(--shadow-sm)"
             }}
         >
+            <div className="absolute top-2 right-4 z-50">
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <button
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--bg-elevated)] border border-[var(--border-strong)] hover:border-emerald-500 hover:text-emerald-500 transition-colors shadow-sm"
+                            aria-label="Afficher/masquer les colonnes"
+                        >
+                            <SlidersHorizontal className="w-3.5 h-3.5" />
+                            Colonnes
+                        </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-[200px] max-h-[400px] overflow-y-auto z-50">
+                        {table
+                            .getAllLeafColumns()
+                            .filter((column: any) => column.getCanHide())
+                            .map((column: any) => {
+                                return (
+                                    <DropdownMenuCheckboxItem
+                                        key={column.id}
+                                        className="capitalize text-xs cursor-pointer"
+                                        checked={column.getIsVisible()}
+                                        onCheckedChange={(value) => column.toggleVisibility(!!value)}
+                                        onSelect={(e: React.SyntheticEvent) => e.preventDefault()}
+                                    >
+                                        {typeof column.columnDef.header === 'string'
+                                            ? column.columnDef.header
+                                            : column.id.startsWith('month_')
+                                                ? formatMonthLabel(column.id.replace('month_', ''))
+                                                : column.id}
+                                    </DropdownMenuCheckboxItem>
+                                );
+                            })}
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </div>
+
             <table className="text-sm block" style={{ width: "100%", minWidth: totalWidth }}>
                 <thead className="sticky top-0 z-10 block" style={{
                     background: "linear-gradient(to bottom, var(--bg-elevated), var(--bg-surface))",
