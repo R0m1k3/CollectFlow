@@ -119,11 +119,13 @@ interface VirtualRowProps {
     row: Row<ProductRow>;
     rowHeight: number;
     isSelected: boolean;
+    columnVisibility: Record<string, boolean>;
 }
 
-const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected }: VirtualRowProps) => {
+const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnVisibility }: VirtualRowProps) => {
     // Uniquement la ligne concernée écoute son propre changement pour l'effet visuel
     const effectiveGamme = useGridStore((s) => s.draftChanges[row.original.codein] ?? row.original.codeGamme);
+    void columnVisibility; // Force re-render via React.memo when visibility changes
 
     return (
         <tr
@@ -598,6 +600,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                                         row={row}
                                         rowHeight={rowHeight}
                                         isSelected={isSelected}
+                                        columnVisibility={columnVisibility}
                                     />
                                 </div>
                             );
