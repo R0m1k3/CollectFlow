@@ -17,12 +17,16 @@ interface BulkActionToolbarProps {
 }
 
 export function BulkActionToolbar({ selectedCodeins, onClearSelection }: BulkActionToolbarProps) {
-    const { setDraftGamme } = useGridStore();
+    const { batchSetDraftGamme } = useGridStore();
 
     if (selectedCodeins.length === 0) return null;
 
     const applyBulk = (code: GammeCode) => {
-        selectedCodeins.forEach((codein) => setDraftGamme(codein, code));
+        const changes = selectedCodeins.reduce((acc, codein) => {
+            acc[codein] = code;
+            return acc;
+        }, {} as Record<string, GammeCode>);
+        batchSetDraftGamme(changes);
         onClearSelection();
     };
 
