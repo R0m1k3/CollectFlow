@@ -248,7 +248,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
         },
         {
             accessorKey: "codein",
-            header: "Code",
+            header: "Code interne",
             size: 90,
             cell: ({ getValue }) => {
                 const value = getValue<string>();
@@ -266,7 +266,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                     <div
                         onClick={handleCopy}
                         className="group flex items-center gap-1.5 cursor-pointer hover:text-emerald-500 transition-colors"
-                        title="Copier le code"
+                        title="Copier le code interne"
                     >
                         <span className="tabular-nums font-bold text-[12px] tracking-tight opacity-70 group-hover:opacity-100" style={{ color: "var(--text-muted)" }}>
                             {value}
@@ -279,6 +279,32 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                             )}
                         </div>
                     </div>
+                );
+            },
+        },
+        {
+            accessorKey: "reference",
+            header: "Référence",
+            size: 110,
+            cell: ({ getValue }) => {
+                const val = getValue<string>();
+                return (
+                    <span className="text-[12px] font-mono opacity-80" style={{ color: "var(--text-secondary)" }}>
+                        {val || "-"}
+                    </span>
+                );
+            },
+        },
+        {
+            accessorKey: "gtin",
+            header: "EAN / GTIN",
+            size: 120,
+            cell: ({ getValue }) => {
+                const val = getValue<string>();
+                return (
+                    <span className="text-[12px] font-mono tracking-tight opacity-70" style={{ color: "var(--text-secondary)" }}>
+                        {val || "-"}
+                    </span>
                 );
             },
         },
@@ -432,7 +458,9 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
             const search = String(filterValue).toLowerCase();
             const libelle = String(row.original.libelle1 || "").toLowerCase();
             const code = String(row.original.codein || "").toLowerCase();
-            return libelle.includes(search) || code.includes(search);
+            const reference = String(row.original.reference || "").toLowerCase();
+            const gtin = String(row.original.gtin || "").toLowerCase();
+            return libelle.includes(search) || code.includes(search) || reference.includes(search) || gtin.includes(search);
         },
     });
 
