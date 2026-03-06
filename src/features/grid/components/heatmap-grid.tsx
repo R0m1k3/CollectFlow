@@ -490,27 +490,19 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     }
 
     return (
-        <div
-            ref={tableContainerRef}
-            className="h-full w-full overflow-auto rounded-[12px] scroll-smooth relative"
-            style={{
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border)",
-                boxShadow: "var(--shadow-sm)"
-            }}
-        >
-            <div className="absolute top-2 right-4 z-50">
+        <div className="flex flex-col h-full w-full gap-3 relative">
+            <div className="flex justify-end items-center w-full px-1">
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <button
-                            className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold bg-[var(--bg-elevated)] border border-[var(--border-strong)] hover:border-emerald-500 hover:text-emerald-500 transition-colors shadow-sm"
+                            className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-semibold bg-[var(--action-secondary-bg)] text-[var(--action-secondary-text)] border border-[var(--border-strong)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-all shadow-sm apple-btn-secondary"
                             aria-label="Afficher/masquer les colonnes"
                         >
-                            <SlidersHorizontal className="w-3.5 h-3.5" />
+                            <SlidersHorizontal className="w-4 h-4" />
                             Colonnes
                         </button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-[200px] max-h-[400px] overflow-y-auto z-50">
+                    <DropdownMenuContent align="end" className="w-[220px] max-h-[50vh] overflow-y-auto z-50">
                         {table
                             .getAllLeafColumns()
                             .filter((column: any) => column.getCanHide())
@@ -518,7 +510,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                                 return (
                                     <DropdownMenuCheckboxItem
                                         key={column.id}
-                                        className="capitalize text-xs cursor-pointer"
+                                        className="capitalize text-xs cursor-pointer font-medium"
                                         checked={column.getIsVisible()}
                                         onCheckedChange={(value) => column.toggleVisibility(!!value)}
                                         onSelect={(e: Event) => e.preventDefault()}
@@ -535,68 +527,78 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                 </DropdownMenu>
             </div>
 
-            <table className="text-sm block" style={{ width: "100%", minWidth: totalWidth }}>
-                <thead className="sticky top-0 z-10 block" style={{
-                    background: "linear-gradient(to bottom, var(--bg-elevated), var(--bg-surface))",
-                    borderBottom: "1px solid var(--border-strong)",
-                    backdropFilter: "blur(10px)",
-                    WebkitBackdropFilter: "blur(10px)"
-                }}>
-                    {table.getHeaderGroups().map((headerGroup) => (
-                        <tr key={headerGroup.id} className="flex w-full">
-                            {headerGroup.headers.map((header) => {
-                                const isFlexible = header.column.id === "libelle1" || header.column.id === "ai" || header.column.id === "libelle3";
-                                const isCenter = header.column.id === "totalQuantite" || header.column.id === "totalCa" || header.column.id === "totalMarge" || header.column.id.startsWith("month_") || header.column.id === "gammeInitial" || header.column.id === "score" || header.column.id === "gamme";
-                                const size = header.getSize();
-                                return (
-                                    <th
-                                        key={header.id}
-                                        className="px-2 py-3 text-[10px] font-black uppercase tracking-[0.05em] whitespace-nowrap select-none flex items-center transition-colors hover:bg-white/5"
-                                        style={{
-                                            width: isFlexible ? "100%" : size,
-                                            flex: isFlexible ? `1 1 ${size}px` : `0 0 ${size}px`,
-                                            minWidth: size,
-                                            maxWidth: isFlexible ? "none" : size,
-                                            color: "var(--text-muted)",
-                                            justifyContent: isCenter ? "center" : "flex-start"
-                                        }}
-                                        onClick={header.column.getToggleSortingHandler()}
-                                    >
-                                        <div className={`flex items-center gap-1.5 cursor-pointer ${isCenter ? "justify-center w-full" : ""}`}>
-                                            {flexRender(header.column.columnDef.header, header.getContext())}
-                                            {header.column.getCanSort() && (
-                                                <div className="shrink-0 opacity-40">
-                                                    {header.column.getIsSorted() === "asc" ? <ChevronUp className="w-3 h-3 text-emerald-500" />
-                                                        : header.column.getIsSorted() === "desc" ? <ChevronDown className="w-3 h-3 text-emerald-500" />
-                                                            : <ChevronsUpDown className="w-3 h-3" />
-                                                    }
-                                                </div>
-                                            )}
-                                        </div>
-                                    </th>
-                                );
-                            })}
-                        </tr>
-                    ))}
-                </thead>
-                <tbody key={displayDensity} style={{ height: rowVirtualizer.getTotalSize(), position: "relative", display: "block" }}>
-                    {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                        const row = tableRows[virtualRow.index];
-                        const isSelected = row.getIsSelected();
+            <div
+                ref={tableContainerRef}
+                className="flex-1 min-h-0 w-full overflow-auto rounded-[12px] scroll-smooth relative"
+                style={{
+                    background: "var(--bg-surface)",
+                    border: "1px solid var(--border)",
+                    boxShadow: "var(--shadow-sm)"
+                }}
+            >
+                <table className="text-sm block" style={{ width: "100%", minWidth: totalWidth }}>
+                    <thead className="sticky top-0 z-10 block" style={{
+                        background: "linear-gradient(to bottom, var(--bg-elevated), var(--bg-surface))",
+                        borderBottom: "1px solid var(--border-strong)",
+                        backdropFilter: "blur(10px)",
+                        WebkitBackdropFilter: "blur(10px)"
+                    }}>
+                        {table.getHeaderGroups().map((headerGroup) => (
+                            <tr key={headerGroup.id} className="flex w-full">
+                                {headerGroup.headers.map((header) => {
+                                    const isFlexible = header.column.id === "libelle1" || header.column.id === "ai" || header.column.id === "libelle3";
+                                    const isCenter = header.column.id === "totalQuantite" || header.column.id === "totalCa" || header.column.id === "totalMarge" || header.column.id.startsWith("month_") || header.column.id === "gammeInitial" || header.column.id === "score" || header.column.id === "gamme";
+                                    const size = header.getSize();
+                                    return (
+                                        <th
+                                            key={header.id}
+                                            className="px-2 py-3 text-[10px] font-black uppercase tracking-[0.05em] whitespace-nowrap select-none flex items-center transition-colors hover:bg-white/5"
+                                            style={{
+                                                width: isFlexible ? "100%" : size,
+                                                flex: isFlexible ? `1 1 ${size}px` : `0 0 ${size}px`,
+                                                minWidth: size,
+                                                maxWidth: isFlexible ? "none" : size,
+                                                color: "var(--text-muted)",
+                                                justifyContent: isCenter ? "center" : "flex-start"
+                                            }}
+                                            onClick={header.column.getToggleSortingHandler()}
+                                        >
+                                            <div className={`flex items-center gap-1.5 cursor-pointer ${isCenter ? "justify-center w-full" : ""}`}>
+                                                {flexRender(header.column.columnDef.header, header.getContext())}
+                                                {header.column.getCanSort() && (
+                                                    <div className="shrink-0 opacity-40">
+                                                        {header.column.getIsSorted() === "asc" ? <ChevronUp className="w-3 h-3 text-emerald-500" />
+                                                            : header.column.getIsSorted() === "desc" ? <ChevronDown className="w-3 h-3 text-emerald-500" />
+                                                                : <ChevronsUpDown className="w-3 h-3" />
+                                                        }
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </th>
+                                    );
+                                })}
+                            </tr>
+                        ))}
+                    </thead>
+                    <tbody key={displayDensity} style={{ height: rowVirtualizer.getTotalSize(), position: "relative", display: "block" }}>
+                        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                            const row = tableRows[virtualRow.index];
+                            const isSelected = row.getIsSelected();
 
-                        return (
-                            <div key={row.id} ref={rowVirtualizer.measureElement} style={{ position: 'absolute', top: 0, left: 0, width: '100%' }}>
-                                <GridRow
-                                    virtualRow={virtualRow}
-                                    row={row}
-                                    rowHeight={rowHeight}
-                                    isSelected={isSelected}
-                                />
-                            </div>
-                        );
-                    })}
-                </tbody>
-            </table>
+                            return (
+                                <div key={row.id} ref={rowVirtualizer.measureElement} style={{ position: 'absolute', top: 0, left: 0, width: '100%' }}>
+                                    <GridRow
+                                        virtualRow={virtualRow}
+                                        row={row}
+                                        rowHeight={rowHeight}
+                                        isSelected={isSelected}
+                                    />
+                                </div>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
         </div>
     );
 }
