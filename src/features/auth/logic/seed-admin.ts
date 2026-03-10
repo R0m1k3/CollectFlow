@@ -10,8 +10,12 @@ import { count, eq, sql } from "drizzle-orm";
  */
 export async function ensureAdminExists() {
     try {
+        console.log("[AUTH] Testing database connection...");
+        await db.execute(sql`SELECT 1`);
+        console.log("[AUTH] Database connection OK.");
+
         // 1. Auto-repair: Ensure table exists (Fallback if db-init failed)
-        // Note: Using raw SQL to avoid Drizzle mapping issues during initialization
+        console.log("[AUTH] Checking/Creating users table...");
         await db.execute(sql`
             CREATE TABLE IF NOT EXISTS "users" (
                 id SERIAL PRIMARY KEY,
@@ -22,6 +26,7 @@ export async function ensureAdminExists() {
             );
         `);
         console.log("[AUTH] users table verified/created.");
+
         const adminUser = await db.select()
             .from(users)
             .where(eq(users.username, "admin"))
@@ -40,7 +45,12 @@ export async function ensureAdminExists() {
             console.log("[AUTH] Admin user already exists.");
         }
     } catch (err: any) {
-        console.error("[AUTH] CRITICAL Error during ensureAdminExists:", err.message || err);
+        console.error("[AUTH] !!! CRITICAL DATABASE ERROR !!!");
+        console.error("- Message:", err.message);
+        console.error("- PG Code:", err.code);
+        console.error("- Detail:", err.detail);
+        console.error("- Hint:", err.hint);
+        if (err.internalQuery) console.error("- Query:", err.internalQuery);
     }
     return false;
 }
