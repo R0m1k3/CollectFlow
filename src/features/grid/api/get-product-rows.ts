@@ -18,6 +18,14 @@ interface GetProductRowsInput {
 
 export async function getProductRows(input: GetProductRowsInput): Promise<ProductRow[]> {
     const { codeFournisseur, magasin = "TOTAL", filters } = input;
+    
+    // FILE LOGGING (portainer might be filtering console.log)
+    try {
+        const logPath = "/app/data/debug_check.txt";
+        const entry = `\n[${new Date().toISOString()}] getProductRows called for ${codeFournisseur}\n`;
+        fs.appendFileSync(logPath, entry);
+    } catch (e) {}
+
     console.log(`\n>>> [getProductRows] RECEIVED CALL for supplier: ${codeFournisseur}, magasin: ${magasin}`);
     console.log(`>>> [getProductRows] filters:`, JSON.stringify(filters));
     
@@ -76,19 +84,23 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
         const productMap = new Map<string, ProductRow>();
 
         // EXTRA VERBOSE DIAGNOSTIC
-        console.log(`\n--- [getProductRows] ULTRA-DIAGNOSTIC for Supplier ${codeFournisseur} ---`);
-        
         const countAll = await db.execute(sql`SELECT COUNT(*) FROM ventes_produits WHERE code_fournisseur = ${codeFournisseur}`);
         const countDistinctTotal = await db.execute(sql`SELECT COUNT(DISTINCT codein) FROM ventes_produits WHERE code_fournisseur = ${codeFournisseur}`);
         const countNoTotal = await db.execute(sql`SELECT COUNT(DISTINCT codein) FROM ventes_produits WHERE code_fournisseur = ${codeFournisseur} AND magasin != 'TOTAL' AND periode != 'TOTAL'`);
         
-        console.log(`- Gross total rows in DB: ${countAll.rows[0].count}`);
-        console.log(`- Total distinct products (any store/period): ${countDistinctTotal.rows[0].count}`);
-        console.log(`- Distinct products excluding TOTAL store/period: ${countNoTotal.rows[0].count}`);
-        console.log(`- Current Filters rows retrieved: ${rows.length}`);
-        
-        const distinctInFetched = new Set(rows.map(r => r.codein)).size;
-        console.log(`- Distinct products in currently fetched rows: ${distinctInFetched}`);
+        const diagOutput = `
+--- [getProductRows] ULTRA-DIAGNOSTIC for Supplier ${codeFournisseur} ---
+- Gross total rows in DB: ${countAll.rows[0].count}
+- Total distinct products (any store/period): ${countDistinctTotal.rows[0].count}
+- Distinct products excluding TOTAL store/period: ${countNoTotal.rows[0].count}
+- Current Filters rows retrieved: ${rows.length}
+- Distinct products in currently fetched rows: ${new Set(rows.map(r => r.codein)).size}
+`;
+        try {
+            fs.appendFileSync("/app/data/debug_check.txt", diagOutput);
+        } catch (e) {}
+
+        console.log(diagOutput);
 
         const storeParticipationMap = new Map<string, Map<string, Set<string>>>(); // codein -> magasin -> Set of periods
 
