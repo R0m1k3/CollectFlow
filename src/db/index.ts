@@ -34,10 +34,10 @@ export function getDb() {
         console.error("[DB] Error reading config file:", err);
     }
 
-    // IMPORTANT: Environment variable MUST take precedence in container environments
-    if (process.env.DATABASE_URL) {
+    // Use environment variable as fallback if no config is found
+    if (!connectionString && process.env.DATABASE_URL) {
         connectionString = process.env.DATABASE_URL;
-        console.log("[DB] Using environment variable (優先度高).");
+        console.log("[DB] Using environment variable as fallback.");
     }
 
     console.log("[DB] Initializing connection with:", maskUrl(connectionString));

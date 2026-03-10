@@ -21,10 +21,10 @@ async function main() {
         console.error("[DB Init] Error reading .db-config.json", e);
     }
 
-    // Force environment variable if present (for Docker/DevOps consistency)
-    if (process.env.DATABASE_URL) {
+    // Use environment variable as default IF NOT already loaded from config
+    if (!connectionString && process.env.DATABASE_URL) {
         connectionString = process.env.DATABASE_URL;
-        console.log("[DB Init] Using environment variable DATABASE_URL (Priority).");
+        console.log("[DB Init] Using environment variable DATABASE_URL as fallback.");
     }
 
     if (!connectionString) {
