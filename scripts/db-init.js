@@ -6,7 +6,7 @@ const cwd = path.resolve(__dirname, '..'); // get app root when inside /scripts
 
 async function main() {
     console.log("[DB Init] Starting database migration & initialization...");
-    let connectionString = process.env.DATABASE_URL;
+    let connectionString = "";
 
     try {
         const CONFIG_PATH = path.join(cwd, "data", ".db-config.json");
@@ -19,6 +19,12 @@ async function main() {
         }
     } catch (e) {
         console.error("[DB Init] Error reading .db-config.json", e);
+    }
+
+    // Force environment variable if present (for Docker/DevOps consistency)
+    if (process.env.DATABASE_URL) {
+        connectionString = process.env.DATABASE_URL;
+        console.log("[DB Init] Using environment variable DATABASE_URL (Priority).");
     }
 
     if (!connectionString) {

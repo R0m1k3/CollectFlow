@@ -18,10 +18,7 @@ function maskUrl(url: string | undefined) {
 export function getDb() {
     if (currentDb) return currentDb;
 
-    let connectionString = process.env.DATABASE_URL;
-
-    console.log("[DB] Initializing connection...");
-    console.log("[DB] Env DATABASE_URL:", maskUrl(process.env.DATABASE_URL));
+    let connectionString = "";
 
     try {
         const CONFIG_PATH = path.join(process.cwd(), "data", ".db-config.json");
@@ -30,14 +27,20 @@ export function getDb() {
             const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
             if (config.url) {
                 connectionString = config.url;
-                console.log("[DB] Using saved database URL:", maskUrl(connectionString));
+                console.log("[DB] Loaded saved database URL from config.");
             }
-        } else {
-            console.log("[DB] No saved config file found. Using environment variable.");
         }
     } catch (err) {
         console.error("[DB] Error reading config file:", err);
     }
+
+    // IMPORTANT: Environment variable MUST take precedence in container environments
+    if (process.env.DATABASE_URL) {
+        connectionString = process.env.DATABASE_URL;
+        console.log("[DB] Using environment variable (優先度高).");
+    }
+
+    console.log("[DB] Initializing connection with:", maskUrl(connectionString));
 
     if (!connectionString) {
         console.error("[DB] CRITICAL: No database connection string available!");
