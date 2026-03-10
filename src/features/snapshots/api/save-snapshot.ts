@@ -5,6 +5,7 @@ import { sessionSnapshots } from "@/db/schema";
 import { z } from "zod";
 import { sql, and, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
+import { revalidatePath } from "next/cache";
 
 const SaveSnapshotSchema = z.object({
     codeFournisseur: z.string(),
@@ -33,13 +34,18 @@ export async function saveSnapshot(raw: unknown) {
 
     const { codeFournisseur, nomFournisseur, magasin, label, changes, summary, type } = parsed.data;
     const session = await auth();
-    const userId = session?.user ? Number((session.user as any).id) : null;
+    const rawUserId = (session?.user as any)?.id;
+    const userId = rawUserId ? parseInt(String(rawUserId), 10) : null;
+
+    console.log(`[saveSnapshot] User: ${userId} (raw: ${rawUserId}), Supplier: ${codeFournisseur}, Type: ${type}`);
+
+    const finalUserId = (userId && !isNaN(userId)) ? userId : null;
 
     try {
         const [created] = await db
             .insert(sessionSnapshots)
             .values({
-                userId,
+                userId: finalUserId,
                 codeFournisseur,
                 nomFournisseur: nomFournisseur ?? null,
                 magasin,
@@ -49,7 +55,9 @@ export async function saveSnapshot(raw: unknown) {
                 type: type ?? "snapshot",
             })
             .returning({ id: sessionSnapshots.id });
-
+        
+        revalidatePath("/snapshots");
+        revalidatePath("/exports");
         return { success: true, snapshotId: created?.id };
     } catch (err: any) {
         console.error("Initial snapshot save failed, attempting auto-repair...", err);
@@ -83,7 +91,7 @@ export async function saveSnapshot(raw: unknown) {
             const [retryCreated] = await db
                 .insert(sessionSnapshots)
                 .values({
-                    userId,
+                    userId: finalUserId,
                     codeFournisseur,
                     nomFournisseur: nomFournisseur ?? null,
                     magasin,
