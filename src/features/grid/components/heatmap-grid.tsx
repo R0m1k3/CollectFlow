@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useRef, useState, useCallback, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
     useReactTable,
     getCoreRowModel,
@@ -12,7 +13,13 @@ import {
     RowSelectionState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal } from "lucide-react";
+import {
+    DropdownMenu,
+    DropdownMenuCheckboxItem,
+    DropdownMenuContent,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { GammeSelect } from "@/features/grid/components/gamme-select";
 import { HeatmapCell } from "@/features/grid/components/heatmap-cell";
@@ -112,11 +119,15 @@ interface VirtualRowProps {
     row: Row<ProductRow>;
     rowHeight: number;
     isSelected: boolean;
+    columnVisibility: Record<string, boolean>;
+    columnSizing: Record<string, number>;
 }
 
-const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected }: VirtualRowProps) => {
+const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnVisibility, columnSizing }: VirtualRowProps) => {
     // Uniquement la ligne concernée écoute son propre changement pour l'effet visuel
     const effectiveGamme = useGridStore((s) => s.draftChanges[row.original.codein] ?? row.original.codeGamme);
+    void columnVisibility; // Force re-render via React.memo when visibility changes
+    void columnSizing; // Force re-render via React.memo when resizing columns
 
     return (
         <tr
@@ -170,7 +181,9 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     const { rows, filters, displayDensity } = useGridStore();
     const [sorting, setSorting] = useState<SortingState>([]);
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+    const { columnVisibility, setColumnVisibility, columnSizing, setColumnSizing } = useGridStore();
     const [isMounted, setIsMounted] = useState(false);
+    const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
     const tableContainerRef = useRef<HTMLDivElement>(null);
 
     // Calculer les mois dynamiquement pour éviter le mismatch entre serveur et client
@@ -178,6 +191,8 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
 
     useEffect(() => {
         setIsMounted(true);
+        const container = document.getElementById('grid-toolbar-actions');
+        setPortalContainer(container);
     }, []);
 
     const rowHeight = displayDensity === "compact" ? 32 : displayDensity === "normal" ? 40 : 48;
@@ -241,7 +256,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
         },
         {
             accessorKey: "codein",
-            header: "Code",
+            header: "Code interne",
             size: 90,
             cell: ({ getValue }) => {
                 const value = getValue<string>();
@@ -259,7 +274,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                     <div
                         onClick={handleCopy}
                         className="group flex items-center gap-1.5 cursor-pointer hover:text-emerald-500 transition-colors"
-                        title="Copier le code"
+                        title="Copier le code interne"
                     >
                         <span className="tabular-nums font-bold text-[12px] tracking-tight opacity-70 group-hover:opacity-100" style={{ color: "var(--text-muted)" }}>
                             {value}
@@ -272,6 +287,32 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                             )}
                         </div>
                     </div>
+                );
+            },
+        },
+        {
+            accessorKey: "reference",
+            header: "Référence",
+            size: 110,
+            cell: ({ getValue }) => {
+                const val = getValue<string>();
+                return (
+                    <span className="text-[12px] font-mono opacity-80" style={{ color: "var(--text-secondary)" }}>
+                        {val || "-"}
+                    </span>
+                );
+            },
+        },
+        {
+            accessorKey: "gtin",
+            header: "EAN / GTIN",
+            size: 120,
+            cell: ({ getValue }) => {
+                const val = getValue<string>();
+                return (
+                    <span className="text-[12px] font-mono tracking-tight opacity-70" style={{ color: "var(--text-secondary)" }}>
+                        {val || "-"}
+                    </span>
                 );
             },
         },
@@ -413,9 +454,12 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     const table = useReactTable({
         data: rows,
         columns,
-        state: { sorting, globalFilter: filters.search, rowSelection },
+        state: { sorting, globalFilter: filters.search, rowSelection, columnVisibility, columnSizing },
         onSortingChange: setSorting,
         onRowSelectionChange: handleRowSelectionChange,
+        onColumnVisibilityChange: setColumnVisibility,
+        onColumnSizingChange: setColumnSizing,
+        columnResizeMode: "onChange",
         getCoreRowModel: getCoreRowModel(),
         getSortedRowModel: getSortedRowModel(),
         getFilteredRowModel: getFilteredRowModel(),
@@ -424,7 +468,9 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
             const search = String(filterValue).toLowerCase();
             const libelle = String(row.original.libelle1 || "").toLowerCase();
             const code = String(row.original.codein || "").toLowerCase();
-            return libelle.includes(search) || code.includes(search);
+            const reference = String(row.original.reference || "").toLowerCase();
+            const gtin = String(row.original.gtin || "").toLowerCase();
+            return libelle.includes(search) || code.includes(search) || reference.includes(search) || gtin.includes(search);
         },
     });
 
@@ -437,7 +483,8 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
         overscan: 20,
     });
 
-    const totalWidth = columns.reduce((s, c) => s + ((c as { size?: number }).size ?? 150), 0);
+    const visibleColumns = table.getVisibleLeafColumns();
+    const totalWidth = visibleColumns.reduce((s, c) => s + ((c.columnDef as { size?: number }).size ?? 150), 0);
 
     if (!isMounted) {
         return (
@@ -454,77 +501,127 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     }
 
     return (
-        <div
-            ref={tableContainerRef}
-            className="h-full w-full overflow-auto rounded-[12px] scroll-smooth"
-            style={{
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border)",
-                boxShadow: "var(--shadow-sm)"
-            }}
-        >
-            <table className="text-sm block" style={{ width: "100%", minWidth: totalWidth }}>
-                <thead className="sticky top-0 z-10 block" style={{
-                    background: "linear-gradient(to bottom, var(--bg-elevated), var(--bg-surface))",
-                    borderBottom: "1px solid var(--border-strong)",
-                    backdropFilter: "blur(10px)",
-                    WebkitBackdropFilter: "blur(10px)"
-                }}>
-                    {table.getHeaderGroups().map((headerGroup) => (
-                        <tr key={headerGroup.id} className="flex w-full">
-                            {headerGroup.headers.map((header) => {
-                                const isFlexible = header.column.id === "libelle1" || header.column.id === "ai" || header.column.id === "libelle3";
-                                const isCenter = header.column.id === "totalQuantite" || header.column.id === "totalCa" || header.column.id === "totalMarge" || header.column.id.startsWith("month_") || header.column.id === "gammeInitial" || header.column.id === "score" || header.column.id === "gamme";
-                                const size = header.getSize();
+        <div className="h-full w-full relative">
+            {portalContainer && createPortal(
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <button
+                            className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-semibold bg-[var(--action-secondary-bg)] text-[var(--action-secondary-text)] border border-[var(--border-strong)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-all shadow-sm apple-btn-secondary"
+                            aria-label="Afficher/masquer les colonnes"
+                        >
+                            <SlidersHorizontal className="w-4 h-4" />
+                            Colonnes
+                        </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-[220px] max-h-[50vh] overflow-y-auto z-50">
+                        {table
+                            .getAllLeafColumns()
+                            .filter((column: any) => column.getCanHide())
+                            .map((column: any) => {
                                 return (
-                                    <th
-                                        key={header.id}
-                                        className="px-2 py-3 text-[10px] font-black uppercase tracking-[0.05em] whitespace-nowrap select-none flex items-center transition-colors hover:bg-white/5"
-                                        style={{
-                                            width: isFlexible ? "100%" : size,
-                                            flex: isFlexible ? `1 1 ${size}px` : `0 0 ${size}px`,
-                                            minWidth: size,
-                                            maxWidth: isFlexible ? "none" : size,
-                                            color: "var(--text-muted)",
-                                            justifyContent: isCenter ? "center" : "flex-start"
-                                        }}
-                                        onClick={header.column.getToggleSortingHandler()}
+                                    <DropdownMenuCheckboxItem
+                                        key={column.id}
+                                        className="capitalize text-xs cursor-pointer font-medium"
+                                        checked={column.getIsVisible()}
+                                        onCheckedChange={(value) => column.toggleVisibility(!!value)}
+                                        onSelect={(e: Event) => e.preventDefault()}
                                     >
-                                        <div className={`flex items-center gap-1.5 cursor-pointer ${isCenter ? "justify-center w-full" : ""}`}>
-                                            {flexRender(header.column.columnDef.header, header.getContext())}
-                                            {header.column.getCanSort() && (
-                                                <div className="shrink-0 opacity-40">
-                                                    {header.column.getIsSorted() === "asc" ? <ChevronUp className="w-3 h-3 text-emerald-500" />
-                                                        : header.column.getIsSorted() === "desc" ? <ChevronDown className="w-3 h-3 text-emerald-500" />
-                                                            : <ChevronsUpDown className="w-3 h-3" />
-                                                    }
-                                                </div>
-                                            )}
-                                        </div>
-                                    </th>
+                                        {typeof column.columnDef.header === 'string'
+                                            ? column.columnDef.header
+                                            : column.id.startsWith('month_')
+                                                ? formatMonthLabel(column.id.replace('month_', ''))
+                                                : column.id}
+                                    </DropdownMenuCheckboxItem>
                                 );
                             })}
-                        </tr>
-                    ))}
-                </thead>
-                <tbody key={displayDensity} style={{ height: rowVirtualizer.getTotalSize(), position: "relative", display: "block" }}>
-                    {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                        const row = tableRows[virtualRow.index];
-                        const isSelected = row.getIsSelected();
+                    </DropdownMenuContent>
+                </DropdownMenu>,
+                portalContainer
+            )}
 
-                        return (
-                            <div key={row.id} ref={rowVirtualizer.measureElement} style={{ position: 'absolute', top: 0, left: 0, width: '100%' }}>
-                                <GridRow
-                                    virtualRow={virtualRow}
-                                    row={row}
-                                    rowHeight={rowHeight}
-                                    isSelected={isSelected}
-                                />
-                            </div>
-                        );
-                    })}
-                </tbody>
-            </table>
+            <div
+                ref={tableContainerRef}
+                className="h-full w-full overflow-auto rounded-[12px] scroll-smooth relative"
+                style={{
+                    background: "var(--bg-surface)",
+                    border: "1px solid var(--border)",
+                    boxShadow: "var(--shadow-sm)"
+                }}
+            >
+                <table className="text-sm block" style={{ width: "100%", minWidth: totalWidth }}>
+                    <thead className="sticky top-0 z-10 block" style={{
+                        background: "linear-gradient(to bottom, var(--bg-elevated), var(--bg-surface))",
+                        borderBottom: "1px solid var(--border-strong)",
+                        backdropFilter: "blur(10px)",
+                        WebkitBackdropFilter: "blur(10px)"
+                    }}>
+                        {table.getHeaderGroups().map((headerGroup) => (
+                            <tr key={headerGroup.id} className="flex w-full">
+                                {headerGroup.headers.map((header) => {
+                                    const isFlexible = header.column.id === "libelle1" || header.column.id === "ai" || header.column.id === "libelle3";
+                                    const isCenter = header.column.id === "totalQuantite" || header.column.id === "totalCa" || header.column.id === "totalMarge" || header.column.id.startsWith("month_") || header.column.id === "gammeInitial" || header.column.id === "score" || header.column.id === "gamme";
+                                    const size = header.getSize();
+                                    return (
+                                        <th
+                                            key={header.id}
+                                            className="px-2 py-3 text-[10px] font-black uppercase tracking-[0.05em] whitespace-nowrap select-none flex items-center transition-colors hover:bg-white/5 relative group/header"
+                                            style={{
+                                                width: isFlexible ? "100%" : size,
+                                                flex: isFlexible ? `1 1 ${size}px` : `0 0 ${size}px`,
+                                                minWidth: size,
+                                                maxWidth: isFlexible ? "none" : size,
+                                                color: "var(--text-muted)",
+                                                justifyContent: isCenter ? "center" : "flex-start"
+                                            }}
+                                            onClick={header.column.getToggleSortingHandler()}
+                                        >
+                                            <div className={`flex items-center gap-1.5 cursor-pointer ${isCenter ? "justify-center w-full" : ""}`}>
+                                                {flexRender(header.column.columnDef.header, header.getContext())}
+                                                {header.column.getCanSort() && (
+                                                    <div className="shrink-0 opacity-40">
+                                                        {header.column.getIsSorted() === "asc" ? <ChevronUp className="w-3 h-3 text-emerald-500" />
+                                                            : header.column.getIsSorted() === "desc" ? <ChevronDown className="w-3 h-3 text-emerald-500" />
+                                                                : <ChevronsUpDown className="w-3 h-3" />
+                                                        }
+                                                    </div>
+                                                )}
+                                            </div>
+                                            {/* Handle de redimensionnement de la colonne */}
+                                            {header.column.getCanResize() && (
+                                                <div
+                                                    onMouseDown={header.getResizeHandler()}
+                                                    onTouchStart={header.getResizeHandler()}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    className={`absolute right-0 top-0 h-full w-1.5 cursor-col-resize user-select-none touch-none hover:bg-emerald-500/50 ${header.column.getIsResizing() ? "bg-emerald-500" : ""}`}
+                                                />
+                                            )}
+                                        </th>
+                                    );
+                                })}
+                            </tr>
+                        ))}
+                    </thead>
+                    <tbody key={displayDensity} style={{ height: rowVirtualizer.getTotalSize(), position: "relative", display: "block" }}>
+                        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                            const row = tableRows[virtualRow.index];
+                            const isSelected = row.getIsSelected();
+
+                            return (
+                                <div key={row.id} ref={rowVirtualizer.measureElement} style={{ position: 'absolute', top: 0, left: 0, width: '100%' }}>
+                                    <GridRow
+                                        virtualRow={virtualRow}
+                                        row={row}
+                                        rowHeight={rowHeight}
+                                        isSelected={isSelected}
+                                        columnVisibility={columnVisibility}
+                                        columnSizing={columnSizing}
+                                    />
+                                </div>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
         </div>
     );
 }

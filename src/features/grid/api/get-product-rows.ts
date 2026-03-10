@@ -149,7 +149,7 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             const workingStores: string[] = [];
             for (const [magasin, periods] of productStores.entries()) {
                 if (magasin === "TOTAL") continue;
-                if (periods.size >= 3) {
+                if (periods.size >= 1) {
                     workingStores.push(magasin);
                 }
             }

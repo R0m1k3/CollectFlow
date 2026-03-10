@@ -28,6 +28,26 @@ const MIN_RAYON_SIZE = 6;
 
 export type Quadrant = "STAR" | "TRAFIC" | "MARGE" | "WATCH";
 
+export interface ContextProfilerCache {
+    allCaPerStoreSorted: number[];
+    allQtyPerStoreSorted: number[];
+    allMargeValuesSorted: number[];
+
+    totalCaFournisseur: number;
+    totalQtyFournisseur: number;
+
+    top20CaThreshold: number;
+    top20QtyThreshold: number;
+
+    medianQtyPerStore: number;
+    medianMarge: number;
+
+    marge40: number;
+    qty60PerStore: number;
+
+    rayonStats: Map<string, { totalCa: number; totalQty: number; count: number }>;
+}
+
 export interface ProductContextProfile {
     // Identité
     codein: string;
@@ -108,28 +128,41 @@ export interface ProductContextProfile {
 // Helpers statistiques (purs)
 // ---------------------------------------------------------------------------
 
-function computePercentile(value: number, distribution: number[]): number {
-    if (distribution.length <= 1) return 100;
-    const sorted = [...distribution].sort((a, b) => a - b);
-    const first = sorted.indexOf(value);
-    const last = sorted.lastIndexOf(value);
-    if (first === -1) return 0;
-    const avgRank = (first + last) / 2;
-    return Math.round((avgRank / (sorted.length - 1)) * 100);
+function computePercentileFromSorted(value: number, sortedDistribution: number[]): number {
+    if (sortedDistribution.length <= 1) return 100;
+
+    let first = -1;
+    let last = -1;
+
+    for (let i = 0; i < sortedDistribution.length; i++) {
+        const current = sortedDistribution[i];
+        if (Math.abs(current - value) < 0.00001) { // Floating point protection
+            if (first === -1) first = i;
+            last = i;
+        } else if (current > value) {
+            if (first === -1) return Math.round((i / Math.max(1, sortedDistribution.length - 1)) * 100);
+            break;
+        }
+    }
+
+    if (first !== -1) {
+        const avgRank = (first + last) / 2;
+        return Math.round((avgRank / (sortedDistribution.length - 1)) * 100);
+    }
+
+    return 100;
 }
 
-function computeMedian(values: number[]): number {
-    if (values.length === 0) return 0;
-    const sorted = [...values].sort((a, b) => a - b);
+function computeMedianFromSorted(sorted: number[]): number {
+    if (sorted.length === 0) return 0;
     const mid = Math.floor(sorted.length / 2);
     return sorted.length % 2 !== 0
         ? sorted[mid]
         : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-function valueAtPercentile(values: number[], p: number): number {
-    if (values.length === 0) return 0;
-    const sorted = [...values].sort((a, b) => a - b);
+function valueAtPercentileFromSorted(sorted: number[], p: number): number {
+    if (sorted.length === 0) return 0;
     const idx = Math.max(0, Math.ceil((p / 100) * sorted.length) - 1);
     return sorted[idx];
 }
@@ -151,69 +184,107 @@ function getRayonKey(p: ProductAnalysisInput): string {
     return p.libelleNiveau2 ?? "default";
 }
 
+const getNormStoreCount = (p: ProductAnalysisInput) => Math.max(1, p.storeCount ?? 1);
+const normCa = (p: ProductAnalysisInput) => (p.totalCa ?? 0) / getNormStoreCount(p);
+const normQty = (p: ProductAnalysisInput) => (p.totalQuantite ?? 0) / getNormStoreCount(p);
+const getWeightedCa = (p: ProductAnalysisInput) => p.weightedTotalCa ?? p.totalCa ?? 0;
+const getWeightedQty = (p: ProductAnalysisInput) => p.weightedTotalQuantite ?? p.totalQuantite ?? 0;
+
 // ---------------------------------------------------------------------------
 // Profiler principal
 // ---------------------------------------------------------------------------
 
 export class ContextProfiler {
+
+    /**
+     * Prépare un cache contextuel basé sur tous les produits pour éviter des tris 
+     * répétés en mode "Bulk Analyze". Réduit la latence de manière dramatique (O(N) au lieu de O(N^2)).
+     */
+    static prepareCache(allProds: ProductAnalysisInput[]): ContextProfilerCache {
+        const allCaPerStore = allProds.map(normCa);
+        const allQtyPerStore = allProds.map(normQty);
+        const allMargeValues = allProds.map(p => p.tauxMarge ?? 0);
+
+        // On trie une seule et unique fois
+        const allCaPerStoreSorted = [...allCaPerStore].sort((a, b) => a - b);
+        const allQtyPerStoreSorted = [...allQtyPerStore].sort((a, b) => a - b);
+        const allMargeValuesSorted = [...allMargeValues].sort((a, b) => a - b);
+
+        const totalCaFournisseur = allProds.reduce((s, p) => s + getWeightedCa(p), 0);
+        const totalQtyFournisseur = allProds.reduce((s, p) => s + getWeightedQty(p), 0);
+
+        const rayonStats = new Map<string, { totalCa: number; totalQty: number; count: number }>();
+        allProds.forEach(p => {
+            const key = getRayonKey(p);
+            if (!rayonStats.has(key)) rayonStats.set(key, { totalCa: 0, totalQty: 0, count: 0 });
+            const s = rayonStats.get(key)!;
+            s.totalCa += getWeightedCa(p);
+            s.totalQty += getWeightedQty(p);
+            s.count += 1;
+        });
+
+        return {
+            allCaPerStoreSorted,
+            allQtyPerStoreSorted,
+            allMargeValuesSorted,
+            totalCaFournisseur,
+            totalQtyFournisseur,
+            top20CaThreshold: valueAtPercentileFromSorted(allCaPerStoreSorted, 80),
+            top20QtyThreshold: valueAtPercentileFromSorted(allQtyPerStoreSorted, 80),
+            medianQtyPerStore: computeMedianFromSorted(allQtyPerStoreSorted),
+            medianMarge: computeMedianFromSorted(allMargeValuesSorted),
+            marge40: valueAtPercentileFromSorted(allMargeValuesSorted, 40),
+            qty60PerStore: valueAtPercentileFromSorted(allQtyPerStoreSorted, 60),
+            rayonStats,
+        };
+    }
+
     /**
      * Génère le profil contextuel d'un produit au sein de son lot fournisseur.
      */
     static buildProfile(
         target: ProductAnalysisInput,
         allProds: ProductAnalysisInput[],
-        scoring: ScoringResult
+        scoring: ScoringResult,
+        cache?: ContextProfilerCache
     ): ProductContextProfile {
         if (allProds.length === 0) {
             throw new Error("[ContextProfiler] Le lot de produits est vide.");
         }
 
+        // Utiliser le cache s'il est fourni (mode Bulk) pour éviter de recalculer, 
+        // sinon le générer à la volée (mode single item)
+        const ctx: ContextProfilerCache = cache ?? ContextProfiler.prepareCache(allProds);
+
         // ---------------------------------------------------------------------------
         // Normalisation par magasin — cœur de la v3
-        // Raison : un produit en 2 magasins a mécaniquement 2x plus de CA/QTÉ
-        // qu'un produit identique en 1 magasin. Sans normalisation, les percentiles
-        // et le quadrant sont fausss par le réseau de distribution, pas la perf.
         // ---------------------------------------------------------------------------
-        const getNormStoreCount = (p: ProductAnalysisInput) => Math.max(1, p.storeCount ?? 1);
-        const normCa = (p: ProductAnalysisInput) => (p.totalCa ?? 0) / getNormStoreCount(p);
-        const normQty = (p: ProductAnalysisInput) => (p.totalQuantite ?? 0) / getNormStoreCount(p);
-
         const targetStoreCount = getNormStoreCount(target);
         const targetCaPerStore = normCa(target);
         const targetQtyPerStore = normQty(target);
 
-        // 1. Totaux fournisseur (valeurs PONDÉRÉES pour comparaison équitable réseau)
-        //    weightedTotalCa/Qty projettent les 1-magasin sur une base réseau (×2).
-        const getWeightedCa = (p: ProductAnalysisInput) => p.weightedTotalCa ?? p.totalCa ?? 0;
-        const getWeightedQty = (p: ProductAnalysisInput) => p.weightedTotalQuantite ?? p.totalQuantite ?? 0;
-
-        const totalCaFournisseur = allProds.reduce((s, p) => s + getWeightedCa(p), 0);
-        const totalQtyFournisseur = allProds.reduce((s, p) => s + getWeightedQty(p), 0);
+        // 1. Totaux fournisseur
+        const { totalCaFournisseur, totalQtyFournisseur } = ctx;
 
         // 2. Totaux du rayon (Niveau 2 de nomenclature)
         const targetRayonKey = getRayonKey(target);
-        const rayonProds = allProds.filter(p => getRayonKey(p) === targetRayonKey);
-        const totalCaRayon = rayonProds.reduce((s, p) => s + getWeightedCa(p), 0);
-        const totalQtyRayon = rayonProds.reduce((s, p) => s + getWeightedQty(p), 0);
+        const rayonStat = ctx.rayonStats.get(targetRayonKey) ?? { totalCa: 0, totalQty: 0, count: 0 };
+        const totalCaRayon = rayonStat.totalCa;
+        const totalQtyRayon = rayonStat.totalQty;
+        const rayonSizeForSignals = rayonStat.count;
 
-        // 3. Distributions normalisées (PAR MAGASIN) — pour les percentiles et le quadrant
-        const allCaPerStore = allProds.map(normCa);
-        const allQtyPerStore = allProds.map(normQty);
-        const allMargeValues = allProds.map(p => p.tauxMarge ?? 0);
-
-        const pCa = computePercentile(targetCaPerStore, allCaPerStore);
-        const pQty = computePercentile(targetQtyPerStore, allQtyPerStore);
-        const pMarge = computePercentile(target.tauxMarge ?? 0, allMargeValues);
+        // 3. Percentiles (0-100) — sur distribution PAR MAGASIN
+        const pCa = computePercentileFromSorted(targetCaPerStore, ctx.allCaPerStoreSorted);
+        const pQty = computePercentileFromSorted(targetQtyPerStore, ctx.allQtyPerStoreSorted);
+        const pMarge = computePercentileFromSorted(target.tauxMarge ?? 0, ctx.allMargeValuesSorted);
         const pComposite = scoring.compositeScore;
 
-        // 4. Tops 20% (sur valeurs PAR MAGASIN)
-        const top20CaThreshold = valueAtPercentile(allCaPerStore, 80);
-        const top20QtyThreshold = valueAtPercentile(allQtyPerStore, 80);
-        const isTop20Ca = targetCaPerStore >= top20CaThreshold;
-        const isTop20Qty = targetQtyPerStore >= top20QtyThreshold;
+        // 4. Tops 20%
+        const isTop20Ca = targetCaPerStore >= ctx.top20CaThreshold;
+        const isTop20Qty = targetQtyPerStore >= ctx.top20QtyThreshold;
         const isAboveMedianComposite = pComposite >= 50;
 
-        // 5. Poids pondérés (valeurs réseau projetées pour représentativité réaliste)
+        // 5. Poids pondérés
         const weightCaFournisseur =
             totalCaFournisseur > 0
                 ? Math.round((getWeightedCa(target) / totalCaFournisseur) * 1000) / 10
@@ -223,52 +294,32 @@ export class ContextProfiler {
                 ? Math.round((getWeightedQty(target) / totalQtyFournisseur) * 1000) / 10
                 : 0;
 
-        // Bug fix : un produit dans le top 30% de marge du lot apporte une valeur
-        // réelle en rentabilité. L'exclure du signal isLowContribution évite de le
-        // pénaliser uniquement parce que son volume/CA est faible (profil 💎 pur).
-        // Le seuil de faible contribution utilise désormais des percentiles plutôt
-        // que des valeurs absolues pour ne pas pénaliser les gros fournisseurs.
         const isLowContribution = pCa <= 30 && pQty <= 30 && pMarge <= 70;
 
-        // 6. Signaux Trafic / Marge + Quadrant (sur valeurs PAR MAGASIN)
-        // Médianes calculées ici pour être disponibles dans les sections 6 ET 7.
-        const medianQtyPerStore = computeMedian(allQtyPerStore);
-        const medianMarge = computeMedian(allMargeValues);
-
-        const rayonSizeForSignals = rayonProds.length;
+        // 6. Signaux Trafic / Marge + Quadrant
         const signalsActive = rayonSizeForSignals >= MIN_RAYON_SIZE;
 
         let isHighVolumeWithLowMargin = false;
         let isMargePure = false;
 
-        // Bug fix : isMargePure est désormais calculé sur tous les rayons, même petits.
-        // Raison : la marge absolue est une donnée fiable quelle que soit la taille du lot.
-        // Le signal isHighVolumeWithLowMargin (trafic) garde le seuil MIN_RAYON_SIZE car
-        // il nécessite une distribution volumique suffisante pour être statistiquement valide.
         {
-            const marge40 = valueAtPercentile(allMargeValues, 40);
-            const qty60PerStore = valueAtPercentile(allQtyPerStore, 60);
-
-            // Signal trafic : nécessite un rayon suffisamment large
             if (signalsActive) {
                 isHighVolumeWithLowMargin =
-                    targetQtyPerStore >= qty60PerStore &&
-                    (target.tauxMarge ?? 0) < marge40;
+                    targetQtyPerStore >= ctx.qty60PerStore &&
+                    (target.tauxMarge ?? 0) < ctx.marge40;
             }
 
-            // Signal marge pure : au-dessus de la médiane marge + volume faible.
-            // Utilise la médiane (P50) plutôt que P70 pour être robuste sur petits lots.
             isMargePure =
-                (target.tauxMarge ?? 0) > medianMarge &&
-                targetQtyPerStore < medianQtyPerStore;
+                (target.tauxMarge ?? 0) > ctx.medianMarge &&
+                targetQtyPerStore < ctx.medianQtyPerStore;
         }
 
-        // 7. Quadrant (basé sur les médianes PAR MAGASIN — déjà calculées en section 6)
+        // 7. Quadrant
         const { quadrant, quadrantLabel, quadrantEmoji } = ContextProfiler.resolveQuadrant(
             targetQtyPerStore,
             target.tauxMarge ?? 0,
-            medianQtyPerStore,
-            medianMarge
+            ctx.medianQtyPerStore,
+            ctx.medianMarge
         );
 
         // 8. Gardes-fous (signaux, pas des verdicts — Mary décide au final)
