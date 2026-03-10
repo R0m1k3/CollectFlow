@@ -46,8 +46,18 @@ export function getDb() {
         console.error("[DB] CRITICAL: No database connection string available!");
     }
 
+    const connectionHostname = connectionString.match(/@([^:/]+)/)?.[1] || "unknown";
+    console.log(`[DB] Target Hostname: ${connectionHostname}`);
+
     pool = new Pool({
         connectionString,
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000,
+    });
+
+    pool.on('error', (err) => {
+        console.error('[DB] Unexpected error on idle client', err);
     });
 
     currentDb = drizzle(pool, { schema });
