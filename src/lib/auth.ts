@@ -3,7 +3,7 @@ import Credentials from "next-auth/providers/credentials";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { verifyPassword } from "@/features/auth/logic/auth-logic";
+import { verifyPassword, getFallbackUsers } from "@/features/auth/logic/auth-logic";
 import { ensureAdminExists } from "@/features/auth/logic/seed-admin";
 import { authConfig } from "./auth.config";
 
@@ -22,15 +22,30 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 if (!credentials?.username || !credentials?.password) return null;
 
                 try {
-                    console.log(`[AUTH] Checking user "${credentials.username}" in database...`);
-                    const [user] = await db.select()
-                        .from(users)
-                        .where(eq(users.username, credentials.username as string));
+                    console.log(`[AUTH] Checking user "${credentials.username}"...`);
+                    
+                    let user: any = null;
 
-                    console.log(`[AUTH] User found in DB: ${!!user}`);
+                    // Try DB first
+                    try {
+                        const [dbUser] = await db.select()
+                            .from(users)
+                            .where(eq(users.username, credentials.username as string));
+                        user = dbUser;
+                        console.log(`[AUTH] DB check: User found: ${!!user}`);
+                    } catch (dbErr) {
+                        console.warn("[AUTH] DB unreachable, falling back to JSON.");
+                    }
+
+                    // Fallback to JSON if DB failed or user not found
+                    if (!user) {
+                        const fallbackUsers = getFallbackUsers();
+                        user = fallbackUsers.find(u => u.username === credentials.username);
+                        console.log(`[AUTH] JSON check: User found: ${!!user}`);
+                    }
 
                     if (!user) {
-                        console.warn(`[AUTH] User "${credentials.username}" not found.`);
+                        console.warn(`[AUTH] User "${credentials.username}" not found anywhere.`);
                         return null;
                     }
 
@@ -49,7 +64,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                     };
                 } catch (err: any) {
                     console.error("[AUTH] CRITICAL ERROR during authorize callback:", err.message || err);
-                    // Propage l'erreur pour que Next-Auth la gère (mais authorize doit retourner null ou l'utilisateur)
                     return null;
                 }
             }

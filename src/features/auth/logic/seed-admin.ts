@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { users } from "@/db/schema";
-import { hashPassword } from "./auth-logic";
+import { hashPassword, getFallbackUsers, saveFallbackUsers } from "./auth-logic";
 import { count, eq, sql } from "drizzle-orm";
 
 /**
@@ -9,13 +9,23 @@ import { count, eq, sql } from "drizzle-orm";
  * Also ensures the table exists (auto-repair).
  */
 export async function ensureAdminExists() {
-    try {
-        console.log("[AUTH] Testing database connection...");
-        await db.execute(sql`SELECT 1`);
-        console.log("[AUTH] Database connection OK.");
+    // 1. Always ensure local JSON fallback has at least one admin
+    const fallbackUsers = getFallbackUsers();
+    if (fallbackUsers.length === 0) {
+        console.log("[AUTH] Initializing local JSON fallback with admin/admin...");
+        saveFallbackUsers([{
+            id: "0",
+            username: "admin",
+            passwordHash: hashPassword("admin"),
+            role: "admin"
+        }]);
+    }
 
-        // 1. Auto-repair: Ensure table exists (Fallback if db-init failed)
-        console.log("[AUTH] Checking/Creating users table...");
+    try {
+        console.log("[AUTH] Testing database connection for seeding...");
+        await db.execute(sql`SELECT 1`);
+
+        // 2. Auto-repair: Ensure table exists
         await db.execute(sql`
             CREATE TABLE IF NOT EXISTS "users" (
                 id SERIAL PRIMARY KEY,
@@ -25,32 +35,24 @@ export async function ensureAdminExists() {
                 created_at TIMESTAMP DEFAULT NOW()
             );
         `);
-        console.log("[AUTH] users table verified/created.");
 
+        // 3. Sync admin to DB
         const adminUser = await db.select()
             .from(users)
             .where(eq(users.username, "admin"))
             .limit(1);
 
         if (adminUser.length === 0) {
-            console.log("[AUTH] Admin user not found. Seeding default (admin/admin)...");
+            console.log("[AUTH] Seeding admin to DB...");
             await db.insert(users).values({
                 username: "admin",
                 passwordHash: hashPassword("admin"),
                 role: "admin"
             });
-            console.log("[AUTH] Default admin seeded successfully.");
             return true;
-        } else {
-            console.log("[AUTH] Admin user already exists.");
         }
     } catch (err: any) {
-        console.error("[AUTH] !!! CRITICAL DATABASE ERROR !!!");
-        console.error("- Message:", err.message);
-        console.error("- PG Code:", err.code);
-        console.error("- Detail:", err.detail);
-        console.error("- Hint:", err.hint);
-        if (err.internalQuery) console.error("- Query:", err.internalQuery);
+        console.warn("[AUTH] Database seeding failed (expected if DB not configured yet):", err.message);
     }
     return false;
 }

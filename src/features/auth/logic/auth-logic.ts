@@ -1,4 +1,15 @@
 import { scryptSync, randomBytes, timingSafeEqual } from "crypto";
+import fs from "fs";
+import path from "path";
+
+const USERS_JSON_PATH = path.join(process.cwd(), "data", "users.json");
+
+export interface UserJson {
+    id: string;
+    username: string;
+    passwordHash: string;
+    role: string;
+}
 
 /**
  * Hashes a password using scrypt.
@@ -24,5 +35,42 @@ export function verifyPassword(password: string, storedHash: string): boolean {
         return timingSafeEqual(hashBuffer, storedHashBuffer);
     } catch (e) {
         return false;
+    }
+}
+
+/**
+ * Reads users from local JSON fallback.
+ */
+export function getFallbackUsers(): UserJson[] {
+    try {
+        if (!fs.existsSync(USERS_JSON_PATH)) {
+            // Initial seed if file doesn't exist
+            const defaultAdmin: UserJson = {
+                id: "0",
+                username: "admin",
+                passwordHash: hashPassword("admin"),
+                role: "admin"
+            };
+            saveFallbackUsers([defaultAdmin]);
+            return [defaultAdmin];
+        }
+        const data = fs.readFileSync(USERS_JSON_PATH, "utf-8");
+        return JSON.parse(data);
+    } catch (e) {
+        console.error("[AUTH] Error reading users.json:", e);
+        return [];
+    }
+}
+
+/**
+ * Saves users to local JSON fallback.
+ */
+export function saveFallbackUsers(users: UserJson[]) {
+    try {
+        const dir = path.dirname(USERS_JSON_PATH);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(USERS_JSON_PATH, JSON.stringify(users, null, 2));
+    } catch (e) {
+        console.error("[AUTH] Error writing users.json:", e);
     }
 }
