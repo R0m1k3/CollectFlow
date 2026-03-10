@@ -28,16 +28,19 @@ export async function ensureAdminExists() {
             .limit(1);
 
         if (adminUser.length === 0) {
-            console.log("BMAD: Default admin account not found. Initializing (admin/admin)...");
+            console.log("[AUTH] Admin user not found. Seeding default (admin/admin)...");
             await db.insert(users).values({
                 username: "admin",
                 passwordHash: hashPassword("admin"),
                 role: "admin"
             });
+            console.log("[AUTH] Default admin seeded successfully.");
             return true;
+        } else {
+            console.log("[AUTH] Admin user already exists.");
         }
-    } catch (err) {
-        console.error("BMAD: CRITICAL Error checking/seeding users table.", err);
+    } catch (err: any) {
+        console.error("[AUTH] CRITICAL Error during ensureAdminExists:", err.message || err);
     }
     return false;
 }

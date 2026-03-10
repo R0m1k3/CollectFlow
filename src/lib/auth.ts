@@ -22,26 +22,34 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 if (!credentials?.username || !credentials?.password) return null;
 
                 try {
+                    console.log(`[AUTH] Checking user "${credentials.username}" in database...`);
                     const [user] = await db.select()
                         .from(users)
                         .where(eq(users.username, credentials.username as string));
 
-                    console.log(`BMAD: Auth attempt for "${credentials.username}". User found: ${!!user}`);
+                    console.log(`[AUTH] User found in DB: ${!!user}`);
 
-                    if (!user) return null;
+                    if (!user) {
+                        console.warn(`[AUTH] User "${credentials.username}" not found.`);
+                        return null;
+                    }
 
                     const isValid = verifyPassword(credentials.password as string, user.passwordHash);
-                    console.log(`BMAD: Password valid for "${credentials.username}": ${isValid}`);
+                    console.log(`[AUTH] Password valid for "${credentials.username}": ${isValid}`);
 
-                    if (!isValid) return null;
+                    if (!isValid) {
+                        console.warn(`[AUTH] Invalid password for user "${credentials.username}".`);
+                        return null;
+                    }
 
                     return {
                         id: user.id.toString(),
-                        name: user.username,
+                        username: user.username,
                         role: user.role,
                     };
-                } catch (err) {
-                    console.error("Auth Error:", err);
+                } catch (err: any) {
+                    console.error("[AUTH] CRITICAL ERROR during authorize callback:", err.message || err);
+                    // Propage l'erreur pour que Next-Auth la gère (mais authorize doit retourner null ou l'utilisateur)
                     return null;
                 }
             }
