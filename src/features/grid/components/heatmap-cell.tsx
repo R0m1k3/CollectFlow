@@ -15,7 +15,7 @@ function getHeatmapClass(value: number | null): string {
 
 export const HeatmapCell = React.memo(({ value }: HeatmapCellProps) => {
     const heatClass = getHeatmapClass(value);
-    const display = value === null || value === 0 ? "—" : Math.round(Math.abs(value)).toString();
+    const display = value === null || value === 0 ? "0" : Math.round(Math.abs(value)).toString();
 
     return (
         <div

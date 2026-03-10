@@ -70,6 +70,7 @@ export interface ProductRow {
 
 /** Summary bar totals for the currently visible/filtered rows */
 export interface GridSummary {
+    totalProducts: number;
     totalRows: number;
     totalQuantite: number;
     totalCa: number;

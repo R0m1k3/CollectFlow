@@ -146,6 +146,10 @@ export function FloatingSummaryBar() {
 
             <div className="flex space-x-12 items-center">
                 <Stat
+                    label="Nombre de Produits"
+                    value={summary.totalProducts.toLocaleString("fr-FR")}
+                />
+                <Stat
                     label="Volume Total Vendu"
                     value={Math.round(summary.totalQuantite).toLocaleString("fr-FR")}
                 />
