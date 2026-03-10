@@ -46,9 +46,9 @@ export function computeProductScores(
         };
     });
 
-    const maxQty = Math.max(...weightedData.map((d) => d.wQty));
-    const maxCa = Math.max(...weightedData.map((d) => d.wCa));
-    const maxMarge = Math.max(...weightedData.map((d) => d.wMarge));
+    const maxQty = weightedData.reduce((max, d) => Math.max(max, d.wQty), 0);
+    const maxCa = weightedData.reduce((max, d) => Math.max(max, d.wCa), 0);
+    const maxMarge = weightedData.reduce((max, d) => Math.max(max, d.wMarge), 0);
 
     // 2. Calculer les moyennes et totaux globaux
     const totalQty = weightedData.reduce((acc, d) => acc + d.wQty, 0);
