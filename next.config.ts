@@ -4,7 +4,7 @@ const nextConfig = {
   serverExternalPackages: ["pg"],
   experimental: {
     serverActions: {
-      bodySizeLimit: "10mb",
+      bodySizeLimit: "50mb",
     },
   },
   typescript: {

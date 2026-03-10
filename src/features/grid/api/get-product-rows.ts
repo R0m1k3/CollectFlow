@@ -5,6 +5,8 @@ import { ventesProduits } from "@/db/schema";
 import { eq, and, ne, like, sql } from "drizzle-orm";
 import type { ProductRow, GammeCode, GridFilters } from "@/types/grid";
 import { computeProductScores } from "@/lib/score-engine";
+import fs from "fs";
+import path from "path";
 
 let isSchemaInitialized = false;
 
@@ -70,6 +72,21 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
 
         // Group by codein and aggregate monthly sales + track store participation
         const productMap = new Map<string, ProductRow>();
+
+        // DEBUG: Log counts
+        console.log(`\n--- [getProductRows] DIAGNOSTIC for Supplier ${codeFournisseur} ---`);
+        const rawCount = await db.execute(sql`
+            SELECT COUNT(DISTINCT codein) as count FROM ventes_produits 
+            WHERE code_fournisseur = ${codeFournisseur}
+        `);
+        console.log(`- TOTAL DISTINCT codein for this supplier in DB (unfiltered): ${rawCount.rows[0].count}`);
+        
+        console.log(`- DB Rows retrieved for current filters: ${rows.length}`);
+        
+        // Count distinct products in the DB results
+        const distinctInDb = new Set(rows.map(r => r.codein)).size;
+        console.log(`- Distinct Products in DB results: ${distinctInDb}`);
+
         const storeParticipationMap = new Map<string, Map<string, Set<string>>>(); // codein -> magasin -> Set of periods
 
         for (const row of rows) {
@@ -163,6 +180,9 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
                 product.workingStores = workingStores.sort();
             }
         }
+
+        // DEBUG: Log final product count
+        console.log(`- Final ProductMap Size: ${productMap.size}`);
 
         return computeProductScores(Array.from(productMap.values()));
     } catch (error) {
