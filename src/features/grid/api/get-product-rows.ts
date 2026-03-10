@@ -73,29 +73,21 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
         const storeParticipationMap = new Map<string, Map<string, Set<string>>>(); // codein -> magasin -> Set of periods
 
         for (const row of rows) {
-            // Ignorer les données qui ne font pas partie des 12 mois complets
-            if (!allowedPeriods.has(row.periode)) continue;
-
             const { codein, magasin, periode } = row;
+            const isInPeriod = allowedPeriods.has(periode);
 
-            // Suivi de la participation par magasin
-            if (!storeParticipationMap.has(codein)) storeParticipationMap.set(codein, new Map());
-            const productStores = storeParticipationMap.get(codein)!;
-            if (!productStores.has(magasin)) productStores.set(magasin, new Set());
-            productStores.get(magasin)!.add(periode);
+            // Suivi de la participation par magasin (seulement si dans la période et pas TOTAL)
+            if (isInPeriod && magasin !== "TOTAL") {
+                if (!storeParticipationMap.has(codein)) storeParticipationMap.set(codein, new Map());
+                const productStores = storeParticipationMap.get(codein)!;
+                if (!productStores.has(magasin)) productStores.set(magasin, new Set());
+                productStores.get(magasin)!.add(periode);
+            }
 
-            const existing = productMap.get(codein);
-            const qty = Math.abs(parseFloat(row.quantite?.toString() ?? "0"));
-            const ca = Math.abs(parseFloat(row.montantMvt?.toString() ?? "0"));
-            const marge = Math.abs(parseFloat(row.margeMvt?.toString() ?? "0"));
-
-            if (existing) {
-                existing.sales12m[periode] = (existing.sales12m[periode] ?? 0) + qty;
-                existing.totalQuantite += qty;
-                existing.totalCa += ca;
-                existing.totalMarge += marge;
-                existing.tauxMarge = existing.totalCa > 0 ? (existing.totalMarge / existing.totalCa) * 100 : 0;
-            } else {
+            let existing = productMap.get(codein);
+            
+            // Si le produit n'existe pas encore, on l'initialise avec les métadonnées de cette ligne
+            if (!existing) {
                 const c3 = row.code3 || "";
                 const c1 = c3.slice(0, 2);
                 const c2 = c3.slice(0, 4);
@@ -115,7 +107,7 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
                     "7001": "FRUITS ET LEGUMES", "7002": "CREMERIE", "7003": "VOLAILLE", "7004": "CHARCUTERIE", "7005": "TRAITEUR", "7006": "BOULANGERIE",
                 };
 
-                productMap.set(codein, {
+                existing = {
                     codein,
                     codeFournisseur: row.codeFournisseur ?? "",
                     nomFournisseur: row.nomFournisseur ?? "",
@@ -131,15 +123,29 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
                     codeGamme: (row.codeGamme as GammeCode | null),
                     codeGammeInit: (row.codeGammeInit as GammeCode | null) ?? (row.codeGamme as GammeCode | null),
                     codeGammeDraft: null,
-                    sales12m: { [periode]: qty },
-                    totalQuantite: qty,
-                    totalCa: ca,
-                    totalMarge: marge,
-                    tauxMarge: ca > 0 ? (marge / ca) * 100 : 0,
+                    sales12m: {},
+                    totalQuantite: 0,
+                    totalCa: 0,
+                    totalMarge: 0,
+                    tauxMarge: 0,
                     score: 0,
                     workingStores: [],
                     aiRecommendation: null,
-                });
+                };
+                productMap.set(codein, existing);
+            }
+
+            // On n'agrège les chiffres QUE si la période fait partie des 12 derniers mois
+            if (isInPeriod) {
+                const qty = Math.abs(parseFloat(row.quantite?.toString() ?? "0"));
+                const ca = Math.abs(parseFloat(row.montantMvt?.toString() ?? "0"));
+                const marge = Math.abs(parseFloat(row.margeMvt?.toString() ?? "0"));
+
+                existing.sales12m[periode] = (existing.sales12m[periode] ?? 0) + qty;
+                existing.totalQuantite += qty;
+                existing.totalCa += ca;
+                existing.totalMarge += marge;
+                existing.tauxMarge = existing.totalCa > 0 ? (existing.totalMarge / existing.totalCa) * 100 : 0;
             }
         }
 
