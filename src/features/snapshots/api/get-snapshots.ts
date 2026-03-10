@@ -3,7 +3,7 @@
 import { db } from "@/db";
 import { sessionSnapshots } from "@/db/schema";
 import { auth } from "@/lib/auth";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 
 export async function getSnapshots(type?: "snapshot" | "export") {
     try {
@@ -11,12 +11,13 @@ export async function getSnapshots(type?: "snapshot" | "export") {
         const rawUserId = (session?.user as any)?.id;
         const userId = rawUserId ? parseInt(String(rawUserId), 10) : null;
 
-        if (!userId || isNaN(userId)) {
-            console.warn("[getSnapshots] Unauthenticated access attempt");
-            return [];
-        }
+        // Si on a un userId, on filtre par celui-ci.
+        // Sinon, on filtre par userId IS NULL (mode anonyme/local)
+        const userCondition = userId && !isNaN(userId) 
+            ? eq(sessionSnapshots.userId, userId) 
+            : isNull(sessionSnapshots.userId);
 
-        const conditions = [eq(sessionSnapshots.userId, userId)];
+        const conditions = [userCondition];
         if (type) conditions.push(eq(sessionSnapshots.type, type));
 
         return await db.select()

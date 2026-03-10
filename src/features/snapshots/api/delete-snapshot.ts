@@ -2,7 +2,7 @@
 
 import { db } from "@/db";
 import { sessionSnapshots } from "@/db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 
 export async function deleteSnapshot(id: number) {
@@ -10,22 +10,21 @@ export async function deleteSnapshot(id: number) {
     const rawUserId = (session?.user as any)?.id;
     const userId = rawUserId ? parseInt(String(rawUserId), 10) : null;
 
-    console.log(`[deleteSnapshot] Request for ID: ${id}, Session UserId: ${userId} (raw: ${rawUserId})`);
-
-    if (!userId || isNaN(userId)) {
-        console.error("[deleteSnapshot] Unauthorized: userId is missing or invalid");
-        return { success: false, error: "Non autorisé" };
-    }
+    console.log(`[deleteSnapshot] Request for ID: ${id}, Session UserId: ${userId}`);
 
     try {
+        // Condition de sécurité : match ID ET match le propriétaire (ou anonyme)
+        const userCondition = userId && !isNaN(userId)
+            ? eq(sessionSnapshots.userId, userId)
+            : isNull(sessionSnapshots.userId);
+
         const result = await db.delete(sessionSnapshots)
-            .where(and(eq(sessionSnapshots.id, id), eq(sessionSnapshots.userId, userId)))
+            .where(and(eq(sessionSnapshots.id, id), userCondition))
             .returning({ deletedId: sessionSnapshots.id });
         
         if (result.length === 0) {
-            console.warn(`[deleteSnapshot] No rows deleted for ID ${id} and User ${userId}. Maybe the snapshot doesn't belong to the user?`);
-            // We return success: false to trigger the error modal in UI if nothing was actually deleted
-            return { success: false, error: "Élément non trouvé ou non autorisé" };
+            console.warn(`[deleteSnapshot] No rows deleted for ID ${id}. Snapshot may not exist or belongs to another user.`);
+            return { success: false, error: "Snapshot non trouvé ou non autorisé" };
         }
 
         console.log(`[deleteSnapshot] Successfully deleted ID: ${id}`);
