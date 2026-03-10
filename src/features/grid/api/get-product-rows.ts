@@ -73,19 +73,20 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
         // Group by codein and aggregate monthly sales + track store participation
         const productMap = new Map<string, ProductRow>();
 
-        // DEBUG: Log counts
-        console.log(`\n--- [getProductRows] DIAGNOSTIC for Supplier ${codeFournisseur} ---`);
-        const rawCount = await db.execute(sql`
-            SELECT COUNT(DISTINCT codein) as count FROM ventes_produits 
-            WHERE code_fournisseur = ${codeFournisseur}
-        `);
-        console.log(`- TOTAL DISTINCT codein for this supplier in DB (unfiltered): ${rawCount.rows[0].count}`);
+        // EXTRA VERBOSE DIAGNOSTIC
+        console.log(`\n--- [getProductRows] ULTRA-DIAGNOSTIC for Supplier ${codeFournisseur} ---`);
         
-        console.log(`- DB Rows retrieved for current filters: ${rows.length}`);
+        const countAll = await db.execute(sql`SELECT COUNT(*) FROM ventes_produits WHERE code_fournisseur = ${codeFournisseur}`);
+        const countDistinctTotal = await db.execute(sql`SELECT COUNT(DISTINCT codein) FROM ventes_produits WHERE code_fournisseur = ${codeFournisseur}`);
+        const countNoTotal = await db.execute(sql`SELECT COUNT(DISTINCT codein) FROM ventes_produits WHERE code_fournisseur = ${codeFournisseur} AND magasin != 'TOTAL' AND periode != 'TOTAL'`);
         
-        // Count distinct products in the DB results
-        const distinctInDb = new Set(rows.map(r => r.codein)).size;
-        console.log(`- Distinct Products in DB results: ${distinctInDb}`);
+        console.log(`- Gross total rows in DB: ${countAll.rows[0].count}`);
+        console.log(`- Total distinct products (any store/period): ${countDistinctTotal.rows[0].count}`);
+        console.log(`- Distinct products excluding TOTAL store/period: ${countNoTotal.rows[0].count}`);
+        console.log(`- Current Filters rows retrieved: ${rows.length}`);
+        
+        const distinctInFetched = new Set(rows.map(r => r.codein)).size;
+        console.log(`- Distinct products in currently fetched rows: ${distinctInFetched}`);
 
         const storeParticipationMap = new Map<string, Map<string, Set<string>>>(); // codein -> magasin -> Set of periods
 
