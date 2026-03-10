@@ -63,6 +63,17 @@ async function main() {
         `);
         console.log("[DB Init] Table session_snapshots is verified/created.");
 
+        await tempPool.query(`
+            CREATE TABLE IF NOT EXISTS "users" (
+                "id" serial PRIMARY KEY NOT NULL,
+                "username" varchar(50) NOT NULL UNIQUE,
+                "password_hash" text NOT NULL,
+                "role" varchar(20) NOT NULL DEFAULT 'user',
+                "created_at" timestamp DEFAULT now()
+            );
+        `);
+        console.log("[DB Init] Table users is verified/created.");
+
         await tempPool.end();
         console.log("[DB Init] Initialization successful. Exiting.");
         process.exit(0);
