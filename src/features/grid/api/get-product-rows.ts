@@ -18,7 +18,9 @@ interface GetProductRowsInput {
 
 export async function getProductRows(input: GetProductRowsInput): Promise<ProductRow[]> {
     const { codeFournisseur, magasin = "TOTAL", filters } = input;
-
+    console.log(`\n>>> [getProductRows] RECEIVED CALL for supplier: ${codeFournisseur}, magasin: ${magasin}`);
+    console.log(`>>> [getProductRows] filters:`, JSON.stringify(filters));
+    
     try {
         // Self-healing: Ensure codeGammeInit column exists and is populated
         if (!isSchemaInitialized) {
