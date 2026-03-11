@@ -42,6 +42,7 @@ function computeSummary(rows: ProductRow[], drafts: Record<string, GammeCode>): 
     const totalCa = active.reduce((s, r) => s + (r.totalCa ?? 0), 0);
     const totalMarge = active.reduce((s, r) => s + (r.totalMarge ?? 0), 0);
     return {
+        totalProducts: rows.length,
         totalRows: active.length,
         totalQuantite: active.reduce((s, r) => s + (r.totalQuantite ?? 0), 0),
         totalCa,
@@ -65,6 +66,7 @@ export const useGridStore = create<GridState>()(
                 search: "",
             },
             summary: {
+                totalProducts: 0,
                 totalRows: 0,
                 totalQuantite: 0,
                 totalCa: 0,

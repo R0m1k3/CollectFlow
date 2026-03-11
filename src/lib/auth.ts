@@ -3,7 +3,7 @@ import Credentials from "next-auth/providers/credentials";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { verifyPassword } from "@/features/auth/logic/auth-logic";
+import { verifyPassword, getFallbackUsers } from "@/features/auth/logic/auth-logic";
 import { ensureAdminExists } from "@/features/auth/logic/seed-admin";
 import { authConfig } from "./auth.config";
 
@@ -22,26 +22,48 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 if (!credentials?.username || !credentials?.password) return null;
 
                 try {
-                    const [user] = await db.select()
-                        .from(users)
-                        .where(eq(users.username, credentials.username as string));
+                    console.log(`[AUTH] Checking user "${credentials.username}"...`);
+                    
+                    let user: any = null;
 
-                    console.log(`BMAD: Auth attempt for "${credentials.username}". User found: ${!!user}`);
+                    // Try DB first
+                    try {
+                        const [dbUser] = await db.select()
+                            .from(users)
+                            .where(eq(users.username, credentials.username as string));
+                        user = dbUser;
+                        console.log(`[AUTH] DB check: User found: ${!!user}`);
+                    } catch (dbErr) {
+                        console.warn("[AUTH] DB unreachable, falling back to JSON.");
+                    }
 
-                    if (!user) return null;
+                    // Fallback to JSON if DB failed or user not found
+                    if (!user) {
+                        const fallbackUsers = getFallbackUsers();
+                        user = fallbackUsers.find(u => u.username === credentials.username);
+                        console.log(`[AUTH] JSON check: User found: ${!!user}`);
+                    }
+
+                    if (!user) {
+                        console.warn(`[AUTH] User "${credentials.username}" not found anywhere.`);
+                        return null;
+                    }
 
                     const isValid = verifyPassword(credentials.password as string, user.passwordHash);
-                    console.log(`BMAD: Password valid for "${credentials.username}": ${isValid}`);
+                    console.log(`[AUTH] Password valid for "${credentials.username}": ${isValid}`);
 
-                    if (!isValid) return null;
+                    if (!isValid) {
+                        console.warn(`[AUTH] Invalid password for user "${credentials.username}".`);
+                        return null;
+                    }
 
                     return {
                         id: user.id.toString(),
-                        name: user.username,
+                        username: user.username,
                         role: user.role,
                     };
-                } catch (err) {
-                    console.error("Auth Error:", err);
+                } catch (err: any) {
+                    console.error("[AUTH] CRITICAL ERROR during authorize callback:", err.message || err);
                     return null;
                 }
             }

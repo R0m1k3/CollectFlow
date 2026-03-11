@@ -35,7 +35,9 @@ export default async function GridPage({ searchParams }: GridPageProps) {
     }
 
     // 3. Load real product data for the selected supplier
+    console.log(`\n>>> [GridPage] Fetching data for: ${codeFournisseur}, shop: ${magasin}`);
     const rows = await getGridData(codeFournisseur, magasin, filters);
+    console.log(`>>> [GridPage] Received ${rows.length} rows from getGridData`);
     const selectedFournisseur = fournisseurs.find((f: { code: string; nom: string }) => f.code === codeFournisseur);
 
     return (

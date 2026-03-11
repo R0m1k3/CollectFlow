@@ -6,7 +6,7 @@ const cwd = path.resolve(__dirname, '..'); // get app root when inside /scripts
 
 async function main() {
     console.log("[DB Init] Starting database migration & initialization...");
-    let connectionString = process.env.DATABASE_URL;
+    let connectionString = "";
 
     try {
         const CONFIG_PATH = path.join(cwd, "data", ".db-config.json");
@@ -19,6 +19,12 @@ async function main() {
         }
     } catch (e) {
         console.error("[DB Init] Error reading .db-config.json", e);
+    }
+
+    // Use environment variable as default IF NOT already loaded from config
+    if (!connectionString && process.env.DATABASE_URL) {
+        connectionString = process.env.DATABASE_URL;
+        console.log("[DB Init] Using environment variable DATABASE_URL as fallback.");
     }
 
     if (!connectionString) {
@@ -56,6 +62,17 @@ async function main() {
             );
         `);
         console.log("[DB Init] Table session_snapshots is verified/created.");
+
+        await tempPool.query(`
+            CREATE TABLE IF NOT EXISTS "users" (
+                "id" serial PRIMARY KEY NOT NULL,
+                "username" varchar(50) NOT NULL UNIQUE,
+                "password_hash" text NOT NULL,
+                "role" varchar(20) NOT NULL DEFAULT 'user',
+                "created_at" timestamp DEFAULT now()
+            );
+        `);
+        console.log("[DB Init] Table users is verified/created.");
 
         await tempPool.end();
         console.log("[DB Init] Initialization successful. Exiting.");
