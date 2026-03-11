@@ -115,6 +115,10 @@ export interface ProductContextProfile {
      * Le produit appartient aux 30% les moins performants en CA et Quantité.
      */
     isLowContribution: boolean;
+    /**
+     * Produit avec des statistiques absolues dérisoires (ex: < 100€ CA ou < 20 unités au réseau)
+     */
+    isDeadStock: boolean;
 
     // Gardes-fous (issus du ScoringEngine)
     isProtected: boolean;
@@ -295,6 +299,7 @@ export class ContextProfiler {
                 : 0;
 
         const isLowContribution = pCa <= 30 && pQty <= 30 && pMarge <= 70;
+        const isDeadStock = (target.totalCa ?? 0) < 100 || (target.totalQuantite ?? 0) < 20;
 
         // 6. Signaux Trafic / Marge + Quadrant
         const signalsActive = rayonSizeForSignals >= MIN_RAYON_SIZE;
@@ -378,6 +383,7 @@ export class ContextProfiler {
             isHighVolumeWithLowMargin,
             isMargePure,
             isLowContribution,
+            isDeadStock,
 
             isProtected,
             protectionReason,
