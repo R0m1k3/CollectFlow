@@ -1,12 +1,12 @@
 /**
- * CollectFlow — Score Engine (Proposition B: MAX + Bonus polyvalence)
+ * CollectFlow — Score Engine (Proposition C: Score Composite Pondéré)
  *
  * Calcule le score de performance d'un produit en fonction de son poids
- * relatif chez le fournisseur sur 3 axes : Quantité, CA, Marge.
+ * relatif chez le fournisseur sur 3 axes : CA, Quantité, Marge.
  *
  * Formule :
- *   poids = produit.metric / total_fournisseur × 100
- *   base  = MAX(poids_qty, poids_ca, poids_marge)
+ *   score_axe = produit.metric / max_metric_fournisseur × 100
+ *   base  = (scoreCa × 45%) + (scoreQty × 35%) + (scoreMarge × 20%)
  *   bonus = count(poids > seuil) × bonusParAxe
  *   score = MIN(base + bonus, 100)
  */
@@ -84,8 +84,8 @@ export function computeProductScores(
         const scoreCa = maxCa > 0 ? (data.wCa / maxCa) * 100 : 0;
         const scoreMarge = maxMarge > 0 ? (data.wMarge / maxMarge) * 100 : 0;
 
-        // Base = meilleur score d'axe
-        const base = Math.max(scoreQty, scoreCa, scoreMarge);
+        // Base = Moyenne pondérée (CA: 45%, Qty: 35%, Marge: 20%)
+        const base = (scoreCa * 0.45) + (scoreQty * 0.35) + (scoreMarge * 0.20);
 
         let axesForts = 0;
         if (scoreQty > settings.seuilAxeFort) axesForts++;

@@ -48,8 +48,8 @@ IMPORTANT : La gamme C est RÉSERVÉE aux produits saisonniers et gérée MANUEL
      Sinon → A si actif (inactivité < 3 mois), Z si inactif ≥ 3 mois.
    — Quadrant WATCH ⚠️ : Signal négatif.
      Si poids CA rayon > 5% ou poids QTÉ rayon > 5% → A (surveiller).
-     Si percentileCa >= 50 ou percentileQty >= 50 → A (produit trop important au fournisseur).
-     Sinon → Z si inactivité ≥ 2 mois, A si actif.
+     Si percentileCa >= 80 ou percentileQty >= 80 → A (produit majeur du lot, vital).
+     Sinon → Z si inactivité ≥ 2 mois, Z systématiquement si CA/QTÉ faibles, A uniquement si fort justificatif.
 
 --- COHÉRENCE INTER-PRODUITS ---
 Ne mets jamais Z un produit si son percentile CA ET son percentile QTÉ sont tous les deux supérieurs à un autre produit déjà classé A dans ce lot.
