@@ -120,6 +120,13 @@ export interface ProductContextProfile {
      */
     isDeadStock: boolean;
 
+    // Signal positif fort — Locomotive de rayon
+    /**
+     * Le produit est une "locomotive" de sa nomenclature (poids CA rayon > 15% OU poids QTÉ rayon > 15%)
+     * → Pilier structurant de l'offre dans sa catégorie
+     */
+    isLocomotiveRayon: boolean;
+
     // Gardes-fous (issus du ScoringEngine)
     isProtected: boolean;
     protectionReason: string;
@@ -299,7 +306,16 @@ export class ContextProfiler {
                 : 0;
 
         const isLowContribution = pCa <= 30 && pQty <= 30 && pMarge <= 70;
-        const isDeadStock = (target.totalCa ?? 0) < 100 || (target.totalQuantite ?? 0) < 20;
+        const isDeadStock = (target.totalCa ?? 0) < 150 && (target.totalQuantite ?? 0) < 30;
+
+        // 5b. Locomotive de rayon — poids significatif dans la nomenclature
+        const weightCaRayonNum = totalCaRayon > 0
+            ? (getWeightedCa(target) / totalCaRayon) * 100
+            : 0;
+        const weightQtyRayonNum = totalQtyRayon > 0
+            ? (getWeightedQty(target) / totalQtyRayon) * 100
+            : 0;
+        const isLocomotiveRayon = weightCaRayonNum > 15 || weightQtyRayonNum > 15;
 
         // 6. Signaux Trafic / Marge + Quadrant
         const signalsActive = rayonSizeForSignals >= MIN_RAYON_SIZE;
@@ -384,6 +400,7 @@ export class ContextProfiler {
             isMargePure,
             isLowContribution,
             isDeadStock,
+            isLocomotiveRayon,
 
             isProtected,
             protectionReason,

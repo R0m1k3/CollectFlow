@@ -27,7 +27,8 @@ IMPORTANT : La gamme C est RÉSERVÉE aux produits saisonniers et gérée MANUEL
 
 2. SEUIL PLANCHER ABSOLU ET CONTEXTE DISCOUNT (règle critique) :
    - Règle A : Si isLowContribution = true [percentile CA <= 30 ET percentile QTÉ <= 30] ET score composite < 35 ET scoreCritique = true → Z DIRECT.
-   - Règle B (Morts-vivants de rayon) : Si les statistiques ABSOLUES sont dérisoires pour notre modèle discount (ex: CA annuel de quelques dizaines d'euros OU Quantité annuelle vendue de quelques unités, ex: < 20), et ce MÊME SI les percentiles sont élevés (car le lot est mauvais) → Z DIRECT. Un produit qui vend 5 unités par an n'est pas rentable pour un grand magasin.
+   - Règle B (Morts-vivants de rayon) : Si les statistiques ABSOLUES sont simultanément dérisoires en valeur ET en volume pour notre modèle discount (ex: CA réseau < 150€ ET Quantité réseau < 30), et ce MÊME SI les percentiles sont élevés (car le lot est mauvais) → Z DIRECT. Un produit qui vend 15 unités pour 100€ de CA par an n'est pas rentable.
+   - Règle C (Locomotive de Rayon — PROTECTION FORTE) : Si isLocomotiveRayon = true [poids CA rayon > 15% OU poids QTÉ rayon > 15%] → C'est un PILIER de sa nomenclature qui structure l'offre de la catégorie. GARDE en A sauf si stock mort absolu (CA < 100€ ET QTÉ < 20). Un produit qui pèse 20% du CA d'une nomenclature ne peut pas sortir même si ses percentiles globaux sont faibles.
 
 3. RÈGLE MANAGER : Si le manager a défini une consigne ET que le produit est concerné → Appliquer la consigne À LA LETTRE.
    Si la règle ordonne explicitement une Gamme B, C ou D, TU DOIS SORTIR "B", "C" ou "D". "rule_applies" doit être 'true'.
@@ -50,6 +51,30 @@ IMPORTANT : La gamme C est RÉSERVÉE aux produits saisonniers et gérée MANUEL
 
 --- COHÉRENCE INTER-PRODUITS ---
 Ne mets jamais Z un produit si son percentile CA ET son percentile QTÉ sont tous les deux supérieurs à un autre produit classé A.
+EXCEPTION : Cette règle de cohérence s'annule totalement si le produit est considéré comme un [⛔ STOCK MORT] (chiffres absolus dérisoires). Un stock mort doit toujours sortir en Z.
+
+--- COMPLÉMENTARITÉ ET CHOIX MINIMAL (règle d'assortiment) ---
+La Foir'Fouille doit offrir un CHOIX COMPLET dans chaque nomenclature pour attirer et fidéliser la clientèle. Certaines catégories génèrent peu de CA mais sont INDISPENSABLES pour l'image "tout sous un même toit".
+
+RÈGLE DE COMPLÉMENTARITÉ :
+- Si le rayon compte MOINS de 8 produits actifs (non-Z) dans la nomenclature
+  ET que le produit analysé n'est PAS un stock mort (CA > 150€ OU QTÉ > 30)
+  → GARDE en A pour maintenir un assortiment minimal et éviter une rupture d'offre.
+
+- Si le rayon compte PLUS de 15 produits actifs → Tu peux être sévère et purger les sous-performants sans risquer une rupture de gamme.
+
+GUIDE NOMENCLATURES (à adapter selon contexte) :
+• Nomenclatures ESSENTIELLES (CA faible accepté si complémentarité) :
+  Arts de la table, Cuisine de base, Rangement, Papeterie, Hygiène, Petit électroménager
+  → Objectif : Offrir un choix complet même si rotation faible. Accepte des produits avec percentile CA < 50 si nécessaires pour couvrir les sous-familles.
+
+• Nomenclatures GÉNÉRATRICES DE TRAFIC (volume prioritaire) :
+  Décoration, Textile maison, Jardin, Jouets, Loisirs créatifs
+  → Objectif : Maximiser le volume et la fréquentation. Privilégie forte rotation même avec marge faible.
+
+• Nomenclatures OPPORTUNISTES (exigence maximale) :
+  Saisonnalité forte (Noël, Halloween, Pâques, Barbecue, Piscine)
+  → Objectif : Rentabilité pure. Pas de sentimentalisme. Si le produit sous-performe → Z sans hésitation.
 
 --- FORMAT OBLIGATOIRE ---
 JSON uniquement, sans markdown.
@@ -83,8 +108,14 @@ JSON uniquement, sans markdown.
         const storeLabel = ctx.storeCount > 1 ? `${ctx.storeCount} magasins` : `1 magasin`;
 
         lines.push(`PRODUIT : ${ctx.libelle1} (${ctx.codein})`);
-        lines.push(`CATÉGORIE : ${ctx.libelleNiveau2} (rayon: ${ctx.rayonSize} produits | lot total: ${ctx.lotSize} produits)`);
+        lines.push(`CATÉGORIE : ${ctx.libelleNiveau2}`);
+        lines.push(`CONTEXTE RAYON : ${ctx.rayonSize} produits dans cette nomenclature | Lot fournisseur total: ${ctx.lotSize} produits`);
         lines.push(`DISTRIBUTION : ${storeLabel} référençant ce produit`);
+
+        // Alerte complémentarité si petit rayon
+        if (ctx.rayonSize < 8) {
+            lines.push(`⚠️ PETIT RAYON : Seulement ${ctx.rayonSize} produits dans cette nomenclature → Risque de rupture d'offre si purge excessive`);
+        }
         lines.push("");
 
         // KPIs bruts réseau + valeurs normalisées par magasin
@@ -124,6 +155,9 @@ JSON uniquement, sans markdown.
         }
 
         // Signaux positifs
+        if (ctx.isLocomotiveRayon) {
+            lines.push(`[🚂 LOCOMOTIVE RAYON] Poids CA rayon: ${ctx.weightCaRayon}% | Poids QTÉ rayon: ${ctx.weightQtyRayon}% → Pilier structurant de la nomenclature`);
+        }
         lines.push(`${ctx.isTop20Ca ? "[✓]" : "[ ]"} Top 20% CA/magasin fournisseur`);
         lines.push(`${ctx.isTop20Qty ? "[✓]" : "[ ]"} Top 20% Quantités/magasin fournisseur`);
         lines.push(`${ctx.isHighVolumeWithLowMargin ? "[✓]" : "[ ]"} Fort volume/magasin (>P60 lot) avec marge faible`);
