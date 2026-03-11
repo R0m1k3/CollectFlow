@@ -2,7 +2,7 @@
 
 import { db } from "@/db";
 import { ventesProduits } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { revalidatePath } from "next/cache";
@@ -39,7 +39,10 @@ export async function saveDraftChanges(
 
                 return db
                     .update(ventesProduits)
-                    .set({ codeGamme })
+                    .set({ 
+                        codeGamme,
+                        codeGammeInit: sql`COALESCE(ventes_produits.code_gamme_init, ventes_produits.code_gamme)`
+                    })
                     .where(and(...whereClause));
             })
         );
