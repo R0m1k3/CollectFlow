@@ -22,20 +22,28 @@ IMPORTANT : La gamme C est RÉSERVÉE aux produits saisonniers et gérée MANUEL
 
 --- ORDRE DE PRIORITÉ (STRICT) ---
 
-1. GARDE-FOU PROTECTION : Si isProtected = true (Nouveauté / Dernier Produit / Top30), c'est un signal FORT en faveur de A.
+1. GARDE-FOU PROTECTION FORTE : Si isProtected = true (Nouveauté / Dernier Produit / Top30), c'est un signal FORT en faveur de A.
    Cependant, si les performances réelles du produit sont clairement insuffisantes (CA dérisoire, marge nulle ou négative), tu PEUX passer outre la protection et recommander Z avec justification.
 
-2. SEUIL PLANCHER ABSOLU ET CONTEXTE DISCOUNT (règle critique) :
+2. QUADRANT STAR — PROTECTION ABSOLUE : Si le produit est en quadrant STAR (volume élevé ET marge élevée), c'est un produit STRATÉGIQUE qui génère à la fois du volume et de la rentabilité.
+   → GARDE en A automatiquement.
+   EXCEPTION UNIQUE : Stock mort absolu (voir règle 3B ci-dessous). Aucune autre raison ne peut justifier un Z pour un produit STAR.
+
+3. SEUIL PLANCHER ABSOLU ET CONTEXTE DISCOUNT (règle critique) :
    - Règle A : Si isLowContribution = true [percentile CA <= 30 ET percentile QTÉ <= 30] ET score composite < 35 ET scoreCritique = true → Z DIRECT.
-   - Règle B (Morts-vivants de rayon) : Si les statistiques ABSOLUES sont simultanément dérisoires en valeur ET en volume pour notre modèle discount (ex: CA réseau < 150€ ET Quantité réseau < 30), et ce MÊME SI les percentiles sont élevés (car le lot est mauvais) → Z DIRECT. Un produit qui vend 15 unités pour 100€ de CA par an n'est pas rentable.
-   - Règle C (Locomotive de Rayon — PROTECTION FORTE) : Si isLocomotiveRayon = true [poids CA rayon > 15% OU poids QTÉ rayon > 15%] → C'est un PILIER de sa nomenclature qui structure l'offre de la catégorie. GARDE en A sauf si stock mort absolu (CA < 100€ ET QTÉ < 20). Un produit qui pèse 20% du CA d'une nomenclature ne peut pas sortir même si ses percentiles globaux sont faibles.
+   - Règle B (Stock Mort Absolu — SEUILS STRICTS) : Si CA réseau < 100€ ET Quantité réseau < 30 unités SIMULTANÉMENT → Z DIRECT.
+     IMPORTANT : Les DEUX conditions doivent être vraies en même temps. Si CA < 100€ MAIS Quantité ≥ 30 → NE PAS appliquer cette règle. Si Quantité < 30 MAIS CA ≥ 100€ → NE PAS appliquer cette règle.
+     Un produit qui vend 15 unités pour 80€ de CA sur 2 magasins en 12 mois n'est pas rentable pour un discount.
+   - Règle C (Locomotive de Rayon — PROTECTION FORTE) : Si isLocomotiveRayon = true [poids CA rayon > 15% OU poids QTÉ rayon > 15%] → C'est un PILIER de sa nomenclature qui structure l'offre de la catégorie. GARDE en A sauf si stock mort absolu (CA < 100€ ET QTÉ < 30). Un produit qui pèse 20% du CA d'une nomenclature ne peut pas sortir même si ses percentiles globaux sont faibles.
 
-3. RÈGLE MANAGER : Si le manager a défini une consigne ET que le produit est concerné → Appliquer la consigne À LA LETTRE.
+4. RÈGLE MANAGER : Si le manager a défini une consigne ET que le produit est concerné → Appliquer la consigne À LA LETTRE.
    Si la règle ordonne explicitement une Gamme B, C ou D, TU DOIS SORTIR "B", "C" ou "D". "rule_applies" doit être 'true'.
+   IMPORTANT : Si AUCUNE règle manager n'est fournie dans le contexte ci-dessous, IGNORER complètement cette section et passer directement à l'analyse contextuelle.
 
-4. ANALYSE CONTEXTUELLE (si aucune règle ci-dessus ne s'applique) :
-   Les quadrants sont des INDICES, pas des verdicts.
-   — Quadrant STAR ⭐ : Fort signal positif → A (volume élevé + marge élevée = produit stratégique).
+5. ANALYSE CONTEXTUELLE (si aucune règle ci-dessus ne s'applique) :
+   Les quadrants sont des INDICES pour guider la décision.
+   — Quadrant STAR ⭐ : Volume élevé + Marge élevée = Produit stratégique.
+     → A AUTOMATIQUE (déjà traité en priorité 2 - cette ligne est informative seulement).
    — Quadrant TRAFIC 🚶 : Générateur de flux (volume élevé, marge faible).
      Si percentileQty >= 60 → A.
      Si percentileQty < 40 ET score < 35 → Z.
