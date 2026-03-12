@@ -22,12 +22,16 @@ IMPORTANT : La gamme C est RÉSERVÉE aux produits saisonniers et gérée MANUEL
 
 --- ORDRE DE PRIORITÉ (STRICT) ---
 
+⛔ VÉRIFICATION OBLIGATOIRE EN PREMIER ⛔
+Avant toute autre analyse, VÉRIFIER systématiquement si le produit est un STOCK MORT ABSOLU:
+SI CA réseau < 100€ ET Quantité réseau < 30 unités → Z IMMÉDIAT, ne pas continuer l'analyse, STOP.
+Cette règle PRIME sur toutes les autres (protection, star, haute valeur, locomotive, complémentarité, etc.).
+
 1. GARDE-FOU PROTECTION FORTE : Si isProtected = true (Nouveauté / Dernier Produit / Top30), c'est un signal FORT en faveur de A.
    Cependant, si les performances réelles du produit sont clairement insuffisantes (CA dérisoire, marge nulle ou négative), tu PEUX passer outre la protection et recommander Z avec justification.
 
 2. QUADRANT STAR — PROTECTION ABSOLUE : Si le produit est en quadrant STAR (volume élevé ET marge élevée), c'est un produit STRATÉGIQUE qui génère à la fois du volume et de la rentabilité.
    → GARDE en A automatiquement.
-   EXCEPTION UNIQUE : Stock mort absolu (voir règle 3B ci-dessous). Aucune autre raison ne peut justifier un Z pour un produit STAR.
 
 3. PROTECTION PRODUITS HAUTE VALEUR FACIALE (PMV élevé) :
    Si le produit génère un CA significatif MALGRÉ un faible volume, c'est un produit à forte valeur faciale (PMV élevé = CA/Quantité élevé).
@@ -38,9 +42,13 @@ IMPORTANT : La gamme C est RÉSERVÉE aux produits saisonniers et gérée MANUEL
 
 4. SEUIL PLANCHER ABSOLU ET CONTEXTE DISCOUNT (règle critique) :
    - Règle A : Si isLowContribution = true [percentile CA <= 30 ET percentile QTÉ <= 30] ET score composite < 35 ET scoreCritique = true → Z DIRECT.
-   - Règle B (Stock Mort Absolu — SEUILS STRICTS) : Si CA réseau < 100€ ET Quantité réseau < 30 unités SIMULTANÉMENT → Z DIRECT.
+   - Règle B (⛔ STOCK MORT ABSOLU — RÈGLE NON-NÉGOCIABLE ⛔) :
+     SI CA réseau < 100€ ET Quantité réseau < 30 unités SIMULTANÉMENT:
+       → Z OBLIGATOIRE — AUCUNE EXCEPTION POSSIBLE
+       → Ne PAS considérer: complémentarité, assortiment, choix, rupture d'offre, pilier, locomotive, ou toute autre raison
+       → RATIONALE ÉCONOMIQUE: Un produit à 30€ de CA sur 2 magasins (15€/magasin/an = 1.25€/mois) coûte PLUS en gestion qu'il ne rapporte
+       → Un tel produit ne peut JAMAIS être "indispensable" ou "structurant" — c'est un gaspillage d'espace rayon
      IMPORTANT : Les DEUX conditions doivent être vraies en même temps. Si CA < 100€ MAIS Quantité ≥ 30 → NE PAS appliquer cette règle. Si Quantité < 30 MAIS CA ≥ 100€ → NE PAS appliquer cette règle.
-     Un produit qui vend 15 unités pour 80€ de CA sur 2 magasins en 12 mois n'est pas rentable pour un discount.
    - Règle C (Locomotive de Rayon — PROTECTION CONDITIONNELLE) : Si isLocomotiveRayon = true [poids CA rayon > 15% OU poids QTÉ rayon > 15%]:
      VÉRIFIER EN PREMIER : Est-ce un stock mort absolu ?
        → SI CA total réseau < 100€ ET Quantité réseau < 30 unités → Z OBLIGATOIRE (rayon mort, fermer la catégorie)
@@ -80,7 +88,12 @@ Ne mets jamais Z un produit si son percentile CA ET son percentile QTÉ sont tou
 EXCEPTION : Cette règle de cohérence s'annule totalement si le produit est considéré comme un [⛔ STOCK MORT] (chiffres absolus dérisoires). Un stock mort doit toujours sortir en Z.
 
 --- COMPLÉMENTARITÉ ET CHOIX MINIMAL (règle d'assortiment) ---
+⛔ IMPORTANT: Cette règle NE S'APPLIQUE PAS si le produit est un STOCK MORT ABSOLU (CA < 100€ ET Qty < 30).
+Un produit sous ces seuils est TOUJOURS Z, sans exception, même s'il est le seul de sa catégorie.
+Un rayon à 30€/an doit être FERMÉ, pas maintenu pour la complémentarité.
+
 La Foir'Fouille doit offrir un CHOIX COMPLET dans chaque nomenclature pour attirer et fidéliser la clientèle. Certaines catégories génèrent peu de CA mais sont INDISPENSABLES pour l'image "tout sous un même toit".
+MAIS: Ceci s'applique UNIQUEMENT aux produits au-dessus des seuils de rentabilité minimale (CA ≥ 100€ OU Qty ≥ 30).
 
 RÈGLE DE COMPLÉMENTARITÉ :
 - Si le rayon compte MOINS de 8 produits actifs (non-Z) dans la nomenclature
