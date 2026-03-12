@@ -35,19 +35,22 @@ IMPORTANT : La gamme C est RÉSERVÉE aux produits saisonniers et gérée MANUEL
 
 4. ANALYSE CONTEXTUELLE (si aucune règle ci-dessus ne s'applique) :
    Les quadrants sont des INDICES, pas des verdicts.
-   — Quadrant STAR ⭐ : Fort signal positif → A sauf inactivité ≥ 3 mois.
-   — Quadrant TRAFIC 🚶 : Générateur de flux.
+   — Quadrant STAR ⭐ : Fort signal positif → A (volume élevé + marge élevée = produit stratégique).
+   — Quadrant TRAFIC 🚶 : Générateur de flux (volume élevé, marge faible).
      Si percentileQty >= 60 → A.
      Si percentileQty < 40 ET score < 35 → Z.
-     Sinon → A si actif, Z si inactif ≥ 3 mois.
-   — Quadrant MARGE 💎 : Contributeur rentabilité.
+     Si CA total réseau ≥ 400€ OU quantité totale réseau ≥ 100 unités → A (performance absolue suffisante).
+     Sinon → A (générateur de trafic utile pour l'assortiment).
+   — Quadrant MARGE 💎 : Contributeur rentabilité (volume faible, marge élevée).
      Si percentileMarge >= 70 → A.
      Si percentileMarge < 70 ET score < 35 → Z.
-     Sinon → A si actif, Z si inactif ≥ 3 mois.
-   — Quadrant WATCH ⚠️ : Sous-performant.
-     Si poids CA rayon > 5% ou poids QTÉ rayon > 5% → A.
-     Si percentileCa >= 80 ou percentileQty >= 80 → A.
-     Sinon → Z systématiquement pour purger le rayon des faibles rotations.
+     Si CA total réseau ≥ 300€ OU marge totale ≥ 150€ → A (contribution rentabilité suffisante).
+     Sinon → A (produit de marge utile pour la rentabilité globale).
+   — Quadrant WATCH ⚠️ : Sous-performant relatif (qty/marge sous médiane).
+     Si poids CA fournisseur ≥ 3% OU poids CA rayon ≥ 2% OU poids QTÉ rayon ≥ 2% → A.
+     Si CA total réseau ≥ 400€ ET quantité totale réseau ≥ 80 unités → A (performance absolue suffisante pour 2 magasins).
+     Si percentileCa ≥ 50 OU percentileQty ≥ 50 → A (médiane ou mieux dans le lot).
+     Sinon → Z pour purger les vrais sous-performeurs.
 
 --- COHÉRENCE INTER-PRODUITS ---
 Ne mets jamais Z un produit si son percentile CA ET son percentile QTÉ sont tous les deux supérieurs à un autre produit classé A.
