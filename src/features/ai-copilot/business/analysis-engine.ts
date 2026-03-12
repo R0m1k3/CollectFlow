@@ -29,25 +29,33 @@ IMPORTANT : La gamme C est RÉSERVÉE aux produits saisonniers et gérée MANUEL
    → GARDE en A automatiquement.
    EXCEPTION UNIQUE : Stock mort absolu (voir règle 3B ci-dessous). Aucune autre raison ne peut justifier un Z pour un produit STAR.
 
-3. SEUIL PLANCHER ABSOLU ET CONTEXTE DISCOUNT (règle critique) :
+3. PROTECTION PRODUITS HAUTE VALEUR FACIALE (PMV élevé) :
+   Si le produit génère un CA significatif MALGRÉ un faible volume, c'est un produit à forte valeur faciale (PMV élevé = CA/Quantité élevé).
+   Ces produits optimisent la rentabilité par m² car ils génèrent du CA et de la marge avec peu d'espace rayon.
+   → Si CA total réseau ≥ 200€ → GARDE en A, même si quantité < 50 unités.
+   RATIONALE : Un produit qui vend 40 unités à 5€ (200€ CA) est MEILLEUR qu'un produit qui vend 200 unités à 0.80€ (160€ CA).
+   Le PMV élevé = optimisation espace rayon + meilleure rentabilité.
+
+4. SEUIL PLANCHER ABSOLU ET CONTEXTE DISCOUNT (règle critique) :
    - Règle A : Si isLowContribution = true [percentile CA <= 30 ET percentile QTÉ <= 30] ET score composite < 35 ET scoreCritique = true → Z DIRECT.
    - Règle B (Stock Mort Absolu — SEUILS STRICTS) : Si CA réseau < 100€ ET Quantité réseau < 30 unités SIMULTANÉMENT → Z DIRECT.
      IMPORTANT : Les DEUX conditions doivent être vraies en même temps. Si CA < 100€ MAIS Quantité ≥ 30 → NE PAS appliquer cette règle. Si Quantité < 30 MAIS CA ≥ 100€ → NE PAS appliquer cette règle.
      Un produit qui vend 15 unités pour 80€ de CA sur 2 magasins en 12 mois n'est pas rentable pour un discount.
    - Règle C (Locomotive de Rayon — PROTECTION FORTE) : Si isLocomotiveRayon = true [poids CA rayon > 15% OU poids QTÉ rayon > 15%] → C'est un PILIER de sa nomenclature qui structure l'offre de la catégorie. GARDE en A sauf si stock mort absolu (CA < 100€ ET QTÉ < 30). Un produit qui pèse 20% du CA d'une nomenclature ne peut pas sortir même si ses percentiles globaux sont faibles.
 
-4. RÈGLE MANAGER : Si le manager a défini une consigne ET que le produit est concerné → Appliquer la consigne À LA LETTRE.
+5. RÈGLE MANAGER : Si le manager a défini une consigne ET que le produit est concerné → Appliquer la consigne À LA LETTRE.
    Si la règle ordonne explicitement une Gamme B, C ou D, TU DOIS SORTIR "B", "C" ou "D". "rule_applies" doit être 'true'.
    IMPORTANT : Si AUCUNE règle manager n'est fournie dans le contexte ci-dessous, IGNORER complètement cette section et passer directement à l'analyse contextuelle.
 
-5. ANALYSE CONTEXTUELLE (si aucune règle ci-dessus ne s'applique) :
+6. ANALYSE CONTEXTUELLE (si aucune règle ci-dessus ne s'applique) :
    Les quadrants sont des INDICES pour guider la décision.
    — Quadrant STAR ⭐ : Volume élevé + Marge élevée = Produit stratégique.
      → A AUTOMATIQUE (déjà traité en priorité 2 - cette ligne est informative seulement).
    — Quadrant TRAFIC 🚶 : Générateur de flux (volume élevé, marge faible).
      Si percentileQty >= 60 → A.
      Si percentileQty < 40 ET score < 35 → Z.
-     Si CA total réseau ≥ 400€ OU quantité totale réseau ≥ 100 unités → A (performance absolue suffisante).
+     Si CA total réseau ≥ 250€ → A (génère du CA suffisant).
+     Si quantité totale réseau ≥ 100 unités → A (volume élevé = générateur de trafic).
      Sinon → A (générateur de trafic utile pour l'assortiment).
    — Quadrant MARGE 💎 : Contributeur rentabilité (volume faible, marge élevée).
      Si percentileMarge >= 70 → A.
@@ -56,7 +64,8 @@ IMPORTANT : La gamme C est RÉSERVÉE aux produits saisonniers et gérée MANUEL
      Sinon → A (produit de marge utile pour la rentabilité globale).
    — Quadrant WATCH ⚠️ : Sous-performant relatif (qty/marge sous médiane).
      Si poids CA fournisseur ≥ 3% OU poids CA rayon ≥ 2% OU poids QTÉ rayon ≥ 2% → A.
-     Si CA total réseau ≥ 400€ ET quantité totale réseau ≥ 80 unités → A (performance absolue suffisante pour 2 magasins).
+     Si CA total réseau ≥ 250€ → A (génère du CA suffisant, peu importe la quantité).
+     Si quantité totale réseau ≥ 100 unités ET CA ≥ 150€ → A (volume suffisant avec CA raisonnable).
      Si percentileCa ≥ 50 OU percentileQty ≥ 50 → A (médiane ou mieux dans le lot).
      Sinon → Z pour purger les vrais sous-performeurs.
 
