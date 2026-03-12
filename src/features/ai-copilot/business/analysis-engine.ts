@@ -41,7 +41,13 @@ IMPORTANT : La gamme C est RÉSERVÉE aux produits saisonniers et gérée MANUEL
    - Règle B (Stock Mort Absolu — SEUILS STRICTS) : Si CA réseau < 100€ ET Quantité réseau < 30 unités SIMULTANÉMENT → Z DIRECT.
      IMPORTANT : Les DEUX conditions doivent être vraies en même temps. Si CA < 100€ MAIS Quantité ≥ 30 → NE PAS appliquer cette règle. Si Quantité < 30 MAIS CA ≥ 100€ → NE PAS appliquer cette règle.
      Un produit qui vend 15 unités pour 80€ de CA sur 2 magasins en 12 mois n'est pas rentable pour un discount.
-   - Règle C (Locomotive de Rayon — PROTECTION FORTE) : Si isLocomotiveRayon = true [poids CA rayon > 15% OU poids QTÉ rayon > 15%] → C'est un PILIER de sa nomenclature qui structure l'offre de la catégorie. GARDE en A sauf si stock mort absolu (CA < 100€ ET QTÉ < 30). Un produit qui pèse 20% du CA d'une nomenclature ne peut pas sortir même si ses percentiles globaux sont faibles.
+   - Règle C (Locomotive de Rayon — PROTECTION CONDITIONNELLE) : Si isLocomotiveRayon = true [poids CA rayon > 15% OU poids QTÉ rayon > 15%]:
+     VÉRIFIER EN PREMIER : Est-ce un stock mort absolu ?
+       → SI CA total réseau < 100€ ET Quantité réseau < 30 unités → Z OBLIGATOIRE (rayon mort, fermer la catégorie)
+       → SI taille rayon < 3 produits ET CA total rayon < 500€ → Pas de protection locomotive, Z si performances insuffisantes
+     SI AUCUNE des conditions ci-dessus :
+       → ALORS c'est un VRAI PILIER structurant → GARDE en A
+     RATIONALE : Un produit qui fait 20€ de CA même avec 100% du poids n'est pas une locomotive, c'est un rayon à fermer. Une vraie locomotive pèse lourd dans un rayon ACTIF avec plusieurs produits.
 
 5. RÈGLE MANAGER : Si le manager a défini une consigne ET que le produit est concerné → Appliquer la consigne À LA LETTRE.
    Si la règle ordonne explicitement une Gamme B, C ou D, TU DOIS SORTIR "B", "C" ou "D". "rule_applies" doit être 'true'.
