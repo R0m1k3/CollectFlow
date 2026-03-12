@@ -3,10 +3,16 @@ import { useAiCopilotStore } from "@/features/ai-copilot/store/use-ai-copilot-st
 
 import { BulkAiAnalyzer } from "./bulk-ai-analyzer";
 import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
-import { Loader2, CheckCircle, AlertCircle, RotateCcw, Camera } from "lucide-react";
+import { Loader2, CheckCircle, AlertCircle, RotateCcw, Camera, ChevronDown } from "lucide-react";
 import { useState, useTransition } from "react";
 import { saveSnapshot } from "@/features/snapshots/api/save-snapshot";
 import { SuccessModal } from "@/components/shared/success-modal";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
     // Determine color based on label to match the prototype
@@ -167,59 +173,121 @@ export function FloatingSummaryBar() {
             <div className="flex space-x-3 items-center">
                 <BulkAiAnalyzer />
 
-                <button
-                    onClick={async () => {
-                        const currentState = useGridStore.getState();
-                        const currentDrafts = currentState.draftChanges;
-                        const currentRows = currentState.rows;
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <button className="btn-action btn-action-secondary flex items-center gap-1.5">
+                            Export Excel
+                            <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-64">
+                        <DropdownMenuItem
+                            onClick={async () => {
+                                const currentState = useGridStore.getState();
+                                const currentDrafts = currentState.draftChanges;
+                                const currentRows = currentState.rows;
 
-                        const modifiedRows = currentRows.filter(r => {
-                            const currentGamme = currentDrafts[r.codein] ?? r.codeGamme;
-                            return currentGamme !== r.codeGammeInit;
-                        });
+                                const modifiedRows = currentRows.filter(r => {
+                                    const currentGamme = currentDrafts[r.codein] ?? r.codeGamme;
+                                    return currentGamme !== r.codeGammeInit;
+                                });
 
-                        if (modifiedRows.length === 0) {
-                            alert("Aucun changement détecté par rapport à l'état initial.");
-                            return;
-                        }
+                                if (modifiedRows.length === 0) {
+                                    alert("Aucun changement détecté par rapport à l'état initial.");
+                                    return;
+                                }
 
-                        const changes = modifiedRows.map(r => ({
-                            codein: r.codein,
-                            gtin: r.gtin,
-                            codeFournisseur: r.codeFournisseur,
-                            gamme: (currentDrafts[r.codein] ?? r.codeGamme) as string,
-                        }));
+                                const changes = modifiedRows.map(r => ({
+                                    codein: r.codein,
+                                    gtin: r.gtin,
+                                    codeFournisseur: r.codeFournisseur,
+                                    gamme: (currentDrafts[r.codein] ?? r.codeGamme) as string,
+                                }));
 
-                        const nomFournisseur = modifiedRows[0].nomFournisseur;
+                                const nomFournisseur = modifiedRows[0].nomFournisseur;
 
-                        // Auto-save snapshot for history
-                        await handleSnapshot(`Export ${nomFournisseur} — ${new Date().toLocaleTimeString()}`, "export");
+                                // Auto-save snapshot for history
+                                await handleSnapshot(`Export ${nomFournisseur} — ${new Date().toLocaleTimeString()}`, "export");
 
-                        try {
-                            const res = await fetch("/api/export/modified-gammes", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ nomFournisseur, changes }),
-                            });
+                                try {
+                                    const res = await fetch("/api/export/modified-gammes", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ nomFournisseur, changes }),
+                                    });
 
-                            if (!res.ok) throw new Error("Erreur lors de l'export");
+                                    if (!res.ok) throw new Error("Erreur lors de l'export");
 
-                            const blob = await res.blob();
-                            const url = window.URL.createObjectURL(blob);
-                            const a = document.createElement("a");
-                            a.href = url;
-                            a.download = `Modifications_Gammes_${nomFournisseur.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.xlsx`;
-                            a.click();
-                            window.URL.revokeObjectURL(url);
-                        } catch (error) {
-                            console.error(error);
-                            alert("Une erreur s'est produite lors de l'export Excel.");
-                        }
-                    }}
-                    className="btn-action btn-action-secondary"
-                >
-                    Export Excel
-                </button>
+                                    const blob = await res.blob();
+                                    const url = window.URL.createObjectURL(blob);
+                                    const a = document.createElement("a");
+                                    a.href = url;
+                                    a.download = `Modifications_Gammes_${nomFournisseur.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+                                    a.click();
+                                    window.URL.revokeObjectURL(url);
+                                } catch (error) {
+                                    console.error(error);
+                                    alert("Une erreur s'est produite lors de l'export Excel.");
+                                }
+                            }}
+                            className="cursor-pointer"
+                        >
+                            <div className="flex flex-col">
+                                <span className="font-medium">Seulement les changements</span>
+                                <span className="text-xs text-muted-foreground">Exporter uniquement les gammes modifiées</span>
+                            </div>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={async () => {
+                                const currentState = useGridStore.getState();
+                                const currentDrafts = currentState.draftChanges;
+                                const currentRows = currentState.rows;
+
+                                if (currentRows.length === 0) {
+                                    alert("Aucune donnée à exporter.");
+                                    return;
+                                }
+
+                                const nomFournisseur = currentRows[0].nomFournisseur;
+
+                                // Toutes les lignes au format Excel (CODE FOURNISSEUR, GENCOD, GAMME)
+                                const changes = currentRows.map(r => ({
+                                    codein: r.codein,
+                                    gtin: r.gtin,
+                                    codeFournisseur: r.codeFournisseur,
+                                    gamme: (currentDrafts[r.codein] ?? r.codeGamme) as string,
+                                }));
+
+                                try {
+                                    const res = await fetch("/api/export/modified-gammes", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ nomFournisseur, changes }),
+                                    });
+
+                                    if (!res.ok) throw new Error("Erreur lors de l'export");
+
+                                    const blob = await res.blob();
+                                    const url = window.URL.createObjectURL(blob);
+                                    const a = document.createElement("a");
+                                    a.href = url;
+                                    a.download = `Export_Complet_${nomFournisseur.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+                                    a.click();
+                                    window.URL.revokeObjectURL(url);
+                                } catch (error) {
+                                    console.error(error);
+                                    alert("Une erreur s'est produite lors de l'export Excel.");
+                                }
+                            }}
+                            className="cursor-pointer"
+                        >
+                            <div className="flex flex-col">
+                                <span className="font-medium">Export complet</span>
+                                <span className="text-xs text-muted-foreground">Exporter toutes les lignes du fournisseur</span>
+                            </div>
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
 
                 <button
                     onClick={handleSave}
