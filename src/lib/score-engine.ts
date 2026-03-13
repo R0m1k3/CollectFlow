@@ -60,7 +60,7 @@ export function computeProductScores(
             wQty: (r.totalQuantite ?? 0) * weight,
             wCa: (r.totalCa ?? 0) * weight,
             wMarge: (r.totalMarge ?? 0) * weight,
-            tauxMarge: r.tauxMarge ?? 0, // Taux de marge en % (pas pondéré)
+            tauxMarge: Number.isFinite(r.tauxMarge) ? r.tauxMarge : 0, // Garde contre NaN
         };
     });
 
@@ -105,14 +105,16 @@ export function computeProductScores(
         const scoreVolume = avgQty > 0 ? (data.wQty / avgQty) * 100 : 0;
         const scoreMarge = avgMarge > 0 ? (data.tauxMarge / avgMarge) * 100 : 0;
 
-        // Score final = moyenne pondérée
-        const scoreComposite =
-            settings.weightCA * scoreCa +
-            settings.weightVolume * scoreVolume +
-            settings.weightMarge * scoreMarge;
+        // Validation des pondérations (garde contre undefined/NaN)
+        const wCA = Number.isFinite(settings.weightCA) ? settings.weightCA : 0.40;
+        const wVol = Number.isFinite(settings.weightVolume) ? settings.weightVolume : 0.35;
+        const wMarge = Number.isFinite(settings.weightMarge) ? settings.weightMarge : 0.25;
 
-        // Arrondi à 1 décimale
-        data.row.score = Math.round(scoreComposite * 10) / 10;
+        // Score final = moyenne pondérée
+        const scoreComposite = (wCA * scoreCa) + (wVol * scoreVolume) + (wMarge * scoreMarge);
+
+        // Arrondi à 1 décimale, garde contre NaN
+        data.row.score = Number.isFinite(scoreComposite) ? Math.round(scoreComposite * 10) / 10 : 0;
     }
 
     return rows;

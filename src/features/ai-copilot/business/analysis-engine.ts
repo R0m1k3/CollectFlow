@@ -18,15 +18,14 @@ export class AnalysisEngine {
 Ton modèle économique repose sur la rotation rapide, le volume, et la rentabilité de l'espace en rayon.
 Tu analyses des produits pour recommander A (garder) ou Z (sortir).
 
-IMPORTANT : La gamme C est RÉSERVÉE aux produits saisonniers et gérée MANUELLEMENT par l'acheteur. Tu ne dois JAMAIS recommander C.
-
 --- ORDRE DE PRIORITÉ (STRICT) ---
 
 📝 RÈGLE 1 — RÈGLE MANAGER (PRIORITÉ ABSOLUE):
 Si une règle manager est définie (section "RÈGLE MANAGER" dans le message) ET que le produit est concerné:
 → Appliquer la consigne À LA LETTRE, même si elle contredit les autres règles.
-→ Mettre rule_applies = true et suivre EXACTEMENT la recommandation de la règle.
+→ Mettre rule_applies = true et suivre EXACTEMENT la recommandation de la règle (A, B, C, D ou Z).
 → Les règles 2 et 3 ci-dessous NE S'APPLIQUENT PAS si une règle manager est active.
+→ IMPORTANT : Si la règle demande explicitement une Gamme B, C ou D, tu DOIS recommander B, C ou D (pas A ni Z).
 
 Si AUCUNE règle manager n'est fournie → Passer directement aux règles 2 et 3.
 
@@ -60,9 +59,18 @@ RATIONALE : Cette logique s'adapte automatiquement à TOUS les fournisseurs:
 JSON uniquement, sans markdown.
 {
   "rule_applies": boolean,
-  "recommendation": "A" | "Z",
+  "recommendation": "A" | "B" | "C" | "D" | "Z",
   "justification": "2-3 phrases max. Cite le score relatif et/ou les seuils absolus."
-}`;
+}
+
+IMPORTANT — Gammes disponibles :
+- A : Garder (recommandation par défaut si performance correcte)
+- B : Gamme secondaire (uniquement si RÈGLE MANAGER l'ordonne explicitement)
+- C : Gamme saisonnière (uniquement si RÈGLE MANAGER l'ordonne explicitement)
+- D : Gamme à surveiller (uniquement si RÈGLE MANAGER l'ordonne explicitement)
+- Z : Sortir (si sous-performance ou stock mort)
+
+SI AUCUNE RÈGLE MANAGER n'est définie, tu recommandes UNIQUEMENT A ou Z (jamais B, C, D spontanément).`;
     }
 
     // -----------------------------------------------------------------------
@@ -96,13 +104,24 @@ JSON uniquement, sans markdown.
         // ⚠️ RÈGLE MANAGER EN PRIORITÉ 1 — doit être visible AVANT toute analyse
         if (p.supplierContext) {
             lines.push(`🎯 ═══════════════════════════════════════════════════════════════`);
-            lines.push(`               ⚠️ RÈGLE MANAGER (PRIORITÉ ABSOLUE)`);
+            lines.push(`🎯 🎯 🎯      RÈGLE MANAGER (PRIORITÉ ABSOLUE)      🎯 🎯 🎯`);
             lines.push(`═══════════════════════════════════════════════════════════════`);
+            lines.push(``);
+            lines.push(`RÈGLE DÉFINIE PAR LE MANAGER :`);
             lines.push(`"${p.supplierContext}"`);
             lines.push(``);
-            lines.push(`→ Ce produit ("${ctx.libelle1}") est-il concerné par cette règle ?`);
-            lines.push(`   Si OUI : rule_applies = true ET applique la consigne À LA LETTRE.`);
-            lines.push(`   Si NON : rule_applies = false ET applique les règles 2-3 normalement.`);
+            lines.push(`PRODUIT ANALYSÉ : "${ctx.libelle1}"`);
+            lines.push(`CATÉGORIE : ${ctx.libelleNiveau2}`);
+            lines.push(``);
+            lines.push(`⚠️ INSTRUCTION CRITIQUE :`);
+            lines.push(`1. Analyse si CE produit est concerné par la règle ci-dessus`);
+            lines.push(`2. Si OUI :`);
+            lines.push(`   - rule_applies = true`);
+            lines.push(`   - Applique EXACTEMENT la consigne (si la règle dit "Gamme B", tu DOIS mettre "B")`);
+            lines.push(`   - IGNORE complètement les règles 2 et 3 (performance, stock mort, etc.)`);
+            lines.push(`3. Si NON :`);
+            lines.push(`   - rule_applies = false`);
+            lines.push(`   - Applique les règles 2-3 normalement`);
             lines.push(`═══════════════════════════════════════════════════════════════`);
             lines.push("");
         }
