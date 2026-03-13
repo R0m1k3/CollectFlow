@@ -20,14 +20,22 @@ Tu analyses des produits pour recommander A (garder) ou Z (sortir).
 
 IMPORTANT : La gamme C est RÉSERVÉE aux produits saisonniers et gérée MANUELLEMENT par l'acheteur. Tu ne dois JAMAIS recommander C.
 
---- LOGIQUE SIMPLIFIÉE (3 RÈGLES SEULEMENT) ---
+--- ORDRE DE PRIORITÉ (STRICT) ---
 
-⛔ RÈGLE 1 — STOCK MORT ABSOLU (priorité absolue):
+📝 RÈGLE 1 — RÈGLE MANAGER (PRIORITÉ ABSOLUE):
+Si une règle manager est définie (section "RÈGLE MANAGER" dans le message) ET que le produit est concerné:
+→ Appliquer la consigne À LA LETTRE, même si elle contredit les autres règles.
+→ Mettre rule_applies = true et suivre EXACTEMENT la recommandation de la règle.
+→ Les règles 2 et 3 ci-dessous NE S'APPLIQUENT PAS si une règle manager est active.
+
+Si AUCUNE règle manager n'est fournie → Passer directement aux règles 2 et 3.
+
+⛔ RÈGLE 2 — STOCK MORT ABSOLU:
 SI CA réseau < 100€ ET Quantité réseau < 30 unités SIMULTANÉMENT → Z IMMÉDIAT, STOP.
 Les DEUX conditions doivent être vraies en même temps.
 Un produit à 30€ de CA sur 2 magasins (15€/magasin/an) coûte plus en gestion qu'il ne rapporte.
 
-📊 RÈGLE 2 — PERFORMANCE RELATIVE AU FOURNISSEUR:
+📊 RÈGLE 3 — PERFORMANCE RELATIVE AU FOURNISSEUR:
 Le produit doit être évalué PAR RAPPORT à la moyenne de son lot fournisseur.
 
 ÉTAPE 1: Calculer la moyenne du lot
@@ -47,10 +55,6 @@ RATIONALE : Cette logique s'adapte automatiquement à TOUS les fournisseurs:
 - Petit fournisseur (5 produits) : moyenne élevée, mais comparaison équitable
 - Gros fournisseur (50 produits) : moyenne faible, mais comparaison équitable
 - Même score relatif = même décision, indépendamment de la taille du fournisseur
-
-📝 RÈGLE 3 — RÈGLE MANAGER (optionnel):
-Si le manager a défini une consigne ET que le produit est concerné → Appliquer la consigne À LA LETTRE.
-Si AUCUNE règle manager n'est fournie → IGNORER cette section.
 
 --- FORMAT OBLIGATOIRE ---
 JSON uniquement, sans markdown.
@@ -89,6 +93,20 @@ JSON uniquement, sans markdown.
         lines.push(`DISTRIBUTION : ${storeLabel}`);
         lines.push("");
 
+        // ⚠️ RÈGLE MANAGER EN PRIORITÉ 1 — doit être visible AVANT toute analyse
+        if (p.supplierContext) {
+            lines.push(`🎯 ═══════════════════════════════════════════════════════════════`);
+            lines.push(`               ⚠️ RÈGLE MANAGER (PRIORITÉ ABSOLUE)`);
+            lines.push(`═══════════════════════════════════════════════════════════════`);
+            lines.push(`"${p.supplierContext}"`);
+            lines.push(``);
+            lines.push(`→ Ce produit ("${ctx.libelle1}") est-il concerné par cette règle ?`);
+            lines.push(`   Si OUI : rule_applies = true ET applique la consigne À LA LETTRE.`);
+            lines.push(`   Si NON : rule_applies = false ET applique les règles 2-3 normalement.`);
+            lines.push(`═══════════════════════════════════════════════════════════════`);
+            lines.push("");
+        }
+
         // KPIs bruts
         lines.push(`--- PERFORMANCE ABSOLUE ---`);
         lines.push(`• CA réseau : ${ctx.totalCaRaw.toLocaleString('fr-FR')}€`);
@@ -116,14 +134,6 @@ JSON uniquement, sans markdown.
         lines.push(`• Score Relatif : ${scoreRelatif.toFixed(0)} (100 = fait exactement sa part)`);
         lines.push(`  → ${scoreRelatif >= 100 ? "✓ Au-dessus de la moyenne" : scoreRelatif >= 50 ? "⚠️ Entre 50% et 100% de la moyenne" : "✗ Très en dessous de la moyenne"}`);
         lines.push("");
-
-        // Règle manager
-        if (p.supplierContext) {
-            lines.push(`--- RÈGLE MANAGER ---`);
-            lines.push(`"${p.supplierContext}"`);
-            lines.push(`→ Ce produit ("${ctx.libelle1}") est-il concerné ? rule_applies = true/false.`);
-            lines.push("");
-        }
 
         lines.push(`Génère UNIQUEMENT le JSON :`);
         return lines.join("\n");
