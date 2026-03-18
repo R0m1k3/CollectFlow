@@ -10,7 +10,6 @@ async function probe(url: string) {
         const text = await res.text();
         let parsed: unknown = null;
         try { parsed = JSON.parse(text); } catch { parsed = text.slice(0, 800); }
-        // Résumé: nb items si tableau, ou clés si objet
         let summary: unknown = parsed;
         if (Array.isArray(parsed)) {
             summary = { count: parsed.length, firstKeys: parsed[0] ? Object.keys(parsed[0]) : [], sample: parsed.slice(0, 2) };
@@ -20,6 +19,9 @@ async function probe(url: string) {
             if (firstArrayKey) {
                 const arr = (parsed as Record<string, unknown[]>)[firstArrayKey];
                 summary = { wrapper: firstArrayKey, count: arr.length, firstKeys: arr[0] ? Object.keys(arr[0] as object) : [], sample: arr.slice(0, 2) };
+            } else {
+                // Objet simple : montrer toutes les clés et le contenu complet
+                summary = { keys, full: parsed };
             }
         }
         return { status: res.status, url, summary };
@@ -36,8 +38,10 @@ export async function GET(req: NextRequest) {
     const dateFin = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10);
     const dateDebut = new Date(now.getFullYear(), now.getMonth() - 12, 1).toISOString().slice(0, 10);
 
-    // Récupérer le premier codefou réel depuis l'API (si pas fourni en param)
+    // Récupérer un codefou réel + un codein réel depuis l'API
     let codefou = searchParams.get("codefou");
+    let firstCodein: string | null = searchParams.get("codein");
+
     if (!codefou) {
         try {
             const res = await fetch(`${FF_API_BASE}/api/fournisseurs?limit=1`, { cache: "no-store" });
@@ -45,24 +49,53 @@ export async function GET(req: NextRequest) {
             const list = Array.isArray(data) ? data : (Object.values(data).find(v => Array.isArray(v)) as unknown[] ?? []);
             if (list.length > 0) codefou = (list[0] as Record<string, unknown>).codefou as string ?? null;
         } catch { /* ignore */ }
-        codefou ??= "D001";
+        codefou ??= "D005";
+    }
+
+    if (!firstCodein) {
+        try {
+            const res = await fetch(`${FF_API_BASE}/api/articles?codefou=${codefou}&limit=1`, { cache: "no-store" });
+            const data = await res.json();
+            const list = Array.isArray(data) ? data : (Object.values(data).find(v => Array.isArray(v)) as unknown[] ?? []);
+            if (list.length > 0) firstCodein = (list[0] as Record<string, unknown>).codein as string ?? null;
+        } catch { /* ignore */ }
     }
 
     const [
         fournisseurs,
         articles,
-        // Tester plusieurs variantes de noms de paramètres pour les mouvements
-        mvt_datedeb,
         mvt_dateDebut,
-        mvt_from,
-        mvt_nodate,
+        // Nouveaux endpoints
+        mensuel_codein,
+        mensuel_noid,
+        stock_periode,
+        mvt_types,
     ] = await Promise.all([
-        probe(`${FF_API_BASE}/api/fournisseurs?limit=3`),
-        probe(`${FF_API_BASE}/api/articles?codefou=${codefou}&limit=3`),
-        probe(`${FF_API_BASE}/api/mouvements/articles?codefou=${codefou}&datedeb=${dateDebut}&datefin=${dateFin}&limit=3`),
-        probe(`${FF_API_BASE}/api/mouvements/articles?codefou=${codefou}&dateDebut=${dateDebut}&dateFin=${dateFin}&limit=3`),
-        probe(`${FF_API_BASE}/api/mouvements/articles?codefou=${codefou}&from=${dateDebut}&to=${dateFin}&limit=3`),
-        probe(`${FF_API_BASE}/api/mouvements/articles?codefou=${codefou}&limit=3`),
+        probe(`${FF_API_BASE}/api/fournisseurs?limit=2`),
+        probe(`${FF_API_BASE}/api/articles?codefou=${codefou}&limit=2`),
+        probe(`${FF_API_BASE}/api/mouvements/articles?codefou=${codefou}&dateDebut=${dateDebut}&dateFin=${dateFin}&limit=2`),
+        // Test mensuel avec codein
+        firstCodein
+            ? probe(`${FF_API_BASE}/api/articles/${encodeURIComponent(firstCodein)}/mensuel?dateDebut=${dateDebut}&dateFin=${dateFin}`)
+            : Promise.resolve({ skipped: "no codein available" }),
+        // Test mensuel avec no_id (si dispo)
+        firstCodein
+            ? (async () => {
+                try {
+                    const res = await fetch(`${FF_API_BASE}/api/articles?codefou=${codefou}&limit=1`, { cache: "no-store" });
+                    const data = await res.json();
+                    const list = Array.isArray(data) ? data : (Object.values(data).find(v => Array.isArray(v)) as unknown[] ?? []);
+                    const noid = list[0] ? (list[0] as Record<string, unknown>).no_id as string : null;
+                    if (noid) return probe(`${FF_API_BASE}/api/articles/${encodeURIComponent(noid)}/mensuel?dateDebut=${dateDebut}&dateFin=${dateFin}`);
+                } catch { /* ignore */ }
+                return { skipped: "no no_id available" };
+            })()
+            : Promise.resolve({ skipped: "no article" }),
+        // Test stock/periode
+        firstCodein
+            ? probe(`${FF_API_BASE}/api/stock/article/${encodeURIComponent(firstCodein!)}/periode?dateDebut=${dateDebut}&dateFin=${dateFin}`)
+            : Promise.resolve({ skipped: "no codein available" }),
+        probe(`${FF_API_BASE}/api/mouvements/types`),
     ]);
 
     // Test PostgreSQL
@@ -76,19 +109,17 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
         timestamp: new Date().toISOString(),
-        env: {
-            FF_API_BASE_URL: process.env.FF_API_BASE_URL ?? "(not set — default used)",
-            FF_API_BASE_resolved: FF_API_BASE,
-        },
         dateRange: { dateDebut, dateFin },
         codefouTested: codefou,
+        firstCodeinTested: firstCodein,
         fournisseurs,
         articles,
-        mouvements: {
-            "datedeb/datefin": mvt_datedeb,
-            "dateDebut/dateFin": mvt_dateDebut,
-            "from/to": mvt_from,
-            "no_date": mvt_nodate,
+        mouvements_dateDebut: mvt_dateDebut,
+        nouveaux_endpoints: {
+            "articles/:codein/mensuel": mensuel_codein,
+            "articles/:no_id/mensuel": mensuel_noid,
+            "stock/article/:codein/periode": stock_periode,
+            "mouvements/types": mvt_types,
         },
         postgresql,
     });
