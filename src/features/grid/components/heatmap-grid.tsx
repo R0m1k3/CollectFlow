@@ -51,10 +51,16 @@ function formatMonthLabel(key: string): string {
  * Returns premium styling and color for stores based on the store name's hash.
  * This guarantees a consistent color for a given store, regardless of its position in the list.
  */
+const SITE_LABELS: Record<string, { label: string; nom: string }> = {
+    "292": { label: "F", nom: "Frouard (Nancy)" },
+    "579": { label: "H", nom: "Houdemont" },
+};
+
 function getStoreConfig(name: string) {
-    const words = name.trim().split(/\s+/);
-    let label = words[0].charAt(0).toUpperCase();
-    if (words.length > 1) {
+    const known = SITE_LABELS[name];
+    const words = (known?.nom ?? name).trim().split(/\s+/);
+    let label = known?.label ?? words[0].charAt(0).toUpperCase();
+    if (!known && words.length > 1) {
         label += words[1].charAt(0).toUpperCase();
     }
 
@@ -347,7 +353,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                             return (
                                 <div
                                     key={magasin}
-                                    title={`Travaillé par : ${magasin}`}
+                                    title={`Travaillé par : ${SITE_LABELS[magasin]?.nom ?? magasin}`}
                                     className="px-1.5 py-0.5 rounded-md flex items-center gap-1 text-[10px] font-black border shadow-sm transition-transform hover:scale-110"
                                     style={{
                                         background: config.bg,
