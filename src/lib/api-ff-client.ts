@@ -210,7 +210,7 @@ export async function getArticlesByFournisseur(
         codefou:    r.codefou_principal ?? r.codefou   ?? r.Codefou           ?? r.code_fournisseur ?? r.codeFournisseur ?? codefou,
         nomfou:     r.nom_fou_principal ?? r.nomfou    ?? r.Nomfou            ?? r.nom_fournisseur  ?? r.nomFournisseur ?? "",
         pcb:        r.pcb_principal     ?? r.pcb       ?? r.Pcb               ?? r.conditionnement  ?? r.colisage,
-        pv_central: r.pv_central        ?? r.PvCentral ?? r.pv                ?? r.prixVente,
+        pv_central: r.pv_central        ?? r.PvCentral ?? r.prix_vente_mini   ?? r.pv ?? r.prixVente,
         noid:       r.no_id             ?? r.noid      ?? r.NoId,
         reference:  r.ref_fou_principale ?? r.reference ?? r.ref_fournisseur  ?? undefined,
         gtin:       r.gtin              ?? r.Gtin      ?? r.ean               ?? r.barcode        ?? undefined,
