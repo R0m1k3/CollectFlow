@@ -1,4 +1,4 @@
-import { getAvailableNomenclature, getFournisseurs, getGridData, getMagasins } from "@/features/grid/actions";
+import { getFournisseurs, getGridData, getMagasins } from "@/features/grid/actions";
 import { GridClient } from "@/features/grid/components/grid-client";
 import { SupplierSelectionLanding } from "@/features/grid/components/supplier-selection-landing";
 
@@ -22,11 +22,10 @@ export default async function GridPage({ searchParams }: GridPageProps) {
         code3: params.code3 || null,
     };
 
-    // 1. Fetch available suppliers, stores & nomenclature hierarchy
-    const [fournisseurs, magasins, nomenclature] = await Promise.all([
+    // 1. Fetch available suppliers & stores
+    const [fournisseurs, magasins] = await Promise.all([
         getFournisseurs(),
         getMagasins(),
-        getAvailableNomenclature()
     ]);
 
     // 2. If no supplier selected, show compact selection UI
@@ -48,7 +47,6 @@ export default async function GridPage({ searchParams }: GridPageProps) {
             fournisseurs={fournisseurs}
             magasins={magasins}
             magasin={magasin}
-            nomenclature={nomenclature}
         />
     );
 }

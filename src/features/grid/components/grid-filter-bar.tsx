@@ -22,14 +22,24 @@ import { NomenclatureFilter } from "./nomenclature-filter";
 interface GridFilterBarProps {
     fournisseurs: { code: string; nom: string }[];
     magasins: { code: string; nom: string }[];
-    nomenclature: any;
 }
 
-export function GridFilterBar({ fournisseurs, magasins, nomenclature }: GridFilterBarProps) {
+export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
     const { filters, setFilter, rows, draftChanges } = useGridStore();
     const router = useRouter();
     const searchParams = useSearchParams();
     const [isRefreshing, setIsRefreshing] = React.useState(false);
+
+    // Options nomenclature (famille) construites depuis les rows chargées
+    const code3Options = useMemo(() => {
+        const map = new Map<string, string>();
+        rows.forEach(r => {
+            if (r.code3 && r.libelle3) map.set(r.code3, r.libelle3);
+        });
+        return Array.from(map.entries())
+            .map(([code, label]) => ({ code, label }))
+            .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+    }, [rows]);
 
     // Compute dynamic counts and present Gammes
     const { gammeCounts, activeGammes } = React.useMemo(() => {
@@ -195,7 +205,7 @@ export function GridFilterBar({ fournisseurs, magasins, nomenclature }: GridFilt
             </div>
 
             {/* Nomenclature filter */}
-            <NomenclatureFilter hierarchy={nomenclature} />
+            <NomenclatureFilter options={code3Options} />
         </div>
     );
 }

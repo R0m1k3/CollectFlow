@@ -178,7 +178,23 @@ GridRow.displayName = "GridRow";
 
 export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     // L'abonnement doit être minimal ici ! PAS de draftChanges ni de setDraftGamme.
-    const { rows, filters, displayDensity } = useGridStore();
+    const { rows, filters, displayDensity, draftChanges } = useGridStore();
+
+    // Filtre client-side par code3 (famille) et codeGamme
+    const filteredData = useMemo(() => {
+        const { code3, codeGamme } = filters;
+        if (!code3 && !codeGamme) return rows;
+        return rows.filter(r => {
+            if (code3 && r.code3 !== code3) return false;
+            if (codeGamme) {
+                const g = draftChanges[r.codein] ?? r.codeGamme ?? "";
+                const norm = g.trim() === "" ? "Aucune" : g;
+                if (norm !== codeGamme) return false;
+            }
+            return true;
+        });
+    }, [rows, filters, draftChanges]);
+
     const [sorting, setSorting] = useState<SortingState>([]);
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
     const { columnVisibility, setColumnVisibility, columnSizing, setColumnSizing } = useGridStore();
@@ -351,12 +367,17 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
         {
             accessorKey: "libelle3",
             header: "Famille",
-            size: 160,
-            cell: ({ getValue }) => (
-                <span className="text-[12px] truncate block text-left w-full opacity-70" style={{ color: "var(--text-secondary)" }}>
-                    {getValue<string>()}
-                </span>
-            ),
+            size: 200,
+            cell: ({ row }) => {
+                const code = row.original.code3;
+                const label = row.original.libelle3;
+                const display = code && label ? `${code} — ${label}` : (label || code || "");
+                return (
+                    <span className="text-[12px] truncate block text-left w-full opacity-70" style={{ color: "var(--text-secondary)" }} title={display}>
+                        {display}
+                    </span>
+                );
+            },
         },
         {
             accessorKey: "score",
@@ -452,7 +473,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     ], [MONTHS_12]); // Dépendances extrêmement stables : pas de re-render du header !
 
     const table = useReactTable({
-        data: rows,
+        data: filteredData,
         columns,
         state: { sorting, globalFilter: filters.search, rowSelection, columnVisibility, columnSizing },
         onSortingChange: setSorting,

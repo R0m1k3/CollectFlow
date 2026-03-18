@@ -1,67 +1,18 @@
 "use client";
 
 import * as React from "react";
-import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { ChevronDown, Filter } from "lucide-react";
+import { useGridStore } from "@/features/grid/store/use-grid-store";
 
 interface NomenclatureFilterProps {
-    hierarchy: any;
+    options: { code: string; label: string }[];
     className?: string;
 }
 
-export function NomenclatureFilter({ hierarchy, className }: NomenclatureFilterProps) {
-    const router = useRouter();
-    const searchParams = useSearchParams();
-
-    const selected1 = searchParams.get("code1");
-    const selected2 = searchParams.get("code2");
-    const selected3 = searchParams.get("code3");
-
-    // Valeur composite pour le select : "type:code"
-    const currentValue = selected3 ? `code3:${selected3}` :
-        selected2 ? `code2:${selected2}` :
-            selected1 ? `code1:${selected1}` : "";
-
-    const updateFilter = (value: string) => {
-        const params = new URLSearchParams(searchParams.toString());
-
-        // Reset all nomenclature filters
-        params.delete("code1");
-        params.delete("code2");
-        params.delete("code3");
-
-        if (value) {
-            const [type, code] = value.split(":");
-            params.set(type, code);
-        }
-
-        router.push(`/grid?${params.toString()}`);
-    };
-
-    // Aplatir la hiérarchie pour le menu unique et trier par code
-    const options: { label: string; value: string; level: number; code: string }[] = [];
-
-    // Sort Secteurs
-    const sortedSecteurs = Object.entries(hierarchy).sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
-
-    sortedSecteurs.forEach(([c1, s]: [string, any]) => {
-        options.push({ label: s.label, value: `code1:${c1}`, level: 0, code: c1 });
-
-        // Sort Rayons
-        const sortedRayons = Object.entries(s.children).sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
-
-        sortedRayons.forEach(([c2, r]: [string, any]) => {
-            options.push({ label: r.label, value: `code2:${c2}`, level: 1, code: c2 });
-
-            // Sort Familles
-            const sortedFamilles = [...r.children].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
-
-            sortedFamilles.forEach((f: any) => {
-                options.push({ label: f.label, value: `code3:${f.code}`, level: 2, code: f.code });
-            });
-        });
-    });
+export function NomenclatureFilter({ options, className }: NomenclatureFilterProps) {
+    const code3 = useGridStore((s) => s.filters.code3);
+    const setFilter = useGridStore((s) => s.setFilter);
 
     return (
         <div className={cn("relative group", className)}>
@@ -70,19 +21,15 @@ export function NomenclatureFilter({ hierarchy, className }: NomenclatureFilterP
             </div>
 
             <select
-                value={currentValue}
-                onChange={(e) => updateFilter(e.target.value)}
+                value={code3 ?? ""}
+                onChange={(e) => setFilter("code3", e.target.value || null)}
                 className="apple-input pr-12 appearance-none w-full min-w-[240px]"
                 style={{ fontSize: "12px", height: "36px", paddingLeft: "36px" }}
             >
                 <option value="">Toute la nomenclature</option>
-                {options.map((opt, idx) => (
-                    <option
-                        key={`${opt.value}-${idx}`}
-                        value={opt.value}
-                        style={{ paddingLeft: `${opt.level * 12}px` }}
-                    >
-                        {"\u00A0".repeat(opt.level * 4)}{opt.label}
+                {options.map((opt) => (
+                    <option key={opt.code} value={opt.code}>
+                        {opt.code} — {opt.label}
                     </option>
                 ))}
             </select>

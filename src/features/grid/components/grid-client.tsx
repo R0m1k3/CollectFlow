@@ -22,10 +22,9 @@ interface GridClientProps {
     fournisseurs: { code: string; nom: string }[];
     magasins: { code: string; nom: string }[];
     magasin: string;
-    nomenclature: any; // Type defined in components if needed
 }
 
-export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins, magasin, nomenclature }: GridClientProps) {
+export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins, magasin }: GridClientProps) {
     const setRows = useGridStore((s) => s.setRows);
     const setActiveGridQuery = useGridStore((s) => s.setActiveGridQuery);
     const searchParams = useSearchParams();
@@ -121,7 +120,7 @@ export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins
 
             {/* Filters */}
             <div className="shrink-0 print:hidden">
-                <GridFilterBar fournisseurs={fournisseurs} magasins={magasins} nomenclature={nomenclature} />
+                <GridFilterBar fournisseurs={fournisseurs} magasins={magasins} />
             </div>
 
             {/* Bulk toolbar (contextual) */}
