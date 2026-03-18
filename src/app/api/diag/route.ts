@@ -98,13 +98,42 @@ export async function GET(req: NextRequest) {
         probe(`${FF_API_BASE}/api/mouvements/types`),
     ]);
 
-    // Test PostgreSQL
+    // Test PostgreSQL + diagnostic ventesProduits
     let postgresql: unknown;
+    let ventesProduitsDiag: unknown;
     try {
         const r = await db.execute(sql`SELECT COUNT(*) as count FROM session_snapshots`);
-        postgresql = { ok: true, snapshots: Number(r.rows[0]?.count ?? 0) };
+
+        // Diagnostic ventesProduits : cherche par les 2 codes possibles d'AUXENCE
+        const vpByName = await db.execute(sql`
+            SELECT code_fournisseur, COUNT(*) as nb_rows,
+                   COUNT(code_gamme) as nb_gamme,
+                   COUNT(code_gamme_init) as nb_gamme_init,
+                   COUNT(code3) as nb_code3
+            FROM ventes_produits
+            WHERE code_fournisseur IN ('AUXENCE', 'A025', ${codefou})
+            GROUP BY code_fournisseur
+        `);
+
+        // Sample de quelques codeins dans ventesProduits pour ce fournisseur
+        const vpSample = await db.execute(sql`
+            SELECT codein, code_fournisseur, code_gamme, code_gamme_init, code3, libelle3
+            FROM ventes_produits
+            WHERE code_fournisseur IN ('AUXENCE', 'A025', ${codefou})
+            LIMIT 3
+        `);
+
+        postgresql = {
+            ok: true,
+            snapshots: Number(r.rows[0]?.count ?? 0),
+        };
+        ventesProduitsDiag = {
+            byFournisseur: vpByName.rows,
+            sample: vpSample.rows,
+        };
     } catch (e) {
         postgresql = { ok: false, error: String(e) };
+        ventesProduitsDiag = { error: String(e) };
     }
 
     return NextResponse.json({
@@ -122,5 +151,6 @@ export async function GET(req: NextRequest) {
             "mouvements/types": mvt_types,
         },
         postgresql,
+        ventesProduitsDiag,
     });
 }
