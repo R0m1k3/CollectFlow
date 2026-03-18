@@ -242,75 +242,63 @@ export async function getMouvementsByFournisseur(
 }
 
 // ---------------------------------------------------------------------------
-// Stock (agrégé tous sites)
+// Mensuel — stock fin de mois + ventes + réceptions par article et par site
+// GET /api/articles/:no_id/mensuel?dateDebut=&dateFin=
 // ---------------------------------------------------------------------------
 
-export async function getStockByFournisseur(
-    articles: FfArticle[]
-): Promise<Map<string, AggregatedStock>> {
-    const result = new Map<string, AggregatedStock>();
-    const BATCH_SIZE = 10;
+export interface FfMensuelVentes {
+    nb_passages: string;
+    qte_vendue: string;   // négatif (ex: "-2.000")
+    ca_ht: string;        // négatif (ex: "-26.6600")
+    ca_ttc: string;
+    marge: string;        // positif (ex: "12.7600")
+    taux_marge: string;
+}
 
-    for (let i = 0; i < articles.length; i += BATCH_SIZE) {
-        const batch = articles.slice(i, i + BATCH_SIZE);
+export interface FfMensuelReceptions {
+    nb_receptions: string;
+    qte_recue: string;
+}
+
+export interface FfMensuelEntry {
+    mois: string;              // "YYYY-MM"
+    site: string;              // code site ("292", "579")
+    stock_fin_mois: string;    // stock fin de mois
+    prmp_fin_mois: string;     // PRMP fin de mois
+    ventes: FfMensuelVentes | null;
+    receptions: FfMensuelReceptions | null;
+}
+
+/**
+ * Récupère les données mensuelles (stock + ventes + réceptions) pour un lot d'articles.
+ * Utilise no_id comme identifiant (obligatoire pour l'API).
+ * Retourne Map<codein, FfMensuelEntry[]>
+ */
+export async function getMensuelByArticles(
+    articles: FfArticle[],
+    dateDebut: string,
+    dateFin: string,
+    batchSize = 20
+): Promise<Map<string, FfMensuelEntry[]>> {
+    const result = new Map<string, FfMensuelEntry[]>();
+
+    for (let i = 0; i < articles.length; i += batchSize) {
+        const batch = articles.slice(i, i + batchSize);
         await Promise.all(
             batch.map(async (art) => {
+                const noId = art.noid;
+                if (!noId) return;
                 try {
-                    const res = await fetch(
-                        `${FF_API_BASE}/api/stocks/articles?codein=${encodeURIComponent(art.codein)}`,
-                        { cache: "no-store" }
-                    );
+                    const url = `${FF_API_BASE}/api/articles/${encodeURIComponent(String(noId))}/mensuel?dateDebut=${dateDebut}&dateFin=${dateFin}`;
+                    const res = await fetch(url, { cache: "no-store" });
                     if (!res.ok) return;
                     const data = await res.json();
-                    const rawSites = extractList(data);
-                    if (rawSites.length === 0) return;
-
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const sites: FfStock[] = rawSites.map((s: any) => ({
-                        codein: s.codein ?? s.Codein ?? art.codein,
-                        site: s.site ?? s.Site ?? s.codesite ?? s.magasin ?? "",
-                        stockdispo: Number(s.stockdispo ?? s.StockDispo ?? s.stock_dispo ?? s.stock ?? 0),
-                        qte: Number(s.qte ?? s.Qte ?? s.quantite ?? 0),
-                        valstock: Number(s.valstock ?? s.ValStock ?? s.val_stock ?? s.valeur ?? 0),
-                        prmp: Number(s.prmp ?? s.Prmp ?? s.pa ?? s.prix_achat ?? 0) || undefined,
-                        pv: Number(s.pv ?? s.Pv ?? s.prix_vente ?? s.pv_central ?? 0) || undefined,
-                        dernieresventes: s.dernieresventes ?? s.DernVentes ?? s.derniere_vente ?? s.last_sale ?? "",
-                        dernierereception: s.dernierereception ?? s.DernReception ?? s.derniere_reception ?? s.last_reception ?? "",
-                        nbjoursdernsventes: Number(s.nbjoursdernsventes ?? s.NbJoursDernVentes ?? s.nb_jours ?? 0) || undefined,
-                    }));
-
-                    const agg: AggregatedStock = {
-                        stockActuel: 0,
-                        stockTotal: 0,
-                        stockValeur: 0,
-                        pa: 0,
-                        prixVente: 0,
-                        derniereVente: "",
-                        derniereLivraison: "",
-                        nbJoursDerniereVente: 9999,
-                    };
-
-                    for (const s of sites) {
-                        agg.stockActuel += s.stockdispo ?? 0;
-                        agg.stockTotal += s.qte ?? 0;
-                        agg.stockValeur += s.valstock ?? 0;
-                        if (!agg.pa && s.prmp) agg.pa = s.prmp;
-                        if (!agg.prixVente && s.pv) agg.prixVente = s.pv;
-                        if (s.dernieresventes && s.dernieresventes > agg.derniereVente) {
-                            agg.derniereVente = s.dernieresventes;
-                        }
-                        if (s.dernierereception && s.dernierereception > agg.derniereLivraison) {
-                            agg.derniereLivraison = s.dernierereception;
-                        }
-                        if (s.nbjoursdernsventes !== undefined && s.nbjoursdernsventes < agg.nbJoursDerniereVente) {
-                            agg.nbJoursDerniereVente = s.nbjoursdernsventes;
-                        }
+                    const entries: FfMensuelEntry[] = Array.isArray(data.data) ? data.data : [];
+                    if (entries.length > 0) {
+                        result.set(art.codein, entries);
                     }
-                    if (agg.nbJoursDerniereVente === 9999) agg.nbJoursDerniereVente = 0;
-
-                    result.set(art.codein, agg);
                 } catch (err) {
-                    console.error(`[api-ff] getStock error for ${art.codein}:`, err);
+                    console.error(`[api-ff] getMensuel error for ${art.codein}:`, err);
                 }
             })
         );

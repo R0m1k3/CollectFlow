@@ -4,11 +4,9 @@ import type { ProductRow, GammeCode, GridFilters } from "@/types/grid";
 import { computeProductScores } from "@/lib/score-engine";
 import {
     getArticlesByFournisseur,
-    getMouvementsByFournisseur,
-    getStockByFournisseur,
+    getMensuelByArticles,
     getCommandesByFournisseur,
     buildLast12MonthsRange,
-    dateToYYYYMM,
 } from "@/lib/api-ff-client";
 import { db } from "@/db";
 import { sessionSnapshots } from "@/db/schema";
@@ -22,39 +20,32 @@ interface GetProductRowsInput {
 
 export async function getProductRows(input: GetProductRowsInput): Promise<ProductRow[]> {
     const { codeFournisseur, magasin = "TOTAL" } = input;
-    console.log(`\n>>> [getProductRows] RECEIVED CALL for supplier: ${codeFournisseur}, magasin: ${magasin}`);
+    console.log(`\n>>> [getProductRows] supplier: ${codeFournisseur}, magasin: ${magasin}`);
 
     try {
         // ─── Phase 1 : Articles du fournisseur ───────────────────────────────
         const articles = await getArticlesByFournisseur(codeFournisseur);
-        console.log(`[getProductRows] ${articles.length} articles found for ${codeFournisseur}`);
+        console.log(`[getProductRows] ${articles.length} articles for ${codeFournisseur}`);
 
-        // ─── Phase 2 : Mouvements (ventes + stock12m) ────────────────────────
+        // ─── Phase 2 : Mensuel + Commandes (en parallèle) ────────────────────
         const { dateDebut, dateFin } = buildLast12MonthsRange();
-        const mouvements = await getMouvementsByFournisseur(codeFournisseur, dateDebut, dateFin);
-        console.log(`[getProductRows] ${mouvements.length} mouvements found`);
-
-        // ─── Phase 3 : Stock & Commandes (en parallèle) ──────────────────────
-        const [stockMap, commandesMap] = await Promise.all([
-            getStockByFournisseur(articles),
+        const [mensuelMap, commandesMap] = await Promise.all([
+            getMensuelByArticles(articles, dateDebut, dateFin),
             getCommandesByFournisseur(codeFournisseur),
         ]);
+        console.log(`[getProductRows] mensuel data for ${mensuelMap.size}/${articles.length} articles`);
 
-        // ─── Phase 4 : Fenêtre temporelle (12 mois complets) ─────────────────
-        // En mars 2026 → allowedPeriods = {"202503"..."202602"} (12 mois)
+        // ─── Phase 3 : Fenêtre temporelle (12 mois complets) ─────────────────
         const now = new Date();
         const allowedPeriods = new Set<string>();
         for (let i = 12; i >= 1; i--) {
             const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
             allowedPeriods.add(`${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`);
         }
+        const sortedPeriods = [...allowedPeriods].sort(); // "202503" … "202602"
 
-        // ─── Phase 5 : Seed productMap depuis articles ────────────────────────
+        // ─── Phase 4 : Seed productMap depuis articles ────────────────────────
         const productMap = new Map<string, ProductRow>();
-        const storeParticipationMap = new Map<string, Map<string, Set<string>>>();
-        // stockMaxByPeriod[codein][YYYYMM] = dernier qtestock du mois
-        const stockLastByPeriod = new Map<string, Map<string, { qtestock: number; datemvt: string }>>();
-
         for (const art of articles) {
             if (!productMap.has(art.codein)) {
                 productMap.set(art.codein, {
@@ -64,12 +55,9 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
                     libelle1: art.libelle1 ?? "",
                     gtin: "",
                     reference: "",
-                    code1: "",
-                    libelleNiveau1: "",
-                    code2: "",
-                    libelleNiveau2: "",
-                    code3: "",
-                    libelle3: "",
+                    code1: "", libelleNiveau1: "",
+                    code2: "", libelleNiveau2: "",
+                    code3: "", libelle3: "",
                     codeGamme: null,
                     codeGammeInit: null,
                     codeGammeDraft: null,
@@ -82,138 +70,118 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
                     score: 0,
                     workingStores: [],
                     aiRecommendation: null,
-                    pcb: art.pcb,
-                    prixVente: art.pv_central,
+                    pcb: art.pcb ? Number(art.pcb) : undefined,
+                    prixVente: art.pv_central ? Number(art.pv_central) : undefined,
                 });
             }
         }
 
-        // ─── Phase 6 : Agréger mouvements → sales12m + stock12m ─────────────
-        for (const mvt of mouvements) {
-            const { codein, genremvt, datemvt, qte, montant, marge, qtestock, site } = mvt;
+        // ─── Phase 5 : Agréger données mensuelles → sales12m + stock12m ──────
+        const filterSite = magasin !== "TOTAL" ? magasin : null;
 
-            // Filtre magasin
-            if (magasin !== "TOTAL" && site !== magasin) continue;
-
-            const periode = dateToYYYYMM(datemvt);
-            const isInPeriod = allowedPeriods.has(periode);
-
+        for (const [codein, entries] of mensuelMap.entries()) {
             const product = productMap.get(codein);
             if (!product) continue;
 
-            // Participation magasin (pour workingStores)
-            if (isInPeriod && site && site !== "TOTAL") {
-                if (!storeParticipationMap.has(codein)) storeParticipationMap.set(codein, new Map());
-                const stores = storeParticipationMap.get(codein)!;
-                if (!stores.has(site)) stores.set(site, new Set());
-                stores.get(site)!.add(periode);
-            }
+            // Agréger par période (toutes les entrées site × mois → 1 entrée par mois)
+            const byPeriod = new Map<string, { qty: number; ca: number; marge: number; stock: number; pa: number }>();
+            const storeMonths = new Map<string, Set<string>>(); // site → Set<YYYYMM>
 
-            // Ventes (genremvt = 3)
-            if (isInPeriod && genremvt === 3) {
-                const qty = Math.abs(qte ?? 0);
-                const ca = Math.abs(montant ?? 0);
-                const mg = Math.abs(marge ?? 0);
-                product.sales12m[periode] = (product.sales12m[periode] ?? 0) + qty;
-                product.totalQuantite += qty;
-                product.totalCa += ca;
-                product.totalMarge += mg;
-            }
+            for (const entry of entries) {
+                if (filterSite && entry.site !== filterSite) continue;
 
-            // Stock12m : conserver le dernier mouvement par mois (via qtestock)
-            // On inclut tous les mouvements (pas que les ventes) pour avoir le stock fin de mois
-            if (isInPeriod) {
-                if (!stockLastByPeriod.has(codein)) stockLastByPeriod.set(codein, new Map());
-                const byPeriod = stockLastByPeriod.get(codein)!;
-                const existing = byPeriod.get(periode);
-                if (!existing || datemvt >= existing.datemvt) {
-                    byPeriod.set(periode, { qtestock, datemvt });
+                const periode = entry.mois.replace("-", ""); // "2026-02" → "202602"
+                if (!allowedPeriods.has(periode)) continue;
+
+                if (!byPeriod.has(periode)) {
+                    byPeriod.set(periode, { qty: 0, ca: 0, marge: 0, stock: 0, pa: 0 });
                 }
-            }
-        }
+                const p = byPeriod.get(periode)!;
 
-        // Calcul tauxMarge + reconstruction stock12m avec carry-forward
-        for (const [codein, product] of productMap.entries()) {
-            product.tauxMarge = product.totalCa > 0
-                ? (product.totalMarge / product.totalCa) * 100
-                : 0;
+                // Stock fin de mois : somme tous sites (ou site filtré)
+                p.stock += Math.abs(parseFloat(entry.stock_fin_mois ?? "0") || 0);
+                if (!p.pa && entry.prmp_fin_mois) p.pa = parseFloat(entry.prmp_fin_mois) || 0;
 
-            // Reconstruction stock12m avec carry-forward
-            const byPeriod = stockLastByPeriod.get(codein);
-            if (byPeriod) {
-                const sortedPeriods = [...allowedPeriods].sort();
-                let lastKnownStock = 0;
-                for (const p of sortedPeriods) {
-                    const entry = byPeriod.get(p);
-                    if (entry !== undefined) {
-                        lastKnownStock = entry.qtestock;
+                // Ventes
+                if (entry.ventes) {
+                    p.qty  += Math.abs(parseFloat(entry.ventes.qte_vendue ?? "0") || 0);
+                    p.ca   += Math.abs(parseFloat(entry.ventes.ca_ht       ?? "0") || 0);
+                    p.marge += parseFloat(entry.ventes.marge               ?? "0") || 0;
+
+                    // Suivi magasins actifs (pour workingStores)
+                    if (entry.site && entry.site !== "TOTAL") {
+                        if (!storeMonths.has(entry.site)) storeMonths.set(entry.site, new Set());
+                        storeMonths.get(entry.site)!.add(periode);
                     }
-                    product.stock12m[p] = lastKnownStock;
                 }
             }
-        }
 
-        // ─── Phase 7 : workingStores ─────────────────────────────────────────
-        for (const [codein, product] of productMap.entries()) {
-            const stores = storeParticipationMap.get(codein);
-            if (stores) {
-                const working: string[] = [];
-                for (const [site, periods] of stores.entries()) {
-                    if (site !== "TOTAL" && periods.size >= 3) working.push(site);
+            // Remplir sales12m / stock12m avec carry-forward sur les mois sans données
+            let lastStock = 0;
+            let lastPa = 0;
+            for (const periode of sortedPeriods) {
+                const p = byPeriod.get(periode);
+                if (p) {
+                    product.sales12m[periode] = p.qty;
+                    product.stock12m[periode] = p.stock;
+                    product.totalQuantite += p.qty;
+                    product.totalCa       += p.ca;
+                    product.totalMarge    += p.marge;
+                    lastStock = p.stock;
+                    if (!lastPa && p.pa) lastPa = p.pa;
+                } else {
+                    product.sales12m[periode] = 0;
+                    product.stock12m[periode] = lastStock; // carry-forward
                 }
-                product.workingStores = working.sort();
             }
-        }
 
-        // ─── Phase 8 : Enrichir avec stockMap ────────────────────────────────
-        for (const [codein, product] of productMap.entries()) {
-            const stock = stockMap.get(codein);
-            if (stock) {
-                product.stockActuel = stock.stockActuel;
-                product.stockTotal = stock.stockTotal;
-                product.stockValeur = stock.stockValeur;
-                product.pa = stock.pa;
-                product.prixAchat = stock.pa;
-                product.derniereVente = stock.derniereVente || undefined;
-                product.derniereLivraison = stock.derniereLivraison || undefined;
-                product.nbJoursDerniereVente = stock.nbJoursDerniereVente;
-            }
+            product.tauxMarge  = product.totalCa > 0 ? (product.totalMarge / product.totalCa) * 100 : 0;
+            product.pa         = lastPa > 0 ? lastPa : undefined;
+            product.prixAchat  = lastPa > 0 ? lastPa : undefined;
+            product.stockActuel = product.stock12m[sortedPeriods[sortedPeriods.length - 1]] ?? 0;
+
+            // workingStores : sites avec ventes sur >= 3 mois distincts
+            product.workingStores = [...storeMonths.entries()]
+                .filter(([, periods]) => periods.size >= 3)
+                .map(([site]) => site)
+                .sort();
+
+            // Commandes en cours
             const cmdQty = commandesMap.get(codein);
             if (cmdQty) product.commandesEnCours = cmdQty;
         }
 
-        // ─── Phase 8b : Restaurer gammes depuis dernier snapshot ─────────────
+        // ─── Phase 6 : Restaurer gammes depuis dernier snapshot ──────────────
         try {
-            const snapshots = await db
+            const snaps = await db
                 .select()
                 .from(sessionSnapshots)
                 .where(eq(sessionSnapshots.codeFournisseur, codeFournisseur))
                 .orderBy(desc(sessionSnapshots.createdAt))
                 .limit(1);
 
-            if (snapshots.length > 0) {
-                const snap = snapshots[0];
-                const changes = snap.changes as Record<string, { before: string | null; after: string }>;
+            if (snaps.length > 0) {
+                const changes = snaps[0].changes as Record<string, { before: string | null; after: string }>;
                 for (const [codein, change] of Object.entries(changes)) {
                     const product = productMap.get(codein);
                     if (product && change.after) {
-                        product.codeGamme = change.after as GammeCode;
+                        product.codeGamme     = change.after as GammeCode;
                         product.codeGammeInit = change.before as GammeCode | null;
                     }
                 }
-                console.log(`[getProductRows] Restored ${Object.keys(changes).length} gammes from snapshot ${snap.id}`);
+                console.log(`[getProductRows] Gammes restaurées depuis snapshot`);
             }
         } catch (snapErr) {
-            console.error("[getProductRows] Failed to restore gammes from snapshot:", snapErr);
+            console.error("[getProductRows] Snapshot restore error:", snapErr);
         }
 
-        // ─── Phase 9 : Score composite ────────────────────────────────────────
+        // ─── Phase 7 : Score composite ────────────────────────────────────────
         const rows = Array.from(productMap.values());
-        console.log(`[getProductRows] Final: ${rows.length} products`);
+        console.log(`[getProductRows] ${rows.length} produits, ${mensuelMap.size} avec données`);
         return computeProductScores(rows);
 
     } catch (error) {
-        console.error(`[getProductRows] Error for supplier ${codeFournisseur}:`, error);
+        console.error(`[getProductRows] Error for ${codeFournisseur}:`, error);
         return [];
     }
 }
