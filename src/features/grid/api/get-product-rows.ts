@@ -5,12 +5,13 @@ import { computeProductScores } from "@/lib/score-engine";
 import {
     getArticlesByFournisseur,
     getMensuelByArticles,
+    getReferentielByArticles,
     getCommandesByFournisseur,
     buildLast12MonthsRange,
 } from "@/lib/api-ff-client";
 import { db } from "@/db";
-import { sessionSnapshots, ventesProduits } from "@/db/schema";
-import { eq, desc, inArray } from "drizzle-orm";
+import { sessionSnapshots } from "@/db/schema";
+import { eq, desc } from "drizzle-orm";
 
 interface GetProductRowsInput {
     codeFournisseur: string;
@@ -29,8 +30,9 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
 
         // ─── Phase 2 : Mensuel + Commandes (en parallèle) ────────────────────
         const { dateDebut, dateFin } = buildLast12MonthsRange();
-        const [mensuelMap, commandesMap] = await Promise.all([
+        const [mensuelMap, referentielMap, commandesMap] = await Promise.all([
             getMensuelByArticles(articles, dateDebut, dateFin),
+            getReferentielByArticles(articles),
             getCommandesByFournisseur(codeFournisseur),
         ]);
         console.log(`[getProductRows] mensuel data for ${mensuelMap.size}/${articles.length} articles`);
@@ -151,40 +153,43 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             if (cmdQty) product.commandesEnCours = cmdQty;
         }
 
-        // ─── Phase 6 : Classification depuis ventesProduits (lecture seule) ──
-        // Requête par codein (pas par code_fournisseur, car l'ancien code peut différer)
-        try {
-            const codeins = Array.from(productMap.keys());
-            if (codeins.length > 0) {
-                const classifRows = await db
-                    .select({
-                        codein:       ventesProduits.codein,
-                        codeGamme:    ventesProduits.codeGamme,
-                        codeGammeInit: ventesProduits.codeGammeInit,
-                        code3:        ventesProduits.code3,
-                        libelle3:     ventesProduits.libelle3,
-                    })
-                    .from(ventesProduits)
-                    .where(inArray(ventesProduits.codein, codeins));
+        // ─── Phase 6 : Classification depuis referentiel API (nomenclature + gamme) ─
+        let refCount = 0;
+        for (const [codein, ref] of referentielMap.entries()) {
+            const product = productMap.get(codein);
+            if (!product) continue;
 
-                // Déduplique en JS : premier occurrence par codein
-                const seen = new Set<string>();
-                for (const row of classifRows) {
-                    if (seen.has(row.codein)) continue;
-                    seen.add(row.codein);
-                    const product = productMap.get(row.codein);
-                    if (product) {
-                        product.codeGamme     = row.codeGamme     ?? null;
-                        product.codeGammeInit = row.codeGammeInit  ?? null;
-                        product.code3         = row.code3          ?? "";
-                        product.libelle3      = row.libelle3       ?? "";
-                    }
-                }
-                console.log(`[getProductRows] Classification: ${seen.size} codeins trouvés sur ${codeins.length} articles`);
+            // Nomenclature
+            product.code3    = ref.article.nom_code    ?? "";
+            product.libelle3 = ref.article.nom_libelle ?? "";
+
+            // Gamme initiale (figée) + gamme courante (sera overridée par snapshot si besoin)
+            const gammeCode = ref.gammes?.[0]?.gamme_code ?? null;
+            product.codeGammeInit = gammeCode;
+            product.codeGamme     = gammeCode;
+
+            // PA et PCB depuis referentiel (plus précis que articles endpoint)
+            const pa = parseFloat(ref.prix?.achat ?? "0") || 0;
+            if (pa > 0) { product.pa = pa; product.prixAchat = pa; }
+            const pcb = parseFloat(ref.fournisseurs?.[0]?.pcb ?? "0") || 0;
+            if (pcb > 0) product.pcb = pcb;
+
+            // Stock actuel agrégé tous sites (valeur temps réel)
+            if (ref.stock?.length) {
+                product.stockActuel = ref.stock.reduce((sum, s) => sum + (parseFloat(s.stockdispo ?? "0") || 0), 0);
+                product.stockTotal  = ref.stock.reduce((sum, s) => sum + (parseFloat(s.qte        ?? "0") || 0), 0);
+                product.stockValeur = ref.stock.reduce((sum, s) => sum + (parseFloat(s.valstock   ?? "0") || 0), 0);
+                const firstSite = ref.stock.find(s => parseFloat(s.prmp ?? "0") > 0);
+                if (firstSite && !product.pa) { product.pa = parseFloat(firstSite.prmp); product.prixAchat = product.pa; }
             }
-        } catch (classifErr) {
-            console.warn("[getProductRows] ventesProduits classification non disponible:", classifErr);
+
+            // Dernière vente depuis performance
+            if (ref.performance?.derniere_vente) product.derniereVente = ref.performance.derniere_vente;
+            if (ref.performance?.derniere_entree) product.derniereLivraison = ref.performance.derniere_entree;
+
+            refCount++;
         }
+        console.log(`[getProductRows] Referentiel: ${refCount}/${articles.length} articles enrichis`);
 
         // ─── Phase 7 : Restaurer gammes depuis dernier snapshot ──────────────
         try {

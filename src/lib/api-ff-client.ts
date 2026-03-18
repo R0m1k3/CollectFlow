@@ -312,6 +312,89 @@ export async function getMensuelByArticles(
 }
 
 // ---------------------------------------------------------------------------
+// Referentiel — article complet : nomenclature, gammes, stock, prix, fournisseurs
+// GET /api/articles/:no_id/referentiel
+// ---------------------------------------------------------------------------
+
+export interface FfReferentiel {
+    article: {
+        no_id: string;
+        codein: string;
+        nom_code: string | null;    // code nomenclature (ex: "360504")
+        nom_libelle: string | null; // libellé nomenclature
+        nom_niveau: number | null;
+        nom_chemin_pere: string | null;
+    };
+    gammes: {
+        gamme_code: string;
+        gamme_libelle: string;
+        saison_code: string;
+        saison_libelle: string;
+    }[];
+    stock: {
+        site: string;
+        stockdispo: string;
+        qte: string;
+        prmp: string;
+        valstock: string;
+        pv: string;
+        dernierevente: string;
+        dernierereception: string;
+        stockmort: boolean;
+    }[];
+    prix: {
+        achat: string | null;
+        vente_par_site: { site: string; pv: string }[];
+    } | null;
+    fournisseurs: {
+        codefou: string;
+        ref_fou: string;
+        pcb: string;
+        prixachat: string;
+    }[];
+    performance: {
+        derniere_vente: string | null;
+        derniere_entree: string | null;
+        qte_totale_vendue: string | null;
+        ca_ttc_total: string | null;
+        marge_totale: string | null;
+    } | null;
+}
+
+/**
+ * Récupère le référentiel complet (nomenclature, gamme, stock, prix) pour un lot d'articles.
+ * Utilise no_id comme identifiant.
+ * Retourne Map<codein, FfReferentiel>
+ */
+export async function getReferentielByArticles(
+    articles: FfArticle[],
+    batchSize = 20
+): Promise<Map<string, FfReferentiel>> {
+    const result = new Map<string, FfReferentiel>();
+
+    for (let i = 0; i < articles.length; i += batchSize) {
+        const batch = articles.slice(i, i + batchSize);
+        await Promise.all(
+            batch.map(async (art) => {
+                const noId = art.noid;
+                if (!noId) return;
+                try {
+                    const url = `${FF_API_BASE}/api/articles/${encodeURIComponent(String(noId))}/referentiel`;
+                    const res = await fetch(url, { cache: "no-store" });
+                    if (!res.ok) return;
+                    const data: FfReferentiel = await res.json();
+                    if (data?.article) result.set(art.codein, data);
+                } catch (err) {
+                    console.error(`[api-ff] getReferentiel error for ${art.codein}:`, err);
+                }
+            })
+        );
+    }
+
+    return result;
+}
+
+// ---------------------------------------------------------------------------
 // Commandes en cours
 // ---------------------------------------------------------------------------
 
