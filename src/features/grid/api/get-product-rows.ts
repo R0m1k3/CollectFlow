@@ -82,6 +82,13 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
         // ─── Phase 5 : Agréger données mensuelles → sales12m + stock12m ──────
         const filterSite = magasin !== "TOTAL" ? magasin : null;
 
+        // Log des sites distincts reçus (premier article avec données — diagnostic)
+        const firstEntries = mensuelMap.values().next().value as import("@/lib/api-ff-client").FfMensuelEntry[] | undefined;
+        if (firstEntries) {
+            const distinctSites = [...new Set(firstEntries.map(e => e.site))];
+            console.log(`[getProductRows] Sites distincts dans mensuel: ${JSON.stringify(distinctSites)}`);
+        }
+
         for (const [codein, entries] of mensuelMap.entries()) {
             const product = productMap.get(codein);
             if (!product) continue;
@@ -91,7 +98,12 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             const storeMonths = new Map<string, Set<string>>(); // site → Set<YYYYMM>
 
             for (const entry of entries) {
-                if (filterSite && entry.site !== filterSite) continue;
+                // Garder uniquement les sites physiques (292, 579) — exclure la centrale (agrégat)
+                if (filterSite) {
+                    if (entry.site !== filterSite) continue;
+                } else {
+                    if (entry.site !== "292" && entry.site !== "579") continue;
+                }
 
                 const periode = entry.mois.replace("-", ""); // "2026-02" → "202602"
                 if (!allowedPeriods.has(periode)) continue;

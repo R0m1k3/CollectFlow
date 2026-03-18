@@ -41,6 +41,7 @@ export async function GET(req: NextRequest) {
     // Récupérer un codefou réel + un codein réel depuis l'API
     let codefou = searchParams.get("codefou");
     let firstCodein: string | null = searchParams.get("codein");
+    const forcedNoid = searchParams.get("noid"); // ex: ?noid=129632
 
     if (!codefou) {
         try {
@@ -61,25 +62,27 @@ export async function GET(req: NextRequest) {
         } catch { /* ignore */ }
     }
 
+    // Si un noid est forcé, on probe directement mensuel + referentiel pour cet article
+    const mensuelNoidForced = forcedNoid
+        ? probe(`${FF_API_BASE}/api/articles/${encodeURIComponent(forcedNoid)}/mensuel?dateDebut=${dateDebut}&dateFin=${dateFin}`)
+        : Promise.resolve({ skipped: "no ?noid= param" });
+    const referentielNoidForced = forcedNoid
+        ? probe(`${FF_API_BASE}/api/articles/${encodeURIComponent(forcedNoid)}/referentiel`)
+        : Promise.resolve({ skipped: "no ?noid= param" });
+
     const [
         fournisseurs,
         articles,
         mvt_dateDebut,
-        // Nouveaux endpoints
-        mensuel_codein,
         mensuel_noid,
-        stock_periode,
         referentiel,
-        mvt_types,
+        mensuel_forced,
+        referentiel_forced,
     ] = await Promise.all([
         probe(`${FF_API_BASE}/api/fournisseurs?limit=2`),
         probe(`${FF_API_BASE}/api/articles?codefou=${codefou}&limit=2`),
         probe(`${FF_API_BASE}/api/mouvements/articles?codefou=${codefou}&dateDebut=${dateDebut}&dateFin=${dateFin}&limit=2`),
-        // Test mensuel avec codein
-        firstCodein
-            ? probe(`${FF_API_BASE}/api/articles/${encodeURIComponent(firstCodein)}/mensuel?dateDebut=${dateDebut}&dateFin=${dateFin}`)
-            : Promise.resolve({ skipped: "no codein available" }),
-        // Test mensuel avec no_id (si dispo)
+        // Test mensuel avec no_id auto-résolu
         firstCodein
             ? (async () => {
                 try {
@@ -92,20 +95,13 @@ export async function GET(req: NextRequest) {
                 return { skipped: "no no_id available" };
             })()
             : Promise.resolve({ skipped: "no article" }),
-        // Test stock/periode
-        firstCodein
-            ? probe(`${FF_API_BASE}/api/stock/article/${encodeURIComponent(firstCodein!)}/periode?dateDebut=${dateDebut}&dateFin=${dateFin}`)
-            : Promise.resolve({ skipped: "no codein available" }),
-        probe(`${FF_API_BASE}/api/mouvements/types`),
         // Referentiel complet (nomenclature + gamme + stock + prix)
         firstCodein
             ? (async () => {
                 try {
-                    // Récupère le no_id de l'article
                     const res = await fetch(`${FF_API_BASE}/api/articles?codefou=${codefou}&limit=5`, { cache: "no-store" });
                     const data = await res.json();
                     const list = Array.isArray(data) ? data : (Object.values(data).find(v => Array.isArray(v)) as unknown[] ?? []);
-                    // Prend le 5e article pour avoir plus de chances d'avoir des données
                     const art = (list[4] ?? list[0]) as Record<string, unknown> | undefined;
                     const noId = art?.no_id as string ?? null;
                     if (noId) return probe(`${FF_API_BASE}/api/articles/${encodeURIComponent(noId)}/referentiel`);
@@ -113,6 +109,8 @@ export async function GET(req: NextRequest) {
                 return { skipped: "no no_id" };
             })()
             : Promise.resolve({ skipped: "no codefou" }),
+        mensuelNoidForced,
+        referentielNoidForced,
     ]);
 
     // Test PostgreSQL + diagnostic ventesProduits
@@ -158,15 +156,17 @@ export async function GET(req: NextRequest) {
         dateRange: { dateDebut, dateFin },
         codefouTested: codefou,
         firstCodeinTested: firstCodein,
+        forcedNoid: forcedNoid ?? "(none — pass ?noid=129632 to test a specific article)",
         fournisseurs,
         articles,
         mouvements_dateDebut: mvt_dateDebut,
-        nouveaux_endpoints: {
-            "articles/:codein/mensuel": mensuel_codein,
+        endpoints_auto: {
             "articles/:no_id/mensuel": mensuel_noid,
-            "stock/article/:codein/periode": stock_periode,
-            "mouvements/types": mvt_types,
             "articles/:no_id/referentiel": referentiel,
+        },
+        endpoints_forced_noid: {
+            "articles/:noid/mensuel": mensuel_forced,
+            "articles/:noid/referentiel": referentiel_forced,
         },
         postgresql,
         ventesProduitsDiag,
