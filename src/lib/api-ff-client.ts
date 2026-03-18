@@ -85,7 +85,7 @@ function extractList(data: unknown): any[] {
     if (Array.isArray(data)) return data;
     const d = data as Record<string, unknown>;
     // Essaie les wrappers courants
-    for (const key of ["items", "data", "result", "results", "records", "list"]) {
+    for (const key of ["items", "data", "result", "results", "records", "list", "mouvements", "articles", "fournisseurs", "ventes", "stocks", "commandes"]) {
         if (Array.isArray(d[key])) return d[key] as unknown[];
     }
     // Cherche la première propriété qui est un tableau

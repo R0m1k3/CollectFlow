@@ -30,12 +30,23 @@ async function probe(url: string) {
 
 export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
-    const codefou = searchParams.get("codefou") ?? "AUXENCE";
 
     // Date range: 12 derniers mois
     const now = new Date();
     const dateFin = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10);
     const dateDebut = new Date(now.getFullYear(), now.getMonth() - 12, 1).toISOString().slice(0, 10);
+
+    // Récupérer le premier codefou réel depuis l'API (si pas fourni en param)
+    let codefou = searchParams.get("codefou");
+    if (!codefou) {
+        try {
+            const res = await fetch(`${FF_API_BASE}/api/fournisseurs?limit=1`, { cache: "no-store" });
+            const data = await res.json();
+            const list = Array.isArray(data) ? data : (Object.values(data).find(v => Array.isArray(v)) as unknown[] ?? []);
+            if (list.length > 0) codefou = (list[0] as Record<string, unknown>).codefou as string ?? null;
+        } catch { /* ignore */ }
+        codefou ??= "D001";
+    }
 
     const [
         fournisseurs,
