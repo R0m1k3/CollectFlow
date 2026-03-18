@@ -233,7 +233,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
 
         const selectedIdxs = Object.keys(rowSelection).filter((k) => rowSelection[k]);
         const selectedCodeins = selectedIdxs
-            .map((idx) => rows[parseInt(idx)]?.codein ?? "")
+            .map((idx) => filteredData[parseInt(idx)]?.codein ?? "")
             .filter(Boolean);
 
         // Only update if selection actually changed to avoid re-render loops & console warnings
@@ -245,7 +245,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
             // Delay update to next tick to ensure we're out of any render cycles
             setTimeout(() => onSelectionChange(selectedCodeins), 0);
         }
-    }, [rowSelection, onSelectionChange, rows]);
+    }, [rowSelection, onSelectionChange, filteredData]);
 
     const columns = React.useMemo<ColumnDef<ProductRow>[]>(() => [
         {
