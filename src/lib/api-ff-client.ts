@@ -80,9 +80,24 @@ export interface AggregatedStock {
 // Pagination générique
 // ---------------------------------------------------------------------------
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractList(data: unknown): any[] {
+    if (Array.isArray(data)) return data;
+    const d = data as Record<string, unknown>;
+    // Essaie les wrappers courants
+    for (const key of ["items", "data", "result", "results", "records", "list"]) {
+        if (Array.isArray(d[key])) return d[key] as unknown[];
+    }
+    // Cherche la première propriété qui est un tableau
+    for (const val of Object.values(d)) {
+        if (Array.isArray(val)) return val as unknown[];
+    }
+    return [];
+}
+
 async function fetchAllPages<T>(
     buildUrl: (page: number) => string,
-    extractItems: (data: unknown) => T[],
+    _extractItems: (data: unknown) => T[],  // conservé pour compatibilité, mais on utilise extractList
     pageSize = 500
 ): Promise<T[]> {
     const all: T[] = [];
@@ -90,13 +105,17 @@ async function fetchAllPages<T>(
 
     while (true) {
         const url = buildUrl(page);
+        console.log(`[api-ff] GET ${url}`);
         const res = await fetch(url, { cache: "no-store" });
         if (!res.ok) {
             console.error(`[api-ff] HTTP ${res.status} — ${url}`);
             break;
         }
         const data = await res.json();
-        const items = extractItems(data);
+        const items = extractList(data) as T[];
+        if (page === 1) {
+            console.log(`[api-ff] page 1: ${items.length} items, keys: ${items[0] ? Object.keys(items[0] as object).join(",") : "empty"}`);
+        }
         all.push(...items);
         if (items.length < pageSize) break;
         page++;
@@ -134,6 +153,16 @@ export function dateToYYYYMM(isoDate: string): string {
 // Fournisseurs
 // ---------------------------------------------------------------------------
 
+/** Extrait le code fournisseur depuis n'importe quelle forme de réponse API */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractFouCode(f: any): string {
+    return f.codefou ?? f.CodeFou ?? f.code_fournisseur ?? f.codeFournisseur ?? f.code ?? String(f.id ?? "");
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractFouNom(f: any): string {
+    return f.nomfou ?? f.NomFou ?? f.nom_fournisseur ?? f.nomFournisseur ?? f.nom ?? f.libelle ?? f.name ?? "Inconnu";
+}
+
 export async function getFournisseursFromApi(
     search?: string
 ): Promise<{ code: string; nom: string }[]> {
@@ -142,13 +171,18 @@ export async function getFournisseursFromApi(
             ? `${FF_API_BASE}/api/fournisseurs?search=${encodeURIComponent(search)}&limit=500`
             : `${FF_API_BASE}/api/fournisseurs?limit=500`;
 
+        console.log(`[api-ff] GET ${url}`);
         const res = await fetch(url, { cache: "no-store" });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status} on ${url}`);
         const data = await res.json();
 
-        // L'API peut renvoyer { items: [...] } ou directement [...]
-        const list: FfFournisseur[] = Array.isArray(data) ? data : (data.items ?? data.data ?? []);
-        return list.map(f => ({ code: f.codefou, nom: f.nomfou }));
+        // Log premier item pour diagnostic
+        const rawList = extractList(data);
+        console.log(`[api-ff] fournisseurs: ${rawList.length} items, sample keys:`, rawList[0] ? Object.keys(rawList[0] as object) : "empty");
+
+        return rawList
+            .map((f: unknown) => ({ code: extractFouCode(f), nom: extractFouNom(f) }))
+            .filter((f: { code: string; nom: string }) => f.code);
     } catch (err) {
         console.error("[api-ff] getFournisseursFromApi error:", err);
         return [];
@@ -162,11 +196,21 @@ export async function getFournisseursFromApi(
 export async function getArticlesByFournisseur(
     codefou: string
 ): Promise<FfArticle[]> {
-    return fetchAllPages<FfArticle>(
+    const raw = await fetchAllPages<unknown>(
         (page) => `${FF_API_BASE}/api/articles?codefou=${encodeURIComponent(codefou)}&page=${page}&limit=500`,
-        (data) => Array.isArray(data) ? data : ((data as any).items ?? (data as any).data ?? []),
+        extractList,
         500
     );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return raw.map((r: any): FfArticle => ({
+        codein:     r.codein     ?? r.Codein     ?? r.code_article    ?? r.codeArticle    ?? String(r.id ?? ""),
+        libelle1:   r.libelle1   ?? r.Libelle1   ?? r.libelle         ?? r.designation    ?? r.nom ?? "",
+        codefou:    r.codefou    ?? r.Codefou    ?? r.code_fournisseur ?? r.codeFournisseur ?? codefou,
+        nomfou:     r.nomfou     ?? r.Nomfou     ?? r.nom_fournisseur  ?? r.nomFournisseur  ?? "",
+        pcb:        r.pcb        ?? r.Pcb        ?? r.conditionnement  ?? r.colisage,
+        pv_central: r.pv_central ?? r.PvCentral  ?? r.pv              ?? r.prixVente,
+        noid:       r.noid       ?? r.NoId       ?? r.no_id,
+    })).filter(a => a.codein);
 }
 
 // ---------------------------------------------------------------------------
@@ -178,12 +222,23 @@ export async function getMouvementsByFournisseur(
     dateDebut: string,
     dateFin: string
 ): Promise<FfMouvement[]> {
-    return fetchAllPages<FfMouvement>(
+    const raw = await fetchAllPages<unknown>(
         (page) =>
             `${FF_API_BASE}/api/mouvements/articles?codefou=${encodeURIComponent(codefou)}&datedeb=${dateDebut}&datefin=${dateFin}&page=${page}&limit=1000`,
-        (data) => Array.isArray(data) ? data : ((data as any).items ?? (data as any).data ?? []),
+        extractList,
         1000
     );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return raw.map((r: any): FfMouvement => ({
+        codein:   r.codein   ?? r.Codein   ?? r.code_article   ?? "",
+        genremvt: Number(r.genremvt ?? r.GenreMvt ?? r.genre_mvt ?? r.type ?? 0),
+        datemvt:  r.datemvt  ?? r.DateMvt  ?? r.date_mvt       ?? r.date ?? "",
+        qte:      Number(r.qte      ?? r.Qte      ?? r.quantite        ?? 0),
+        montant:  Number(r.montant  ?? r.Montant  ?? r.montant_mvt     ?? r.ca ?? 0),
+        marge:    Number(r.marge    ?? r.Marge    ?? r.marge_mvt       ?? 0),
+        qtestock: Number(r.qtestock ?? r.QteStock ?? r.qte_stock       ?? r.stock ?? 0),
+        site:     r.site     ?? r.Site     ?? r.magasin         ?? r.code_magasin ?? r.codesite ?? "",
+    })).filter(m => m.codein && m.datemvt);
 }
 
 // ---------------------------------------------------------------------------
@@ -207,8 +262,22 @@ export async function getStockByFournisseur(
                     );
                     if (!res.ok) return;
                     const data = await res.json();
-                    const sites: FfStock[] = Array.isArray(data) ? data : ((data as any).items ?? (data as any).data ?? []);
-                    if (sites.length === 0) return;
+                    const rawSites = extractList(data);
+                    if (rawSites.length === 0) return;
+
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const sites: FfStock[] = rawSites.map((s: any) => ({
+                        codein: s.codein ?? s.Codein ?? art.codein,
+                        site: s.site ?? s.Site ?? s.codesite ?? s.magasin ?? "",
+                        stockdispo: Number(s.stockdispo ?? s.StockDispo ?? s.stock_dispo ?? s.stock ?? 0),
+                        qte: Number(s.qte ?? s.Qte ?? s.quantite ?? 0),
+                        valstock: Number(s.valstock ?? s.ValStock ?? s.val_stock ?? s.valeur ?? 0),
+                        prmp: Number(s.prmp ?? s.Prmp ?? s.pa ?? s.prix_achat ?? 0) || undefined,
+                        pv: Number(s.pv ?? s.Pv ?? s.prix_vente ?? s.pv_central ?? 0) || undefined,
+                        dernieresventes: s.dernieresventes ?? s.DernVentes ?? s.derniere_vente ?? s.last_sale ?? "",
+                        dernierereception: s.dernierereception ?? s.DernReception ?? s.derniere_reception ?? s.last_reception ?? "",
+                        nbjoursdernsventes: Number(s.nbjoursdernsventes ?? s.NbJoursDernVentes ?? s.nb_jours ?? 0) || undefined,
+                    }));
 
                     const agg: AggregatedStock = {
                         stockActuel: 0,
