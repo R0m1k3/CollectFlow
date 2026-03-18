@@ -48,8 +48,10 @@ export interface ProductRow {
     codeGammeDraft: GammeCode | null;
     /** 12-month sales quantities, indexed by YYYYMM key */
     sales12m: Record<string, number>;
-    /** End-of-month stock levels, indexed by YYYYMM key (reconstructed from movements qtestock) */
+    /** End-of-month stock levels, indexed by YYYYMM key */
     stock12m: Record<string, number>;
+    /** Monthly reception quantities, indexed by YYYYMM key */
+    receptions12m: Record<string, number>;
     totalQuantite: number;
     totalCa: number;
     totalMarge: number;

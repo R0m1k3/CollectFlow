@@ -65,6 +65,7 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
                     codeGammeDraft: null,
                     sales12m: {},
                     stock12m: {},
+                    receptions12m: {},
                     totalQuantite: 0,
                     totalCa: 0,
                     totalMarge: 0,
@@ -86,7 +87,7 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             if (!product) continue;
 
             // Agréger par période (toutes les entrées site × mois → 1 entrée par mois)
-            const byPeriod = new Map<string, { qty: number; ca: number; marge: number; stock: number; pa: number }>();
+            const byPeriod = new Map<string, { qty: number; ca: number; marge: number; stock: number; pa: number; receptions: number }>();
             const storeMonths = new Map<string, Set<string>>(); // site → Set<YYYYMM>
 
             for (const entry of entries) {
@@ -96,13 +97,18 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
                 if (!allowedPeriods.has(periode)) continue;
 
                 if (!byPeriod.has(periode)) {
-                    byPeriod.set(periode, { qty: 0, ca: 0, marge: 0, stock: 0, pa: 0 });
+                    byPeriod.set(periode, { qty: 0, ca: 0, marge: 0, stock: 0, pa: 0, receptions: 0 });
                 }
                 const p = byPeriod.get(periode)!;
 
                 // Stock fin de mois : somme tous sites (ou site filtré)
                 p.stock += Math.abs(parseFloat(entry.stock_fin_mois ?? "0") || 0);
                 if (!p.pa && entry.prmp_fin_mois) p.pa = parseFloat(entry.prmp_fin_mois) || 0;
+
+                // Réceptions
+                if (entry.receptions) {
+                    p.receptions += Math.abs(parseFloat(entry.receptions.qte_recue ?? "0") || 0);
+                }
 
                 // Ventes
                 if (entry.ventes) {
@@ -124,16 +130,18 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             for (const periode of sortedPeriods) {
                 const p = byPeriod.get(periode);
                 if (p) {
-                    product.sales12m[periode] = p.qty;
-                    product.stock12m[periode] = p.stock;
+                    product.sales12m[periode]      = p.qty;
+                    product.stock12m[periode]      = p.stock;
+                    product.receptions12m[periode] = p.receptions;
                     product.totalQuantite += p.qty;
                     product.totalCa       += p.ca;
                     product.totalMarge    += p.marge;
                     lastStock = p.stock;
                     if (!lastPa && p.pa) lastPa = p.pa;
                 } else {
-                    product.sales12m[periode] = 0;
-                    product.stock12m[periode] = lastStock; // carry-forward
+                    product.sales12m[periode]      = 0;
+                    product.stock12m[periode]      = lastStock; // carry-forward
+                    product.receptions12m[periode] = 0;
                 }
             }
 
