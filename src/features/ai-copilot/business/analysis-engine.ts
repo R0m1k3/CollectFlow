@@ -154,6 +154,25 @@ SI AUCUNE RÈGLE MANAGER n'est définie, tu recommandes UNIQUEMENT A ou Z (jamai
         lines.push(`  → ${scoreRelatif >= 100 ? "✓ Au-dessus de la moyenne" : scoreRelatif >= 50 ? "⚠️ Entre 50% et 100% de la moyenne" : "✗ Très en dessous de la moyenne"}`);
         lines.push("");
 
+        // Bloc stock & approvisionnement (si données disponibles)
+        const hasStockData = ctx.stockCoverage !== undefined || ctx.isLowStock || ctx.isDeadInventory || ctx.isCommandeEnCours;
+        if (hasStockData) {
+            lines.push(`--- STOCK & APPROVISIONNEMENT ---`);
+            if (ctx.stockCoverage > 0) {
+                lines.push(`• Couverture stock : ${ctx.stockCoverage.toFixed(1)} mois de ventes en stock`);
+            }
+            if (ctx.isLowStock) {
+                lines.push(`• ⚠️ Stock faible : moins d'un PCB disponible`);
+            }
+            if (ctx.isDeadInventory) {
+                lines.push(`• ⚠️ Stock dormant : pas de vente depuis > 90 jours`);
+            }
+            if (ctx.isCommandeEnCours) {
+                lines.push(`• Commande en cours : réapprovisionnement prévu`);
+            }
+            lines.push("");
+        }
+
         lines.push(`Génère UNIQUEMENT le JSON :`);
         return lines.join("\n");
     }

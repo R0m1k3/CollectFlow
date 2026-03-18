@@ -36,6 +36,77 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
     );
 }
 
+interface FfSyncTable { nom: string; derniereSync: string; nbLignes?: number; }
+interface FfSyncStatus { lastSync: string; tables: FfSyncTable[]; }
+
+function FfApiStatusSection() {
+    const [status, setStatus] = useState<FfSyncStatus | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const fetchStatus = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await fetch("/api/ff-status");
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            setStatus(await res.json());
+        } catch (e) {
+            setError(e instanceof Error ? e.message : "Erreur inconnue");
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => { fetchStatus(); }, [fetchStatus]);
+
+    return (
+        <Section title="API FF Nancy" subtitle="Source des données produits — synchronisation nuit depuis SQL Server (données J-1)">
+            <div className="flex items-center gap-3">
+                <button onClick={fetchStatus} disabled={loading} className="apple-btn-secondary h-9 px-4">
+                    {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                    Vérifier le statut
+                </button>
+                {error && <span className="text-[12px] text-red-400">{error}</span>}
+            </div>
+
+            {status && (
+                <div className="space-y-2 mt-2">
+                    <p className="text-[12px] text-[var(--text-secondary)]">
+                        Dernière sync globale : <span className="font-mono font-medium">{new Date(status.lastSync).toLocaleString("fr-FR")}</span>
+                    </p>
+                    {status.tables?.length > 0 && (
+                        <div className="rounded-lg overflow-hidden border border-[var(--border-subtle)]">
+                            <table className="w-full text-[11px]">
+                                <thead>
+                                    <tr className="bg-[var(--surface-tertiary)]">
+                                        <th className="text-left px-3 py-2 font-medium text-[var(--text-secondary)]">Table</th>
+                                        <th className="text-right px-3 py-2 font-medium text-[var(--text-secondary)]">Sync</th>
+                                        <th className="text-right px-3 py-2 font-medium text-[var(--text-secondary)]">Lignes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {status.tables.map((t) => (
+                                        <tr key={t.nom} className="border-t border-[var(--border-subtle)]">
+                                            <td className="px-3 py-2 font-mono text-[var(--text-primary)]">{t.nom}</td>
+                                            <td className="px-3 py-2 text-right text-[var(--text-secondary)]">
+                                                {new Date(t.derniereSync).toLocaleString("fr-FR")}
+                                            </td>
+                                            <td className="px-3 py-2 text-right text-[var(--text-muted)]">
+                                                {t.nbLignes?.toLocaleString("fr-FR") ?? "—"}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            )}
+        </Section>
+    );
+}
+
 export default function SettingsPage() {
     const { resolvedTheme, setTheme } = useTheme();
     const isDark = resolvedTheme === "dark";
@@ -155,7 +226,7 @@ export default function SettingsPage() {
             </div>
 
             {/* PostgreSQL */}
-            <Section title="PostgreSQL" subtitle="Connexion à votre instance Docker ou distante">
+            <Section title="PostgreSQL — Auth & Historique" subtitle="Connexion pour les comptes utilisateurs, snapshots et contexte IA. Les données produits proviennent de l'API FF Nancy.">
                 <Field label="Hôte / Nom du container" hint="Ex: localhost, 192.168.1.10, ou nom du service Docker (ex: postgres, db)">
                     <input
                         type="text"
@@ -242,6 +313,9 @@ export default function SettingsPage() {
                     </button>
                 </div>
             </Section>
+
+            {/* API FF Nancy */}
+            <FfApiStatusSection />
 
             {/* OpenRouter */}
             <Section title="IA Copilot — OpenRouter" subtitle="Clé API pour les analyses de gammes par intelligence artificielle">

@@ -51,6 +51,13 @@ export interface ProductAnalysisInput {
     };
     /** Optional context rules for the supplier */
     supplierContext?: string;
+    /** Données stock & approvisionnement (API FF Nancy) */
+    stockActuel?: number;
+    stockTotal?: number;
+    pcb?: number;
+    commandesEnCours?: number;
+    nbJoursDerniereVente?: number;
+    derniereVente?: string;
 
     /**
      * Fiche de contexte enrichie générée par le ContextProfiler.

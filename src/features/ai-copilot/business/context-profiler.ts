@@ -127,6 +127,16 @@ export interface ProductContextProfile {
      */
     isLocomotiveRayon: boolean;
 
+    // Signaux stock & approvisionnement (API FF Nancy)
+    /** Stock actuel ≤ PCB → moins d'un conditionnement disponible */
+    isLowStock: boolean;
+    /** Commande fournisseur en cours */
+    isCommandeEnCours: boolean;
+    /** Stock > 0 mais pas de vente depuis > 90 jours */
+    isDeadInventory: boolean;
+    /** Couverture en mois : stockActuel / (totalQuantite / 12) */
+    stockCoverage: number;
+
     // Gardes-fous (issus du ScoringEngine)
     isProtected: boolean;
     protectionReason: string;
@@ -405,6 +415,17 @@ export class ContextProfiler {
             isProtected,
             protectionReason,
             scoreCritique,
+
+            // Stock & approvisionnement
+            isLowStock: (target.stockActuel !== undefined && target.pcb !== undefined && target.pcb > 0)
+                ? target.stockActuel <= target.pcb
+                : false,
+            isCommandeEnCours: (target.commandesEnCours ?? 0) > 0,
+            isDeadInventory: (target.stockTotal ?? 0) > 0 && (target.nbJoursDerniereVente ?? 0) > 90,
+            stockCoverage: (() => {
+                const avgMonthlyQty = (target.totalQuantite ?? 0) / 12;
+                return avgMonthlyQty > 0 ? (target.stockActuel ?? 0) / avgMonthlyQty : 0;
+            })(),
         };
     }
 

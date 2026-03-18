@@ -10,7 +10,7 @@ import { GammeCode } from "@/types/grid";
  * Filters changes to only include those in the provided codeins list (e.g. current supplier).
  */
 export function useSaveDrafts(magasin: string, filterCodeins?: string[]) {
-    const { draftChanges, resetDrafts, clearDrafts } = useGridStore();
+    const { draftChanges, rows, resetDrafts, clearDrafts } = useGridStore();
 
     // Only consider changes that are in the filter list (if provided)
     const activeDrafts = filterCodeins
@@ -20,26 +20,33 @@ export function useSaveDrafts(magasin: string, filterCodeins?: string[]) {
     const count = Object.keys(activeDrafts).length;
 
     const save = useCallback(async () => {
-        const changes = Object.entries(activeDrafts).map(([codein, codeGamme]) => ({
-            codein,
-            magasin,
-            codeGamme: codeGamme as GammeCode,
-        }));
+        const changes = Object.entries(activeDrafts).map(([codein, codeGamme]) => {
+            const row = rows.find((r) => r.codein === codein);
+            return {
+                codein,
+                codeGammeBefore: row?.codeGammeInit ?? row?.codeGamme ?? null,
+                codeGamme: codeGamme as GammeCode,
+            };
+        });
 
         if (changes.length === 0) return { success: true, saved: 0 };
 
-        const result = await saveDraftChanges({ changes });
+        // Derive supplier info from the first matching row
+        const firstRow = rows.find((r) => changes.some((c) => c.codein === r.codein));
+        const codeFournisseur = firstRow?.codeFournisseur ?? "";
+        const nomFournisseur = firstRow?.nomFournisseur ?? "";
+
+        const result = await saveDraftChanges({ codeFournisseur, nomFournisseur, magasin, changes });
 
         if (result.success) {
             if (filterCodeins) {
-                // Clear ONLY the ones we just saved
                 clearDrafts(Object.keys(activeDrafts));
             } else {
                 resetDrafts();
             }
         }
         return result;
-    }, [activeDrafts, magasin, resetDrafts, clearDrafts, filterCodeins]);
+    }, [activeDrafts, rows, magasin, resetDrafts, clearDrafts, filterCodeins]);
 
     return { save, hasDrafts: count > 0, count };
 }

@@ -1,6 +1,5 @@
 /**
  * CollectFlow - Core Grid Types
- * Maps to the `ventes_produits` table via Drizzle ORM (camelCase).
  */
 
 /** One row in the data grid, representing a product at a store for one period. */
@@ -49,6 +48,8 @@ export interface ProductRow {
     codeGammeDraft: GammeCode | null;
     /** 12-month sales quantities, indexed by YYYYMM key */
     sales12m: Record<string, number>;
+    /** End-of-month stock levels, indexed by YYYYMM key (reconstructed from movements qtestock) */
+    stock12m: Record<string, number>;
     totalQuantite: number;
     totalCa: number;
     totalMarge: number;
@@ -57,6 +58,18 @@ export interface ProductRow {
     score: number;
     workingStores: string[];
     aiRecommendation?: string | null;
+    /** Données stock & approvisionnement (API FF Nancy) */
+    pcb?: number;                    // Conditionnement (pack size)
+    prixAchat?: number;              // PA / PRMP
+    prixVente?: number;              // PV central
+    stockActuel?: number;            // Stock dispo agrégé tous sites
+    stockTotal?: number;             // Qte en stock agrégé
+    stockValeur?: number;            // Valeur stock agrégée
+    pa?: number;                     // PRMP (alias prixAchat)
+    derniereVente?: string;          // ISO date de dernière vente
+    derniereLivraison?: string;      // ISO date de dernière réception
+    nbJoursDerniereVente?: number;   // Nb jours sans vente
+    commandesEnCours?: number;       // Qté en commande fournisseur
     /** Moyennes de comparaison pour l'IA */
     avgQtyFournisseur?: number;
     avgQtyRayon?: number;

@@ -30,8 +30,7 @@ export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins
     const setActiveGridQuery = useGridStore((s) => s.setActiveGridQuery);
     const searchParams = useSearchParams();
 
-    const seuilAxeFort = useScoreSettingsStore((s) => s.seuilAxeFort);
-    const bonusParAxe = useScoreSettingsStore((s) => s.bonusParAxe);
+    const scoreSettings = useScoreSettingsStore((s) => ({ weightCA: s.weightCA, weightVolume: s.weightVolume, weightMarge: s.weightMarge }));
 
     const [selectedCodeins, setSelectedCodeins] = useState<string[]>([]);
     const [isPending, startTransition] = useTransition();
@@ -60,9 +59,9 @@ export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins
         // Optimisation : On évite le JSON.parse(JSON.stringify()) qui est très lourd sur 1000 lignes
         // On passe directement les initialRows au moteur de score, ou on fait une copie superficielle si nécessaire.
         // Le moteur de score doit idéalement retourner de nouveaux objets.
-        const scoredRows = computeProductScores([...initialRows], { seuilAxeFort, bonusParAxe });
+        const scoredRows = computeProductScores([...initialRows], scoreSettings);
         setRows(scoredRows);
-    }, [initialRows, setRows, seuilAxeFort, bonusParAxe, isMounted]);
+    }, [initialRows, setRows, scoreSettings, isMounted]);
 
     const handleSave = () => {
         startTransition(async () => {
