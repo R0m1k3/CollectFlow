@@ -58,6 +58,25 @@ RATIONALE : Cette logique s'adapte automatiquement à TOUS les fournisseurs:
 - Gros fournisseur (50 produits) : moyenne faible, mais comparaison équitable
 - Même score relatif = même décision, indépendamment de la taille du fournisseur
 
+📈 RÈGLE 4 — TENDANCE (si tableau mensuel disponible, sinon ignorer) :
+Si le tableau "COMPORTEMENT PAR MAGASIN" est fourni, calcule la tendance sur les 12 mois.
+Compare les ventes des 6 premiers mois (H1) vs les 6 derniers mois (H2) sur l'ensemble des magasins.
+• H2 / H1 < 0.4 → effondrement des ventes → renforcer Z, même si score relatif est entre 50 et 100
+• H2 / H1 > 2.0 → accélération forte → protéger de Z, même si score relatif est entre 50 et 100
+• H1 = 0 et H2 > 0 → produit entrant (nouvelles ventes récentes) → ne pas sortir, voter A
+• Sinon → tendance neutre, utiliser le score relatif (Règle 3) comme décision principale
+
+📦 RÈGLE 5 — RÉAPPROVISIONNEMENT RÉCENT (si tableau mensuel disponible, sinon ignorer) :
+Regarde la colonne "Réceptions" des 3 derniers mois dans le tableau mensuel.
+• Si réceptions > 0 sur au moins 1 des 3 derniers mois → le fournisseur réapprovisionne activement.
+→ Cela protège le produit : si le score relatif est ambigu (50-100), voter A plutôt que Z.
+• Si réceptions = 0 sur les 3 derniers mois ET ventes = 0 sur les 3 derniers mois → stock mort confirmé → Z.
+
+🏪 RÈGLE 6 — ASYMÉTRIE INTER-MAGASINS (si tableau mensuel disponible, sinon ignorer) :
+Compare les ventes totales sur 12 mois entre Frouard et Houdemont.
+• Si un magasin représente ≥ 80% des ventes → noter "porté par [magasin]" dans la justification.
+→ Ne change pas la décision A/Z, mais informe le manager.
+
 --- FORMAT OBLIGATOIRE ---
 JSON uniquement, sans markdown.
 {
@@ -178,12 +197,76 @@ SI AUCUNE RÈGLE MANAGER n'est définie, tu recommandes UNIQUEMENT A ou Z (jamai
 
         // Bloc comportement par magasin (si données mensuelles disponibles)
         if (p.siteMonthlyData && p.siteMonthlyData.length > 0) {
+            const allRows = p.siteMonthlyData;
+
+            // Pré-calcul des signaux pour les règles 4-6
+            const sortedMonths = [...new Set(allRows.map(r => r.mois))].sort();
+            const midIdx = Math.floor(sortedMonths.length / 2);
+            const h1Months = new Set(sortedMonths.slice(0, midIdx));
+            const h2Months = new Set(sortedMonths.slice(midIdx));
+            const last3Months = new Set(sortedMonths.slice(-3));
+
+            let h1Qty = 0, h2Qty = 0;
+            const qteBySite: Record<string, number> = {};
+            let recentReceptions = 0;
+            let recentSales = 0;
+
+            for (const r of allRows) {
+                if (h1Months.has(r.mois)) h1Qty += r.ventes_qte;
+                if (h2Months.has(r.mois)) h2Qty += r.ventes_qte;
+                qteBySite[r.site] = (qteBySite[r.site] ?? 0) + r.ventes_qte;
+                if (last3Months.has(r.mois)) {
+                    recentReceptions += r.receptions_qte;
+                    recentSales += r.ventes_qte;
+                }
+            }
+
+            const totalQte = Object.values(qteBySite).reduce((a, b) => a + b, 0);
+            const tendanceRatio = h1Qty > 0 ? h2Qty / h1Qty : (h2Qty > 0 ? Infinity : 1);
+
+            // Signal tendance
+            let tendanceLabel: string;
+            if (h1Qty === 0 && h2Qty > 0) {
+                tendanceLabel = "Produit entrant (premières ventes récentes) → protéger de Z";
+            } else if (tendanceRatio < 0.4) {
+                tendanceLabel = `Effondrement (H1: ${h1Qty} uté → H2: ${h2Qty} uté, ratio ${tendanceRatio.toFixed(2)}) → signal Z fort`;
+            } else if (tendanceRatio > 2.0) {
+                tendanceLabel = `Accélération forte (H1: ${h1Qty} uté → H2: ${h2Qty} uté, ratio ${tendanceRatio.toFixed(2)}) → signal A fort`;
+            } else {
+                tendanceLabel = `Stable (H1: ${h1Qty} uté → H2: ${h2Qty} uté, ratio ${tendanceRatio.toFixed(2)})`;
+            }
+
+            // Signal réapprovisionnement
+            const reappLabel = recentReceptions > 0
+                ? `Réceptions récentes : ${recentReceptions} uté reçues sur les 3 derniers mois → fournisseur actif`
+                : (recentSales === 0
+                    ? "Aucune réception ni vente sur les 3 derniers mois → stock mort probable"
+                    : "Aucune réception récente (ventes encore actives)");
+
+            // Signal asymétrie magasins
+            const sites = Object.entries(qteBySite);
+            let asymLabel = "";
+            if (sites.length >= 2 && totalQte > 0) {
+                const dominant = sites.sort((a, b) => b[1] - a[1])[0];
+                const pct = Math.round((dominant[1] / totalQte) * 100);
+                if (pct >= 80) {
+                    asymLabel = `Porté par ${dominant[0]} (${pct}% des ventes) — Houdemont quasi inactif`;
+                }
+            }
+
+            lines.push(`--- SIGNAUX PRÉ-CALCULÉS (Règles 4-6) ---`);
+            lines.push(`• Tendance : ${tendanceLabel}`);
+            lines.push(`• Réapprovisionnement : ${reappLabel}`);
+            if (asymLabel) lines.push(`• Asymétrie magasins : ${asymLabel}`);
+            lines.push("");
+
+            // Tableau détaillé brut
             lines.push(`--- COMPORTEMENT PAR MAGASIN (12 mois) ---`);
             lines.push(`⚠️ Stock négatif = commande validée avant réception informatique (normal en retail).`);
             lines.push("");
 
             const bySite = new Map<string, SiteMonthlyData[]>();
-            for (const row of p.siteMonthlyData) {
+            for (const row of allRows) {
                 if (!bySite.has(row.site)) bySite.set(row.site, []);
                 bySite.get(row.site)!.push(row);
             }
