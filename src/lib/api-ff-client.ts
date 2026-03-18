@@ -27,7 +27,9 @@ export interface FfArticle {
     nomfou?: string;
     pcb?: number;         // conditionnement
     pv_central?: number;  // prix de vente central
-    noid?: number;        // SQL Server internal ID
+    noid?: number;        // SQL Server internal ID (pour endpoint /mensuel)
+    reference?: string;   // référence fournisseur (ref_fou_principale)
+    gtin?: string;        // code-barres EAN/GTIN
 }
 
 export interface FfMouvement {
@@ -203,13 +205,15 @@ export async function getArticlesByFournisseur(
     );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return raw.map((r: any): FfArticle => ({
-        codein:     r.codein            ?? r.Codein    ?? r.code_article     ?? r.codeArticle    ?? String(r.id ?? ""),
-        libelle1:   r.libelle1          ?? r.Libelle1  ?? r.libelle          ?? r.designation    ?? r.nom ?? "",
-        codefou:    r.codefou_principal ?? r.codefou   ?? r.Codefou          ?? r.code_fournisseur ?? r.codeFournisseur ?? codefou,
-        nomfou:     r.nom_fou_principal ?? r.nomfou    ?? r.Nomfou           ?? r.nom_fournisseur  ?? r.nomFournisseur ?? "",
-        pcb:        r.pcb_principal     ?? r.pcb       ?? r.Pcb              ?? r.conditionnement  ?? r.colisage,
-        pv_central: r.pv_central        ?? r.PvCentral ?? r.pv               ?? r.prixVente,
+        codein:     r.codein            ?? r.Codein    ?? r.code_article      ?? r.codeArticle    ?? String(r.id ?? ""),
+        libelle1:   r.libelle1          ?? r.Libelle1  ?? r.libelle           ?? r.designation    ?? r.nom ?? "",
+        codefou:    r.codefou_principal ?? r.codefou   ?? r.Codefou           ?? r.code_fournisseur ?? r.codeFournisseur ?? codefou,
+        nomfou:     r.nom_fou_principal ?? r.nomfou    ?? r.Nomfou            ?? r.nom_fournisseur  ?? r.nomFournisseur ?? "",
+        pcb:        r.pcb_principal     ?? r.pcb       ?? r.Pcb               ?? r.conditionnement  ?? r.colisage,
+        pv_central: r.pv_central        ?? r.PvCentral ?? r.pv                ?? r.prixVente,
         noid:       r.no_id             ?? r.noid      ?? r.NoId,
+        reference:  r.ref_fou_principale ?? r.reference ?? r.ref_fournisseur  ?? undefined,
+        gtin:       r.gtin              ?? r.Gtin      ?? r.ean               ?? r.barcode        ?? undefined,
     })).filter(a => a.codein);
 }
 

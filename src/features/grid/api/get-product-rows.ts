@@ -9,8 +9,8 @@ import {
     buildLast12MonthsRange,
 } from "@/lib/api-ff-client";
 import { db } from "@/db";
-import { sessionSnapshots } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { sessionSnapshots, ventesProduits } from "@/db/schema";
+import { eq, desc, sql } from "drizzle-orm";
 
 interface GetProductRowsInput {
     codeFournisseur: string;
@@ -53,8 +53,8 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
                     codeFournisseur: art.codefou ?? codeFournisseur,
                     nomFournisseur: art.nomfou ?? "",
                     libelle1: art.libelle1 ?? "",
-                    gtin: "",
-                    reference: "",
+                    gtin: art.gtin ?? "",
+                    reference: art.reference ?? "",
                     code1: "", libelleNiveau1: "",
                     code2: "", libelleNiveau2: "",
                     code3: "", libelle3: "",
@@ -151,7 +151,31 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             if (cmdQty) product.commandesEnCours = cmdQty;
         }
 
-        // ─── Phase 6 : Restaurer gammes depuis dernier snapshot ──────────────
+        // ─── Phase 6 : Classification depuis ventesProduits (lecture seule) ──
+        // Source de vérité pour : codeGamme initial, codeGammeInit, code3, libelle3
+        try {
+            const classifRows = await db.execute(sql`
+                SELECT DISTINCT ON (codein)
+                    codein, code_gamme, code_gamme_init, code3, libelle3
+                FROM ventes_produits
+                WHERE code_fournisseur = ${codeFournisseur}
+                ORDER BY codein, updated_at DESC
+            `);
+            for (const row of classifRows.rows) {
+                const product = productMap.get(row.codein as string);
+                if (product) {
+                    product.codeGamme     = (row.code_gamme     as string | null) ?? null;
+                    product.codeGammeInit = (row.code_gamme_init as string | null) ?? null;
+                    product.code3         = (row.code3          as string | null) ?? "";
+                    product.libelle3      = (row.libelle3        as string | null) ?? "";
+                }
+            }
+            console.log(`[getProductRows] Classification chargée pour ${classifRows.rows.length} lignes`);
+        } catch (classifErr) {
+            console.warn("[getProductRows] ventesProduits classification non disponible:", classifErr);
+        }
+
+        // ─── Phase 7 : Restaurer gammes depuis dernier snapshot ──────────────
         try {
             const snaps = await db
                 .select()
