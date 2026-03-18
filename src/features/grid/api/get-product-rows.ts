@@ -9,8 +9,8 @@ import {
     buildLast12MonthsRange,
 } from "@/lib/api-ff-client";
 import { db } from "@/db";
-import { sessionSnapshots } from "@/db/schema";
-import { eq, desc, sql } from "drizzle-orm";
+import { sessionSnapshots, ventesProduits } from "@/db/schema";
+import { eq, desc, inArray } from "drizzle-orm";
 
 interface GetProductRowsInput {
     codeFournisseur: string;
@@ -156,23 +156,31 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
         try {
             const codeins = Array.from(productMap.keys());
             if (codeins.length > 0) {
-                const classifRows = await db.execute(sql`
-                    SELECT DISTINCT ON (codein)
-                        codein, code_gamme, code_gamme_init, code3, libelle3
-                    FROM ventes_produits
-                    WHERE codein = ANY(${codeins})
-                    ORDER BY codein, updated_at DESC
-                `);
-                for (const row of classifRows.rows) {
-                    const product = productMap.get(row.codein as string);
+                const classifRows = await db
+                    .select({
+                        codein:       ventesProduits.codein,
+                        codeGamme:    ventesProduits.codeGamme,
+                        codeGammeInit: ventesProduits.codeGammeInit,
+                        code3:        ventesProduits.code3,
+                        libelle3:     ventesProduits.libelle3,
+                    })
+                    .from(ventesProduits)
+                    .where(inArray(ventesProduits.codein, codeins));
+
+                // Déduplique en JS : premier occurrence par codein
+                const seen = new Set<string>();
+                for (const row of classifRows) {
+                    if (seen.has(row.codein)) continue;
+                    seen.add(row.codein);
+                    const product = productMap.get(row.codein);
                     if (product) {
-                        product.codeGamme     = (row.code_gamme      as string | null) ?? null;
-                        product.codeGammeInit = (row.code_gamme_init  as string | null) ?? null;
-                        product.code3         = (row.code3            as string | null) ?? "";
-                        product.libelle3      = (row.libelle3         as string | null) ?? "";
+                        product.codeGamme     = row.codeGamme     ?? null;
+                        product.codeGammeInit = row.codeGammeInit  ?? null;
+                        product.code3         = row.code3          ?? "";
+                        product.libelle3      = row.libelle3       ?? "";
                     }
                 }
-                console.log(`[getProductRows] Classification: ${classifRows.rows.length} lignes trouvées pour ${codeins.length} articles`);
+                console.log(`[getProductRows] Classification: ${seen.size} codeins trouvés sur ${codeins.length} articles`);
             }
         } catch (classifErr) {
             console.warn("[getProductRows] ventesProduits classification non disponible:", classifErr);
