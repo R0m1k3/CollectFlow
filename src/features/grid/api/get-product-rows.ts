@@ -189,8 +189,8 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
                 for (const [codein, change] of Object.entries(changes)) {
                     const product = productMap.get(codein);
                     if (product && change.after) {
-                        product.codeGamme     = change.after as GammeCode;
-                        product.codeGammeInit = change.before as GammeCode | null;
+                        // codeGammeInit reste figé (valeur d'origine depuis ventesProduits)
+                        product.codeGamme = change.after as GammeCode;
                     }
                 }
                 console.log(`[getProductRows] Gammes restaurées depuis snapshot`);
