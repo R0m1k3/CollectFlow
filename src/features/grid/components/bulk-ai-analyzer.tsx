@@ -153,8 +153,25 @@ export function BulkAiAnalyzer() {
             });
         }
 
-        // Filtrer : ne soumettre à l'IA que les produits avec au moins 1 vente
-        const payloadsWithSales = initialPayloads.filter(p => (p.totalQuantite || 0) > 0);
+        // 2b. Stock mort absolu : CA < 100€ ET quantité < 30 → Z direct, sans appel IA
+        const deadStockRows = rows.filter(r =>
+            (r.totalQuantite || 0) > 0 &&
+            (r.totalCa ?? 0) < 100 && (r.totalQuantite ?? 0) < 30
+        );
+        if (deadStockRows.length > 0) {
+            const zChanges: Record<string, GammeCode> = {};
+            deadStockRows.forEach(r => { zChanges[r.codein] = "Z"; });
+            batchSetDraftGamme(zChanges);
+            deadStockRows.forEach(r => {
+                setInsight(r.codein, `CA < 100€ (${(r.totalCa ?? 0).toFixed(0)}€) et quantité < 30 (${r.totalQuantite} uté) — stock mort absolu, classé Z automatiquement.`);
+            });
+        }
+        const deadStockCodes = new Set(deadStockRows.map(r => r.codein));
+
+        // Filtrer : ne soumettre à l'IA que les produits avec au moins 1 vente et CA/quantité suffisants
+        const payloadsWithSales = initialPayloads.filter(p =>
+            (p.totalQuantite || 0) > 0 && !deadStockCodes.has(p.codein)
+        );
 
         // 2b. Calculer scoring + context profiling en micro-batches asynchrones
         //    pour ne pas bloquer le thread UI (Chrome "Page ne répondant pas").

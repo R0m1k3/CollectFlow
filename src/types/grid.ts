@@ -56,9 +56,19 @@ export interface ProductRow {
     totalCa: number;
     totalMarge: number;
     tauxMarge: number;
-    /** Combined performance score (0-10) */
+    /** Score de performance hybride (0-100) */
     score: number;
     workingStores: string[];
+    /** Rotation normalisée : unités vendues / magasin / mois */
+    unitsPerStorePerMonth?: number;
+    /** CA normalisé : € / magasin / an */
+    caPerStorePerYear?: number;
+    /** Produit récent (≤ 3 mois de données) */
+    isRecent?: boolean;
+    /** Seul produit du fournisseur dans le lot */
+    isLastProduct?: boolean;
+    /** Top 30% CA du lot fournisseur */
+    isTop30Supplier?: boolean;
     aiRecommendation?: string | null;
     /** SQL Server internal ID — nécessaire pour /api/articles/:noid/mensuel */
     noid?: number;

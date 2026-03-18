@@ -32,10 +32,16 @@ Si une règle manager est définie (section "RÈGLE MANAGER" dans le message) ET
 
 Si AUCUNE règle manager n'est fournie → Passer directement aux règles 2 et 3.
 
-⛔ RÈGLE 2 — STOCK MORT ABSOLU:
+⛔ RÈGLE 2 — STOCK MORT ABSOLU (NON NÉGOCIABLE, PRIORITÉ ABSOLUE APRÈS RÈGLE 1):
 SI CA réseau < 100€ ET Quantité réseau < 30 unités SIMULTANÉMENT → Z IMMÉDIAT, STOP.
 Les DEUX conditions doivent être vraies en même temps.
 Un produit à 30€ de CA sur 2 magasins (15€/magasin/an) coûte plus en gestion qu'il ne rapporte.
+
+⚠️ CETTE RÈGLE ANNULE LES RÈGLES 3, 4, 5 ET 6 SANS EXCEPTION :
+→ Même si le produit semble "entrant" (H1=0, H2>0), même si le score relatif est élevé,
+   même si réapprovisionnement récent, même si forte asymétrie magasin.
+→ 8€ de CA/an = Z. La tendance ne change RIEN à cette réalité économique.
+→ Si Règle 2 s'applique : recommendation = "Z", rule_applies = false, STOP.
 
 📊 RÈGLE 3 — PERFORMANCE RELATIVE AU FOURNISSEUR:
 Le produit doit être évalué PAR RAPPORT à la moyenne de son lot fournisseur.
@@ -59,11 +65,12 @@ RATIONALE : Cette logique s'adapte automatiquement à TOUS les fournisseurs:
 - Même score relatif = même décision, indépendamment de la taille du fournisseur
 
 📈 RÈGLE 4 — TENDANCE (si tableau mensuel disponible, sinon ignorer) :
-Si le tableau "COMPORTEMENT PAR MAGASIN" est fourni, calcule la tendance sur les 12 mois.
+⚠️ PRÉ-REQUIS : La RÈGLE 2 prime sur cette règle. Si CA < 100€ ET Qty < 30 → Z, ne pas appliquer Règle 4.
+Si le tableau "COMPORTEMENT PAR MAGASIN" est fourni ET que la Règle 2 ne s'applique pas :
 Compare les ventes des 6 premiers mois (H1) vs les 6 derniers mois (H2) sur l'ensemble des magasins.
 • H2 / H1 < 0.4 → effondrement des ventes → renforcer Z, même si score relatif est entre 50 et 100
 • H2 / H1 > 2.0 → accélération forte → protéger de Z, même si score relatif est entre 50 et 100
-• H1 = 0 et H2 > 0 → produit entrant (nouvelles ventes récentes) → ne pas sortir, voter A
+• H1 = 0 et H2 > 0 → produit entrant (nouvelles ventes récentes) → ne pas sortir, voter A — UNIQUEMENT si CA ≥ 100€ ET Qty ≥ 30
 • Sinon → tendance neutre, utiliser le score relatif (Règle 3) comme décision principale
 
 📦 RÈGLE 5 — RÉAPPROVISIONNEMENT RÉCENT (si tableau mensuel disponible, sinon ignorer) :

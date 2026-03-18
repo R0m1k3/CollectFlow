@@ -35,6 +35,13 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
             return;
         }
 
+        // Stock mort absolu : CA < 100€ ET quantité < 30 → Z direct, aucune analyse IA
+        if ((row.totalCa ?? 0) < 100 && (row.totalQuantite ?? 0) < 30) {
+            setDraftGamme(row.codein, "Z");
+            useAiCopilotStore.getState().setInsight(row.codein, `CA < 100€ (${(row.totalCa ?? 0).toFixed(0)}€) et quantité < 30 (${row.totalQuantite} uté) — stock mort absolu, classé Z automatiquement.`);
+            return;
+        }
+
         // Reset Visuel Immédiat
         setLoading(row.codein);
         setDraftGamme(row.codein, "Aucune");

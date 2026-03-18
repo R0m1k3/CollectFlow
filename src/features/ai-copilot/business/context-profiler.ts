@@ -14,7 +14,6 @@
  */
 
 import type { ProductAnalysisInput } from "../models/ai-analysis.types";
-import type { ScoringResult } from "./scoring-engine";
 
 // ---------------------------------------------------------------------------
 // Constante : seuil minimal de produits dans un rayon pour activer les signaux
@@ -266,7 +265,7 @@ export class ContextProfiler {
     static buildProfile(
         target: ProductAnalysisInput,
         allProds: ProductAnalysisInput[],
-        scoring: ScoringResult,
+        score: number,
         cache?: ContextProfilerCache
     ): ProductContextProfile {
         if (allProds.length === 0) {
@@ -298,7 +297,7 @@ export class ContextProfiler {
         const pCa = computePercentileFromSorted(targetCaPerStore, ctx.allCaPerStoreSorted);
         const pQty = computePercentileFromSorted(targetQtyPerStore, ctx.allQtyPerStoreSorted);
         const pMarge = computePercentileFromSorted(target.tauxMarge ?? 0, ctx.allMargeValuesSorted);
-        const pComposite = scoring.compositeScore;
+        const pComposite = score;
 
         // 4. Tops 20%
         const isTop20Ca = targetCaPerStore >= ctx.top20CaThreshold;
@@ -354,18 +353,23 @@ export class ContextProfiler {
         );
 
         // 8. Gardes-fous (signaux, pas des verdicts — Mary décide au final)
-        const isProtected =
-            scoring.decision.isRecent ||
-            scoring.decision.isTop30Supplier ||
-            scoring.decision.isLastProduct;
+        // Les flags isRecent/isTop30Supplier/isLastProduct sont désormais
+        // injectés directement sur ProductRow par score-engine.ts.
+        // On les lit depuis le scoring payload transmis par le bulk analyzer.
+        const targetExt = target as ProductAnalysisInput & { isRecent?: boolean; isTop30Supplier?: boolean; isLastProduct?: boolean };
+        const isRecentFlag = targetExt.isRecent ?? false;
+        const isTop30Flag = targetExt.isTop30Supplier ?? false;
+        const isLastFlag = targetExt.isLastProduct ?? false;
+
+        const isProtected = isRecentFlag || isTop30Flag || isLastFlag;
 
         let protectionReason = "";
-        if (scoring.decision.isRecent) protectionReason = "Nouveauté (< 3 mois de données)";
-        else if (scoring.decision.isTop30Supplier) protectionReason = "Top 30% CA Fournisseur";
-        else if (scoring.decision.isLastProduct) protectionReason = "Dernière référence du fournisseur";
+        if (isRecentFlag) protectionReason = "Nouveauté (< 3 mois de données)";
+        else if (isTop30Flag) protectionReason = "Top 30% CA Fournisseur";
+        else if (isLastFlag) protectionReason = "Dernière référence du fournisseur";
 
         // 9. Règle absolue
-        const scoreCritique = (target.score ?? 0) < 20;
+        const scoreCritique = score < 20;
 
         return {
             codein: target.codein,
