@@ -69,6 +69,7 @@ export async function GET(req: NextRequest) {
         mensuel_codein,
         mensuel_noid,
         stock_periode,
+        referentiel,
         mvt_types,
     ] = await Promise.all([
         probe(`${FF_API_BASE}/api/fournisseurs?limit=2`),
@@ -96,6 +97,22 @@ export async function GET(req: NextRequest) {
             ? probe(`${FF_API_BASE}/api/stock/article/${encodeURIComponent(firstCodein!)}/periode?dateDebut=${dateDebut}&dateFin=${dateFin}`)
             : Promise.resolve({ skipped: "no codein available" }),
         probe(`${FF_API_BASE}/api/mouvements/types`),
+        // Referentiel complet (nomenclature + gamme + stock + prix)
+        firstCodein
+            ? (async () => {
+                try {
+                    // Récupère le no_id de l'article
+                    const res = await fetch(`${FF_API_BASE}/api/articles?codefou=${codefou}&limit=5`, { cache: "no-store" });
+                    const data = await res.json();
+                    const list = Array.isArray(data) ? data : (Object.values(data).find(v => Array.isArray(v)) as unknown[] ?? []);
+                    // Prend le 5e article pour avoir plus de chances d'avoir des données
+                    const art = (list[4] ?? list[0]) as Record<string, unknown> | undefined;
+                    const noId = art?.no_id as string ?? null;
+                    if (noId) return probe(`${FF_API_BASE}/api/articles/${encodeURIComponent(noId)}/referentiel`);
+                } catch { /* ignore */ }
+                return { skipped: "no no_id" };
+            })()
+            : Promise.resolve({ skipped: "no codefou" }),
     ]);
 
     // Test PostgreSQL + diagnostic ventesProduits
@@ -149,6 +166,7 @@ export async function GET(req: NextRequest) {
             "articles/:no_id/mensuel": mensuel_noid,
             "stock/article/:codein/periode": stock_periode,
             "mouvements/types": mvt_types,
+            "articles/:no_id/referentiel": referentiel,
         },
         postgresql,
         ventesProduitsDiag,
