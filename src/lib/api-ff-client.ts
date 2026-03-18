@@ -203,13 +203,13 @@ export async function getArticlesByFournisseur(
     );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return raw.map((r: any): FfArticle => ({
-        codein:     r.codein     ?? r.Codein     ?? r.code_article    ?? r.codeArticle    ?? String(r.id ?? ""),
-        libelle1:   r.libelle1   ?? r.Libelle1   ?? r.libelle         ?? r.designation    ?? r.nom ?? "",
-        codefou:    r.codefou    ?? r.Codefou    ?? r.code_fournisseur ?? r.codeFournisseur ?? codefou,
-        nomfou:     r.nomfou     ?? r.Nomfou     ?? r.nom_fournisseur  ?? r.nomFournisseur  ?? "",
-        pcb:        r.pcb        ?? r.Pcb        ?? r.conditionnement  ?? r.colisage,
-        pv_central: r.pv_central ?? r.PvCentral  ?? r.pv              ?? r.prixVente,
-        noid:       r.noid       ?? r.NoId       ?? r.no_id,
+        codein:     r.codein            ?? r.Codein    ?? r.code_article     ?? r.codeArticle    ?? String(r.id ?? ""),
+        libelle1:   r.libelle1          ?? r.Libelle1  ?? r.libelle          ?? r.designation    ?? r.nom ?? "",
+        codefou:    r.codefou_principal ?? r.codefou   ?? r.Codefou          ?? r.code_fournisseur ?? r.codeFournisseur ?? codefou,
+        nomfou:     r.nom_fou_principal ?? r.nomfou    ?? r.Nomfou           ?? r.nom_fournisseur  ?? r.nomFournisseur ?? "",
+        pcb:        r.pcb_principal     ?? r.pcb       ?? r.Pcb              ?? r.conditionnement  ?? r.colisage,
+        pv_central: r.pv_central        ?? r.PvCentral ?? r.pv               ?? r.prixVente,
+        noid:       r.no_id             ?? r.noid      ?? r.NoId,
     })).filter(a => a.codein);
 }
 
@@ -224,20 +224,20 @@ export async function getMouvementsByFournisseur(
 ): Promise<FfMouvement[]> {
     const raw = await fetchAllPages<unknown>(
         (page) =>
-            `${FF_API_BASE}/api/mouvements/articles?codefou=${encodeURIComponent(codefou)}&datedeb=${dateDebut}&datefin=${dateFin}&page=${page}&limit=1000`,
+            `${FF_API_BASE}/api/mouvements/articles?codefou=${encodeURIComponent(codefou)}&dateDebut=${dateDebut}&dateFin=${dateFin}&page=${page}&limit=1000`,
         extractList,
         1000
     );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return raw.map((r: any): FfMouvement => ({
-        codein:   r.codein   ?? r.Codein   ?? r.code_article   ?? "",
-        genremvt: Number(r.genremvt ?? r.GenreMvt ?? r.genre_mvt ?? r.type ?? 0),
-        datemvt:  r.datemvt  ?? r.DateMvt  ?? r.date_mvt       ?? r.date ?? "",
-        qte:      Number(r.qte      ?? r.Qte      ?? r.quantite        ?? 0),
-        montant:  Number(r.montant  ?? r.Montant  ?? r.montant_mvt     ?? r.ca ?? 0),
-        marge:    Number(r.marge    ?? r.Marge    ?? r.marge_mvt       ?? 0),
-        qtestock: Number(r.qtestock ?? r.QteStock ?? r.qte_stock       ?? r.stock ?? 0),
-        site:     r.site     ?? r.Site     ?? r.magasin         ?? r.code_magasin ?? r.codesite ?? "",
+        codein:   r.codein    ?? r.Codein   ?? r.code_article   ?? "",
+        genremvt: Number(r.genremvt  ?? r.GenreMvt  ?? r.genre_mvt ?? r.type ?? 0),
+        datemvt:  r.datmvt    ?? r.datemvt  ?? r.DateMvt  ?? r.date_mvt ?? r.date ?? "",
+        qte:      Number(r.qtemvt    ?? r.qte        ?? r.Qte      ?? r.quantite ?? 0),
+        montant:  Number(r.mntmvtht  ?? r.montant    ?? r.Montant  ?? r.montant_mvt ?? r.ca ?? 0),
+        marge:    Number(r.margemvt  ?? r.marge      ?? r.Marge    ?? r.marge_mvt ?? 0),
+        qtestock: Number(r.qtestock  ?? r.QteStock   ?? r.qte_stock ?? r.stock ?? 0),
+        site:     r.site      ?? r.Site     ?? r.magasin         ?? r.code_magasin ?? r.codesite ?? "",
     })).filter(m => m.codein && m.datemvt);
 }
 
@@ -372,10 +372,10 @@ export async function getSitesFromApi(): Promise<{ code: string; nom: string }[]
         return list.map((s: any) => ({ code: s.code ?? s.codesite ?? s.site, nom: s.nom ?? s.libelle ?? s.code }));
     } catch (err) {
         console.error("[api-ff] getSitesFromApi error:", err);
-        // Fallback : 2 sites connus de FF Nancy
+        // Fallback : sites connus de FF Nancy
         return [
-            { code: "NANCY1", nom: "FF Nancy 1" },
-            { code: "NANCY2", nom: "FF Nancy 2" },
+            { code: "292", nom: "Frouard (Nancy)" },
+            { code: "579", nom: "Houdemont" },
         ];
     }
 }
