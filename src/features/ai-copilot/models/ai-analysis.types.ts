@@ -1,5 +1,15 @@
 import type { ProductContextProfile } from "../business/context-profiler";
 
+export interface SiteMonthlyData {
+    site: string;           // "Frouard" ou "Houdemont"
+    mois: string;           // "YYYY-MM"
+    ventes_qte: number;
+    ventes_ca: number;
+    marge: number;
+    stock_fin_mois: number; // peut être négatif (validation tardive de commande)
+    receptions_qte: number;
+}
+
 export interface ProductAnalysisInput {
     codein: string;
     libelle1: string;
@@ -51,6 +61,10 @@ export interface ProductAnalysisInput {
     };
     /** Optional context rules for the supplier */
     supplierContext?: string;
+    /** SQL Server internal ID — pour fetch mensuel per-site */
+    noid?: number;
+    /** Données mensuelles per-site (ventes, stock, réceptions) */
+    siteMonthlyData?: SiteMonthlyData[];
     /** Données stock & approvisionnement (API FF Nancy) */
     stockActuel?: number;
     stockTotal?: number;

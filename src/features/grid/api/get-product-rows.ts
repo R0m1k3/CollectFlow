@@ -73,6 +73,7 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
                     score: 0,
                     workingStores: [],
                     aiRecommendation: null,
+                    noid: art.noid ? Number(art.noid) : undefined,
                     pcb: art.pcb ? Number(art.pcb) : undefined,
                     prixVente: art.pv_central ? Number(art.pv_central) : undefined,
                 });

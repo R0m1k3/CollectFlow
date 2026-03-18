@@ -5,7 +5,7 @@
  * Principe: Tout est relatif à la moyenne du lot fournisseur.
  */
 
-import type { ProductAnalysisInput } from "../models/ai-analysis.types";
+import type { ProductAnalysisInput, SiteMonthlyData } from "../models/ai-analysis.types";
 import type { ProductContextProfile } from "./context-profiler";
 
 export class AnalysisEngine {
@@ -17,6 +17,9 @@ export class AnalysisEngine {
         return `Tu es Mary, Senior Retail Strategist pour une enseigne discount d'équipement de la maison (type La Foir'Fouille).
 Ton modèle économique repose sur la rotation rapide, le volume, et la rentabilité de l'espace en rayon.
 Tu analyses des produits pour recommander A (garder) ou Z (sortir).
+
+📦 RÈGLE STOCK NÉGATIF (s'applique toujours) :
+Un stock négatif signifie que la commande fournisseur a été validée APRÈS la mise en vente du produit en magasin. La mise à jour informatique du stock est faite a posteriori. Ce n'est PAS une anomalie — c'est un indicateur que le magasin a vendu avant d'avoir reçu le stock officiellement. Ne pas pénaliser un produit pour un stock négatif.
 
 --- ORDRE DE PRIORITÉ (STRICT) ---
 
@@ -171,6 +174,34 @@ SI AUCUNE RÈGLE MANAGER n'est définie, tu recommandes UNIQUEMENT A ou Z (jamai
                 lines.push(`• Commande en cours : réapprovisionnement prévu`);
             }
             lines.push("");
+        }
+
+        // Bloc comportement par magasin (si données mensuelles disponibles)
+        if (p.siteMonthlyData && p.siteMonthlyData.length > 0) {
+            lines.push(`--- COMPORTEMENT PAR MAGASIN (12 mois) ---`);
+            lines.push(`⚠️ Stock négatif = commande validée avant réception informatique (normal en retail).`);
+            lines.push("");
+
+            const bySite = new Map<string, SiteMonthlyData[]>();
+            for (const row of p.siteMonthlyData) {
+                if (!bySite.has(row.site)) bySite.set(row.site, []);
+                bySite.get(row.site)!.push(row);
+            }
+
+            for (const [site, rows] of bySite.entries()) {
+                lines.push(`${site} :`);
+                lines.push(`Mois       | Ventes Qté | CA HT       | Marge      | Stock fin mois | Réceptions`);
+                rows.sort((a, b) => a.mois.localeCompare(b.mois)).forEach(r => {
+                    const mois = r.mois.padEnd(10);
+                    const qty = String(r.ventes_qte).padStart(10);
+                    const ca = `${r.ventes_ca.toFixed(2)}€`.padStart(11);
+                    const mg = `${r.marge.toFixed(2)}€`.padStart(10);
+                    const stk = String(r.stock_fin_mois).padStart(14);
+                    const rec = String(r.receptions_qte).padStart(10);
+                    lines.push(`${mois} |${qty} |${ca} |${mg} |${stk} |${rec}`);
+                });
+                lines.push("");
+            }
         }
 
         lines.push(`Génère UNIQUEMENT le JSON :`);

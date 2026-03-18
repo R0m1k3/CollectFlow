@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSavedDatabaseConfig } from "@/features/settings/actions";
 import { OpenRouterClient } from "@/features/ai-copilot/data/open-router-client";
-import { ProductAnalysisInput } from "@/features/ai-copilot/models/ai-analysis.types";
+import { ProductAnalysisInput, SiteMonthlyData } from "@/features/ai-copilot/models/ai-analysis.types";
+import { getMensuelByArticles, buildLast12MonthsRange } from "@/lib/api-ff-client";
 
 // Limite max acceptable pour la route (Node.js self-hosted).
 // Evite que le process tourne indéfiniment en cas de deadlock.
 export const maxDuration = 55;
+
+const SITE_LABELS: Record<string, string> = { "292": "Frouard", "579": "Houdemont" };
 
 export async function POST(req: NextRequest) {
     const config = await getSavedDatabaseConfig();
@@ -20,12 +23,39 @@ export async function POST(req: NextRequest) {
     try {
         const body: ProductAnalysisInput = await req.json();
 
-        // Le supplierContext est déjà injecté par le client (BulkAiAnalyzer) 
-        // via une requête unique avant de lancer le batch.
-        // Cela nous évite une requête DB N+1 pour chaque produit analysé.
+        // Si noid est fourni, enrichir avec les données mensuelles per-site depuis FF Nancy
+        let enrichedBody = body;
+        if (body.noid) {
+            try {
+                const { dateDebut, dateFin } = buildLast12MonthsRange();
+                const mensuelMap = await getMensuelByArticles(
+                    [{ codein: body.codein, noid: body.noid, libelle1: body.libelle1, codefou: body.codeFournisseur ?? "" }],
+                    dateDebut, dateFin, 1
+                );
+                const entries = mensuelMap.get(body.codein) ?? [];
+                const siteMonthlyData: SiteMonthlyData[] = entries
+                    .filter(e => e.site === "292" || e.site === "579")
+                    .map(e => ({
+                        site: SITE_LABELS[e.site] ?? e.site,
+                        mois: e.mois,
+                        ventes_qte: Math.abs(parseFloat(e.ventes?.qte_vendue ?? "0") || 0),
+                        ventes_ca: Math.abs(parseFloat(e.ventes?.ca_ht ?? "0") || 0),
+                        marge: parseFloat(e.ventes?.marge ?? "0") || 0,
+                        stock_fin_mois: parseFloat(e.stock_fin_mois ?? "0") || 0,
+                        receptions_qte: Math.abs(parseFloat(e.receptions?.qte_recue ?? "0") || 0),
+                    }));
+                if (siteMonthlyData.length > 0) {
+                    enrichedBody = { ...body, siteMonthlyData };
+                    console.log(`[AI] Enriched ${body.codein} with ${siteMonthlyData.length} site-monthly entries`);
+                }
+            } catch (err) {
+                console.warn(`[AI] Failed to fetch mensuel for ${body.codein}:`, err);
+                // Dégradation gracieuse — continuer sans données mensuelles
+            }
+        }
 
         const client = new OpenRouterClient({ apiKey, model });
-        const result = await client.analyzeProduct(body);
+        const result = await client.analyzeProduct(enrichedBody);
 
         return NextResponse.json(result);
     } catch (err) {

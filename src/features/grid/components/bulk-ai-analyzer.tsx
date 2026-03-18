@@ -112,6 +112,7 @@ export function BulkAiAnalyzer() {
 
             return {
                 codein: r.codein,
+                noid: r.noid,
                 libelle1: r.libelle1 || "",
                 libelleNiveau2: r.libelleNiveau2 || "Général",
                 // Code nomenclature niveau 2 (4 premiers chiffres) — utilisé par le ContextProfiler
@@ -141,25 +142,39 @@ export function BulkAiAnalyzer() {
 
         });
 
-        // 2. Calculer scoring + context profiling en micro-batches asynchrones
+        // 2a. Produits sans aucune vente → Z direct, sans appel IA
+        const zeroSalesRows = rows.filter((r) => (r.totalQuantite || 0) === 0);
+        if (zeroSalesRows.length > 0) {
+            const zChanges: Record<string, GammeCode> = {};
+            zeroSalesRows.forEach(r => { zChanges[r.codein] = "Z"; });
+            batchSetDraftGamme(zChanges);
+            zeroSalesRows.forEach(r => {
+                setInsight(r.codein, "Aucune vente sur 12 mois — produit classé Z automatiquement.");
+            });
+        }
+
+        // Filtrer : ne soumettre à l'IA que les produits avec au moins 1 vente
+        const payloadsWithSales = initialPayloads.filter(p => (p.totalQuantite || 0) > 0);
+
+        // 2b. Calculer scoring + context profiling en micro-batches asynchrones
         //    pour ne pas bloquer le thread UI (Chrome "Page ne répondant pas").
         setIsAnalyzing(true);
-        setProgress({ current: 0, total: initialPayloads.length, message: "Calcul du scoring...", errors: 0 });
+        setProgress({ current: 0, total: payloadsWithSales.length, message: "Calcul du scoring...", errors: 0 });
 
         const SCORING_BATCH_SIZE = 25;
         const scoringResults = new Map<string, ReturnType<typeof ScoringEngine.analyzeRayon>>();
         const productPayloads: (ProductAnalysisInput & { scoring: any })[] = [];
 
         // Pre-compute context thresholds to prevent O(N^2) and O(N^2 log N) performance freezes
-        const contextCache = ContextProfiler.prepareCache(initialPayloads);
+        const contextCache = ContextProfiler.prepareCache(payloadsWithSales);
 
-        for (let i = 0; i < initialPayloads.length; i += SCORING_BATCH_SIZE) {
+        for (let i = 0; i < payloadsWithSales.length; i += SCORING_BATCH_SIZE) {
             if (isCancelledRef.current) break;
 
-            const batch = initialPayloads.slice(i, i + SCORING_BATCH_SIZE);
+            const batch = payloadsWithSales.slice(i, i + SCORING_BATCH_SIZE);
 
             for (const p of batch) {
-                const scoringRes = ScoringEngine.analyzeRayon(p, initialPayloads);
+                const scoringRes = ScoringEngine.analyzeRayon(p, payloadsWithSales);
                 scoringResults.set(p.codein, scoringRes);
 
                 let contextProfile: ProductAnalysisInput["contextProfile"];
@@ -188,8 +203,8 @@ export function BulkAiAnalyzer() {
             // Yield au navigateur entre chaque batch pour éviter le freeze
             setProgress(prev => ({
                 ...prev,
-                current: Math.min(i + SCORING_BATCH_SIZE, initialPayloads.length),
-                message: `Scoring : ${Math.min(i + SCORING_BATCH_SIZE, initialPayloads.length)}/${initialPayloads.length}`,
+                current: Math.min(i + SCORING_BATCH_SIZE, payloadsWithSales.length),
+                message: `Scoring : ${Math.min(i + SCORING_BATCH_SIZE, payloadsWithSales.length)}/${payloadsWithSales.length}`,
             }));
             await new Promise(r => setTimeout(r, 0));
         }

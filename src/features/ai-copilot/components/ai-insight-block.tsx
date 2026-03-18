@@ -28,6 +28,13 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
     const handleAnalyze = async () => {
         if (status === "loading") return;
 
+        // Produit sans aucune vente sur 12 mois → Z direct, pas d'appel IA
+        if (row.totalQuantite === 0) {
+            setDraftGamme(row.codein, "Z");
+            useAiCopilotStore.getState().setInsight(row.codein, "Aucune vente sur 12 mois — produit classé Z automatiquement.");
+            return;
+        }
+
         // Reset Visuel Immédiat
         setLoading(row.codein);
         setDraftGamme(row.codein, "Aucune");
@@ -90,6 +97,7 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
 
         analyzeProduct({
             codein: row.codein,
+            noid: row.noid,
             libelle1: row.libelle1,
             totalCa: row.totalCa,
             tauxMarge: row.tauxMarge,

@@ -18,6 +18,7 @@ interface AiCopilotState {
     setError: (codein: string, error: string) => void;
     analyzeProduct: (payload: {
         codein: string;
+        noid?: number;
         libelle1: string;
         totalCa: number;
         tauxMarge: number;
@@ -36,6 +37,9 @@ interface AiCopilotState {
         shareMarge?: number;
         shareQty?: number;
         totalFournisseurCa?: number;
+        codeFournisseur?: string;
+        supplierContext?: string;
+        scoring?: Record<string, unknown>;
     }) => Promise<void>;
     resetInsights: () => void;
 }

@@ -60,6 +60,8 @@ export interface ProductRow {
     score: number;
     workingStores: string[];
     aiRecommendation?: string | null;
+    /** SQL Server internal ID — nécessaire pour /api/articles/:noid/mensuel */
+    noid?: number;
     /** Données stock & approvisionnement (API FF Nancy) */
     pcb?: number;                    // Conditionnement (pack size)
     prixAchat?: number;              // PA / PRMP
