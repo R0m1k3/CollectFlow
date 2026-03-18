@@ -82,12 +82,20 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
         // ─── Phase 5 : Agréger données mensuelles → sales12m + stock12m ──────
         const filterSite = magasin !== "TOTAL" ? magasin : null;
 
-        // Log des sites distincts reçus (premier article avec données — diagnostic)
-        const firstEntries = mensuelMap.values().next().value as import("@/lib/api-ff-client").FfMensuelEntry[] | undefined;
-        if (firstEntries) {
-            const distinctSites = [...new Set(firstEntries.map(e => e.site))];
-            console.log(`[getProductRows] Sites distincts dans mensuel: ${JSON.stringify(distinctSites)}`);
+        // Log de TOUS les sites distincts sur l'ensemble des articles (diagnostic double-comptage)
+        const allSites = new Set<string>();
+        for (const entries of mensuelMap.values()) {
+            for (const e of entries as import("@/lib/api-ff-client").FfMensuelEntry[]) allSites.add(e.site);
         }
+        console.log(`[getProductRows] Tous les sites distincts dans mensuel: ${JSON.stringify([...allSites])}`);
+        // Compter combien d'entrées par site (pour détecter la centrale)
+        const siteCount: Record<string, number> = {};
+        for (const entries of mensuelMap.values()) {
+            for (const e of entries as import("@/lib/api-ff-client").FfMensuelEntry[]) {
+                siteCount[e.site] = (siteCount[e.site] ?? 0) + 1;
+            }
+        }
+        console.log(`[getProductRows] Entrées par site: ${JSON.stringify(siteCount)}`);
 
         for (const [codein, entries] of mensuelMap.entries()) {
             const product = productMap.get(codein);
