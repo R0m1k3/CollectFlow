@@ -35,7 +35,7 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             getMensuelByArticles(articles, dateDebut, dateFin),
             getReferentielByArticles(articles),
             getCommandesByFournisseur(codeFournisseur),
-            getRankingByArticles(articles),
+            getRankingByArticles(articles, codeFournisseur),
         ]);
         const { rankings: rankingMap, totalRankedProducts } = rankingResult;
         console.log(`[getProductRows] mensuel data for ${mensuelMap.size}/${articles.length} articles`);

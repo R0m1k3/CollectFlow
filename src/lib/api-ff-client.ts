@@ -451,22 +451,23 @@ export interface RankingResult {
 }
 
 /**
- * Récupère le ranking (réseau + magasin) pour un lot d'articles via codein.
- * Fait d'abord un appel pour connaître le nombre total de produits classés,
- * puis récupère le ranking de chaque article.
+ * Récupère le ranking (réseau + magasin) pour un fournisseur en 2 appels :
+ * 1. GET /api/ranking?limit=1  → count total de produits classés
+ * 2. GET /api/ranking?foucentrale=<code>&limit=<n>  → tous les rankings du fournisseur
+ *
+ * Fallback par articles individuels si foucentrale n'est pas disponible.
  */
 export async function getRankingByArticles(
     articles: { codein: string; gtin?: string }[],
-    batchSize = 20
+    codeFournisseur?: string,
 ): Promise<RankingResult> {
     const rankings = new Map<string, FfRanking>();
     if (articles.length === 0) return { rankings, totalRankedProducts: 0 };
 
-    // 1. Récupérer le nombre total de produits classés (1 seul appel)
+    // 1. Nombre total de produits classés
     let totalRankedProducts = 0;
     try {
-        const countUrl = `${FF_API_BASE}/api/ranking?limit=1`;
-        const countRes = await fetch(countUrl, { cache: "no-store" });
+        const countRes = await fetch(`${FF_API_BASE}/api/ranking?limit=1`, { cache: "no-store" });
         if (countRes.ok) {
             const countData = await countRes.json();
             totalRankedProducts = countData?.count ?? 0;
@@ -476,7 +477,43 @@ export async function getRankingByArticles(
         console.warn(`[api-ff] Failed to get ranking total count:`, err);
     }
 
-    // 2. Récupérer le ranking de chaque article
+    // 2. Bulk fetch par fournisseur (1 seul appel au lieu de N)
+    if (codeFournisseur) {
+        try {
+            const limit = Math.max(articles.length + 50, 500);
+            const url = `${FF_API_BASE}/api/ranking?foucentrale=${encodeURIComponent(codeFournisseur)}&limit=${limit}`;
+            const res = await fetch(url, { cache: "no-store" });
+            if (res.ok) {
+                const data = await res.json();
+                const rankingList: unknown[] = data?.ranking ?? [];
+                console.log(`[api-ff] Ranking bulk: ${rankingList.length} entrées pour fournisseur ${codeFournisseur}`);
+                if (rankingList.length > 0) {
+                    console.log(`[api-ff] Ranking sample keys: ${Object.keys(rankingList[0] as object).join(",")}`);
+                }
+                for (const entry of rankingList as Record<string, string | null>[]) {
+                    const codein = entry.codein;
+                    if (!codein) continue;
+                    rankings.set(codein, {
+                        ranking_ca: parseRankNum(entry.ranking_ca),
+                        ranking_qte: parseRankNum(entry.ranking_qte),
+                        ranking_mag_ca: parseRankNum(entry.ranking_mag_ca),
+                        ranking_mag_qte: parseRankNum(entry.ranking_mag_qte),
+                        ranking_mag_marge: parseRankNum(entry.ranking_mag_marge),
+                        pv_calcule: parseRankNum(entry.pv_calcule),
+                        pv_mag: parseRankNum(entry.pv_mag),
+                        pv_cen: parseRankNum(entry.pv_cen),
+                    });
+                }
+                console.log(`[api-ff] Ranking: ${rankings.size}/${articles.length} articles enrichis`);
+                return { rankings, totalRankedProducts };
+            }
+        } catch (err) {
+            console.warn(`[api-ff] Bulk ranking failed, falling back to per-article:`, err);
+        }
+    }
+
+    // Fallback : 1 appel par article (si pas de codeFournisseur ou si bulk échoue)
+    const batchSize = 20;
     for (let i = 0; i < articles.length; i += batchSize) {
         const batch = articles.slice(i, i + batchSize);
         await Promise.all(
@@ -486,15 +523,9 @@ export async function getRankingByArticles(
                     const res = await fetch(url, { cache: "no-store" });
                     if (!res.ok) return;
                     const data = await res.json();
-
                     const rankingList = data?.ranking;
                     if (!Array.isArray(rankingList) || rankingList.length === 0) return;
-
-                    if (rankings.size === 0) {
-                        console.log(`[api-ff] Ranking sample keys: ${Object.keys(rankingList[0]).join(",")}`);
-                    }
-
-                    const entry = rankingList[0];
+                    const entry = rankingList[0] as Record<string, string | null>;
                     rankings.set(art.codein, {
                         ranking_ca: parseRankNum(entry.ranking_ca),
                         ranking_qte: parseRankNum(entry.ranking_qte),
