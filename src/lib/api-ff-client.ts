@@ -143,19 +143,27 @@ async function fetchAllPages<T>(
         return all;
     }
 
-    // Fallback séquentiel (pas de total dans la réponse)
+    // Fallback parallèle sans total : fetch 10 pages à la fois, arrêt dès qu'une page est incomplète
     const all = [...items1];
-    let page = 2;
+    let startPage = 2;
     while (true) {
-        const url = buildUrl(page);
-        console.log(`[api-ff] GET ${url}`);
-        const res = await fetch(url, { cache: "no-store" });
-        if (!res.ok) break;
-        const data = await res.json();
-        const items = extractList(data) as T[];
-        all.push(...items);
-        if (items.length < pageSize) break;
-        page++;
+        const chunk = Array.from({ length: 10 }, (_, i) => startPage + i);
+        const results = await Promise.all(chunk.map(async (p) => {
+            const url = buildUrl(p);
+            console.log(`[api-ff] GET ${url}`);
+            const res = await fetch(url, { cache: "no-store" });
+            if (!res.ok) return { p, items: [] as T[] };
+            const data = await res.json();
+            return { p, items: extractList(data) as T[] };
+        }));
+        results.sort((a, b) => a.p - b.p);
+        let done = false;
+        for (const { items } of results) {
+            all.push(...items);
+            if (items.length < pageSize) { done = true; break; }
+        }
+        if (done) break;
+        startPage += 10;
     }
     return all;
 }
@@ -487,68 +495,54 @@ export interface RankingResult {
 }
 
 /**
- * Récupère le ranking (réseau + magasin) pour un fournisseur en 2 appels :
- * 1. GET /api/ranking?limit=1  → count total de produits classés
- * 2. GET /api/ranking?foucentrale=<code>&limit=<n>  → tous les rankings du fournisseur
+ * Récupère le ranking réseau pour les articles en 1 seul appel :
+ * GET /api/ranking?limit=<N> — récupère tout le classement réseau, puis filtre par codein.
  *
- * Fallback par articles individuels si foucentrale n'est pas disponible.
+ * Fallback par article individuel si le bulk échoue.
  */
 export async function getRankingByArticles(
     articles: { codein: string; gtin?: string }[],
-    codeFournisseur?: string,
+    _codeFournisseur?: string,
 ): Promise<RankingResult> {
     const rankings = new Map<string, FfRanking>();
     if (articles.length === 0) return { rankings, totalRankedProducts: 0 };
 
-    // 1. Nombre total de produits classés
-    let totalRankedProducts = 0;
+    const articleCodeins = new Set(articles.map(a => a.codein));
+
+    // Stratégie : télécharger tout le classement réseau en 1 appel, puis matcher par codein
+    // Le nombre d'articles retournés = totalRankedProducts réel
+    const RANKING_FULL_LIMIT = 30000;
     try {
-        const countRes = await fetch(`${FF_API_BASE}/api/ranking?limit=1`, { cache: "no-store" });
-        if (countRes.ok) {
-            const countData = await countRes.json();
-            totalRankedProducts = countData?.count ?? 0;
-            console.log(`[api-ff] Ranking total produits classés : ${totalRankedProducts}`);
+        const url = `${FF_API_BASE}/api/ranking?limit=${RANKING_FULL_LIMIT}`;
+        const res = await fetch(url, { cache: "no-store" });
+        if (res.ok) {
+            const data = await res.json();
+            const rankingList: Record<string, string | null>[] = data?.ranking ?? [];
+            const totalRankedProducts = rankingList.length;
+            console.log(`[api-ff] Ranking full fetch: ${rankingList.length} produits classés dans le réseau`);
+
+            for (const entry of rankingList) {
+                const codein = entry.codein;
+                if (!codein || !articleCodeins.has(codein)) continue;
+                rankings.set(codein, {
+                    ranking_ca: parseRankNum(entry.ranking_ca),
+                    ranking_qte: parseRankNum(entry.ranking_qte),
+                    ranking_mag_ca: parseRankNum(entry.ranking_mag_ca),
+                    ranking_mag_qte: parseRankNum(entry.ranking_mag_qte),
+                    ranking_mag_marge: parseRankNum(entry.ranking_mag_marge),
+                    pv_calcule: parseRankNum(entry.pv_calcule),
+                    pv_mag: parseRankNum(entry.pv_mag),
+                    pv_cen: parseRankNum(entry.pv_cen),
+                });
+            }
+            console.log(`[api-ff] Ranking: ${rankings.size}/${articles.length} articles du fournisseur classés`);
+            return { rankings, totalRankedProducts };
         }
     } catch (err) {
-        console.warn(`[api-ff] Failed to get ranking total count:`, err);
+        console.warn(`[api-ff] Full ranking fetch failed, falling back to per-article:`, err);
     }
 
-    // 2. Bulk fetch par fournisseur (1 seul appel au lieu de N)
-    if (codeFournisseur) {
-        try {
-            const limit = Math.max(articles.length + 50, 500);
-            const url = `${FF_API_BASE}/api/ranking?foucentrale=${encodeURIComponent(codeFournisseur)}&limit=${limit}`;
-            const res = await fetch(url, { cache: "no-store" });
-            if (res.ok) {
-                const data = await res.json();
-                const rankingList: unknown[] = data?.ranking ?? [];
-                console.log(`[api-ff] Ranking bulk: ${rankingList.length} entrées pour fournisseur ${codeFournisseur}`);
-                if (rankingList.length > 0) {
-                    console.log(`[api-ff] Ranking sample keys: ${Object.keys(rankingList[0] as object).join(",")}`);
-                }
-                for (const entry of rankingList as Record<string, string | null>[]) {
-                    const codein = entry.codein;
-                    if (!codein) continue;
-                    rankings.set(codein, {
-                        ranking_ca: parseRankNum(entry.ranking_ca),
-                        ranking_qte: parseRankNum(entry.ranking_qte),
-                        ranking_mag_ca: parseRankNum(entry.ranking_mag_ca),
-                        ranking_mag_qte: parseRankNum(entry.ranking_mag_qte),
-                        ranking_mag_marge: parseRankNum(entry.ranking_mag_marge),
-                        pv_calcule: parseRankNum(entry.pv_calcule),
-                        pv_mag: parseRankNum(entry.pv_mag),
-                        pv_cen: parseRankNum(entry.pv_cen),
-                    });
-                }
-                console.log(`[api-ff] Ranking: ${rankings.size}/${articles.length} articles enrichis`);
-                return { rankings, totalRankedProducts };
-            }
-        } catch (err) {
-            console.warn(`[api-ff] Bulk ranking failed, falling back to per-article:`, err);
-        }
-    }
-
-    // Fallback : 1 appel par article (si pas de codeFournisseur ou si bulk échoue)
+    // Fallback : 1 appel par article
     const batchSize = 20;
     for (let i = 0; i < articles.length; i += batchSize) {
         const batch = articles.slice(i, i + batchSize);
@@ -579,8 +573,8 @@ export async function getRankingByArticles(
         );
     }
 
-    console.log(`[api-ff] Ranking: ${rankings.size}/${articles.length} articles enrichis`);
-    return { rankings, totalRankedProducts };
+    console.log(`[api-ff] Ranking fallback: ${rankings.size}/${articles.length} articles enrichis`);
+    return { rankings, totalRankedProducts: 0 };
 }
 
 // ---------------------------------------------------------------------------
