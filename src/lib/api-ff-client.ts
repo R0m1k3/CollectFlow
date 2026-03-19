@@ -421,7 +421,9 @@ export async function getCommandesByFournisseur(
 
 // ---------------------------------------------------------------------------
 // Ranking — classement réseau et magasin
-// GET /api/ranking?gencod=<gtin>
+// GET /api/ranking?codein=<codein>
+// Réponse : { count: number, ranking: RankingEntry[] }
+// Les valeurs ranking sont des string|null, à parser en number.
 // ---------------------------------------------------------------------------
 
 export interface FfRanking {
@@ -429,10 +431,21 @@ export interface FfRanking {
     ranking_qte?: number;
     ranking_mag_ca?: number;
     ranking_mag_qte?: number;
+    ranking_mag_marge?: number;
+    pv_calcule?: number;
+    pv_mag?: number;
+    pv_cen?: number;
+}
+
+/** Parse une valeur string|null en number|undefined */
+function parseRankNum(val: string | null | undefined): number | undefined {
+    if (val == null || val === "") return undefined;
+    const n = Number(val);
+    return isNaN(n) ? undefined : n;
 }
 
 /**
- * Récupère le ranking (réseau + magasin) pour un lot d'articles via leur GTIN (EAN).
+ * Récupère le ranking (réseau + magasin) pour un lot d'articles via codein.
  * Retourne Map<codein, FfRanking>
  */
 export async function getRankingByArticles(
@@ -440,38 +453,47 @@ export async function getRankingByArticles(
     batchSize = 20
 ): Promise<Map<string, FfRanking>> {
     const result = new Map<string, FfRanking>();
+    if (articles.length === 0) return result;
 
-    const withGtin = articles.filter(a => a.gtin && a.gtin.trim().length > 0);
-    if (withGtin.length === 0) return result;
-
-    for (let i = 0; i < withGtin.length; i += batchSize) {
-        const batch = withGtin.slice(i, i + batchSize);
+    for (let i = 0; i < articles.length; i += batchSize) {
+        const batch = articles.slice(i, i + batchSize);
         await Promise.all(
             batch.map(async (art) => {
                 try {
-                    const url = `${FF_API_BASE}/api/ranking?gencod=${encodeURIComponent(art.gtin!.trim())}`;
+                    const url = `${FF_API_BASE}/api/ranking?codein=${encodeURIComponent(art.codein)}`;
                     const res = await fetch(url, { cache: "no-store" });
                     if (!res.ok) return;
                     const data = await res.json();
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const items = Array.isArray(data) ? data : (data?.data ?? data?.items ?? [data]);
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const entry: any = Array.isArray(items) ? items[0] : items;
-                    if (!entry) return;
+
+                    // Structure : { count: number, ranking: RankingEntry[] }
+                    const rankings = data?.ranking;
+                    if (!Array.isArray(rankings) || rankings.length === 0) return;
+
+                    // Log premier résultat pour diagnostic
+                    if (result.size === 0) {
+                        console.log(`[api-ff] Ranking sample keys: ${Object.keys(rankings[0]).join(",")}`);
+                    }
+
+                    // Prendre la première entrée
+                    const entry = rankings[0];
                     result.set(art.codein, {
-                        ranking_ca: entry.ranking_ca != null ? Number(entry.ranking_ca) : undefined,
-                        ranking_qte: entry.ranking_qte != null ? Number(entry.ranking_qte) : undefined,
-                        ranking_mag_ca: entry.ranking_mag_ca != null ? Number(entry.ranking_mag_ca) : undefined,
-                        ranking_mag_qte: entry.ranking_mag_qte != null ? Number(entry.ranking_mag_qte) : undefined,
+                        ranking_ca: parseRankNum(entry.ranking_ca),
+                        ranking_qte: parseRankNum(entry.ranking_qte),
+                        ranking_mag_ca: parseRankNum(entry.ranking_mag_ca),
+                        ranking_mag_qte: parseRankNum(entry.ranking_mag_qte),
+                        ranking_mag_marge: parseRankNum(entry.ranking_mag_marge),
+                        pv_calcule: parseRankNum(entry.pv_calcule),
+                        pv_mag: parseRankNum(entry.pv_mag),
+                        pv_cen: parseRankNum(entry.pv_cen),
                     });
                 } catch (err) {
-                    console.error(`[api-ff] getRanking error for ${art.codein} (gtin: ${art.gtin}):`, err);
+                    console.error(`[api-ff] getRanking error for ${art.codein}:`, err);
                 }
             })
         );
     }
 
-    console.log(`[api-ff] Ranking: ${result.size}/${withGtin.length} articles enrichis`);
+    console.log(`[api-ff] Ranking: ${result.size}/${articles.length} articles enrichis`);
     return result;
 }
 
