@@ -93,6 +93,12 @@ export interface ProductRow {
     shareQty?: number;
     /** Référentiels globaux */
     totalFournisseurCa?: number;
+    /** Ranking réseau (classement global) */
+    rankingCa?: number;
+    rankingQte?: number;
+    /** Ranking magasin */
+    rankingMagCa?: number;
+    rankingMagQte?: number;
 }
 
 /** Summary bar totals for the currently visible/filtered rows */

@@ -7,6 +7,7 @@ import {
     getMensuelByArticles,
     getReferentielByArticles,
     getCommandesByFournisseur,
+    getRankingByArticles,
     buildLast12MonthsRange,
 } from "@/lib/api-ff-client";
 import { db } from "@/db";
@@ -30,10 +31,11 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
 
         // ─── Phase 2 : Mensuel + Commandes (en parallèle) ────────────────────
         const { dateDebut, dateFin } = buildLast12MonthsRange();
-        const [mensuelMap, referentielMap, commandesMap] = await Promise.all([
+        const [mensuelMap, referentielMap, commandesMap, rankingMap] = await Promise.all([
             getMensuelByArticles(articles, dateDebut, dateFin),
             getReferentielByArticles(articles),
             getCommandesByFournisseur(codeFournisseur),
+            getRankingByArticles(articles),
         ]);
         console.log(`[getProductRows] mensuel data for ${mensuelMap.size}/${articles.length} articles`);
 
@@ -219,6 +221,16 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             refCount++;
         }
         console.log(`[getProductRows] Referentiel: ${refCount}/${articles.length} articles enrichis`);
+
+        // ─── Phase 6b : Ranking réseau + magasin ────────────────────────────
+        for (const [codein, ranking] of rankingMap.entries()) {
+            const product = productMap.get(codein);
+            if (!product) continue;
+            product.rankingCa = ranking.ranking_ca;
+            product.rankingQte = ranking.ranking_qte;
+            product.rankingMagCa = ranking.ranking_mag_ca;
+            product.rankingMagQte = ranking.ranking_mag_qte;
+        }
 
         // ─── Phase 7 : Restaurer gammes depuis dernier snapshot ──────────────
         try {

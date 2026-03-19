@@ -399,6 +399,58 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                 );
             },
         },
+        {
+            accessorKey: "rankingCa",
+            header: () => <div className="text-center w-full">Rk CA<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
+            size: 70,
+            cell: ({ getValue }) => {
+                const val = getValue<number | undefined>();
+                return (
+                    <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
+                        {val != null ? `#${val}` : "-"}
+                    </div>
+                );
+            },
+        },
+        {
+            accessorKey: "rankingQte",
+            header: () => <div className="text-center w-full">Rk Qté<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
+            size: 70,
+            cell: ({ getValue }) => {
+                const val = getValue<number | undefined>();
+                return (
+                    <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
+                        {val != null ? `#${val}` : "-"}
+                    </div>
+                );
+            },
+        },
+        {
+            accessorKey: "rankingMagCa",
+            header: () => <div className="text-center w-full">Rk CA<br/><span className="text-[9px] opacity-60">Mag.</span></div>,
+            size: 70,
+            cell: ({ getValue }) => {
+                const val = getValue<number | undefined>();
+                return (
+                    <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
+                        {val != null ? `#${val}` : "-"}
+                    </div>
+                );
+            },
+        },
+        {
+            accessorKey: "rankingMagQte",
+            header: () => <div className="text-center w-full">Rk Qté<br/><span className="text-[9px] opacity-60">Mag.</span></div>,
+            size: 70,
+            cell: ({ getValue }) => {
+                const val = getValue<number | undefined>();
+                return (
+                    <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
+                        {val != null ? `#${val}` : "-"}
+                    </div>
+                );
+            },
+        },
         ...MONTHS_12.map((monthKey) => ({
             id: `month_${monthKey}`,
             header: () => <div className="text-center w-full">{formatMonthLabel(monthKey)}</div>,

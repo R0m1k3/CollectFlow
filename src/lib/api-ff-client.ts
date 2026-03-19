@@ -420,6 +420,62 @@ export async function getCommandesByFournisseur(
 }
 
 // ---------------------------------------------------------------------------
+// Ranking — classement réseau et magasin
+// GET /api/ranking?gencod=<gtin>
+// ---------------------------------------------------------------------------
+
+export interface FfRanking {
+    ranking_ca?: number;
+    ranking_qte?: number;
+    ranking_mag_ca?: number;
+    ranking_mag_qte?: number;
+}
+
+/**
+ * Récupère le ranking (réseau + magasin) pour un lot d'articles via leur GTIN (EAN).
+ * Retourne Map<codein, FfRanking>
+ */
+export async function getRankingByArticles(
+    articles: { codein: string; gtin?: string }[],
+    batchSize = 20
+): Promise<Map<string, FfRanking>> {
+    const result = new Map<string, FfRanking>();
+
+    const withGtin = articles.filter(a => a.gtin && a.gtin.trim().length > 0);
+    if (withGtin.length === 0) return result;
+
+    for (let i = 0; i < withGtin.length; i += batchSize) {
+        const batch = withGtin.slice(i, i + batchSize);
+        await Promise.all(
+            batch.map(async (art) => {
+                try {
+                    const url = `${FF_API_BASE}/api/ranking?gencod=${encodeURIComponent(art.gtin!.trim())}`;
+                    const res = await fetch(url, { cache: "no-store" });
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const items = Array.isArray(data) ? data : (data?.data ?? data?.items ?? [data]);
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const entry: any = Array.isArray(items) ? items[0] : items;
+                    if (!entry) return;
+                    result.set(art.codein, {
+                        ranking_ca: entry.ranking_ca != null ? Number(entry.ranking_ca) : undefined,
+                        ranking_qte: entry.ranking_qte != null ? Number(entry.ranking_qte) : undefined,
+                        ranking_mag_ca: entry.ranking_mag_ca != null ? Number(entry.ranking_mag_ca) : undefined,
+                        ranking_mag_qte: entry.ranking_mag_qte != null ? Number(entry.ranking_mag_qte) : undefined,
+                    });
+                } catch (err) {
+                    console.error(`[api-ff] getRanking error for ${art.codein} (gtin: ${art.gtin}):`, err);
+                }
+            })
+        );
+    }
+
+    console.log(`[api-ff] Ranking: ${result.size}/${withGtin.length} articles enrichis`);
+    return result;
+}
+
+// ---------------------------------------------------------------------------
 // Statut de synchronisation
 // ---------------------------------------------------------------------------
 
