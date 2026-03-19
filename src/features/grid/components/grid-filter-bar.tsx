@@ -11,6 +11,7 @@ const GAMME_FILTERS: { label: string; value: GammeCode | null }[] = [
     { label: "A", value: "A" },
     { label: "B", value: "B" },
     { label: "C", value: "C" },
+    { label: "Y", value: "Y" },
     { label: "Z", value: "Z" },
 ];
 
@@ -169,6 +170,7 @@ export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
                             case "A": return { background: "rgba(16, 185, 129, 0.15)", color: "rgb(5, 150, 105)" }; // Emerald
                             case "B": return { background: "rgba(59, 130, 246, 0.15)", color: "rgb(37, 99, 235)" }; // Blue
                             case "C": return { background: "rgba(245, 158, 11, 0.15)", color: "rgb(217, 119, 6)" }; // Amber
+                            case "Y": return { background: "rgba(139, 92, 246, 0.15)", color: "rgb(109, 40, 217)" }; // Violet
                             case "Z": return { background: "rgba(244, 63, 94, 0.15)", color: "rgb(225, 29, 72)" };  // Rose
                             case "Aucune": return { background: "rgba(100, 116, 139, 0.15)", color: "rgb(71, 85, 105)" }; // Slate
                             default: return { background: "rgba(0,0,0,0.1)", color: "var(--text-primary)" };

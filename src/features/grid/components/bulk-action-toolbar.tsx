@@ -8,6 +8,7 @@ const GAMME_OPTIONS: { label: string; code: GammeCode; color: string }[] = [
     { label: "A — Cœur", code: "A", color: "border-emerald-600 text-emerald-400 hover:bg-emerald-900/20" },
     { label: "B — Complémentaire", code: "B", color: "border-blue-600 text-blue-400 hover:bg-blue-900/20" },
     { label: "C — Saisonnier", code: "C", color: "border-amber-600 text-amber-400 hover:bg-amber-900/20" },
+    { label: "Y — En veille", code: "Y", color: "border-violet-600 text-violet-400 hover:bg-violet-900/20" },
     { label: "Z — Sortie", code: "Z", color: "border-rose-600 text-rose-400 hover:bg-rose-900/20" },
 ];
 

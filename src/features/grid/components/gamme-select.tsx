@@ -13,6 +13,7 @@ const GAMME_STYLES: Record<string, string> = {
     A: "border-[1px] border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/20 dark:text-emerald-400",
     B: "border-[1px] border-blue-500/30 bg-blue-500/10 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/20 dark:text-blue-400",
     C: "border-[1px] border-amber-500/30 bg-amber-500/10 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/20 dark:text-amber-400",
+    Y: "border-[1px] border-violet-500/30 bg-violet-500/10 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/20 dark:text-violet-400",
     Z: "border-[1px] border-rose-500/30 bg-rose-500/10 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/20 dark:text-rose-400",
     Aucune: "border-[1px] border-slate-500/30 bg-slate-500/10 text-slate-700 dark:border-slate-500/30 dark:bg-slate-500/20 dark:text-slate-400",
 };
@@ -37,6 +38,7 @@ export function GammeSelect({ value, isDraft, onChange }: GammeSelectProps) {
             <option value="A">A</option>
             <option value="B">B</option>
             <option value="C">C</option>
+            <option value="Y">Y</option>
             <option value="Z">Z</option>
         </select>
     );
