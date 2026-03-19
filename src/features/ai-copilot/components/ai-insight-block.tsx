@@ -2,14 +2,11 @@
 
 import React, { useState } from "react";
 
-import { Bot, Loader2, AlertCircle, Sparkles, Maximize2 } from "lucide-react";
+import { Loader2, AlertCircle, Sparkles, Maximize2 } from "lucide-react";
 import { AiExplanationModal } from "./ai-explanation-modal";
 import { useAiCopilotStore } from "../store/use-ai-copilot-store";
-import { ProductAnalysisInput } from "../models/ai-analysis.types";
-import { ScoringEngine } from "../business/scoring-engine";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import type { ProductRow } from "@/types/grid";
-import { cn } from "@/lib/utils";
 
 
 interface AiInsightBlockProps {
@@ -46,10 +43,7 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
         setLoading(row.codein);
         setDraftGamme(row.codein, "Aucune");
 
-        const allRows = useGridStore.getState().rows;
-        const rayonRows = allRows.filter(r => r.libelleNiveau2 === row.libelleNiveau2);
-
-        // Fetch local context if needed
+        // Fetch supplier context
         let supplierContext = "";
         if (row.codeFournisseur) {
             try {
@@ -63,11 +57,8 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
             }
         }
 
-        // Préparation du ScoringEngine
+        // Calcul régularité et inactivité
         const regScore = Object.values(row.sales12m || {}).filter((v: any) => v > 0).length;
-        const weight = (row.workingStores?.length || 1) === 1 ? 2 : 1;
-
-        // Calcul de l'inactivité
         const allMonths = Object.keys(row.sales12m || {});
         const referenceMonth = allMonths.length > 0 ? Math.max(...allMonths.map(m => parseInt(m))).toString() : "";
         const salesMonths = Object.entries(row.sales12m || {}).filter(([_, qty]: [string, any]) => qty > 0).map(([m]) => parseInt(m)).sort((a, b) => b - a);
@@ -81,40 +72,30 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
             inactivity = (refY - lastY) * 12 + (refM - lastM);
         }
 
-        // Mapping pour le moteur de scoring
-        const mapToInput = (r: ProductRow) => ({
-            codein: r.codein,
-            libelle1: r.libelle1,
-            totalCa: r.totalCa,
-            tauxMarge: r.tauxMarge,
-            totalQuantite: r.totalQuantite,
-            codeFournisseur: r.codeFournisseur,
-            storeCount: r.workingStores?.length || 1,
-            totalMagasins: 2,
-            regularityScore: Object.values(r.sales12m || {}).filter((v: any) => v > 0).length,
-            inactivityMonths: 0,
-            isLastProductOfSupplier: false,
-            sales12m: r.sales12m,
-            codeGamme: r.codeGamme,
-            score: r.score
-        });
+        // Score et verdict pré-calculés par score-engine.ts
+        const score = row.score ?? 0;
+        const verdict: "A" | "Z" = score >= 45 ? "A" : "Z";
 
-        // Calcul du ScoringEngine
-        const scoringResult = ScoringEngine.analyzeRayon(mapToInput(row), rayonRows.map(mapToInput));
+        const sc = row.workingStores?.length || 1;
+        const weight = sc === 1 ? 2 : 1;
 
         analyzeProduct({
             codein: row.codein,
             noid: row.noid,
             libelle1: row.libelle1,
+            libelleNiveau2: row.libelleNiveau2,
             totalCa: row.totalCa,
             tauxMarge: row.tauxMarge,
             totalQuantite: row.totalQuantite,
+            storeCount: sc,
             sales12m: row.sales12m,
             codeGamme: row.codeGamme,
-            score: row.score,
+            score: score,
             regularityScore: regScore,
             lastMonthWithSale: lastMonth,
             inactivityMonths: inactivity,
+            weightedTotalQuantite: (row.totalQuantite || 0) * weight,
+            weightedTotalCa: (row.totalCa || 0) * weight,
             avgQtyFournisseur: row.avgQtyFournisseur,
             avgQtyRayon: row.avgQtyRayon,
             shareCa: row.shareCa,
@@ -123,15 +104,22 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
             totalFournisseurCa: row.totalFournisseurCa,
             codeFournisseur: row.codeFournisseur,
             totalMagasins: 2,
+            prixVente: row.prixVente,
+            unitsPerStorePerMonth: row.unitsPerStorePerMonth,
+            caPerStorePerYear: row.caPerStorePerYear,
+            stockActuel: row.stockActuel,
+            stockTotal: row.stockTotal,
+            pcb: row.pcb,
+            commandesEnCours: row.commandesEnCours,
+            nbJoursDerniereVente: row.nbJoursDerniereVente,
+            derniereVente: row.derniereVente,
             supplierContext: supplierContext,
             scoring: {
-                compositeScore: scoringResult.compositeScore,
-                decision: scoringResult.decision.recommendation,
-                labelProfil: scoringResult.decision.labelProfil,
-                isTop30Supplier: scoringResult.decision.isTop30Supplier,
-                isRecent: scoringResult.decision.isRecent,
-                isLastProduct: scoringResult.decision.isLastProduct,
-                threshold: scoringResult.decision.threshold
+                score,
+                verdict,
+                isRecent: row.isRecent ?? false,
+                isLastProduct: row.isLastProduct ?? false,
+                isTop30Supplier: row.isTop30Supplier ?? false,
             }
         });
     };
@@ -189,7 +177,7 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
                 </div>
                 {insight?.isDuplicate && (
                     <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 px-1.5 py-0.5 rounded-full w-fit">
-                        ⚠️ Doublon probable
+                        Doublon probable
                     </span>
                 )}
             </div>

@@ -4,7 +4,6 @@ import { useState, useCallback } from "react";
 import { Save, Eye, EyeOff, CheckCircle, AlertCircle, Loader2, RefreshCw, Sun, Moon, RotateCcw } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
-import { useScoreSettingsStore } from "@/features/score/store/use-score-settings-store";
 import { useDbSettingsStore } from "@/features/settings/store/use-db-settings-store";
 import { testDatabaseConnection, saveDatabaseSettings, getSavedDatabaseConfig } from "@/features/settings/actions";
 import { useEffect } from "react";
@@ -112,14 +111,6 @@ export default function SettingsPage() {
     const isDark = resolvedTheme === "dark";
     const displayDensity = useGridStore((s) => s.displayDensity);
     const setDisplayDensity = useGridStore((s) => s.setDisplayDensity);
-
-    const weightCA = useScoreSettingsStore((s) => s.weightCA);
-    const weightVolume = useScoreSettingsStore((s) => s.weightVolume);
-    const weightMarge = useScoreSettingsStore((s) => s.weightMarge);
-    const setWeightCA = useScoreSettingsStore((s) => s.setWeightCA);
-    const setWeightVolume = useScoreSettingsStore((s) => s.setWeightVolume);
-    const setWeightMarge = useScoreSettingsStore((s) => s.setWeightMarge);
-    const resetScoreDefaults = useScoreSettingsStore((s) => s.resetDefaults);
 
     const [showKey, setShowKey] = useState(false);
     const [apiKey, setApiKey] = useState("");
@@ -405,120 +396,23 @@ export default function SettingsPage() {
             </Section>
 
             {/* Score Produit */}
-            <Section title="Score Produit" subtitle="Pondération du score de contribution composite (CA + Volume + Marge)">
-                <div className="bg-[var(--surface-tertiary)] rounded-lg p-3 mb-4">
+            <Section title="Score Produit" subtitle="Formule hybride absolue + relative (v4)">
+                <div className="bg-[var(--surface-tertiary)] rounded-lg p-3 space-y-2">
                     <p className="text-[11px] text-[var(--text-secondary)]">
-                        <strong>Formule :</strong> Score = (Pondération CA × Score CA) + (Pondération Volume × Score Volume) + (Pondération Marge × Score Marge)
+                        <strong>Formule :</strong> Volume (50pts) + CA (30pts) + Marge (20pts) + Bonus relatif (±10pts)
                     </p>
-                    <p className="text-[11px] text-[var(--text-muted)] mt-1">
-                        Chaque axe est normalisé par rapport à la moyenne du fournisseur. Score 100 = performance moyenne.
+                    <p className="text-[11px] text-[var(--text-muted)]">
+                        Le score est basé sur des paliers absolus sensibles au prix unitaire, avec un ajustement relatif selon la position dans le lot fournisseur.
                     </p>
-                </div>
-
-                <Field
-                    label={`Pondération CA : ${(weightCA * 100).toFixed(0)}%`}
-                    hint="Poids du chiffre d'affaires dans le calcul du score final."
-                >
-                    <div className="flex items-center gap-4">
-                        <input
-                            type="range"
-                            min="0"
-                            max="100"
-                            step="5"
-                            value={weightCA * 100}
-                            onChange={(e) => setWeightCA(parseFloat(e.target.value) / 100)}
-                            className="flex-1 accent-emerald-500 cursor-pointer"
-                        />
-                        <div className="relative w-20">
-                            <input
-                                type="number"
-                                min="0"
-                                max="100"
-                                step="5"
-                                value={(weightCA * 100).toFixed(0)}
-                                onChange={(e) => setWeightCA(parseFloat(e.target.value) / 100 || 0.40)}
-                                className="apple-input font-mono-nums text-right pr-6"
-                            />
-                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[12px]" style={{ color: "var(--text-muted)" }}>%</span>
-                        </div>
+                    <div className="border-t border-[var(--border-subtle)] pt-2 mt-2 space-y-1">
+                        <p className="text-[11px] text-[var(--text-secondary)]"><strong>Volume</strong> (0-50 pts) — unités / magasin / mois</p>
+                        <p className="text-[11px] text-[var(--text-secondary)]"><strong>CA</strong> (0-30 pts) — € / magasin / an</p>
+                        <p className="text-[11px] text-[var(--text-secondary)]"><strong>Marge</strong> (0-20 pts) — taux de marge %</p>
+                        <p className="text-[11px] text-[var(--text-secondary)]"><strong>Bonus relatif</strong> (±10 pts) — percentile composite dans le lot</p>
                     </div>
-                </Field>
-
-                <Field
-                    label={`Pondération Volume : ${(weightVolume * 100).toFixed(0)}%`}
-                    hint="Poids des quantités vendues (rotation) dans le calcul du score final."
-                >
-                    <div className="flex items-center gap-4">
-                        <input
-                            type="range"
-                            min="0"
-                            max="100"
-                            step="5"
-                            value={weightVolume * 100}
-                            onChange={(e) => setWeightVolume(parseFloat(e.target.value) / 100)}
-                            className="flex-1 accent-emerald-500 cursor-pointer"
-                        />
-                        <div className="relative w-20">
-                            <input
-                                type="number"
-                                min="0"
-                                max="100"
-                                step="5"
-                                value={(weightVolume * 100).toFixed(0)}
-                                onChange={(e) => setWeightVolume(parseFloat(e.target.value) / 100 || 0.35)}
-                                className="apple-input font-mono-nums text-right pr-6"
-                            />
-                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[12px]" style={{ color: "var(--text-muted)" }}>%</span>
-                        </div>
-                    </div>
-                </Field>
-
-                <Field
-                    label={`Pondération Marge : ${(weightMarge * 100).toFixed(0)}%`}
-                    hint="Poids du taux de marge dans le calcul du score final."
-                >
-                    <div className="flex items-center gap-4">
-                        <input
-                            type="range"
-                            min="0"
-                            max="100"
-                            step="5"
-                            value={weightMarge * 100}
-                            onChange={(e) => setWeightMarge(parseFloat(e.target.value) / 100)}
-                            className="flex-1 accent-emerald-500 cursor-pointer"
-                        />
-                        <div className="relative w-20">
-                            <input
-                                type="number"
-                                min="0"
-                                max="100"
-                                step="5"
-                                value={(weightMarge * 100).toFixed(0)}
-                                onChange={(e) => setWeightMarge(parseFloat(e.target.value) / 100 || 0.25)}
-                                className="apple-input font-mono-nums text-right pr-6"
-                            />
-                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[12px]" style={{ color: "var(--text-muted)" }}>%</span>
-                        </div>
-                    </div>
-                </Field>
-
-                <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3 mt-4">
-                    <p className="text-[11px] text-yellow-600 dark:text-yellow-400 font-medium">
-                        ⚠️ Total actuel : {((weightCA + weightVolume + weightMarge) * 100).toFixed(0)}%
+                    <p className="text-[11px] text-[var(--text-muted)] mt-2">
+                        Pénalité de régularité appliquée si inactivité prolongée. Score final borné 0-100.
                     </p>
-                    <p className="text-[11px] text-[var(--text-muted)] mt-1">
-                        La somme des pondérations devrait idéalement faire 100%. Ajustez les valeurs en conséquence.
-                    </p>
-                </div>
-
-                <div className="pt-2">
-                    <button
-                        onClick={resetScoreDefaults}
-                        className="apple-btn-secondary h-8 px-3 text-[11px] opacity-80 hover:opacity-100"
-                    >
-                        <RotateCcw className="w-3 h-3" />
-                        Rétablir les valeurs par défaut (40/35/25)
-                    </button>
                 </div>
             </Section>
 

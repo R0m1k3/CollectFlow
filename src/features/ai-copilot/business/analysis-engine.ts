@@ -1,8 +1,9 @@
 /**
- * CollectFlow — Analysis Engine (v5 — SIMPLIFIÉ)
+ * CollectFlow — Analysis Engine v6
  *
- * Version simplifiée basée sur la performance relative au fournisseur.
- * Principe: Tout est relatif à la moyenne du lot fournisseur.
+ * TypeScript fait le calcul, l'IA fait le jugement.
+ * Les cas déterministes (stock mort, 0 ventes) sont traités AVANT l'IA.
+ * L'IA reçoit un verdict pré-calculé et des signaux pré-calculés.
  */
 
 import type { ProductAnalysisInput, SiteMonthlyData } from "../models/ai-analysis.types";
@@ -10,94 +11,65 @@ import type { ProductContextProfile } from "./context-profiler";
 
 export class AnalysisEngine {
     // -----------------------------------------------------------------------
-    // SYSTEM PROMPT v5 — SIMPLIFIÉ
+    // SYSTEM PROMPT v6
     // -----------------------------------------------------------------------
 
     static generateSystemPrompt(): string {
         return `Tu es Mary, Senior Retail Strategist pour une enseigne discount d'équipement de la maison (type La Foir'Fouille).
-Ton modèle économique repose sur la rotation rapide, le volume, et la rentabilité de l'espace en rayon.
-Tu analyses des produits pour recommander A (garder) ou Z (sortir).
+Tu analyses des produits d'un même fournisseur pour recommander A (garder) ou Z (sortir).
 
-📦 RÈGLE STOCK NÉGATIF (s'applique toujours) :
-Un stock négatif signifie que la commande fournisseur a été validée APRÈS la mise en vente du produit en magasin. La mise à jour informatique du stock est faite a posteriori. Ce n'est PAS une anomalie — c'est un indicateur que le magasin a vendu avant d'avoir reçu le stock officiellement. Ne pas pénaliser un produit pour un stock négatif.
+⚠️ IMPORTANT : Les produits sans vente et ceux avec CA < 100€ ET quantité < 30 ont DÉJÀ été
+classés Z automatiquement et ne te sont PAS soumis. N'applique PAS de règle de stock mort.
 
---- ORDRE DE PRIORITÉ (STRICT) ---
+📦 STOCK NÉGATIF : Un stock négatif = commande validée après mise en vente (normal en retail).
+Ne pas pénaliser.
 
-📝 RÈGLE 1 — RÈGLE MANAGER (PRIORITÉ ABSOLUE):
-Si une règle manager est définie (section "RÈGLE MANAGER" dans le message) ET que le produit est concerné:
-→ Appliquer la consigne À LA LETTRE, même si elle contredit les autres règles.
-→ Mettre rule_applies = true et suivre EXACTEMENT la recommandation de la règle (A, B, C, D ou Z).
-→ Les règles 2 et 3 ci-dessous NE S'APPLIQUENT PAS si une règle manager est active.
+--- RÈGLE 1 : RÈGLE MANAGER (PRIORITÉ ABSOLUE) ---
+Si une section "RÈGLE MANAGER" est présente dans le message :
+→ Détermine si CE produit est concerné par la règle
+→ Si OUI : rule_applies = true, applique EXACTEMENT la consigne (A, B, C, D ou Z)
+→ Si NON : rule_applies = false, passe à la Règle 2
 → IMPORTANT : Si la règle demande explicitement une Gamme B, C ou D, tu DOIS recommander B, C ou D (pas A ni Z).
 
-Si AUCUNE règle manager n'est fournie → Passer directement aux règles 2 et 3.
+Si AUCUNE règle manager n'est fournie → Passer directement à la Règle 2.
 
-⛔ RÈGLE 2 — STOCK MORT ABSOLU (NON NÉGOCIABLE, PRIORITÉ ABSOLUE APRÈS RÈGLE 1):
-SI CA réseau < 100€ ET Quantité réseau < 30 unités SIMULTANÉMENT → Z IMMÉDIAT, STOP.
-Les DEUX conditions doivent être vraies en même temps.
-Un produit à 30€ de CA sur 2 magasins (15€/magasin/an) coûte plus en gestion qu'il ne rapporte.
+--- RÈGLE 2 : CONFIRMATION OU AJUSTEMENT DU VERDICT ---
+Chaque produit arrive avec un SCORE (0-100) et un VERDICT pré-calculé (A ou Z).
+Ce verdict est ta base de départ. Tu peux l'ajuster UNIQUEMENT dans ces cas :
 
-⚠️ CETTE RÈGLE ANNULE LES RÈGLES 3, 4, 5 ET 6 SANS EXCEPTION :
-→ Même si le produit semble "entrant" (H1=0, H2>0), même si le score relatif est élevé,
-   même si réapprovisionnement récent, même si forte asymétrie magasin.
-→ 8€ de CA/an = Z. La tendance ne change RIEN à cette réalité économique.
-→ Si Règle 2 s'applique : recommendation = "Z", rule_applies = false, STOP.
+PROMOUVOIR (Z → A) : Le verdict pré-calculé est Z, MAIS :
+  • Tendance en forte accélération (H2/H1 > 2.0)
+  • ET réapprovisionnement récent (réceptions 3 derniers mois > 0)
+  • ET score ≥ 35
+  → Les 3 conditions doivent être remplies SIMULTANÉMENT.
 
-📊 RÈGLE 3 — PERFORMANCE RELATIVE AU FOURNISSEUR:
-Le produit doit être évalué PAR RAPPORT à la moyenne de son lot fournisseur.
+DÉGRADER (A → Z) : Le verdict pré-calculé est A, MAIS :
+  • Tendance en effondrement (H2/H1 < 0.4)
+  • ET aucune réception récente
+  • ET score < 55
+  → Les 3 conditions doivent être remplies SIMULTANÉMENT.
 
-ÉTAPE 1: Calculer la moyenne du lot
-  CA Moyen Fournisseur = CA Total Fournisseur ÷ Nombre de produits
+Si AUCUNE condition d'ajustement n'est remplie → CONFIRME le verdict pré-calculé.
 
-ÉTAPE 2: Calculer le score relatif du produit
-  Score Relatif = (CA Produit ÷ CA Moyen) × 100
-
-ÉTAPE 3: Décider selon le score
-  • Si Score ≥ 100 → Le produit fait AU MOINS sa part → A
-  • Si Score ≥ 50 ET < 100 → Le produit fait entre 50% et 100% de sa part → Comparer au percentile médian (P50)
-    - Si percentile CA ≥ 50 → A (médiane ou mieux)
-    - Si percentile CA < 50 → Z (sous la médiane)
-  • Si Score < 50 → Le produit fait moins de la moitié de sa part → Z
-
-RATIONALE : Cette logique s'adapte automatiquement à TOUS les fournisseurs:
-- Petit fournisseur (5 produits) : moyenne élevée, mais comparaison équitable
-- Gros fournisseur (50 produits) : moyenne faible, mais comparaison équitable
-- Même score relatif = même décision, indépendamment de la taille du fournisseur
-
-📈 RÈGLE 4 — TENDANCE (si tableau mensuel disponible, sinon ignorer) :
-⚠️ PRÉ-REQUIS : La RÈGLE 2 prime sur cette règle. Si CA < 100€ ET Qty < 30 → Z, ne pas appliquer Règle 4.
-Si le tableau "COMPORTEMENT PAR MAGASIN" est fourni ET que la Règle 2 ne s'applique pas :
-Compare les ventes des 6 premiers mois (H1) vs les 6 derniers mois (H2) sur l'ensemble des magasins.
-• H2 / H1 < 0.4 → effondrement des ventes → renforcer Z, même si score relatif est entre 50 et 100
-• H2 / H1 > 2.0 → accélération forte → protéger de Z, même si score relatif est entre 50 et 100
-• H1 = 0 et H2 > 0 → produit entrant (nouvelles ventes récentes) → ne pas sortir, voter A — UNIQUEMENT si CA ≥ 100€ ET Qty ≥ 30
-• Sinon → tendance neutre, utiliser le score relatif (Règle 3) comme décision principale
-
-📦 RÈGLE 5 — RÉAPPROVISIONNEMENT RÉCENT (si tableau mensuel disponible, sinon ignorer) :
-Regarde la colonne "Réceptions" des 3 derniers mois dans le tableau mensuel.
-• Si réceptions > 0 sur au moins 1 des 3 derniers mois → le fournisseur réapprovisionne activement.
-→ Cela protège le produit : si le score relatif est ambigu (50-100), voter A plutôt que Z.
-• Si réceptions = 0 sur les 3 derniers mois ET ventes = 0 sur les 3 derniers mois → stock mort confirmé → Z.
-
-🏪 RÈGLE 6 — ASYMÉTRIE INTER-MAGASINS (si tableau mensuel disponible, sinon ignorer) :
-Compare les ventes totales sur 12 mois entre Frouard et Houdemont.
-• Si un magasin représente ≥ 80% des ventes → noter "porté par [magasin]" dans la justification.
-→ Ne change pas la décision A/Z, mais informe le manager.
+--- RÈGLE 3 : INFORMATIONS CONTEXTUELLES ---
+Note dans la justification (sans changer la décision) :
+• Si un magasin représente ≥ 80% des ventes → "porté par [magasin]"
+• Si produit protégé (nouveauté, dernière ref fournisseur) → le mentionner
 
 --- FORMAT OBLIGATOIRE ---
 JSON uniquement, sans markdown.
 {
   "rule_applies": boolean,
   "recommendation": "A" | "B" | "C" | "D" | "Z",
-  "justification": "2-3 phrases max. Cite le score relatif et/ou les seuils absolus."
+  "justification": "2-3 phrases max. Cite le score et le signal clé."
 }
 
 IMPORTANT — Gammes disponibles :
-- A : Garder (recommandation par défaut si performance correcte)
-- B : Gamme secondaire (uniquement si RÈGLE MANAGER l'ordonne explicitement)
-- C : Gamme saisonnière (uniquement si RÈGLE MANAGER l'ordonne explicitement)
-- D : Gamme à surveiller (uniquement si RÈGLE MANAGER l'ordonne explicitement)
-- Z : Sortir (si sous-performance ou stock mort)
+- A : Garder (performance correcte)
+- B : Gamme secondaire (uniquement si RÈGLE MANAGER l'ordonne)
+- C : Gamme saisonnière (uniquement si RÈGLE MANAGER l'ordonne)
+- D : Gamme à surveiller (uniquement si RÈGLE MANAGER l'ordonne)
+- Z : Sortir (sous-performance)
 
 SI AUCUNE RÈGLE MANAGER n'est définie, tu recommandes UNIQUEMENT A ou Z (jamais B, C, D spontanément).`;
     }
@@ -114,7 +86,7 @@ SI AUCUNE RÈGLE MANAGER n'est définie, tu recommandes UNIQUEMENT A ou Z (jamai
     }
 
     // -----------------------------------------------------------------------
-    // Message contextuel enrichi (v5 simplifié)
+    // Message contextuel enrichi (v6 — verdict pré-calculé)
     // -----------------------------------------------------------------------
 
     private static buildContextualMessage(
@@ -128,9 +100,12 @@ SI AUCUNE RÈGLE MANAGER n'est définie, tu recommandes UNIQUEMENT A ou Z (jamai
         lines.push(`PRODUIT : ${ctx.libelle1} (${ctx.codein})`);
         lines.push(`CATÉGORIE : ${ctx.libelleNiveau2}`);
         lines.push(`DISTRIBUTION : ${storeLabel}`);
+        if (p.prixVente) {
+            lines.push(`PRIX VENTE : ${p.prixVente.toFixed(2)}€`);
+        }
         lines.push("");
 
-        // ⚠️ RÈGLE MANAGER EN PRIORITÉ 1 — doit être visible AVANT toute analyse
+        // ⚠️ RÈGLE MANAGER EN PRIORITÉ 1
         if (p.supplierContext) {
             lines.push(`🎯 ═══════════════════════════════════════════════════════════════`);
             lines.push(`🎯 🎯 🎯      RÈGLE MANAGER (PRIORITÉ ABSOLUE)      🎯 🎯 🎯`);
@@ -147,43 +122,61 @@ SI AUCUNE RÈGLE MANAGER n'est définie, tu recommandes UNIQUEMENT A ou Z (jamai
             lines.push(`2. Si OUI :`);
             lines.push(`   - rule_applies = true`);
             lines.push(`   - Applique EXACTEMENT la consigne (si la règle dit "Gamme B", tu DOIS mettre "B")`);
-            lines.push(`   - IGNORE complètement les règles 2 et 3 (performance, stock mort, etc.)`);
+            lines.push(`   - IGNORE complètement la Règle 2`);
             lines.push(`3. Si NON :`);
             lines.push(`   - rule_applies = false`);
-            lines.push(`   - Applique les règles 2-3 normalement`);
+            lines.push(`   - Applique la Règle 2 normalement`);
             lines.push(`═══════════════════════════════════════════════════════════════`);
             lines.push("");
         }
 
-        // KPIs bruts
-        lines.push(`--- PERFORMANCE ABSOLUE ---`);
-        lines.push(`• CA réseau : ${ctx.totalCaRaw.toLocaleString('fr-FR')}€`);
-        lines.push(`• Quantité réseau : ${ctx.totalQtyRaw} unités`);
+        // Verdict pré-calculé
+        const score = p.scoring?.score ?? p.score ?? 0;
+        const verdict = p.scoring?.verdict ?? (score >= 45 ? "A" : "Z");
+        const quadrant = ctx.quadrantLabel || p.scoring?.quadrant || "N/A";
+
+        lines.push(`--- VERDICT PRÉ-CALCULÉ ---`);
+        lines.push(`• Score : ${score}/100`);
+        lines.push(`• Verdict : ${verdict}`);
+        lines.push(`• Quadrant : ${ctx.quadrantEmoji} ${quadrant}`);
+        if (ctx.isProtected) {
+            lines.push(`• ⚠️ Protection : ${ctx.protectionReason}`);
+        }
+        lines.push("");
+
+        // Performance
+        const upsm = p.unitsPerStorePerMonth ?? (ctx.qtyPerStore / Math.max(ctx.regularityScore, 3));
+        const cpsm = (ctx.caPerStore / 12);
+
+        lines.push(`--- PERFORMANCE ---`);
+        lines.push(`• CA réseau : ${ctx.totalCaRaw.toLocaleString('fr-FR')}€ (${cpsm.toFixed(1)}€/mag/mois)`);
+        lines.push(`• Quantité : ${ctx.totalQtyRaw} unités (${upsm.toFixed(2)} uté/mag/mois)`);
         lines.push(`• Marge : ${ctx.tauxMarge.toFixed(1)}%`);
+        lines.push(`• Régularité : ${ctx.regularityScore}/12 mois actifs`);
         lines.push("");
 
-        // Contexte fournisseur
-        // Calcul du CA total fournisseur à partir du poids
-        const totalFournisseurCa = ctx.weightCaFournisseur > 0
-            ? ctx.totalCaRaw / (ctx.weightCaFournisseur / 100)
-            : 0;
-        const caMoyenAttendu = ctx.lotSize > 0 ? totalFournisseurCa / ctx.lotSize : 0;
-
-        lines.push(`--- CONTEXTE FOURNISSEUR ---`);
-        lines.push(`• Lot fournisseur : ${ctx.lotSize} produits`);
-        lines.push(`• CA moyen attendu : ${caMoyenAttendu.toFixed(0)}€ par produit`);
-        lines.push(`• Poids CA de ce produit : ${ctx.weightCaFournisseur.toFixed(1)}% du CA total fournisseur`);
-        lines.push(`• Percentile CA : ${ctx.percentileCa}e percentile (position dans le lot)`);
+        // Position dans le lot
+        lines.push(`--- POSITION DANS LE LOT (${ctx.lotSize} produits) ---`);
+        lines.push(`• Percentile CA : ${ctx.percentileCa}e`);
+        lines.push(`• Percentile Volume : ${ctx.percentileQty}e`);
+        lines.push(`• Poids CA fournisseur : ${ctx.weightCaFournisseur.toFixed(1)}%`);
         lines.push("");
 
-        // Score relatif calculé
-        const scoreRelatif = ctx.weightCaFournisseur * ctx.lotSize; // weight% × nb produits = score relatif
-        lines.push(`--- SCORE RELATIF ---`);
-        lines.push(`• Score Relatif : ${scoreRelatif.toFixed(0)} (100 = fait exactement sa part)`);
-        lines.push(`  → ${scoreRelatif >= 100 ? "✓ Au-dessus de la moyenne" : scoreRelatif >= 50 ? "⚠️ Entre 50% et 100% de la moyenne" : "✗ Très en dessous de la moyenne"}`);
-        lines.push("");
+        // Signaux pré-calculés (si données mensuelles disponibles)
+        if (p.siteMonthlyData && p.siteMonthlyData.length > 0) {
+            const signals = AnalysisEngine.computeSignals(p.siteMonthlyData);
 
-        // Bloc stock & approvisionnement (si données disponibles)
+            lines.push(`--- SIGNAUX ---`);
+            lines.push(`• Tendance : ${signals.tendanceLabel}`);
+            lines.push(`• Réapprovisionnement : ${signals.reappLabel}`);
+            if (signals.asymLabel) {
+                lines.push(`• Asymétrie magasins : ${signals.asymLabel}`);
+            }
+            lines.push(`• Inactivité : ${ctx.inactivityMonths} mois sans vente en fin de fenêtre`);
+            lines.push("");
+        }
+
+        // Stock & approvisionnement
         const hasStockData = ctx.stockCoverage !== undefined || ctx.isLowStock || ctx.isDeadInventory || ctx.isCommandeEnCours;
         if (hasStockData) {
             lines.push(`--- STOCK & APPROVISIONNEMENT ---`);
@@ -202,122 +195,102 @@ SI AUCUNE RÈGLE MANAGER n'est définie, tu recommandes UNIQUEMENT A ou Z (jamai
             lines.push("");
         }
 
-        // Bloc comportement par magasin (si données mensuelles disponibles)
-        if (p.siteMonthlyData && p.siteMonthlyData.length > 0) {
-            const allRows = p.siteMonthlyData;
-
-            // Pré-calcul des signaux pour les règles 4-6
-            const sortedMonths = [...new Set(allRows.map(r => r.mois))].sort();
-            const midIdx = Math.floor(sortedMonths.length / 2);
-            const h1Months = new Set(sortedMonths.slice(0, midIdx));
-            const h2Months = new Set(sortedMonths.slice(midIdx));
-            const last3Months = new Set(sortedMonths.slice(-3));
-
-            let h1Qty = 0, h2Qty = 0;
-            const qteBySite: Record<string, number> = {};
-            let recentReceptions = 0;
-            let recentSales = 0;
-
-            for (const r of allRows) {
-                if (h1Months.has(r.mois)) h1Qty += r.ventes_qte;
-                if (h2Months.has(r.mois)) h2Qty += r.ventes_qte;
-                qteBySite[r.site] = (qteBySite[r.site] ?? 0) + r.ventes_qte;
-                if (last3Months.has(r.mois)) {
-                    recentReceptions += r.receptions_qte;
-                    recentSales += r.ventes_qte;
-                }
-            }
-
-            const totalQte = Object.values(qteBySite).reduce((a, b) => a + b, 0);
-            const tendanceRatio = h1Qty > 0 ? h2Qty / h1Qty : (h2Qty > 0 ? Infinity : 1);
-
-            // Signal tendance
-            let tendanceLabel: string;
-            if (h1Qty === 0 && h2Qty > 0) {
-                tendanceLabel = "Produit entrant (premières ventes récentes) → protéger de Z";
-            } else if (tendanceRatio < 0.4) {
-                tendanceLabel = `Effondrement (H1: ${h1Qty} uté → H2: ${h2Qty} uté, ratio ${tendanceRatio.toFixed(2)}) → signal Z fort`;
-            } else if (tendanceRatio > 2.0) {
-                tendanceLabel = `Accélération forte (H1: ${h1Qty} uté → H2: ${h2Qty} uté, ratio ${tendanceRatio.toFixed(2)}) → signal A fort`;
-            } else {
-                tendanceLabel = `Stable (H1: ${h1Qty} uté → H2: ${h2Qty} uté, ratio ${tendanceRatio.toFixed(2)})`;
-            }
-
-            // Signal réapprovisionnement
-            const reappLabel = recentReceptions > 0
-                ? `Réceptions récentes : ${recentReceptions} uté reçues sur les 3 derniers mois → fournisseur actif`
-                : (recentSales === 0
-                    ? "Aucune réception ni vente sur les 3 derniers mois → stock mort probable"
-                    : "Aucune réception récente (ventes encore actives)");
-
-            // Signal asymétrie magasins
-            const sites = Object.entries(qteBySite);
-            let asymLabel = "";
-            if (sites.length >= 2 && totalQte > 0) {
-                const dominant = sites.sort((a, b) => b[1] - a[1])[0];
-                const pct = Math.round((dominant[1] / totalQte) * 100);
-                if (pct >= 80) {
-                    asymLabel = `Porté par ${dominant[0]} (${pct}% des ventes) — Houdemont quasi inactif`;
-                }
-            }
-
-            lines.push(`--- SIGNAUX PRÉ-CALCULÉS (Règles 4-6) ---`);
-            lines.push(`• Tendance : ${tendanceLabel}`);
-            lines.push(`• Réapprovisionnement : ${reappLabel}`);
-            if (asymLabel) lines.push(`• Asymétrie magasins : ${asymLabel}`);
-            lines.push("");
-
-            // Tableau détaillé brut
-            lines.push(`--- COMPORTEMENT PAR MAGASIN (12 mois) ---`);
-            lines.push(`⚠️ Stock négatif = commande validée avant réception informatique (normal en retail).`);
-            lines.push("");
-
-            const bySite = new Map<string, SiteMonthlyData[]>();
-            for (const row of allRows) {
-                if (!bySite.has(row.site)) bySite.set(row.site, []);
-                bySite.get(row.site)!.push(row);
-            }
-
-            for (const [site, rows] of bySite.entries()) {
-                lines.push(`${site} :`);
-                lines.push(`Mois       | Ventes Qté | CA HT       | Marge      | Stock fin mois | Réceptions`);
-                rows.sort((a, b) => a.mois.localeCompare(b.mois)).forEach(r => {
-                    const mois = r.mois.padEnd(10);
-                    const qty = String(r.ventes_qte).padStart(10);
-                    const ca = `${r.ventes_ca.toFixed(2)}€`.padStart(11);
-                    const mg = `${r.marge.toFixed(2)}€`.padStart(10);
-                    const stk = String(r.stock_fin_mois).padStart(14);
-                    const rec = String(r.receptions_qte).padStart(10);
-                    lines.push(`${mois} |${qty} |${ca} |${mg} |${stk} |${rec}`);
-                });
-                lines.push("");
-            }
-        }
-
         lines.push(`Génère UNIQUEMENT le JSON :`);
         return lines.join("\n");
     }
 
     // -----------------------------------------------------------------------
-    // Fallback legacy
+    // Calcul des signaux à partir des données mensuelles
+    // -----------------------------------------------------------------------
+
+    private static computeSignals(siteMonthlyData: SiteMonthlyData[]): {
+        tendanceLabel: string;
+        reappLabel: string;
+        asymLabel: string;
+    } {
+        const sortedMonths = [...new Set(siteMonthlyData.map(r => r.mois))].sort();
+        const midIdx = Math.floor(sortedMonths.length / 2);
+        const h1Months = new Set(sortedMonths.slice(0, midIdx));
+        const h2Months = new Set(sortedMonths.slice(midIdx));
+        const last3Months = new Set(sortedMonths.slice(-3));
+
+        let h1Qty = 0, h2Qty = 0;
+        const qteBySite: Record<string, number> = {};
+        let recentReceptions = 0;
+        let recentSales = 0;
+
+        for (const r of siteMonthlyData) {
+            if (h1Months.has(r.mois)) h1Qty += r.ventes_qte;
+            if (h2Months.has(r.mois)) h2Qty += r.ventes_qte;
+            qteBySite[r.site] = (qteBySite[r.site] ?? 0) + r.ventes_qte;
+            if (last3Months.has(r.mois)) {
+                recentReceptions += r.receptions_qte;
+                recentSales += r.ventes_qte;
+            }
+        }
+
+        const tendanceRatio = h1Qty > 0 ? h2Qty / h1Qty : (h2Qty > 0 ? Infinity : 1);
+
+        // Signal tendance
+        let tendanceLabel: string;
+        if (h1Qty === 0 && h2Qty > 0) {
+            tendanceLabel = `Produit entrant (H1: 0 → H2: ${h2Qty} uté) — premières ventes récentes`;
+        } else if (tendanceRatio < 0.4) {
+            tendanceLabel = `Effondrement (H1: ${h1Qty} uté → H2: ${h2Qty} uté, ratio ${tendanceRatio.toFixed(2)})`;
+        } else if (tendanceRatio > 2.0) {
+            tendanceLabel = `Accélération forte (H1: ${h1Qty} uté → H2: ${h2Qty} uté, ratio ${tendanceRatio.toFixed(2)})`;
+        } else {
+            tendanceLabel = `Stable (H1: ${h1Qty} uté → H2: ${h2Qty} uté, ratio ${tendanceRatio.toFixed(2)})`;
+        }
+
+        // Signal réapprovisionnement
+        const reappLabel = recentReceptions > 0
+            ? `Réceptions récentes : ${recentReceptions} uté reçues sur les 3 derniers mois`
+            : (recentSales === 0
+                ? "Aucune réception ni vente sur les 3 derniers mois"
+                : "Aucune réception récente (ventes encore actives)");
+
+        // Signal asymétrie
+        const totalQte = Object.values(qteBySite).reduce((a, b) => a + b, 0);
+        const sites = Object.entries(qteBySite);
+        let asymLabel = "";
+        if (sites.length >= 2 && totalQte > 0) {
+            const dominant = sites.sort((a, b) => b[1] - a[1])[0];
+            const pct = Math.round((dominant[1] / totalQte) * 100);
+            if (pct >= 80) {
+                asymLabel = `Porté par ${dominant[0]} (${pct}% des ventes)`;
+            }
+        }
+
+        return { tendanceLabel, reappLabel, asymLabel };
+    }
+
+    // -----------------------------------------------------------------------
+    // Fallback legacy (sans contextProfile)
     // -----------------------------------------------------------------------
 
     private static buildLegacyMessage(p: ProductAnalysisInput): string {
+        const score = p.scoring?.score ?? p.score ?? 0;
+        const verdict = p.scoring?.verdict ?? (score >= 45 ? "A" : "Z");
         const pmv = p.totalQuantite > 0 ? p.totalCa / p.totalQuantite : 0;
-
-        let contextStats = "";
-        if (p.shareCa !== undefined && p.shareQty !== undefined) {
-            contextStats += `\nPOIDS DU PRODUIT :
-- Poids CA Fournisseur : ${p.shareCa.toFixed(1)}%`;
-        }
 
         const contextRules = p.supplierContext
             ? `\n--- RÈGLE MANAGER ---\n"${p.supplierContext}"\n→ Évalue si le produit ("${p.libelle1}") est concerné. rule_applies = true/false.\n`
             : "";
 
         return `PRODUIT : ${p.libelle1} (${p.codein})
-Famille / Rayon : ${p.libelleNiveau2}
-KPIs : CA: ${p.totalCa.toFixed(2)}€ | Qté: ${p.totalQuantite} | Marge: ${p.tauxMarge.toFixed(1)}% | PMV: ${pmv.toFixed(2)}€${contextStats}${contextRules}
+Famille / Rayon : ${p.libelleNiveau2 ?? "N/A"}
+
+--- VERDICT PRÉ-CALCULÉ ---
+• Score : ${score}/100
+• Verdict : ${verdict}
+
+--- PERFORMANCE ---
+• CA réseau : ${p.totalCa.toFixed(2)}€
+• Quantité : ${p.totalQuantite} unités
+• Marge : ${p.tauxMarge.toFixed(1)}%
+• PMV : ${pmv.toFixed(2)}€
+${p.shareCa !== undefined ? `• Poids CA Fournisseur : ${p.shareCa.toFixed(1)}%` : ""}${contextRules}
 Génère UNIQUEMENT le JSON :`;
     }
 

@@ -3,10 +3,9 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { useAiCopilotStore } from "@/features/ai-copilot/store/use-ai-copilot-store";
-import { ScoringEngine } from "@/features/ai-copilot/business/scoring-engine";
 import { ContextProfiler } from "@/features/ai-copilot/business/context-profiler";
 import { Sparkles, Loader2, CheckCircle2, XCircle } from "lucide-react";
-import { ProductRow, GammeCode } from "@/types/grid";
+import { GammeCode } from "@/types/grid";
 import { ProductAnalysisInput } from "@/features/ai-copilot/models/ai-analysis.types";
 import { SupplierAiContextModal } from "./supplier-ai-context-modal";
 
@@ -42,36 +41,6 @@ export function BulkAiAnalyzer() {
         const { rows } = useGridStore.getState();
         isCancelledRef.current = false;
 
-        const totalQtySum = rows.reduce((sum: number, r: ProductRow) => sum + (r.totalQuantite || 0), 0);
-        const avgQty = rows.length > 0 ? totalQtySum / rows.length : 0;
-
-        const rowsGroup1 = rows.filter((r) => (r.workingStores?.length || 1) === 1);
-        const rowsGroup2 = rows.filter((r) => (r.workingStores?.length || 1) >= 2);
-
-        const avgQty1 = rowsGroup1.length > 0 ? rowsGroup1.reduce((s: number, r: ProductRow) => s + (r.totalQuantite || 0), 0) / rowsGroup1.length : 0;
-        const avgQty2 = rowsGroup2.length > 0 ? rowsGroup2.reduce((s: number, r: ProductRow) => s + (r.totalQuantite || 0), 0) / rowsGroup2.length : 0;
-
-        const rayonStats = new Map<string, { qty1: number[]; qty2: number[] }>();
-        rows.forEach((r: ProductRow) => {
-            const rayon = r.libelleNiveau2 || "Général";
-            if (!rayonStats.has(rayon)) rayonStats.set(rayon, { qty1: [], qty2: [] });
-            const stats = rayonStats.get(rayon)!;
-            const sc = r.workingStores?.length || 1;
-            if (sc === 1) stats.qty1.push(r.totalQuantite || 0);
-            else stats.qty2.push(r.totalQuantite || 0);
-        });
-
-        const rayonBenchmarks = new Map<string, { avg1: number; avg2: number }>();
-        rayonStats.forEach((stats, rayon) => {
-            const totalCount = stats.qty1.length + stats.qty2.length;
-            if (totalCount >= 3) {
-                rayonBenchmarks.set(rayon, {
-                    avg1: stats.qty1.length > 0 ? stats.qty1.reduce((a, b) => a + b, 0) / stats.qty1.length : 0,
-                    avg2: stats.qty2.length > 0 ? stats.qty2.reduce((a, b) => a + b, 0) / stats.qty2.length : 0,
-                });
-            }
-        });
-
         // 1. Fetch AI Context for the Supplier
         let supplierContext = "";
         if (supplierCode) {
@@ -89,7 +58,6 @@ export function BulkAiAnalyzer() {
         const initialPayloads: ProductAnalysisInput[] = rows.map((r) => {
             const sc = r.workingStores?.length || 1;
             const weight = sc === 1 ? 2 : 1;
-            const rb = rayonBenchmarks.get(r.libelleNiveau2 || "Général");
 
             const allMonths = Object.keys(r.sales12m || {});
             const referenceMonth = allMonths.length > 0 ? Math.max(...allMonths.map((m) => parseInt(m))).toString() : "";
@@ -115,29 +83,27 @@ export function BulkAiAnalyzer() {
                 noid: r.noid,
                 libelle1: r.libelle1 || "",
                 libelleNiveau2: r.libelleNiveau2 || "Général",
-                // Code nomenclature niveau 2 (4 premiers chiffres) — utilisé par le ContextProfiler
-                // pour calculer le poids rayon sur un périmètre cohérent (pas trop fin = niveau 3).
                 codeNomenclatureN2: r.code2 || undefined,
                 totalCa: r.totalCa || 0,
                 tauxMarge: r.tauxMarge || 0,
                 totalQuantite: r.totalQuantite || 0,
                 weightedTotalQuantite: (r.totalQuantite || 0) * weight,
                 weightedTotalCa: (r.totalCa || 0) * weight,
-                avgTotalQuantite: avgQty,
-                avgQtyGroup1: avgQty1,
-                avgQtyGroup2: avgQty2,
-                avgQtyRayon1: rb ? rb.avg1 : avgQty1,
-                avgQtyRayon2: rb ? rb.avg2 : avgQty2,
                 storeCount: sc,
                 sales12m: Object.fromEntries(Object.entries(r.sales12m || {}).map(([month, val]) => [month, (val as number) * weight])),
                 codeGamme: r.codeGamme || null,
                 score: r.score || 0,
                 regularityScore: regScore,
-                projectedTotalQuantite: regScore > 0 ? (r.totalQuantite || 0) * weight * (12 / regScore) : (r.totalQuantite || 0) * weight,
-                projectedTotalCa: regScore > 0 ? (r.totalCa || 0) * weight * (12 / regScore) : (r.totalCa || 0) * weight,
                 lastMonthWithSale: lastMonth,
                 inactivityMonths: inactivity,
-                supplierContext: supplierContext
+                codeFournisseur: r.codeFournisseur || undefined,
+                avgQtyFournisseur: r.avgQtyFournisseur,
+                avgQtyRayon: r.avgQtyRayon,
+                shareCa: r.shareCa,
+                shareMarge: r.shareMarge,
+                shareQty: r.shareQty,
+                totalFournisseurCa: r.totalFournisseurCa,
+                supplierContext: supplierContext,
             };
 
         });
@@ -173,17 +139,19 @@ export function BulkAiAnalyzer() {
             (p.totalQuantite || 0) > 0 && !deadStockCodes.has(p.codein)
         );
 
-        // 2b. Calculer scoring + context profiling en micro-batches asynchrones
-        //    pour ne pas bloquer le thread UI (Chrome "Page ne répondant pas").
+        // 2c. Context profiling en micro-batches asynchrones
+        //    Le score est déjà calculé par score-engine.ts (champ row.score sur chaque ProductRow).
         setIsAnalyzing(true);
-        setProgress({ current: 0, total: payloadsWithSales.length, message: "Calcul du scoring...", errors: 0 });
+        setProgress({ current: 0, total: payloadsWithSales.length, message: "Calcul du contexte...", errors: 0 });
 
         const SCORING_BATCH_SIZE = 25;
-        const scoringResults = new Map<string, ReturnType<typeof ScoringEngine.analyzeRayon>>();
-        const productPayloads: (ProductAnalysisInput & { scoring: any })[] = [];
+        const productPayloads: ProductAnalysisInput[] = [];
 
         // Pre-compute context thresholds to prevent O(N^2) and O(N^2 log N) performance freezes
         const contextCache = ContextProfiler.prepareCache(payloadsWithSales);
+
+        // Map codein → row pour récupérer le score et les flags depuis score-engine
+        const rowByCodein = new Map(rows.map(r => [r.codein, r]));
 
         for (let i = 0; i < payloadsWithSales.length; i += SCORING_BATCH_SIZE) {
             if (isCancelledRef.current) break;
@@ -191,12 +159,13 @@ export function BulkAiAnalyzer() {
             const batch = payloadsWithSales.slice(i, i + SCORING_BATCH_SIZE);
 
             for (const p of batch) {
-                const scoringRes = ScoringEngine.analyzeRayon(p, payloadsWithSales);
-                scoringResults.set(p.codein, scoringRes);
+                const row = rowByCodein.get(p.codein);
+                const score = row?.score ?? p.score ?? 0;
+                const verdict: "A" | "Z" = score >= 45 ? "A" : "Z";
 
                 let contextProfile: ProductAnalysisInput["contextProfile"];
                 try {
-                    contextProfile = ContextProfiler.buildProfile(p, initialPayloads, scoringRes, contextCache);
+                    contextProfile = ContextProfiler.buildProfile(p, payloadsWithSales, score, contextCache);
                 } catch (err) {
                     console.warn(`[BulkAnalyzer] ContextProfiler failed for ${p.codein}:`, err);
                     contextProfile = undefined;
@@ -204,15 +173,23 @@ export function BulkAiAnalyzer() {
 
                 productPayloads.push({
                     ...p,
+                    prixVente: row?.prixVente,
+                    unitsPerStorePerMonth: row?.unitsPerStorePerMonth,
+                    caPerStorePerYear: row?.caPerStorePerYear,
+                    stockActuel: row?.stockActuel,
+                    stockTotal: row?.stockTotal,
+                    pcb: row?.pcb,
+                    commandesEnCours: row?.commandesEnCours,
+                    nbJoursDerniereVente: row?.nbJoursDerniereVente,
+                    derniereVente: row?.derniereVente,
                     contextProfile,
                     scoring: {
-                        compositeScore: scoringRes.compositeScore,
-                        decision: scoringRes.decision.recommendation,
-                        labelProfil: scoringRes.decision.labelProfil,
-                        isTop30Supplier: scoringRes.decision.isTop30Supplier,
-                        isRecent: scoringRes.decision.isRecent,
-                        isLastProduct: scoringRes.decision.isLastProduct,
-                        threshold: scoringRes.decision.threshold,
+                        score,
+                        verdict,
+                        quadrant: contextProfile?.quadrant,
+                        isRecent: row?.isRecent ?? false,
+                        isLastProduct: row?.isLastProduct ?? false,
+                        isTop30Supplier: row?.isTop30Supplier ?? false,
                     },
                 });
             }
@@ -221,7 +198,7 @@ export function BulkAiAnalyzer() {
             setProgress(prev => ({
                 ...prev,
                 current: Math.min(i + SCORING_BATCH_SIZE, payloadsWithSales.length),
-                message: `Scoring : ${Math.min(i + SCORING_BATCH_SIZE, payloadsWithSales.length)}/${payloadsWithSales.length}`,
+                message: `Contexte : ${Math.min(i + SCORING_BATCH_SIZE, payloadsWithSales.length)}/${payloadsWithSales.length}`,
             }));
             await new Promise(r => setTimeout(r, 0));
         }

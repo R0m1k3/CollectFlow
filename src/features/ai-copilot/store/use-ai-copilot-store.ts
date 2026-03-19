@@ -20,17 +20,19 @@ interface AiCopilotState {
         codein: string;
         noid?: number;
         libelle1: string;
+        libelleNiveau2?: string;
         totalCa: number;
         tauxMarge: number;
         totalQuantite: number;
+        storeCount: number;
         sales12m: Record<string, number>;
         codeGamme: string | null;
         score?: number | null;
         regularityScore?: number;
-        projectedTotalQuantite?: number;
-        projectedTotalCa?: number;
         lastMonthWithSale?: string;
         inactivityMonths?: number;
+        weightedTotalQuantite?: number;
+        weightedTotalCa?: number;
         avgQtyFournisseur?: number;
         avgQtyRayon?: number;
         shareCa?: number;
@@ -38,8 +40,24 @@ interface AiCopilotState {
         shareQty?: number;
         totalFournisseurCa?: number;
         codeFournisseur?: string;
+        totalMagasins?: number;
+        prixVente?: number;
+        unitsPerStorePerMonth?: number;
+        caPerStorePerYear?: number;
+        stockActuel?: number;
+        stockTotal?: number;
+        pcb?: number;
+        commandesEnCours?: number;
+        nbJoursDerniereVente?: number;
+        derniereVente?: string;
         supplierContext?: string;
-        scoring?: Record<string, unknown>;
+        scoring?: {
+            score: number;
+            verdict: "A" | "Z";
+            isRecent: boolean;
+            isLastProduct: boolean;
+            isTop30Supplier: boolean;
+        };
     }) => Promise<void>;
     resetInsights: () => void;
 }

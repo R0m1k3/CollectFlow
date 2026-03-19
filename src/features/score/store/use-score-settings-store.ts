@@ -2,24 +2,23 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { DEFAULT_SCORE_SETTINGS, type ScoreSettings } from "@/lib/score-engine";
 
-interface ScoreSettingsState extends ScoreSettings {
-    setWeightCA: (v: number) => void;
-    setWeightVolume: (v: number) => void;
-    setWeightMarge: (v: number) => void;
-    resetDefaults: () => void;
+/**
+ * Score Settings Store — v4 (simplifié)
+ *
+ * Le score hybride v4 utilise des paliers absolus (Volume 50pts + CA 30pts + Marge 20pts + Bonus ±10pts).
+ * Il n'y a plus de pondérations configurables par l'utilisateur.
+ * Ce store est conservé pour la compatibilité mais n'a plus de paramètres ajustables.
+ */
+
+interface ScoreSettingsState {
+    _version: number;
 }
 
 export const useScoreSettingsStore = create<ScoreSettingsState>()(
     persist(
-        (set) => ({
-            ...DEFAULT_SCORE_SETTINGS,
-
-            setWeightCA: (v) => set({ weightCA: v }),
-            setWeightVolume: (v) => set({ weightVolume: v }),
-            setWeightMarge: (v) => set({ weightMarge: v }),
-            resetDefaults: () => set({ ...DEFAULT_SCORE_SETTINGS }),
+        () => ({
+            _version: 4,
         }),
         {
             name: "collectflow-score-settings",

@@ -11,7 +11,6 @@ import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
 import type { ProductRow } from "@/types/grid";
 import { CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 
-import { useScoreSettingsStore } from "@/features/score/store/use-score-settings-store";
 import { useSearchParams } from "next/navigation";
 import { computeProductScores } from "@/lib/score-engine";
 
@@ -28,10 +27,6 @@ export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins
     const setRows = useGridStore((s) => s.setRows);
     const setActiveGridQuery = useGridStore((s) => s.setActiveGridQuery);
     const searchParams = useSearchParams();
-
-    const weightCA = useScoreSettingsStore((s) => s.weightCA);
-    const weightVolume = useScoreSettingsStore((s) => s.weightVolume);
-    const weightMarge = useScoreSettingsStore((s) => s.weightMarge);
 
     const [selectedCodeins, setSelectedCodeins] = useState<string[]>([]);
     const [isPending, startTransition] = useTransition();
@@ -60,9 +55,9 @@ export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins
         // Optimisation : On évite le JSON.parse(JSON.stringify()) qui est très lourd sur 1000 lignes
         // On passe directement les initialRows au moteur de score, ou on fait une copie superficielle si nécessaire.
         // Le moteur de score doit idéalement retourner de nouveaux objets.
-        const scoredRows = computeProductScores([...initialRows], { weightCA, weightVolume, weightMarge });
+        const scoredRows = computeProductScores([...initialRows]);
         setRows(scoredRows);
-    }, [initialRows, setRows, weightCA, weightVolume, weightMarge, isMounted]);
+    }, [initialRows, setRows, isMounted]);
 
     const handleSave = () => {
         startTransition(async () => {

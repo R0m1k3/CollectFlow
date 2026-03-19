@@ -49,16 +49,21 @@ export interface ProductAnalysisInput {
     codeFournisseur?: string;
     totalMagasins?: number;
     isLastProductOfSupplier?: boolean;
-    /** Scoring metadata */
+    /** Scoring metadata (unifié v4) */
     scoring?: {
-        compositeScore: number;
-        decision: "A" | "Z";
-        labelProfil: string;
-        isTop30Supplier: boolean;
+        score: number;         // 0-100, score hybride unifié
+        verdict: "A" | "Z";   // pré-calculé par TypeScript
+        quadrant?: string;     // STAR/TRAFIC/MARGE/WATCH
         isRecent: boolean;
         isLastProduct: boolean;
-        threshold: number;
+        isTop30Supplier: boolean;
     };
+    /** Prix de vente unitaire */
+    prixVente?: number;
+    /** Rotation normalisée : unités / magasin / mois */
+    unitsPerStorePerMonth?: number;
+    /** CA normalisé : € / magasin / an */
+    caPerStorePerYear?: number;
     /** Optional context rules for the supplier */
     supplierContext?: string;
     /** SQL Server internal ID — pour fetch mensuel per-site */
