@@ -407,7 +407,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                 const val = getValue<number | undefined>();
                 return (
                     <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
-                        {val != null ? `#${val}` : "-"}
+                        {val != null ? val : "-"}
                     </div>
                 );
             },
@@ -420,7 +420,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                 const val = getValue<number | undefined>();
                 return (
                     <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
-                        {val != null ? `#${val}` : "-"}
+                        {val != null ? val : "-"}
                     </div>
                 );
             },
@@ -433,7 +433,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                 const val = getValue<number | undefined>();
                 return (
                     <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
-                        {val != null ? `#${val}` : "-"}
+                        {val != null ? val : "-"}
                     </div>
                 );
             },
@@ -446,7 +446,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                 const val = getValue<number | undefined>();
                 return (
                     <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
-                        {val != null ? `#${val}` : "-"}
+                        {val != null ? val : "-"}
                     </div>
                 );
             },
