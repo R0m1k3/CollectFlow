@@ -500,6 +500,11 @@ export interface RankingResult {
  *
  * Fallback par article individuel si le bulk échoue.
  */
+/**
+ * Récupère le ranking par article individuel (GET /api/ranking?codein=<codein>).
+ * Appelé seulement pour les articles AVEC ventes — taille raisonnable même pour grands fournisseurs.
+ * Le bulk endpoint est capé à 500 résultats par l'API → inutilisable pour matching complet.
+ */
 export async function getRankingByArticles(
     articles: { codein: string; gtin?: string }[],
     _codeFournisseur?: string,
@@ -507,52 +512,6 @@ export async function getRankingByArticles(
     const rankings = new Map<string, FfRanking>();
     if (articles.length === 0) return { rankings, totalRankedProducts: 0 };
 
-    const articleCodeins = new Set(articles.map(a => a.codein));
-    // Map gtin → codein pour matcher par gencod si le bulk response utilise gencod
-    const gtinToCodein = new Map<string, string>();
-    for (const a of articles) {
-        if (a.gtin) gtinToCodein.set(a.gtin, a.codein);
-    }
-
-    // Stratégie : télécharger tout le classement réseau en 1 appel, puis matcher par codein ou gencod
-    const RANKING_FULL_LIMIT = 30000;
-    try {
-        const url = `${FF_API_BASE}/api/ranking?limit=${RANKING_FULL_LIMIT}`;
-        const res = await fetch(url, { cache: "no-store" });
-        if (res.ok) {
-            const data = await res.json();
-            const rankingList: Record<string, string | null>[] = data?.ranking ?? [];
-            const totalRankedProducts = rankingList.length;
-            console.log(`[api-ff] Ranking full fetch: ${rankingList.length} entrées`);
-            if (rankingList.length > 0) {
-                console.log(`[api-ff] Ranking entry keys: ${Object.keys(rankingList[0]).join(",")}`);
-                console.log(`[api-ff] Ranking entry sample: ${JSON.stringify(rankingList[0])}`);
-            }
-
-            for (const entry of rankingList) {
-                // Essaie de trouver le codein via codein direct OU via gencod→gtin→codein
-                let codein = entry.codein ?? null;
-                if (!codein && entry.gencod) codein = gtinToCodein.get(entry.gencod) ?? null;
-                if (!codein || !articleCodeins.has(codein)) continue;
-                rankings.set(codein, {
-                    ranking_ca: parseRankNum(entry.ranking_ca),
-                    ranking_qte: parseRankNum(entry.ranking_qte),
-                    ranking_mag_ca: parseRankNum(entry.ranking_mag_ca),
-                    ranking_mag_qte: parseRankNum(entry.ranking_mag_qte),
-                    ranking_mag_marge: parseRankNum(entry.ranking_mag_marge),
-                    pv_calcule: parseRankNum(entry.pv_calcule),
-                    pv_mag: parseRankNum(entry.pv_mag),
-                    pv_cen: parseRankNum(entry.pv_cen),
-                });
-            }
-            console.log(`[api-ff] Ranking: ${rankings.size}/${articles.length} articles classés`);
-            return { rankings, totalRankedProducts };
-        }
-    } catch (err) {
-        console.warn(`[api-ff] Full ranking fetch failed, falling back to per-article:`, err);
-    }
-
-    // Fallback : 1 appel par article
     const batchSize = 50;
     for (let i = 0; i < articles.length; i += batchSize) {
         const batch = articles.slice(i, i + batchSize);
@@ -583,8 +542,21 @@ export async function getRankingByArticles(
         );
     }
 
-    console.log(`[api-ff] Ranking fallback: ${rankings.size}/${articles.length} articles enrichis`);
-    return { rankings, totalRankedProducts: 0 };
+    // totalRankedProducts = nombre d'articles ayant un classement réseau
+    const totalRankedProducts = rankings.size > 0
+        ? await fetchTotalRankedProducts()
+        : 0;
+    console.log(`[api-ff] Ranking: ${rankings.size}/${articles.length} articles classés (réseau: ${totalRankedProducts})`);
+    return { rankings, totalRankedProducts };
+}
+
+async function fetchTotalRankedProducts(): Promise<number> {
+    try {
+        const res = await fetch(`${FF_API_BASE}/api/ranking?limit=500`, { cache: "no-store" });
+        if (!res.ok) return 0;
+        const data = await res.json();
+        return (data?.ranking as unknown[])?.length ?? 0;
+    } catch { return 0; }
 }
 
 // ---------------------------------------------------------------------------

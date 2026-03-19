@@ -29,16 +29,25 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
         const articles = await getArticlesByFournisseur(codeFournisseur);
         console.log(`[getProductRows] ${articles.length} articles for ${codeFournisseur}`);
 
-        // ─── Phase 2 : Mensuel + Commandes (en parallèle) ────────────────────
+        // ─── Phase 2A : Mensuel + Commandes (en parallèle) ──────────────────
+        // Mensuel d'abord pour identifier quels articles ont des ventes.
+        // Referentiel et Ranking ensuite, seulement pour ces articles.
         const { dateDebut, dateFin } = buildLast12MonthsRange();
-        const [mensuelMap, referentielMap, commandesMap, rankingResult] = await Promise.all([
+        const [mensuelMap, commandesMap] = await Promise.all([
             getMensuelByArticles(articles, dateDebut, dateFin),
-            getReferentielByArticles(articles),
             getCommandesByFournisseur(codeFournisseur),
-            getRankingByArticles(articles, codeFournisseur),
+        ]);
+        console.log(`[getProductRows] mensuel data for ${mensuelMap.size}/${articles.length} articles`);
+
+        // ─── Phase 2B : Referentiel + Ranking uniquement pour articles avec ventes ──
+        // Réduit drastiquement les appels API pour les gros fournisseurs.
+        const articlesWithData = articles.filter(a => mensuelMap.has(a.codein));
+        console.log(`[getProductRows] articles avec ventes: ${articlesWithData.length}/${articles.length}`);
+        const [referentielMap, rankingResult] = await Promise.all([
+            getReferentielByArticles(articlesWithData),
+            getRankingByArticles(articlesWithData, codeFournisseur),
         ]);
         const { rankings: rankingMap, totalRankedProducts } = rankingResult;
-        console.log(`[getProductRows] mensuel data for ${mensuelMap.size}/${articles.length} articles`);
 
         // ─── Phase 3 : Fenêtre temporelle (12 mois complets) ─────────────────
         const now = new Date();
