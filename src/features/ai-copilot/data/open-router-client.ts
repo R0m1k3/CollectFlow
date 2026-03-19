@@ -86,6 +86,17 @@ export class OpenRouterClient {
                 // Ré-appliquer le garde-fou pour la reco extraite du texte.
                 if (!ruleApplies && (reco === "B" || reco === "C" || reco === "D")) reco = "A";
             }
+
+            // Garde-fou anti-dégradation : l'IA ne peut PAS dégrader A → Z
+            // si le score pré-calculé est ≥ 55 (sauf si règle manager).
+            // Corrige les hallucinations du LLM qui ignore la condition "score < 55".
+            const preScore = p.scoring?.score ?? p.score ?? 0;
+            const preVerdict = p.scoring?.verdict ?? (preScore >= 45 ? "A" : "Z");
+            if (!ruleApplies && preVerdict === "A" && reco === "Z" && preScore >= 55) {
+                console.warn(`[AI Guardrail] Blocked A→Z degradation for ${p.codein} (score ${preScore} ≥ 55)`);
+                reco = "A";
+                cleanInsight += " [Garde-fou : score élevé, dégradation bloquée]";
+            }
         } catch (e) {
             console.error("Failed to parse AI JSON response:", content, e);
             // Fallback to text parsing

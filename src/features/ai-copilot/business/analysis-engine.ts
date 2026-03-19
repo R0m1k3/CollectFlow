@@ -46,8 +46,9 @@ PROMOUVOIR (Z → A) : Le verdict pré-calculé est Z, MAIS :
 DÉGRADER (A → Z) : Le verdict pré-calculé est A, MAIS :
   • Tendance en effondrement (H2/H1 < 0.4)
   • ET aucune réception récente
-  • ET score < 55
+  • ET score < 55 ⚠️ SI LE SCORE EST ≥ 55, TU NE PEUX JAMAIS DÉGRADER EN Z
   → Les 3 conditions doivent être remplies SIMULTANÉMENT.
+  → Un score élevé (≥ 55) INTERDIT toute dégradation, quelle que soit la tendance.
 
 Si AUCUNE condition d'ajustement n'est remplie → CONFIRME le verdict pré-calculé.
 
