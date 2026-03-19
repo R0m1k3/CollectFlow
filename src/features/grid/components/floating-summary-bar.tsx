@@ -65,7 +65,7 @@ export function FloatingSummaryBar() {
                 modifiedRows.map(r => [
                     r.codein,
                     {
-                        before: r.codeGamme,
+                        before: r.codeGammeInit,
                         after: draftChanges[r.codein] as string
                     }
                 ])

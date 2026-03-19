@@ -329,6 +329,15 @@ export function BulkAiAnalyzer() {
 
         await processBatch();
 
+        // Nettoyer les drafts "Aucune" restants (produits en erreur dont l'IA n'a pas retourné A/Z)
+        // Pour éviter que "Valider" ne sauvegarde "Aucune" comme gamme réelle
+        const currentDrafts = useGridStore.getState().draftChanges;
+        const aucuneCodeins = codeins.filter(c => currentDrafts[c] === "Aucune");
+        if (aucuneCodeins.length > 0) {
+            const { clearDrafts } = useGridStore.getState();
+            clearDrafts(aucuneCodeins);
+        }
+
         setProgress((prev) => ({
             ...prev,
             message: isCancelledRef.current ? `Analyse interrompue (${completed}/${totalItems})` : `Analyse terminée ! (${errorsCount > 0 ? errorsCount + " erreurs" : "succès"})`,
