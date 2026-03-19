@@ -326,7 +326,7 @@ export async function getMensuelByArticles(
     articles: FfArticle[],
     dateDebut: string,
     dateFin: string,
-    batchSize = 20
+    batchSize = 50
 ): Promise<Map<string, FfMensuelEntry[]>> {
     const result = new Map<string, FfMensuelEntry[]>();
 
@@ -412,7 +412,7 @@ export interface FfReferentiel {
  */
 export async function getReferentielByArticles(
     articles: FfArticle[],
-    batchSize = 20
+    batchSize = 50
 ): Promise<Map<string, FfReferentiel>> {
     const result = new Map<string, FfReferentiel>();
 

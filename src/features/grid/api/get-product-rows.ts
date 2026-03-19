@@ -26,26 +26,16 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
 
     try {
         // ─── Phase 1 : Articles du fournisseur ───────────────────────────────
-        const allArticles = await getArticlesByFournisseur(codeFournisseur);
-        console.log(`[getProductRows] ${allArticles.length} articles for ${codeFournisseur}`);
-
-        // Filtrer les articles actifs et non-suspendus pour les appels coûteux (mensuel/referentiel)
-        // Les articles inactifs/suspendus restent dans la grille mais sans données de vente
-        const activeArticles = allArticles.filter(a => a.suspendu !== true && a.actif !== false);
-        const suspendedCount = allArticles.length - activeArticles.length;
-        if (suspendedCount > 0) {
-            console.log(`[getProductRows] Filtrage: ${activeArticles.length} actifs, ${suspendedCount} suspendus/inactifs exclus des appels API`);
-        }
-        // On utilise allArticles pour la grille, activeArticles pour mensuel/referentiel
-        const articles = allArticles;
+        const articles = await getArticlesByFournisseur(codeFournisseur);
+        console.log(`[getProductRows] ${articles.length} articles for ${codeFournisseur}`);
 
         // ─── Phase 2 : Mensuel + Commandes (en parallèle) ────────────────────
         const { dateDebut, dateFin } = buildLast12MonthsRange();
         const [mensuelMap, referentielMap, commandesMap, rankingResult] = await Promise.all([
-            getMensuelByArticles(activeArticles, dateDebut, dateFin),
-            getReferentielByArticles(activeArticles),
+            getMensuelByArticles(articles, dateDebut, dateFin),
+            getReferentielByArticles(articles),
             getCommandesByFournisseur(codeFournisseur),
-            getRankingByArticles(activeArticles, codeFournisseur),
+            getRankingByArticles(articles, codeFournisseur),
         ]);
         const { rankings: rankingMap, totalRankedProducts } = rankingResult;
         console.log(`[getProductRows] mensuel data for ${mensuelMap.size}/${articles.length} articles`);
@@ -268,9 +258,15 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             console.error("[getProductRows] Snapshot restore error:", snapErr);
         }
 
-        // ─── Phase 7 : Score composite ────────────────────────────────────────
-        const rows = Array.from(productMap.values());
-        console.log(`[getProductRows] ${rows.length} produits, ${mensuelMap.size} avec données`);
+        // ─── Phase 8 : Filtrer les produits Y sans ventes ────────────────────
+        // Les produits en gamme Y sans aucune vente sur 12 mois sont exclus de la grille
+        // pour alléger le chargement. Exception : produits Y avec ventes conservés.
+        const allRows = Array.from(productMap.values());
+        const rows = allRows.filter(p =>
+            p.codeGamme !== "Y" || p.totalQuantite > 0
+        );
+        const excludedY = allRows.length - rows.length;
+        console.log(`[getProductRows] ${rows.length} produits (${excludedY} gamme Y sans ventes exclus), ${mensuelMap.size} avec données`);
         return computeProductScores(rows);
 
     } catch (error) {
