@@ -60,13 +60,17 @@ export function FloatingSummaryBar() {
         if (rows.length === 0) return;
         setIsSavingSnapshot(true);
         try {
-            const modifiedRows = rows.filter(r => draftChanges[r.codein]);
+            // Détecter TOUS les changements : drafts actifs + changements déjà validés (codeGamme mis à jour)
+            const modifiedRows = rows.filter(r => {
+                const effectiveGamme = draftChanges[r.codein] ?? r.codeGamme;
+                return effectiveGamme !== r.codeGammeInit;
+            });
             const changes = Object.fromEntries(
                 modifiedRows.map(r => [
                     r.codein,
                     {
                         before: r.codeGammeInit,
-                        after: draftChanges[r.codein] as string
+                        after: (draftChanges[r.codein] ?? r.codeGamme) as string
                     }
                 ])
             );
