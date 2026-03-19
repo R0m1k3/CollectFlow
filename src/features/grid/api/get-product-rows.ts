@@ -26,16 +26,26 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
 
     try {
         // ─── Phase 1 : Articles du fournisseur ───────────────────────────────
-        const articles = await getArticlesByFournisseur(codeFournisseur);
-        console.log(`[getProductRows] ${articles.length} articles for ${codeFournisseur}`);
+        const allArticles = await getArticlesByFournisseur(codeFournisseur);
+        console.log(`[getProductRows] ${allArticles.length} articles for ${codeFournisseur}`);
+
+        // Filtrer les articles actifs et non-suspendus pour les appels coûteux (mensuel/referentiel)
+        // Les articles inactifs/suspendus restent dans la grille mais sans données de vente
+        const activeArticles = allArticles.filter(a => a.suspendu !== true && a.actif !== false);
+        const suspendedCount = allArticles.length - activeArticles.length;
+        if (suspendedCount > 0) {
+            console.log(`[getProductRows] Filtrage: ${activeArticles.length} actifs, ${suspendedCount} suspendus/inactifs exclus des appels API`);
+        }
+        // On utilise allArticles pour la grille, activeArticles pour mensuel/referentiel
+        const articles = allArticles;
 
         // ─── Phase 2 : Mensuel + Commandes (en parallèle) ────────────────────
         const { dateDebut, dateFin } = buildLast12MonthsRange();
         const [mensuelMap, referentielMap, commandesMap, rankingResult] = await Promise.all([
-            getMensuelByArticles(articles, dateDebut, dateFin),
-            getReferentielByArticles(articles),
+            getMensuelByArticles(activeArticles, dateDebut, dateFin),
+            getReferentielByArticles(activeArticles),
             getCommandesByFournisseur(codeFournisseur),
-            getRankingByArticles(articles, codeFournisseur),
+            getRankingByArticles(activeArticles, codeFournisseur),
         ]);
         const { rankings: rankingMap, totalRankedProducts } = rankingResult;
         console.log(`[getProductRows] mensuel data for ${mensuelMap.size}/${articles.length} articles`);

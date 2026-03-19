@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(git push:*)",
-      "Bash(npx next:*)"
+      "Bash(npx next:*)",
+      "Bash(git status:*)"
     ]
   }
 }

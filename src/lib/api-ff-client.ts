@@ -30,6 +30,8 @@ export interface FfArticle {
     noid?: number;        // SQL Server internal ID (pour endpoint /mensuel)
     reference?: string;   // référence fournisseur (ref_fou_principale)
     gtin?: string;        // code-barres EAN/GTIN
+    actif?: boolean;      // article actif
+    suspendu?: boolean;   // article suspendu
 }
 
 export interface FfMouvement {
@@ -99,30 +101,62 @@ function extractList(data: unknown): any[] {
 
 async function fetchAllPages<T>(
     buildUrl: (page: number) => string,
-    _extractItems: (data: unknown) => T[],  // conservé pour compatibilité, mais on utilise extractList
+    _extractItems: (data: unknown) => T[],
     pageSize = 500
 ): Promise<T[]> {
-    const all: T[] = [];
-    let page = 1;
+    // Page 1 — récupère les items et tente d'obtenir le total pour paralléliser
+    const url1 = buildUrl(1);
+    console.log(`[api-ff] GET ${url1}`);
+    const res1 = await fetch(url1, { cache: "no-store" });
+    if (!res1.ok) {
+        console.error(`[api-ff] HTTP ${res1.status} — ${url1}`);
+        return [];
+    }
+    const data1 = await res1.json();
+    const items1 = extractList(data1) as T[];
+    console.log(`[api-ff] page 1: ${items1.length} items, keys: ${items1[0] ? Object.keys(items1[0] as object).join(",") : "empty"}`);
 
+    // Si la première page est incomplète, pas besoin de continuer
+    if (items1.length < pageSize) return items1;
+
+    // Cherche un total dans la réponse pour paralléliser les pages suivantes
+    const d1 = data1 as Record<string, unknown>;
+    const total = Number(d1.count ?? d1.total ?? d1.nb_total ?? d1.totalCount ?? 0);
+
+    if (total > pageSize) {
+        const totalPages = Math.ceil(total / pageSize);
+        const remaining = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
+        // Fetch en chunks de 10 pages en parallèle
+        const all = [...items1];
+        for (let i = 0; i < remaining.length; i += 10) {
+            const chunk = remaining.slice(i, i + 10);
+            const results = await Promise.all(chunk.map(async (p) => {
+                const url = buildUrl(p);
+                console.log(`[api-ff] GET ${url}`);
+                const res = await fetch(url, { cache: "no-store" });
+                if (!res.ok) return [] as T[];
+                const data = await res.json();
+                return extractList(data) as T[];
+            }));
+            for (const r of results) all.push(...r);
+        }
+        return all;
+    }
+
+    // Fallback séquentiel (pas de total dans la réponse)
+    const all = [...items1];
+    let page = 2;
     while (true) {
         const url = buildUrl(page);
         console.log(`[api-ff] GET ${url}`);
         const res = await fetch(url, { cache: "no-store" });
-        if (!res.ok) {
-            console.error(`[api-ff] HTTP ${res.status} — ${url}`);
-            break;
-        }
+        if (!res.ok) break;
         const data = await res.json();
         const items = extractList(data) as T[];
-        if (page === 1) {
-            console.log(`[api-ff] page 1: ${items.length} items, keys: ${items[0] ? Object.keys(items[0] as object).join(",") : "empty"}`);
-        }
         all.push(...items);
         if (items.length < pageSize) break;
         page++;
     }
-
     return all;
 }
 
@@ -214,6 +248,8 @@ export async function getArticlesByFournisseur(
         noid:       r.no_id             ?? r.noid      ?? r.NoId,
         reference:  r.ref_fou_principale ?? r.reference ?? r.ref_fournisseur  ?? undefined,
         gtin:       r.gtin              ?? r.Gtin      ?? r.ean               ?? r.barcode        ?? undefined,
+        actif:      r.actif != null ? Boolean(Number(r.actif)) : undefined,
+        suspendu:   r.suspendu != null ? Boolean(Number(r.suspendu)) : undefined,
     })).filter(a => a.codein);
 }
 
