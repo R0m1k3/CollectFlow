@@ -25,6 +25,8 @@ interface GridState {
     resetDrafts: () => void;
     /** Clear specific draft changes by codein */
     clearDrafts: (codeins: string[]) => void;
+    /** Apply saved drafts onto row.codeGamme so change indicators persist after save */
+    applyDraftsToRows: (draftsToApply: Record<string, GammeCode>) => void;
     setFilter: (key: keyof GridFilters, value: string | null) => void;
     setDisplayDensity: (density: "compact" | "normal" | "comfortable") => void;
     setActiveGridQuery: (query: string) => void;
@@ -107,6 +109,17 @@ export const useGridStore = create<GridState>()(
                 const draftChanges = { ...get().draftChanges };
                 codeins.forEach((id) => delete draftChanges[id]);
                 set({ draftChanges, summary: computeSummary(get().rows, draftChanges) });
+            },
+            /** Apply saved drafts onto row.codeGamme so isModified works after clearing drafts */
+            applyDraftsToRows: (draftsToApply: Record<string, GammeCode>) => {
+                const rows = get().rows.map(r => {
+                    const newGamme = draftsToApply[r.codein];
+                    if (newGamme !== undefined) {
+                        return { ...r, codeGamme: newGamme };
+                    }
+                    return r;
+                });
+                set({ rows });
             },
             setFilter: (key, value) => {
                 set((state) => ({ ...state, filters: { ...state.filters, [key]: value } }));
