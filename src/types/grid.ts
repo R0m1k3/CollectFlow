@@ -99,6 +99,8 @@ export interface ProductRow {
     /** Ranking magasin */
     rankingMagCa?: number;
     rankingMagQte?: number;
+    /** Nombre total de produits classés dans le réseau (produits avec ventes sur la période) */
+    totalRankedProducts?: number;
 }
 
 /** Summary bar totals for the currently visible/filtered rows */

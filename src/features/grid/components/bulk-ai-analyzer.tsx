@@ -134,9 +134,28 @@ export function BulkAiAnalyzer() {
         }
         const deadStockCodes = new Set(deadStockRows.map(r => r.codein));
 
+        // 2c. Top 20 réseau → A direct, sans appel IA
+        const top20Rows = rows.filter(r =>
+            (r.totalQuantite || 0) > 0 &&
+            !deadStockCodes.has(r.codein) &&
+            ((r.rankingCa != null && r.rankingCa <= 20) || (r.rankingQte != null && r.rankingQte <= 20))
+        );
+        if (top20Rows.length > 0) {
+            const aChanges: Record<string, GammeCode> = {};
+            top20Rows.forEach(r => { aChanges[r.codein] = "A"; });
+            batchSetDraftGamme(aChanges);
+            top20Rows.forEach(r => {
+                const rkCa = r.rankingCa != null ? `${r.rankingCa}e CA` : "";
+                const rkQte = r.rankingQte != null ? `${r.rankingQte}e Qté` : "";
+                const total = r.totalRankedProducts ? ` / ${r.totalRankedProducts.toLocaleString("fr-FR")} produits` : "";
+                setInsight(r.codein, `Top 20 réseau (${[rkCa, rkQte].filter(Boolean).join(", ")}${total}) — classé A automatiquement.`);
+            });
+        }
+        const top20Codes = new Set(top20Rows.map(r => r.codein));
+
         // Filtrer : ne soumettre à l'IA que les produits avec au moins 1 vente et CA/quantité suffisants
         const payloadsWithSales = initialPayloads.filter(p =>
-            (p.totalQuantite || 0) > 0 && !deadStockCodes.has(p.codein)
+            (p.totalQuantite || 0) > 0 && !deadStockCodes.has(p.codein) && !top20Codes.has(p.codein)
         );
 
         // 2c. Context profiling en micro-batches asynchrones
@@ -182,6 +201,11 @@ export function BulkAiAnalyzer() {
                     commandesEnCours: row?.commandesEnCours,
                     nbJoursDerniereVente: row?.nbJoursDerniereVente,
                     derniereVente: row?.derniereVente,
+                    rankingCa: row?.rankingCa,
+                    rankingQte: row?.rankingQte,
+                    rankingMagCa: row?.rankingMagCa,
+                    rankingMagQte: row?.rankingMagQte,
+                    totalRankedProducts: row?.totalRankedProducts,
                     contextProfile,
                     scoring: {
                         score,

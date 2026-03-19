@@ -78,6 +78,15 @@ export interface ProductAnalysisInput {
     nbJoursDerniereVente?: number;
     derniereVente?: string;
 
+    /** Ranking réseau (classement global tous magasins) */
+    rankingCa?: number;
+    rankingQte?: number;
+    /** Ranking magasin (classement local) */
+    rankingMagCa?: number;
+    rankingMagQte?: number;
+    /** Nombre total de produits classés (avec ventes sur la période) */
+    totalRankedProducts?: number;
+
     /**
      * Fiche de contexte enrichie générée par le ContextProfiler.
      * Transmise au prompt de l'IA pour une analyse multi-dimensionnelle.

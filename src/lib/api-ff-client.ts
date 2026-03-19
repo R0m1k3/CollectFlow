@@ -444,17 +444,39 @@ function parseRankNum(val: string | null | undefined): number | undefined {
     return isNaN(n) ? undefined : n;
 }
 
+export interface RankingResult {
+    rankings: Map<string, FfRanking>;
+    /** Nombre total de produits dans le classement (produits avec ventes sur la période) */
+    totalRankedProducts: number;
+}
+
 /**
  * Récupère le ranking (réseau + magasin) pour un lot d'articles via codein.
- * Retourne Map<codein, FfRanking>
+ * Fait d'abord un appel pour connaître le nombre total de produits classés,
+ * puis récupère le ranking de chaque article.
  */
 export async function getRankingByArticles(
     articles: { codein: string; gtin?: string }[],
     batchSize = 20
-): Promise<Map<string, FfRanking>> {
-    const result = new Map<string, FfRanking>();
-    if (articles.length === 0) return result;
+): Promise<RankingResult> {
+    const rankings = new Map<string, FfRanking>();
+    if (articles.length === 0) return { rankings, totalRankedProducts: 0 };
 
+    // 1. Récupérer le nombre total de produits classés (1 seul appel)
+    let totalRankedProducts = 0;
+    try {
+        const countUrl = `${FF_API_BASE}/api/ranking?limit=1`;
+        const countRes = await fetch(countUrl, { cache: "no-store" });
+        if (countRes.ok) {
+            const countData = await countRes.json();
+            totalRankedProducts = countData?.count ?? 0;
+            console.log(`[api-ff] Ranking total produits classés : ${totalRankedProducts}`);
+        }
+    } catch (err) {
+        console.warn(`[api-ff] Failed to get ranking total count:`, err);
+    }
+
+    // 2. Récupérer le ranking de chaque article
     for (let i = 0; i < articles.length; i += batchSize) {
         const batch = articles.slice(i, i + batchSize);
         await Promise.all(
@@ -465,18 +487,15 @@ export async function getRankingByArticles(
                     if (!res.ok) return;
                     const data = await res.json();
 
-                    // Structure : { count: number, ranking: RankingEntry[] }
-                    const rankings = data?.ranking;
-                    if (!Array.isArray(rankings) || rankings.length === 0) return;
+                    const rankingList = data?.ranking;
+                    if (!Array.isArray(rankingList) || rankingList.length === 0) return;
 
-                    // Log premier résultat pour diagnostic
-                    if (result.size === 0) {
-                        console.log(`[api-ff] Ranking sample keys: ${Object.keys(rankings[0]).join(",")}`);
+                    if (rankings.size === 0) {
+                        console.log(`[api-ff] Ranking sample keys: ${Object.keys(rankingList[0]).join(",")}`);
                     }
 
-                    // Prendre la première entrée
-                    const entry = rankings[0];
-                    result.set(art.codein, {
+                    const entry = rankingList[0];
+                    rankings.set(art.codein, {
                         ranking_ca: parseRankNum(entry.ranking_ca),
                         ranking_qte: parseRankNum(entry.ranking_qte),
                         ranking_mag_ca: parseRankNum(entry.ranking_mag_ca),
@@ -493,8 +512,8 @@ export async function getRankingByArticles(
         );
     }
 
-    console.log(`[api-ff] Ranking: ${result.size}/${articles.length} articles enrichis`);
-    return result;
+    console.log(`[api-ff] Ranking: ${rankings.size}/${articles.length} articles enrichis`);
+    return { rankings, totalRankedProducts };
 }
 
 // ---------------------------------------------------------------------------

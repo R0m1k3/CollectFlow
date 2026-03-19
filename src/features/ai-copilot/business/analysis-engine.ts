@@ -56,6 +56,12 @@ Si AUCUNE condition d'ajustement n'est remplie → CONFIRME le verdict pré-calc
 Note dans la justification (sans changer la décision) :
 • Si un magasin représente ≥ 80% des ventes → "porté par [magasin]"
 • Si produit protégé (nouveauté, dernière ref fournisseur) → le mentionner
+• Si un RANKING est fourni, mentionne la position et le percentile du produit (ex: "classé 45e / 5 000 produits, top 1%")
+  → Le ranking est un signal contextuel qui RENFORCE le verdict :
+    - Top 5% du réseau → signal fort pour garder en A
+    - Top 20% du réseau → signal modéré pour garder en A
+    - Bottom 30% du réseau → signal défavorable, cohérent avec Z
+  → Le ranking seul ne change PAS le verdict, mais combiné avec d'autres signaux il peut justifier un ajustement
 
 --- FORMAT OBLIGATOIRE ---
 JSON uniquement, sans markdown.
@@ -162,6 +168,25 @@ SI AUCUNE RÈGLE MANAGER n'est définie, tu recommandes UNIQUEMENT A ou Z (jamai
         lines.push(`• Percentile Volume : ${ctx.percentileQty}e`);
         lines.push(`• Poids CA fournisseur : ${ctx.weightCaFournisseur.toFixed(1)}%`);
         lines.push("");
+
+        // Ranking réseau & magasin (avec percentile contextuel)
+        if (p.rankingCa != null || p.rankingQte != null || p.rankingMagCa != null || p.rankingMagQte != null) {
+            const total = p.totalRankedProducts ?? 0;
+            const totalLabel = total > 0 ? ` / ${total.toLocaleString('fr-FR')} produits` : "";
+            lines.push(`--- RANKING RÉSEAU (${total > 0 ? total.toLocaleString('fr-FR') : "?"} produits vendus sur la période) ---`);
+            if (p.rankingCa != null) {
+                const pctCa = total > 0 ? ((p.rankingCa / total) * 100).toFixed(1) : "?";
+                lines.push(`• Classement CA réseau : ${p.rankingCa}e${totalLabel} (top ${pctCa}%)`);
+            }
+            if (p.rankingQte != null) {
+                const pctQte = total > 0 ? ((p.rankingQte / total) * 100).toFixed(1) : "?";
+                lines.push(`• Classement Qté réseau : ${p.rankingQte}e${totalLabel} (top ${pctQte}%)`);
+            }
+            if (p.rankingMagCa != null) lines.push(`• Classement CA magasin : ${p.rankingMagCa}e`);
+            if (p.rankingMagQte != null) lines.push(`• Classement Qté magasin : ${p.rankingMagQte}e`);
+            lines.push(`• Contexte : ce fournisseur a ${ctx.lotSize} produits dans le lot analysé`);
+            lines.push("");
+        }
 
         // Signaux pré-calculés (si données mensuelles disponibles)
         if (p.siteMonthlyData && p.siteMonthlyData.length > 0) {
@@ -291,7 +316,8 @@ Famille / Rayon : ${p.libelleNiveau2 ?? "N/A"}
 • Quantité : ${p.totalQuantite} unités
 • Marge : ${p.tauxMarge.toFixed(1)}%
 • PMV : ${pmv.toFixed(2)}€
-${p.shareCa !== undefined ? `• Poids CA Fournisseur : ${p.shareCa.toFixed(1)}%` : ""}${contextRules}
+${p.shareCa !== undefined ? `• Poids CA Fournisseur : ${p.shareCa.toFixed(1)}%` : ""}
+${p.rankingCa != null || p.rankingQte != null ? `\n--- RANKING ---\n${p.rankingCa != null ? `• Classement CA réseau : ${p.rankingCa}e${p.totalRankedProducts ? ` / ${p.totalRankedProducts} produits (top ${((p.rankingCa / p.totalRankedProducts) * 100).toFixed(1)}%)` : ""}\n` : ""}${p.rankingQte != null ? `• Classement Qté réseau : ${p.rankingQte}e${p.totalRankedProducts ? ` / ${p.totalRankedProducts} produits (top ${((p.rankingQte / p.totalRankedProducts) * 100).toFixed(1)}%)` : ""}\n` : ""}${p.rankingMagCa != null ? `• Classement CA magasin : ${p.rankingMagCa}e\n` : ""}${p.rankingMagQte != null ? `• Classement Qté magasin : ${p.rankingMagQte}e` : ""}` : ""}${contextRules}
 Génère UNIQUEMENT le JSON :`;
     }
 

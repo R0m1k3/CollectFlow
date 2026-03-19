@@ -31,12 +31,13 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
 
         // ─── Phase 2 : Mensuel + Commandes (en parallèle) ────────────────────
         const { dateDebut, dateFin } = buildLast12MonthsRange();
-        const [mensuelMap, referentielMap, commandesMap, rankingMap] = await Promise.all([
+        const [mensuelMap, referentielMap, commandesMap, rankingResult] = await Promise.all([
             getMensuelByArticles(articles, dateDebut, dateFin),
             getReferentielByArticles(articles),
             getCommandesByFournisseur(codeFournisseur),
             getRankingByArticles(articles),
         ]);
+        const { rankings: rankingMap, totalRankedProducts } = rankingResult;
         console.log(`[getProductRows] mensuel data for ${mensuelMap.size}/${articles.length} articles`);
 
         // ─── Phase 3 : Fenêtre temporelle (12 mois complets) ─────────────────
@@ -230,6 +231,7 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             product.rankingQte = ranking.ranking_qte;
             product.rankingMagCa = ranking.ranking_mag_ca;
             product.rankingMagQte = ranking.ranking_mag_qte;
+            product.totalRankedProducts = totalRankedProducts;
         }
 
         // ─── Phase 7 : Restaurer gammes depuis dernier snapshot ──────────────
