@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 
     sheet.columns = [
         { header: "CODE FOURNISSEUR", key: "codeFournisseur", width: 22 },
-        { header: "GENCOD", key: "gtin", width: 18 },
+        { header: "CODEIN", key: "codein", width: 18 },
         { header: "GAMME", key: "gamme", width: 12 },
     ];
 
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     for (const row of changes) {
         sheet.addRow({
             codeFournisseur: row.codeFournisseur || "—",
-            gtin: row.gtin || "—",
+            codein: row.codein || "—",
             gamme: row.gamme || "—",
         });
     }
@@ -58,9 +58,9 @@ export async function POST(req: NextRequest) {
     const gammeCol = sheet.getColumn("gamme");
     gammeCol.alignment = { horizontal: "center" };
 
-    // Format codein et gtin en texte pour eviter la notation scientifique excel
+    // Format en texte pour eviter la notation scientifique excel
     sheet.getColumn("codeFournisseur").numFmt = "@";
-    sheet.getColumn("gtin").numFmt = "@";
+    sheet.getColumn("codein").numFmt = "@";
 
     // Generate buffer
     const buffer = await workbook.xlsx.writeBuffer();
