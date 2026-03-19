@@ -508,9 +508,13 @@ export async function getRankingByArticles(
     if (articles.length === 0) return { rankings, totalRankedProducts: 0 };
 
     const articleCodeins = new Set(articles.map(a => a.codein));
+    // Map gtin → codein pour matcher par gencod si le bulk response utilise gencod
+    const gtinToCodein = new Map<string, string>();
+    for (const a of articles) {
+        if (a.gtin) gtinToCodein.set(a.gtin, a.codein);
+    }
 
-    // Stratégie : télécharger tout le classement réseau en 1 appel, puis matcher par codein
-    // Le nombre d'articles retournés = totalRankedProducts réel
+    // Stratégie : télécharger tout le classement réseau en 1 appel, puis matcher par codein ou gencod
     const RANKING_FULL_LIMIT = 30000;
     try {
         const url = `${FF_API_BASE}/api/ranking?limit=${RANKING_FULL_LIMIT}`;
@@ -519,10 +523,16 @@ export async function getRankingByArticles(
             const data = await res.json();
             const rankingList: Record<string, string | null>[] = data?.ranking ?? [];
             const totalRankedProducts = rankingList.length;
-            console.log(`[api-ff] Ranking full fetch: ${rankingList.length} produits classés dans le réseau`);
+            console.log(`[api-ff] Ranking full fetch: ${rankingList.length} entrées`);
+            if (rankingList.length > 0) {
+                console.log(`[api-ff] Ranking entry keys: ${Object.keys(rankingList[0]).join(",")}`);
+                console.log(`[api-ff] Ranking entry sample: ${JSON.stringify(rankingList[0])}`);
+            }
 
             for (const entry of rankingList) {
-                const codein = entry.codein;
+                // Essaie de trouver le codein via codein direct OU via gencod→gtin→codein
+                let codein = entry.codein ?? null;
+                if (!codein && entry.gencod) codein = gtinToCodein.get(entry.gencod) ?? null;
                 if (!codein || !articleCodeins.has(codein)) continue;
                 rankings.set(codein, {
                     ranking_ca: parseRankNum(entry.ranking_ca),
@@ -535,7 +545,7 @@ export async function getRankingByArticles(
                     pv_cen: parseRankNum(entry.pv_cen),
                 });
             }
-            console.log(`[api-ff] Ranking: ${rankings.size}/${articles.length} articles du fournisseur classés`);
+            console.log(`[api-ff] Ranking: ${rankings.size}/${articles.length} articles classés`);
             return { rankings, totalRankedProducts };
         }
     } catch (err) {
@@ -543,7 +553,7 @@ export async function getRankingByArticles(
     }
 
     // Fallback : 1 appel par article
-    const batchSize = 20;
+    const batchSize = 50;
     for (let i = 0; i < articles.length; i += batchSize) {
         const batch = articles.slice(i, i + batchSize);
         await Promise.all(
