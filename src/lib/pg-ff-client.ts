@@ -81,6 +81,8 @@ export async function pgGetFournisseurs(search?: string): Promise<{ code: string
         WHERE fa.sit_code = '000'
           AND fa.raisonsociale IS NOT NULL
           AND fa.code IS NOT NULL
+          -- Exclure les raisonsociales qui commencent par un chiffre (adresses postales)
+          AND fa.raisonsociale !~ '^\s*\d'
           ${search ? sql`AND (fa.raisonsociale ILIKE ${'%' + search + '%'} OR fa.code ILIKE ${'%' + search + '%'})` : sql``}
         ORDER BY fa.raisonsociale
     `);
@@ -160,6 +162,9 @@ export async function pgGetMensuelByFournisseur(
     dateDebut: string,
     dateFin: string
 ): Promise<PgMensuelRow[]> {
+    // IMPORTANT : utiliser DISTINCT sur artfou1 pour éviter les doublons de mouvements.
+    // Un article peut avoir plusieurs lignes artfou1 pour le même fournisseur (pcb/ref différents),
+    // ce qui multiplierait chaque mouvement et gonflerait les totaux.
     const result = await db.execute(sql`
         SELECT
             a.codein,
@@ -171,10 +176,10 @@ export async function pgGetMensuelByFournisseur(
             MAX(m.qtestock)::float                                                  AS stock_fin_mois,
             SUM(CASE WHEN m.genremvt IN (1, 2) THEN ABS(m.qtemvt) ELSE 0 END)::float AS qte_recue
         FROM mvtart m
-        JOIN articles a
-            ON a.no_id = m.artnoid
-        JOIN artfou1 af
-            ON af.art_no_id = a.no_id AND af.code = ${codefou}
+        JOIN articles a ON a.no_id = m.artnoid
+        -- Sous-requête dédupliquée : 1 seule ligne par article/fournisseur
+        JOIN (SELECT DISTINCT art_no_id FROM artfou1 WHERE code = ${codefou}) af
+            ON af.art_no_id = a.no_id
         WHERE m.datmvt BETWEEN ${dateDebut}::date AND ${dateFin}::date
           AND m.site IN ('292', '579')
         GROUP BY a.codein, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
@@ -317,10 +322,9 @@ export async function pgGetStockByFournisseur(codefou: string): Promise<Map<stri
             cs.dernierevente::text,
             cs.dernierereception::text
         FROM cube_stock cs
-        JOIN articles a
-            ON a.no_id = cs.artnoid
-        JOIN artfou1 af
-            ON af.art_no_id = a.no_id AND af.code = ${codefou}
+        JOIN articles a ON a.no_id = cs.artnoid
+        JOIN (SELECT DISTINCT art_no_id FROM artfou1 WHERE code = ${codefou}) af
+            ON af.art_no_id = a.no_id
     `);
 
     const map = new Map<string, PgStockRow[]>();
