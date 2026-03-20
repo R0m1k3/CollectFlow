@@ -1,14 +1,15 @@
 "use server";
 
-import { getFournisseursFromApi, getSitesFromApi } from "@/lib/api-ff-client";
+import { getSitesFromApi } from "@/lib/api-ff-client";
+import { pgGetFournisseurs } from "@/lib/pg-ff-client";
 import { getProductRows } from "./api/get-product-rows";
 import type { ProductRow, GridFilters } from "@/types/grid";
 
 /**
- * Get the list of all suppliers from the FF Nancy API.
+ * Get the list of all suppliers from PostgreSQL (fouadr1).
  */
 export async function getFournisseurs() {
-    return getFournisseursFromApi();
+    return pgGetFournisseurs();
 }
 
 /**

@@ -10,6 +10,7 @@ import {
     pgGetStockByFournisseur,
     pgGetRankingByFournisseur,
     pgGetCommandesByFournisseur,
+    type PgStockRow,
 } from "@/lib/pg-ff-client";
 import { db } from "@/db";
 import { sessionSnapshots } from "@/db/schema";
@@ -38,12 +39,12 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             rankingResult,
             commandesMap,
         ] = await Promise.all([
-            pgGetArticlesByFournisseur(codeFournisseur),
-            pgGetMensuelByFournisseur(codeFournisseur, dateDebut, dateFin),
-            pgGetGammesByFournisseur(codeFournisseur),
-            pgGetStockByFournisseur(codeFournisseur),
-            pgGetRankingByFournisseur(codeFournisseur),
-            pgGetCommandesByFournisseur(codeFournisseur),
+            pgGetArticlesByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetArticlesByFournisseur ERROR:", e); return []; }),
+            pgGetMensuelByFournisseur(codeFournisseur, dateDebut, dateFin).catch(e => { console.error("[getProductRows] pgGetMensuelByFournisseur ERROR:", e); return []; }),
+            pgGetGammesByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetGammesByFournisseur ERROR:", e); return new Map<string, string>(); }),
+            pgGetStockByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetStockByFournisseur ERROR:", e); return new Map<string, PgStockRow[]>(); }),
+            pgGetRankingByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetRankingByFournisseur ERROR:", e); return { rankings: new Map(), totalRankedProducts: 0 }; }),
+            pgGetCommandesByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetCommandesByFournisseur ERROR:", e); return new Map<string, number>(); }),
         ]);
 
         const { rankings: rankingMap, totalRankedProducts } = rankingResult;

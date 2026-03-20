@@ -60,6 +60,31 @@ export interface PgRankingRow {
 }
 
 // ---------------------------------------------------------------------------
+// 0. Liste des fournisseurs
+// ---------------------------------------------------------------------------
+
+/**
+ * Retourne la liste de tous les fournisseurs depuis fouadr1.
+ * 1 requête SQL — remplace getFournisseursFromApi().
+ */
+export async function pgGetFournisseurs(search?: string): Promise<{ code: string; nom: string }[]> {
+    const result = await db.execute(sql`
+        SELECT DISTINCT
+            fa.code,
+            fa.raisonsociale AS nom
+        FROM fouadr1 fa
+        WHERE fa.sit_code = '000'
+          AND fa.raisonsociale IS NOT NULL
+          AND fa.code IS NOT NULL
+          ${search ? sql`AND (fa.raisonsociale ILIKE ${'%' + search + '%'} OR fa.code ILIKE ${'%' + search + '%'})` : sql``}
+        ORDER BY fa.raisonsociale
+    `);
+
+    return (result.rows as unknown as { code: string; nom: string }[])
+        .filter(r => r.code && r.nom);
+}
+
+// ---------------------------------------------------------------------------
 // 1. Articles du fournisseur
 // ---------------------------------------------------------------------------
 
