@@ -93,6 +93,13 @@ export async function pgGetFournisseurs(search?: string): Promise<{ code: string
  * 1 seule requête SQL — remplace getArticlesByFournisseur() + per-article fetches.
  */
 export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArticle[]> {
+    // Diagnostic une seule fois : colonnes de la table articles
+    const diagResult = await db.execute(sql`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'articles' ORDER BY ordinal_position LIMIT 30
+    `);
+    console.log("[pg-ff] Colonnes articles:", (diagResult.rows as unknown as { column_name: string }[]).map(r => r.column_name).join(", "));
+
     const result = await db.execute(sql`
         SELECT
             a.no_id,
@@ -121,6 +128,10 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
           AND a.codein IS NOT NULL
         ORDER BY a.codein
     `);
+
+    if (result.rows.length > 0) {
+        console.log("[pg-ff] Sample article row keys:", Object.keys(result.rows[0] as object).join(", "));
+    }
 
     return (result.rows as unknown as PgArticle[]).filter(r => r.codein);
 }
@@ -175,28 +186,62 @@ export async function pgGetMensuelByFournisseur(
  * 1 requête SQL — remplace getReferentielByArticles() pour la partie gammes.
  */
 export async function pgGetGammesByFournisseur(codefou: string): Promise<Map<string, string>> {
+    // Diagnostic : log column names of gammes and saisons tables once
+    const diagResult = await db.execute(sql`
+        SELECT table_name, column_name, data_type
+        FROM information_schema.columns
+        WHERE table_name IN ('gammes', 'saisons', 'art_gamme_saison')
+        ORDER BY table_name, ordinal_position
+    `);
+    console.log("[pg-ff] Colonnes gammes/saisons:", JSON.stringify(diagResult.rows));
+
+    // Utilise DISTINCT ON pour obtenir 1 gamme par article (saison la plus récente)
+    // Sans filtrer sur actif (colonne potentiellement absente ou 0/1)
     const result = await db.execute(sql`
-        SELECT
+        SELECT DISTINCT ON (a.codein)
             a.codein,
-            g.code  AS gamme_code
+            ags.idgamme,
+            ags.idsaison
         FROM art_gamme_saison ags
         JOIN articles a
             ON a.no_id = ags.artnoid
         JOIN artfou1 af
             ON af.art_no_id = a.no_id AND af.code = ${codefou}
-        JOIN gammes g
-            ON g.no_id = ags.idgamme
-        JOIN saisons s
-            ON s.no_id = ags.idsaison
-        WHERE s.actif = true
+        ORDER BY a.codein, ags.idsaison DESC
     `);
 
+    // Log first raw row to see column names of art_gamme_saison
+    if (result.rows.length > 0) {
+        console.log("[pg-ff] Sample art_gamme_saison row:", JSON.stringify(result.rows[0]));
+    }
+
+    // Now fetch gamme codes for the found idgamme values
+    const idgammes = [...new Set((result.rows as unknown as { idgamme: number }[]).map(r => r.idgamme))];
+    if (idgammes.length === 0) return new Map();
+
+    const gammesResult = await db.execute(sql`
+        SELECT no_id, * FROM gammes WHERE no_id = ANY(${idgammes})
+    `);
+    console.log("[pg-ff] Sample gammes row:", JSON.stringify(gammesResult.rows[0]));
+
+    // Build gamme lookup: idgamme → code (try common column names)
+    const gammeById = new Map<number, string>();
+    for (const g of gammesResult.rows as unknown as Record<string, unknown>[]) {
+        const id = Number(g.no_id);
+        // Try common column names for the gamme code (A/B/C/Y/Z)
+        const code = (g.code ?? g.codegam ?? g.gamme_code ?? g.libelle ?? g.lib ?? "") as string;
+        if (id && code) gammeById.set(id, String(code).trim());
+    }
+
+    // Build codein → gamme_code map
     const map = new Map<string, string>();
-    for (const row of result.rows as unknown as { codein: string; gamme_code: string }[]) {
-        if (row.codein && row.gamme_code) {
-            map.set(row.codein, row.gamme_code);
+    for (const row of result.rows as unknown as { codein: string; idgamme: number }[]) {
+        const gammeCode = gammeById.get(Number(row.idgamme));
+        if (row.codein && gammeCode) {
+            map.set(row.codein, gammeCode);
         }
     }
+    console.log(`[pg-ff] Gammes: ${map.size} articles avec gamme`);
     return map;
 }
 
