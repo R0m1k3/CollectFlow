@@ -73,10 +73,11 @@ export interface PgRankingRow {
 export async function pgGetFournisseurs(search?: string): Promise<{ code: string; nom: string }[]> {
     try {
         const result = await db.execute(sql`
-            SELECT
+            SELECT DISTINCT
                 fi.code,
                 fi.nom
             FROM fouident fi
+            INNER JOIN artfou1 af ON af.code = fi.code
             WHERE fi.actif = true
               AND fi.suspendu = false
               AND fi.code IS NOT NULL
@@ -84,9 +85,10 @@ export async function pgGetFournisseurs(search?: string): Promise<{ code: string
               ${search ? sql`AND (fi.nom ILIKE ${'%' + search + '%'} OR fi.code ILIKE ${'%' + search + '%'})` : sql``}
             ORDER BY fi.nom
         `);
+        console.log(`[pg-ff] pgGetFournisseurs (fouident): ${result.rows.length} fournisseurs`);
         return (result.rows as unknown as { code: string; nom: string }[]).filter(r => r.code && r.nom);
     } catch (e) {
-        console.error("[pg-ff] pgGetFournisseurs error:", e);
+        console.error("[pg-ff] pgGetFournisseurs fouident error:", (e as Error).message?.slice(0, 200));
         // Fallback : fouident inaccessible → fouadr1 avec artfou1
         try {
             const fallback = await db.execute(sql`
@@ -194,7 +196,8 @@ export async function pgGetMensuelByFournisseur(
             -- qte_vendue nette = SUM(-qtemvt) : ventes moins retours
             SUM(CASE WHEN m.genremvt = 3 THEN -m.qtemvt    ELSE 0 END)::float AS qte_vendue,
             SUM(CASE WHEN m.genremvt = 3 THEN -m.mntmvtttc ELSE 0 END)::float AS ca_ht,
-            SUM(CASE WHEN m.genremvt = 3 THEN -m.margemvt  ELSE 0 END)::float AS marge,
+            -- margemvt est positif pour les ventes (pas de négation)
+            SUM(CASE WHEN m.genremvt = 3 THEN  m.margemvt  ELSE 0 END)::float AS marge,
             MAX(m.qtestock)::float                                              AS stock_fin_mois,
             SUM(CASE WHEN m.genremvt IN (1, 2) THEN -m.qtemvt ELSE 0 END)::float AS qte_recue
         FROM mvtart m
