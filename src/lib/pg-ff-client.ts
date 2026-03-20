@@ -193,6 +193,9 @@ export async function pgGetGammesByFournisseur(codefou: string): Promise<Map<str
     for (const row of result.rows as unknown as { codein: string; gamme_code: string }[]) {
         if (row.codein && row.gamme_code) map.set(row.codein, String(row.gamme_code).trim());
     }
+    if (result.rows.length > 0) {
+        console.log("[pg-ff] Gammes sample row:", JSON.stringify(result.rows[0]));
+    }
     console.log(`[pg-ff] Gammes: ${map.size} articles avec gamme`);
     return map;
 }
@@ -214,27 +217,54 @@ export interface PgNomRow {
 /**
  * Retourne la nomenclature (famille/sous-famille) pour chaque article du fournisseur.
  * FK confirmée : articles.nom_no_id → nomenclature.no_id
- * Colonnes confirmées : nomenclature.code, nomenclature.libelle, nomenclature.parent_no_id
+ * Colonnes confirmées : nomenclature.code, nomenclature.libelle
+ * Colonne parent : découverte dynamiquement via information_schema
  */
 export async function pgGetNomenclatureByFournisseur(codefou: string): Promise<Map<string, PgNomRow>> {
-    const result = await db.execute(sql`
-        SELECT
-            a.codein,
-            n3.code       AS code3,
-            n3.libelle    AS libelle3,
-            n2.code       AS code2,
-            n2.libelle    AS libelle2,
-            n1.code       AS code1,
-            n1.libelle    AS libelle1nom
-        FROM artfou1 af
-        JOIN articles a      ON a.no_id = af.art_no_id AND af.code = ${codefou}
-        JOIN nomenclature n3 ON n3.no_id = a.nom_no_id
-        LEFT JOIN nomenclature n2 ON n2.no_id = n3.parent_no_id
-        LEFT JOIN nomenclature n1 ON n1.no_id = n2.parent_no_id
-        WHERE a.codein IS NOT NULL
+    // Découvrir la colonne parent dans nomenclature (parent_no_id, nom_no_id, idparent...)
+    const metaResult = await db.execute(sql`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'nomenclature' ORDER BY ordinal_position
     `);
+    const nomCols = (metaResult.rows as { column_name: string }[]).map(r => r.column_name);
+    console.log("[pg-ff] Nomenclature colonnes:", nomCols.join(", "));
 
-    console.log(`[pg-ff] Nomenclature: ${result.rows.length} articles`);
+    const parentCol = nomCols.find(c => /parent/i.test(c) || (c !== "no_id" && /no_id$/i.test(c)));
+
+    let result;
+    if (parentCol) {
+        result = await db.execute(sql`
+            SELECT
+                a.codein,
+                n3.code       AS code3,
+                n3.libelle    AS libelle3,
+                n2.code       AS code2,
+                n2.libelle    AS libelle2,
+                n1.code       AS code1,
+                n1.libelle    AS libelle1nom
+            FROM artfou1 af
+            JOIN articles a      ON a.no_id = af.art_no_id AND af.code = ${codefou}
+            JOIN nomenclature n3 ON n3.no_id = a.nom_no_id
+            LEFT JOIN nomenclature n2 ON n2.no_id = n3.${sql.raw(parentCol)}
+            LEFT JOIN nomenclature n1 ON n1.no_id = n2.${sql.raw(parentCol)}
+            WHERE a.codein IS NOT NULL
+        `);
+    } else {
+        // Sans hiérarchie : juste le niveau feuille
+        result = await db.execute(sql`
+            SELECT
+                a.codein,
+                n3.code       AS code3,
+                n3.libelle    AS libelle3
+            FROM artfou1 af
+            JOIN articles a      ON a.no_id = af.art_no_id AND af.code = ${codefou}
+            JOIN nomenclature n3 ON n3.no_id = a.nom_no_id
+            WHERE a.codein IS NOT NULL
+        `);
+    }
+
+    console.log(`[pg-ff] Nomenclature: ${result.rows.length} articles, parentCol="${parentCol ?? "none"}"`);
+    if (result.rows.length > 0) console.log("[pg-ff] Nomenclature sample:", JSON.stringify(result.rows[0]));
     return buildNomMap(result.rows as unknown as PgNomRow[]);
 }
 
@@ -336,32 +366,15 @@ export async function pgGetRankingByFournisseur(codefou: string): Promise<{
  * 1 requête SQL — remplace getCommandesByFournisseur().
  */
 export async function pgGetCommandesByFournisseur(codefou: string): Promise<Map<string, number>> {
-    // Découvrir la colonne quantité dans cdefou_vivant (qtecde n'existe pas)
-    const metaResult = await db.execute(sql`
-        SELECT column_name FROM information_schema.columns
-        WHERE table_name = 'cdefou_vivant' ORDER BY ordinal_position
-    `);
-    const cvCols = (metaResult.rows as { column_name: string }[]).map(r => r.column_name);
-    console.log("[pg-ff] cdefou_vivant colonnes:", cvCols.join(", "));
-
-    // Cherche la colonne quantité (qte, quantite, qte_cde, qte_commandee...)
-    const qtecol = cvCols.find(c => /^qte/i.test(c) || /^quantit/i.test(c));
-    if (!qtecol) {
-        console.warn("[pg-ff] cdefou_vivant: aucune colonne quantité trouvée →", cvCols.join(", "));
-        return new Map();
-    }
-    console.log(`[pg-ff] cdefou_vivant: utilisation colonne "${qtecol}"`);
-
+    // cdefou_vivant est une vue dénormalisée : articles_codein et cdefou_ligne_qtecde disponibles directement
     const result = await db.execute(sql`
         SELECT
-            a.codein,
-            SUM(cv.${sql.raw(qtecol)})::float AS qtecde
+            cv.articles_codein              AS codein,
+            SUM(cv.cdefou_ligne_qtecde)::float AS qtecde
         FROM cdefou_vivant cv
-        JOIN artfou1 af
-            ON af.no_id = cv.artfou1_no_id AND af.code = ${codefou}
-        JOIN articles a
-            ON a.no_id = af.art_no_id
-        GROUP BY a.codein
+        JOIN artfou1 af ON af.no_id = cv.artfou1_no_id AND af.code = ${codefou}
+        WHERE cv.articles_codein IS NOT NULL
+        GROUP BY cv.articles_codein
     `);
 
     const map = new Map<string, number>();
