@@ -93,12 +93,24 @@ export async function pgGetFournisseurs(search?: string): Promise<{ code: string
  * 1 seule requête SQL — remplace getArticlesByFournisseur() + per-article fetches.
  */
 export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArticle[]> {
-    // Diagnostic une seule fois : colonnes de la table articles
-    const diagResult = await db.execute(sql`
-        SELECT column_name FROM information_schema.columns
-        WHERE table_name = 'articles' ORDER BY ordinal_position LIMIT 30
-    `);
-    console.log("[pg-ff] Colonnes articles:", (diagResult.rows as unknown as { column_name: string }[]).map(r => r.column_name).join(", "));
+    // Diagnostic : colonnes articles + nomenclature pour résoudre les champs manquants
+    const [artCols, nomCols] = await Promise.all([
+        db.execute(sql`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'articles' ORDER BY ordinal_position
+        `),
+        db.execute(sql`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'nomenclature' ORDER BY ordinal_position
+        `),
+    ]);
+    const artColNames = (artCols.rows as unknown as { column_name: string }[]).map(r => r.column_name);
+    console.log("[pg-ff] Colonnes articles:", artColNames.join(", "));
+    console.log("[pg-ff] Colonnes nomenclature:", (nomCols.rows as unknown as { column_name: string }[]).map(r => r.column_name).join(", "));
+
+    // Détecte la colonne FK de articles → nomenclature
+    const nomFkCol = artColNames.find(c => /nom.*no_id|nomno_id|nomenclature.*id|idnomenclature|nom_no_id/i.test(c));
+    console.log("[pg-ff] FK articles→nomenclature détectée:", nomFkCol ?? "non trouvée — libelle3 sera vide");
 
     const result = await db.execute(sql`
         SELECT
@@ -130,7 +142,7 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
     `);
 
     if (result.rows.length > 0) {
-        console.log("[pg-ff] Sample article row keys:", Object.keys(result.rows[0] as object).join(", "));
+        console.log("[pg-ff] Sample article row:", JSON.stringify(result.rows[0]));
     }
 
     return (result.rows as unknown as PgArticle[]).filter(r => r.codein);
@@ -246,7 +258,99 @@ export async function pgGetGammesByFournisseur(codefou: string): Promise<Map<str
 }
 
 // ---------------------------------------------------------------------------
-// 4. Stock temps réel (cube_stock)
+// 4. Nomenclature (famille / sous-famille)
+// ---------------------------------------------------------------------------
+
+export interface PgNomRow {
+    codein: string;
+    code3: string;    // code feuille (ex: "360504")
+    libelle3: string; // libellé feuille
+    code2?: string;   // famille (4 chiffres)
+    libelle2?: string;
+    code1?: string;   // secteur (2 chiffres)
+    libelle1nom?: string;
+}
+
+/**
+ * Retourne la nomenclature (famille/sous-famille) pour chaque article du fournisseur.
+ * Essaie de join articles → nomenclature via les colonnes FK les plus probables.
+ */
+export async function pgGetNomenclatureByFournisseur(codefou: string): Promise<Map<string, PgNomRow>> {
+    // Découvrir les colonnes de nomenclature
+    const nomCols = await db.execute(sql`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'nomenclature' ORDER BY ordinal_position
+    `);
+    const nomColNames = (nomCols.rows as unknown as { column_name: string }[]).map(r => r.column_name);
+    console.log("[pg-ff] Nomenclature colonnes:", nomColNames.join(", "));
+
+    // Essai 1 : articles a un champ nomno_id ou nom_no_id (FK vers nomenclature.no_id)
+    // Essai 2 : articles a un champ nomcode (code texte direct comme "360504")
+    // On tente les deux requêtes et on prend celle qui réussit
+    try {
+        const result = await db.execute(sql`
+            SELECT
+                a.codein,
+                n3.no_id      AS nom3_id,
+                n3.code       AS code3,
+                n3.libelle    AS libelle3,
+                n2.code       AS code2,
+                n2.libelle    AS libelle2,
+                n1.code       AS code1,
+                n1.libelle    AS libelle1nom
+            FROM artfou1 af
+            JOIN articles a   ON a.no_id = af.art_no_id AND af.code = ${codefou}
+            JOIN nomenclature n3 ON n3.no_id = a.nomno_id
+            LEFT JOIN nomenclature n2 ON n2.no_id = n3.parent_no_id
+            LEFT JOIN nomenclature n1 ON n1.no_id = n2.parent_no_id
+            WHERE a.codein IS NOT NULL
+        `);
+        console.log(`[pg-ff] Nomenclature (via nomno_id): ${result.rows.length} articles`);
+        if (result.rows.length > 0) console.log("[pg-ff] Sample nom row:", JSON.stringify(result.rows[0]));
+        return buildNomMap(result.rows as unknown as PgNomRow[]);
+    } catch (e1) {
+        console.log("[pg-ff] Nomenclature essai 1 (nomno_id) échoué:", (e1 as Error).message?.slice(0, 120));
+    }
+
+    // Essai 2 : articles a un champ nomcode (code texte, ex "360504")
+    try {
+        const result = await db.execute(sql`
+            SELECT
+                a.codein,
+                n3.code       AS code3,
+                n3.libelle    AS libelle3,
+                n2.code       AS code2,
+                n2.libelle    AS libelle2,
+                n1.code       AS code1,
+                n1.libelle    AS libelle1nom
+            FROM artfou1 af
+            JOIN articles a   ON a.no_id = af.art_no_id AND af.code = ${codefou}
+            JOIN nomenclature n3 ON n3.code = a.nomcode
+            LEFT JOIN nomenclature n2 ON n2.no_id = n3.parent_no_id
+            LEFT JOIN nomenclature n1 ON n1.no_id = n2.parent_no_id
+            WHERE a.codein IS NOT NULL
+        `);
+        console.log(`[pg-ff] Nomenclature (via nomcode): ${result.rows.length} articles`);
+        if (result.rows.length > 0) console.log("[pg-ff] Sample nom row:", JSON.stringify(result.rows[0]));
+        return buildNomMap(result.rows as unknown as PgNomRow[]);
+    } catch (e2) {
+        console.log("[pg-ff] Nomenclature essai 2 (nomcode) échoué:", (e2 as Error).message?.slice(0, 120));
+    }
+
+    console.warn("[pg-ff] Nomenclature : impossible de résoudre le join articles→nomenclature. Vérifiez les logs.");
+    return new Map();
+}
+
+function buildNomMap(rows: PgNomRow[]): Map<string, PgNomRow> {
+    const map = new Map<string, PgNomRow>();
+    for (const r of rows) {
+        if (r.codein) map.set(r.codein, r);
+    }
+    return map;
+}
+
+// ---------------------------------------------------------------------------
+// 5. Stock temps réel (cube_stock)
 // ---------------------------------------------------------------------------
 
 /**

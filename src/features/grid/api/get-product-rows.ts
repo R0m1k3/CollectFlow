@@ -7,6 +7,7 @@ import {
     pgGetArticlesByFournisseur,
     pgGetMensuelByFournisseur,
     pgGetGammesByFournisseur,
+    pgGetNomenclatureByFournisseur,
     pgGetStockByFournisseur,
     pgGetRankingByFournisseur,
     pgGetCommandesByFournisseur,
@@ -35,6 +36,7 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             articles,
             mensuelRows,
             gammeMap,
+            nomMap,
             stockMap,
             rankingResult,
             commandesMap,
@@ -42,6 +44,7 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             pgGetArticlesByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetArticlesByFournisseur ERROR:", e); return []; }),
             pgGetMensuelByFournisseur(codeFournisseur, dateDebut, dateFin).catch(e => { console.error("[getProductRows] pgGetMensuelByFournisseur ERROR:", e); return []; }),
             pgGetGammesByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetGammesByFournisseur ERROR:", e); return new Map<string, string>(); }),
+            pgGetNomenclatureByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetNomenclatureByFournisseur ERROR:", e); return new Map(); }),
             pgGetStockByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetStockByFournisseur ERROR:", e); return new Map<string, PgStockRow[]>(); }),
             pgGetRankingByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetRankingByFournisseur ERROR:", e); return { rankings: new Map(), totalRankedProducts: 0 }; }),
             pgGetCommandesByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetCommandesByFournisseur ERROR:", e); return new Map<string, number>(); }),
@@ -172,6 +175,18 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             if (!product) continue;
             product.codeGammeInit = gammeCode as GammeCode;
             product.codeGamme     = gammeCode as GammeCode;
+        }
+
+        // ─── Phase 6b : Nomenclature (famille / sous-famille) ────────────────
+        for (const [codein, nom] of nomMap.entries()) {
+            const product = productMap.get(codein);
+            if (!product) continue;
+            product.code3          = nom.code3       ?? "";
+            product.libelle3       = nom.libelle3     ?? "";
+            product.code2          = nom.code2        ?? "";
+            product.libelleNiveau2 = nom.libelle2     ?? "";
+            product.code1          = nom.code1        ?? "";
+            product.libelleNiveau1 = nom.libelle1nom  ?? "";
         }
 
         // ─── Phase 7 : Stock temps réel (cube_stock) ─────────────────────────
