@@ -172,9 +172,9 @@ export async function pgGetMensuelByFournisseur(
             TO_CHAR(m.datmvt, 'YYYY-MM')                                          AS mois,
             -- genremvt=3 : vente → qtemvt négatif, retour → qtemvt positif
             -- qte_vendue nette = SUM(-qtemvt) : ventes moins retours
-            SUM(CASE WHEN m.genremvt = 3 THEN -m.qtemvt   ELSE 0 END)::float AS qte_vendue,
-            SUM(CASE WHEN m.genremvt = 3 THEN  m.mntmvtttc ELSE 0 END)::float AS ca_ht,
-            SUM(CASE WHEN m.genremvt = 3 THEN  m.margemvt  ELSE 0 END)::float AS marge,
+            SUM(CASE WHEN m.genremvt = 3 THEN -m.qtemvt    ELSE 0 END)::float AS qte_vendue,
+            SUM(CASE WHEN m.genremvt = 3 THEN -m.mntmvtttc ELSE 0 END)::float AS ca_ht,
+            SUM(CASE WHEN m.genremvt = 3 THEN -m.margemvt  ELSE 0 END)::float AS marge,
             MAX(m.qtestock)::float                                              AS stock_fin_mois,
             SUM(CASE WHEN m.genremvt IN (1, 2) THEN -m.qtemvt ELSE 0 END)::float AS qte_recue
         FROM mvtart m

@@ -121,12 +121,10 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             p.marge      += Number(row.marge)          || 0;
             p.receptions += Number(row.qte_recue)      || 0;
 
-            // Suivi magasins actifs (pour workingStores)
+            // Suivi magasins actifs (pour workingStores) : 1 vente suffit
             if (Number(row.qte_vendue) > 0) {
                 if (!storeMonthsByCodein.has(row.codein)) storeMonthsByCodein.set(row.codein, new Map());
-                const storeMonths = storeMonthsByCodein.get(row.codein)!;
-                if (!storeMonths.has(row.site)) storeMonths.set(row.site, new Set());
-                storeMonths.get(row.site)!.add(periode);
+                storeMonthsByCodein.get(row.codein)!.set(row.site, new Set()); // on garde juste le site
             }
         }
 
@@ -155,13 +153,10 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
 
             product.tauxMarge = product.totalCa > 0 ? (product.totalMarge / product.totalCa) * 100 : 0;
 
-            // workingStores : sites avec ventes sur ≥ 3 mois distincts
+            // workingStores : sites avec au moins 1 vente sur les 12 derniers mois
             const storeMonths = storeMonthsByCodein.get(codein);
             if (storeMonths) {
-                product.workingStores = [...storeMonths.entries()]
-                    .filter(([, periods]) => periods.size >= 3)
-                    .map(([site]) => site)
-                    .sort();
+                product.workingStores = [...storeMonths.keys()].sort();
             }
 
             // Commandes en cours
