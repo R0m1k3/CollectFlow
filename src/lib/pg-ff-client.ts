@@ -93,25 +93,6 @@ export async function pgGetFournisseurs(search?: string): Promise<{ code: string
  * 1 seule requête SQL — remplace getArticlesByFournisseur() + per-article fetches.
  */
 export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArticle[]> {
-    // Diagnostic : colonnes articles + nomenclature pour résoudre les champs manquants
-    const [artCols, nomCols] = await Promise.all([
-        db.execute(sql`
-            SELECT column_name FROM information_schema.columns
-            WHERE table_name = 'articles' ORDER BY ordinal_position
-        `),
-        db.execute(sql`
-            SELECT column_name FROM information_schema.columns
-            WHERE table_name = 'nomenclature' ORDER BY ordinal_position
-        `),
-    ]);
-    const artColNames = (artCols.rows as unknown as { column_name: string }[]).map(r => r.column_name);
-    console.log("[pg-ff] Colonnes articles:", artColNames.join(", "));
-    console.log("[pg-ff] Colonnes nomenclature:", (nomCols.rows as unknown as { column_name: string }[]).map(r => r.column_name).join(", "));
-
-    // Détecte la colonne FK de articles → nomenclature
-    const nomFkCol = artColNames.find(c => /nom.*no_id|nomno_id|nomenclature.*id|idnomenclature|nom_no_id/i.test(c));
-    console.log("[pg-ff] FK articles→nomenclature détectée:", nomFkCol ?? "non trouvée — libelle3 sera vide");
-
     const result = await db.execute(sql`
         SELECT
             a.no_id,
@@ -140,10 +121,6 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
           AND a.codein IS NOT NULL
         ORDER BY a.codein
     `);
-
-    if (result.rows.length > 0) {
-        console.log("[pg-ff] Sample article row:", JSON.stringify(result.rows[0]));
-    }
 
     return (result.rows as unknown as PgArticle[]).filter(r => r.codein);
 }
@@ -198,60 +175,23 @@ export async function pgGetMensuelByFournisseur(
  * 1 requête SQL — remplace getReferentielByArticles() pour la partie gammes.
  */
 export async function pgGetGammesByFournisseur(codefou: string): Promise<Map<string, string>> {
-    // Diagnostic : log column names of gammes and saisons tables once
-    const diagResult = await db.execute(sql`
-        SELECT table_name, column_name, data_type
-        FROM information_schema.columns
-        WHERE table_name IN ('gammes', 'saisons', 'art_gamme_saison')
-        ORDER BY table_name, ordinal_position
-    `);
-    console.log("[pg-ff] Colonnes gammes/saisons:", JSON.stringify(diagResult.rows));
-
-    // Utilise DISTINCT ON pour obtenir 1 gamme par article (saison la plus récente)
-    // Sans filtrer sur actif (colonne potentiellement absente ou 0/1)
+    // DISTINCT ON (codein) → 1 gamme par article, saison la plus récente en premier
+    // saisons n'a PAS de colonne "actif" → pas de filtre actif
     const result = await db.execute(sql`
         SELECT DISTINCT ON (a.codein)
             a.codein,
-            ags.idgamme,
-            ags.idsaison
+            g.code AS gamme_code
         FROM art_gamme_saison ags
-        JOIN articles a
-            ON a.no_id = ags.artnoid
-        JOIN artfou1 af
-            ON af.art_no_id = a.no_id AND af.code = ${codefou}
-        ORDER BY a.codein, ags.idsaison DESC
+        JOIN articles a  ON a.no_id = ags.artnoid
+        JOIN artfou1 af  ON af.art_no_id = a.no_id AND af.code = ${codefou}
+        JOIN gammes g    ON g.no_id = ags.idgamme
+        JOIN saisons s   ON s.no_id = ags.idsaison
+        ORDER BY a.codein, s.no_id DESC
     `);
 
-    // Log first raw row to see column names of art_gamme_saison
-    if (result.rows.length > 0) {
-        console.log("[pg-ff] Sample art_gamme_saison row:", JSON.stringify(result.rows[0]));
-    }
-
-    // Now fetch gamme codes for the found idgamme values
-    const idgammes = [...new Set((result.rows as unknown as { idgamme: number }[]).map(r => r.idgamme))];
-    if (idgammes.length === 0) return new Map();
-
-    const gammesResult = await db.execute(sql`
-        SELECT no_id, * FROM gammes WHERE no_id = ANY(${idgammes})
-    `);
-    console.log("[pg-ff] Sample gammes row:", JSON.stringify(gammesResult.rows[0]));
-
-    // Build gamme lookup: idgamme → code (try common column names)
-    const gammeById = new Map<number, string>();
-    for (const g of gammesResult.rows as unknown as Record<string, unknown>[]) {
-        const id = Number(g.no_id);
-        // Try common column names for the gamme code (A/B/C/Y/Z)
-        const code = (g.code ?? g.codegam ?? g.gamme_code ?? g.libelle ?? g.lib ?? "") as string;
-        if (id && code) gammeById.set(id, String(code).trim());
-    }
-
-    // Build codein → gamme_code map
     const map = new Map<string, string>();
-    for (const row of result.rows as unknown as { codein: string; idgamme: number }[]) {
-        const gammeCode = gammeById.get(Number(row.idgamme));
-        if (row.codein && gammeCode) {
-            map.set(row.codein, gammeCode);
-        }
+    for (const row of result.rows as unknown as { codein: string; gamme_code: string }[]) {
+        if (row.codein && row.gamme_code) map.set(row.codein, String(row.gamme_code).trim());
     }
     console.log(`[pg-ff] Gammes: ${map.size} articles avec gamme`);
     return map;
@@ -273,72 +213,29 @@ export interface PgNomRow {
 
 /**
  * Retourne la nomenclature (famille/sous-famille) pour chaque article du fournisseur.
- * Essaie de join articles → nomenclature via les colonnes FK les plus probables.
+ * FK confirmée : articles.nom_no_id → nomenclature.no_id
+ * Colonnes confirmées : nomenclature.code, nomenclature.libelle, nomenclature.parent_no_id
  */
 export async function pgGetNomenclatureByFournisseur(codefou: string): Promise<Map<string, PgNomRow>> {
-    // Découvrir les colonnes de nomenclature
-    const nomCols = await db.execute(sql`
-        SELECT column_name FROM information_schema.columns
-        WHERE table_name = 'nomenclature' ORDER BY ordinal_position
+    const result = await db.execute(sql`
+        SELECT
+            a.codein,
+            n3.code       AS code3,
+            n3.libelle    AS libelle3,
+            n2.code       AS code2,
+            n2.libelle    AS libelle2,
+            n1.code       AS code1,
+            n1.libelle    AS libelle1nom
+        FROM artfou1 af
+        JOIN articles a      ON a.no_id = af.art_no_id AND af.code = ${codefou}
+        JOIN nomenclature n3 ON n3.no_id = a.nom_no_id
+        LEFT JOIN nomenclature n2 ON n2.no_id = n3.parent_no_id
+        LEFT JOIN nomenclature n1 ON n1.no_id = n2.parent_no_id
+        WHERE a.codein IS NOT NULL
     `);
-    const nomColNames = (nomCols.rows as unknown as { column_name: string }[]).map(r => r.column_name);
-    console.log("[pg-ff] Nomenclature colonnes:", nomColNames.join(", "));
 
-    // Essai 1 : articles a un champ nomno_id ou nom_no_id (FK vers nomenclature.no_id)
-    // Essai 2 : articles a un champ nomcode (code texte direct comme "360504")
-    // On tente les deux requêtes et on prend celle qui réussit
-    try {
-        const result = await db.execute(sql`
-            SELECT
-                a.codein,
-                n3.no_id      AS nom3_id,
-                n3.code       AS code3,
-                n3.libelle    AS libelle3,
-                n2.code       AS code2,
-                n2.libelle    AS libelle2,
-                n1.code       AS code1,
-                n1.libelle    AS libelle1nom
-            FROM artfou1 af
-            JOIN articles a   ON a.no_id = af.art_no_id AND af.code = ${codefou}
-            JOIN nomenclature n3 ON n3.no_id = a.nomno_id
-            LEFT JOIN nomenclature n2 ON n2.no_id = n3.parent_no_id
-            LEFT JOIN nomenclature n1 ON n1.no_id = n2.parent_no_id
-            WHERE a.codein IS NOT NULL
-        `);
-        console.log(`[pg-ff] Nomenclature (via nomno_id): ${result.rows.length} articles`);
-        if (result.rows.length > 0) console.log("[pg-ff] Sample nom row:", JSON.stringify(result.rows[0]));
-        return buildNomMap(result.rows as unknown as PgNomRow[]);
-    } catch (e1) {
-        console.log("[pg-ff] Nomenclature essai 1 (nomno_id) échoué:", (e1 as Error).message?.slice(0, 120));
-    }
-
-    // Essai 2 : articles a un champ nomcode (code texte, ex "360504")
-    try {
-        const result = await db.execute(sql`
-            SELECT
-                a.codein,
-                n3.code       AS code3,
-                n3.libelle    AS libelle3,
-                n2.code       AS code2,
-                n2.libelle    AS libelle2,
-                n1.code       AS code1,
-                n1.libelle    AS libelle1nom
-            FROM artfou1 af
-            JOIN articles a   ON a.no_id = af.art_no_id AND af.code = ${codefou}
-            JOIN nomenclature n3 ON n3.code = a.nomcode
-            LEFT JOIN nomenclature n2 ON n2.no_id = n3.parent_no_id
-            LEFT JOIN nomenclature n1 ON n1.no_id = n2.parent_no_id
-            WHERE a.codein IS NOT NULL
-        `);
-        console.log(`[pg-ff] Nomenclature (via nomcode): ${result.rows.length} articles`);
-        if (result.rows.length > 0) console.log("[pg-ff] Sample nom row:", JSON.stringify(result.rows[0]));
-        return buildNomMap(result.rows as unknown as PgNomRow[]);
-    } catch (e2) {
-        console.log("[pg-ff] Nomenclature essai 2 (nomcode) échoué:", (e2 as Error).message?.slice(0, 120));
-    }
-
-    console.warn("[pg-ff] Nomenclature : impossible de résoudre le join articles→nomenclature. Vérifiez les logs.");
-    return new Map();
+    console.log(`[pg-ff] Nomenclature: ${result.rows.length} articles`);
+    return buildNomMap(result.rows as unknown as PgNomRow[]);
 }
 
 function buildNomMap(rows: PgNomRow[]): Map<string, PgNomRow> {
@@ -439,10 +336,26 @@ export async function pgGetRankingByFournisseur(codefou: string): Promise<{
  * 1 requête SQL — remplace getCommandesByFournisseur().
  */
 export async function pgGetCommandesByFournisseur(codefou: string): Promise<Map<string, number>> {
+    // Découvrir la colonne quantité dans cdefou_vivant (qtecde n'existe pas)
+    const metaResult = await db.execute(sql`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'cdefou_vivant' ORDER BY ordinal_position
+    `);
+    const cvCols = (metaResult.rows as { column_name: string }[]).map(r => r.column_name);
+    console.log("[pg-ff] cdefou_vivant colonnes:", cvCols.join(", "));
+
+    // Cherche la colonne quantité (qte, quantite, qte_cde, qte_commandee...)
+    const qtecol = cvCols.find(c => /^qte/i.test(c) || /^quantit/i.test(c));
+    if (!qtecol) {
+        console.warn("[pg-ff] cdefou_vivant: aucune colonne quantité trouvée →", cvCols.join(", "));
+        return new Map();
+    }
+    console.log(`[pg-ff] cdefou_vivant: utilisation colonne "${qtecol}"`);
+
     const result = await db.execute(sql`
         SELECT
             a.codein,
-            SUM(cv.qtecde)::float AS qtecde
+            SUM(cv.${sql.raw(qtecol)})::float AS qtecde
         FROM cdefou_vivant cv
         JOIN artfou1 af
             ON af.no_id = cv.artfou1_no_id AND af.code = ${codefou}
