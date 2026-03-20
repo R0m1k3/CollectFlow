@@ -71,21 +71,40 @@ export interface PgRankingRow {
  * 1 requête SQL — remplace getFournisseursFromApi().
  */
 export async function pgGetFournisseurs(search?: string): Promise<{ code: string; nom: string }[]> {
-    const result = await db.execute(sql`
-        SELECT
-            fi.code,
-            fi.nom
-        FROM fouident fi
-        WHERE fi.actif = true
-          AND fi.suspendu = false
-          AND fi.code IS NOT NULL
-          AND fi.nom IS NOT NULL
-          ${search ? sql`AND (fi.nom ILIKE ${'%' + search + '%'} OR fi.code ILIKE ${'%' + search + '%'})` : sql``}
-        ORDER BY fi.nom
-    `);
-
-    return (result.rows as unknown as { code: string; nom: string }[])
-        .filter(r => r.code && r.nom);
+    try {
+        const result = await db.execute(sql`
+            SELECT
+                fi.code,
+                fi.nom
+            FROM fouident fi
+            WHERE fi.actif = true
+              AND fi.suspendu = false
+              AND fi.code IS NOT NULL
+              AND fi.nom IS NOT NULL
+              ${search ? sql`AND (fi.nom ILIKE ${'%' + search + '%'} OR fi.code ILIKE ${'%' + search + '%'})` : sql``}
+            ORDER BY fi.nom
+        `);
+        return (result.rows as unknown as { code: string; nom: string }[]).filter(r => r.code && r.nom);
+    } catch (e) {
+        console.error("[pg-ff] pgGetFournisseurs error:", e);
+        // Fallback : fouident inaccessible → fouadr1 avec artfou1
+        try {
+            const fallback = await db.execute(sql`
+                SELECT DISTINCT fa.code, fa.raisonsociale AS nom
+                FROM fouadr1 fa
+                INNER JOIN artfou1 af ON af.code = fa.code
+                WHERE fa.sit_code = '000'
+                  AND fa.raisonsociale IS NOT NULL
+                  AND fa.raisonsociale !~ '^\s*\d'
+                  ${search ? sql`AND (fa.raisonsociale ILIKE ${'%' + search + '%'} OR fa.code ILIKE ${'%' + search + '%'})` : sql``}
+                ORDER BY fa.raisonsociale
+            `);
+            return (fallback.rows as unknown as { code: string; nom: string }[]).filter(r => r.code && r.nom);
+        } catch (e2) {
+            console.error("[pg-ff] pgGetFournisseurs fallback error:", e2);
+            return [];
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -117,13 +136,17 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
         FROM artfou1 af
         JOIN articles a
             ON a.no_id = af.art_no_id
-        -- Seulement articles avec gamme OU avec ventes récentes
+        -- Seulement articles avec gamme OU avec ventes récentes (scoped au fournisseur)
         JOIN (
-            SELECT artnoid FROM art_gamme_saison
+            SELECT DISTINCT ags.artnoid
+            FROM art_gamme_saison ags
+            JOIN artfou1 af2 ON af2.art_no_id = ags.artnoid AND af2.code = ${codefou}
             UNION
-            SELECT artnoid FROM mvtart
-            WHERE genremvt = 3
-              AND datmvt >= CURRENT_DATE - INTERVAL '12 months'
+            SELECT DISTINCT m.artnoid
+            FROM mvtart m
+            JOIN artfou1 af2 ON af2.art_no_id = m.artnoid AND af2.code = ${codefou}
+            WHERE m.genremvt = 3
+              AND m.datmvt >= CURRENT_DATE - INTERVAL '12 months'
         ) actif ON actif.artnoid = a.no_id
         LEFT JOIN fouadr1 fa
             ON fa.code = af.code AND fa.sit_code = '000'
