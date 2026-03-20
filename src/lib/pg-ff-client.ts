@@ -10,6 +10,9 @@
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 
+// Cache module-level pour éviter les requêtes information_schema répétées
+let _nomenclatureParentCol: string | null | undefined = undefined; // undefined = pas encore chargé
+
 // ---------------------------------------------------------------------------
 // Types résultats SQL
 // ---------------------------------------------------------------------------
@@ -68,11 +71,13 @@ export interface PgRankingRow {
  * 1 requête SQL — remplace getFournisseursFromApi().
  */
 export async function pgGetFournisseurs(search?: string): Promise<{ code: string; nom: string }[]> {
+    // Jointure avec artfou1 pour ne retourner QUE les fournisseurs ayant des articles
     const result = await db.execute(sql`
         SELECT DISTINCT
             fa.code,
             fa.raisonsociale AS nom
         FROM fouadr1 fa
+        INNER JOIN artfou1 af ON af.code = fa.code
         WHERE fa.sit_code = '000'
           AND fa.raisonsociale IS NOT NULL
           AND fa.code IS NOT NULL
@@ -93,6 +98,10 @@ export async function pgGetFournisseurs(search?: string): Promise<{ code: string
  * 1 seule requête SQL — remplace getArticlesByFournisseur() + per-article fetches.
  */
 export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArticle[]> {
+    // Filtrage sur les articles "actifs" uniquement :
+    //   - avec gamme affectée (art_gamme_saison) → à gérer même sans ventes
+    //   - OU avec au moins 1 vente sur les 12 derniers mois (mvtart genremvt=3)
+    // Cela évite d'envoyer 50 000 lignes vides pour les gros fournisseurs → page blanche
     const result = await db.execute(sql`
         SELECT
             a.no_id,
@@ -109,6 +118,14 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
         FROM artfou1 af
         JOIN articles a
             ON a.no_id = af.art_no_id
+        -- Seulement articles avec gamme OU avec ventes récentes
+        JOIN (
+            SELECT artnoid FROM art_gamme_saison
+            UNION
+            SELECT artnoid FROM mvtart
+            WHERE genremvt = 3
+              AND datmvt >= CURRENT_DATE - INTERVAL '12 months'
+        ) actif ON actif.artnoid = a.no_id
         LEFT JOIN fouadr1 fa
             ON fa.code = af.code AND fa.sit_code = '000'
         LEFT JOIN article_infosup ai
@@ -122,6 +139,7 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
         ORDER BY a.codein
     `);
 
+    console.log(`[pg-ff] Articles actifs: ${result.rows.length} pour ${codefou}`);
     return (result.rows as unknown as PgArticle[]).filter(r => r.codein);
 }
 
@@ -221,15 +239,18 @@ export interface PgNomRow {
  * Colonne parent : découverte dynamiquement via information_schema
  */
 export async function pgGetNomenclatureByFournisseur(codefou: string): Promise<Map<string, PgNomRow>> {
-    // Découvrir la colonne parent dans nomenclature (parent_no_id, nom_no_id, idparent...)
-    const metaResult = await db.execute(sql`
-        SELECT column_name FROM information_schema.columns
-        WHERE table_name = 'nomenclature' ORDER BY ordinal_position
-    `);
-    const nomCols = (metaResult.rows as { column_name: string }[]).map(r => r.column_name);
-    console.log("[pg-ff] Nomenclature colonnes:", nomCols.join(", "));
-
-    const parentCol = nomCols.find(c => /parent/i.test(c) || (c !== "no_id" && /no_id$/i.test(c)));
+    // Découverte de la colonne parent : mise en cache module-level (1 seule fois par process)
+    if (_nomenclatureParentCol === undefined) {
+        const metaResult = await db.execute(sql`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'nomenclature' ORDER BY ordinal_position
+        `);
+        const nomCols = (metaResult.rows as { column_name: string }[]).map(r => r.column_name);
+        console.log("[pg-ff] Nomenclature colonnes:", nomCols.join(", "));
+        _nomenclatureParentCol = nomCols.find(c => /parent/i.test(c) || (c !== "no_id" && /no_id$/i.test(c))) ?? null;
+        console.log("[pg-ff] Nomenclature parentCol:", _nomenclatureParentCol);
+    }
+    const parentCol = _nomenclatureParentCol;
 
     let result;
     if (parentCol) {
@@ -323,7 +344,8 @@ export async function pgGetRankingByFournisseur(codefou: string): Promise<{
     rankings: Map<string, PgRankingRow>;
     totalRankedProducts: number;
 }> {
-    const [rankResult, totalResult] = await Promise.all([
+    // D'abord, découvrir quels sites existent dans la table ranking (réseau vs magasin)
+    const [rankResult, totalResult, sitesSample] = await Promise.all([
         db.execute(sql`
             SELECT DISTINCT ON (a.codein)
                 a.codein,
@@ -339,20 +361,46 @@ export async function pgGetRankingByFournisseur(codefou: string): Promise<{
                 ON a.no_id = ag.idarticle
             JOIN artfou1 af
                 ON af.art_no_id = a.no_id AND af.code = ${codefou}
-            ORDER BY a.codein, r.site
+            -- Priorité : site réseau (000, ALL, TOTAL) avant sites magasins
+            ORDER BY a.codein,
+                CASE
+                    WHEN r.site IN ('000', 'ALL', 'TOTAL', 'NET', 'RES') THEN 0
+                    ELSE 1
+                END,
+                r.site
         `),
         db.execute(sql`
             SELECT COUNT(DISTINCT gencod)::int AS total FROM ranking
         `),
+        db.execute(sql`
+            SELECT DISTINCT site FROM ranking ORDER BY site LIMIT 10
+        `),
     ]);
+
+    // Log sites disponibles pour diagnostic ranking
+    const sitesDispos = (sitesSample.rows as { site: string }[]).map(r => r.site);
+    console.log(`[pg-ff] Ranking sites disponibles:`, sitesDispos.join(", "));
 
     const rankings = new Map<string, PgRankingRow>();
     for (const row of rankResult.rows as unknown as PgRankingRow[]) {
         if (row.codein) rankings.set(row.codein, row);
     }
 
+    // Log doublons de rank pour diagnostic
+    const rankCount = new Map<number, number>();
+    for (const r of rankings.values()) {
+        if (r.ranking_ca) {
+            const v = Number(r.ranking_ca);
+            rankCount.set(v, (rankCount.get(v) ?? 0) + 1);
+        }
+    }
+    const dupes = [...rankCount.entries()].filter(([, c]) => c > 1).slice(0, 5);
+    if (dupes.length > 0) {
+        console.log(`[pg-ff] Ranking doublons détectés (rank → nb articles):`, dupes.map(([r, c]) => `rank${r}×${c}`).join(", "));
+    }
+
     const totalRankedProducts = Number((totalResult.rows[0] as unknown as { total: number })?.total ?? 0);
-    console.log(`[pg-ff] Ranking: ${rankings.size}/${codefou} articles classés (réseau: ${totalRankedProducts})`);
+    console.log(`[pg-ff] Ranking: ${rankings.size} articles classés, réseau total: ${totalRankedProducts}`);
 
     return { rankings, totalRankedProducts };
 }
