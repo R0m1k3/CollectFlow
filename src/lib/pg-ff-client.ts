@@ -8,10 +8,26 @@
  */
 
 import { db } from "@/db";
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 
 // Cache module-level pour éviter les requêtes information_schema répétées
 let _nomenclatureParentCol: string | null | undefined = undefined; // undefined = pas encore chargé
+
+// ---------------------------------------------------------------------------
+// Utilitaire : exécuter une requête sans workers parallèles PostgreSQL.
+// Les workers parallèles consomment /dev/shm (mémoire partagée Docker) et font
+// échouer les requêtes si le conteneur a un shm_size insuffisant.
+// SET LOCAL s'applique uniquement à la transaction courante.
+// ---------------------------------------------------------------------------
+async function pgNoParallel(query: SQL): Promise<{ rows: unknown[] }> {
+    let rows: unknown[] = [];
+    await db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL max_parallel_workers_per_gather = 0`);
+        const r = await tx.execute(query);
+        rows = r.rows;
+    });
+    return { rows };
+}
 
 // ---------------------------------------------------------------------------
 // Types résultats SQL
@@ -120,7 +136,7 @@ export async function pgGetFournisseurs(search?: string): Promise<{ code: string
 export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArticle[]> {
     // Requête principale : articles avec gamme OU ventes récentes (filtre "actifs")
     // DISTINCT ON (a.no_id) car artfou1 peut avoir plusieurs lignes par article/fournisseur
-    const runFiltered = () => db.execute(sql`
+    const runFiltered = () => pgNoParallel(sql`
         SELECT DISTINCT ON (a.no_id)
             a.no_id,
             a.codein,
@@ -157,7 +173,7 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
     `);
 
     // Fallback sans filtre "actif" (tous les articles du fournisseur)
-    const runAll = () => db.execute(sql`
+    const runAll = () => pgNoParallel(sql`
         SELECT DISTINCT ON (a.no_id)
             a.no_id,
             a.codein,
@@ -213,22 +229,18 @@ export async function pgGetMensuelByFournisseur(
     // IMPORTANT : utiliser DISTINCT sur artfou1 pour éviter les doublons de mouvements.
     // Un article peut avoir plusieurs lignes artfou1 pour le même fournisseur (pcb/ref différents),
     // ce qui multiplierait chaque mouvement et gonflerait les totaux.
-    const result = await db.execute(sql`
+    const result = await pgNoParallel(sql`
         SELECT
             a.codein,
             m.site,
             TO_CHAR(m.datmvt, 'YYYY-MM')                                          AS mois,
-            -- genremvt=3 : vente → qtemvt négatif, retour → qtemvt positif
-            -- qte_vendue nette = SUM(-qtemvt) : ventes moins retours
             SUM(CASE WHEN m.genremvt = 3 THEN -m.qtemvt    ELSE 0 END)::float AS qte_vendue,
             SUM(CASE WHEN m.genremvt = 3 THEN -m.mntmvtttc ELSE 0 END)::float AS ca_ht,
-            -- margemvt est positif pour les ventes (pas de négation)
             SUM(CASE WHEN m.genremvt = 3 THEN  m.margemvt  ELSE 0 END)::float AS marge,
             MAX(m.qtestock)::float                                              AS stock_fin_mois,
             SUM(CASE WHEN m.genremvt IN (1, 2) THEN -m.qtemvt ELSE 0 END)::float AS qte_recue
         FROM mvtart m
         JOIN articles a ON a.no_id = m.artnoid
-        -- Sous-requête dédupliquée : 1 seule ligne par article/fournisseur
         JOIN (SELECT DISTINCT art_no_id FROM artfou1 WHERE code = ${codefou}) af
             ON af.art_no_id = a.no_id
         WHERE m.datmvt BETWEEN ${dateDebut}::date AND ${dateFin}::date
@@ -251,7 +263,7 @@ export async function pgGetMensuelByFournisseur(
 export async function pgGetGammesByFournisseur(codefou: string): Promise<Map<string, string>> {
     // DISTINCT ON (codein) → 1 gamme par article, saison la plus récente en premier
     // saisons n'a PAS de colonne "actif" → pas de filtre actif
-    const result = await db.execute(sql`
+    const result = await pgNoParallel(sql`
         SELECT DISTINCT ON (a.codein)
             a.codein,
             g.code AS gamme_code
@@ -310,7 +322,7 @@ export async function pgGetNomenclatureByFournisseur(codefou: string): Promise<M
 
     let result;
     if (parentCol) {
-        result = await db.execute(sql`
+        result = await pgNoParallel(sql`
             SELECT
                 a.codein,
                 n3.code       AS code3,
@@ -328,7 +340,7 @@ export async function pgGetNomenclatureByFournisseur(codefou: string): Promise<M
         `);
     } else {
         // Sans hiérarchie : juste le niveau feuille
-        result = await db.execute(sql`
+        result = await pgNoParallel(sql`
             SELECT
                 a.codein,
                 n3.code       AS code3,
@@ -362,7 +374,7 @@ function buildNomMap(rows: PgNomRow[]): Map<string, PgNomRow> {
  * 1 requête SQL — remplace la partie stock du référentiel.
  */
 export async function pgGetStockByFournisseur(codefou: string): Promise<Map<string, PgStockRow[]>> {
-    const result = await db.execute(sql`
+    const result = await pgNoParallel(sql`
         SELECT
             a.codein,
             cs.site,
@@ -401,7 +413,7 @@ export async function pgGetRankingByFournisseur(codefou: string): Promise<{
 }> {
     // D'abord, découvrir quels sites existent dans la table ranking (réseau vs magasin)
     const [rankResult, totalResult, sitesSample] = await Promise.all([
-        db.execute(sql`
+        pgNoParallel(sql`
             SELECT DISTINCT ON (a.codein)
                 a.codein,
                 r.site,
@@ -416,7 +428,6 @@ export async function pgGetRankingByFournisseur(codefou: string): Promise<{
                 ON a.no_id = ag.idarticle
             JOIN artfou1 af
                 ON af.art_no_id = a.no_id AND af.code = ${codefou}
-            -- Priorité : site réseau (000, ALL, TOTAL) avant sites magasins
             ORDER BY a.codein,
                 CASE
                     WHEN r.site IN ('000', 'ALL', 'TOTAL', 'NET', 'RES') THEN 0
@@ -424,10 +435,10 @@ export async function pgGetRankingByFournisseur(codefou: string): Promise<{
                 END,
                 r.site
         `),
-        db.execute(sql`
+        pgNoParallel(sql`
             SELECT COUNT(DISTINCT gencod)::int AS total FROM ranking
         `),
-        db.execute(sql`
+        pgNoParallel(sql`
             SELECT DISTINCT site FROM ranking ORDER BY site LIMIT 10
         `),
     ]);
@@ -470,7 +481,7 @@ export async function pgGetRankingByFournisseur(codefou: string): Promise<{
  */
 export async function pgGetCommandesByFournisseur(codefou: string): Promise<Map<string, number>> {
     // cdefou_vivant est une vue dénormalisée : articles_codein et cdefou_ligne_qtecde disponibles directement
-    const result = await db.execute(sql`
+    const result = await pgNoParallel(sql`
         SELECT
             cv.articles_codein              AS codein,
             SUM(cv.cdefou_ligne_qtecde)::float AS qtecde
