@@ -134,46 +134,11 @@ export async function pgGetFournisseurs(search?: string): Promise<{ code: string
  * 1 seule requête SQL — remplace getArticlesByFournisseur() + per-article fetches.
  */
 export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArticle[]> {
-    // Requête principale : articles avec gamme OU ventes récentes (filtre "actifs")
-    // DISTINCT ON (a.no_id) car artfou1 peut avoir plusieurs lignes par article/fournisseur
-    const runFiltered = () => pgNoParallel(sql`
-        SELECT DISTINCT ON (a.no_id)
-            a.no_id,
-            a.codein,
-            af.code                     AS codefou,
-            fa.raisonsociale            AS nomfou,
-            a.libelle1,
-            af.pcb,
-            af.reference,
-            af.ean13,
-            COALESCE(ag.gtin, af.ean13) AS gtin,
-            ai.prix_vente_mini          AS pv_central,
-            pa.pa
-        FROM artfou1 af
-        JOIN articles a ON a.no_id = af.art_no_id
-        -- Seulement articles avec gamme OU avec ventes récentes (scoped au fournisseur)
-        JOIN (
-            SELECT DISTINCT ags.artnoid
-            FROM art_gamme_saison ags
-            JOIN artfou1 af2 ON af2.art_no_id = ags.artnoid AND af2.code = ${codefou}
-            UNION
-            SELECT DISTINCT m.artnoid
-            FROM mvtart m
-            JOIN artfou1 af2 ON af2.art_no_id = m.artnoid AND af2.code = ${codefou}
-            WHERE m.genremvt = 3
-              AND m.datmvt >= CURRENT_DATE - INTERVAL '12 months'
-        ) actif ON actif.artnoid = a.no_id
-        LEFT JOIN fouadr1 fa ON fa.code = af.code AND fa.sit_code = '000'
-        LEFT JOIN article_infosup ai ON ai.artnoid = a.no_id
-        LEFT JOIN cube_pa pa ON pa.artnoid = a.no_id
-        LEFT JOIN art_gtin ag ON ag.idarticle = a.no_id AND ag.preferentiel = 1
-        WHERE af.code = ${codefou}
-          AND a.codein IS NOT NULL
-        ORDER BY a.no_id, af.no_id
-    `);
-
-    // Fallback sans filtre "actif" (tous les articles du fournisseur)
-    const runAll = () => pgNoParallel(sql`
+    // DISTINCT ON (a.no_id) car artfou1 peut avoir plusieurs lignes par article/fournisseur.
+    // Pas de filtre "actif" : on retourne tous les articles pour ne pas exclure les articles
+    // d'une session précédente (snapshot) qui n'ont pas de gamme DB ni de ventes récentes.
+    // Le filtrage gamme-Y sans ventes est fait en aval dans getProductRows (Phase 10).
+    const result = await pgNoParallel(sql`
         SELECT DISTINCT ON (a.no_id)
             a.no_id,
             a.codein,
@@ -197,16 +162,8 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
         ORDER BY a.no_id, af.no_id
     `);
 
-    try {
-        const result = await runFiltered();
-        console.log(`[pg-ff] Articles actifs (filtrés): ${result.rows.length} pour ${codefou}`);
-        return (result.rows as unknown as PgArticle[]).filter(r => r.codein);
-    } catch (e) {
-        console.error("[pg-ff] Articles filtrés échoué, fallback tous articles:", (e as Error).message?.slice(0, 300));
-        const result = await runAll();
-        console.log(`[pg-ff] Articles fallback (tous): ${result.rows.length} pour ${codefou}`);
-        return (result.rows as unknown as PgArticle[]).filter(r => r.codein);
-    }
+    console.log(`[pg-ff] Articles: ${result.rows.length} pour ${codefou}`);
+    return (result.rows as unknown as PgArticle[]).filter(r => r.codein);
 }
 
 // ---------------------------------------------------------------------------
