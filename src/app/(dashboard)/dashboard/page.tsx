@@ -1,5 +1,5 @@
 import { pgGetDashboardData, type DashboardTopItem, type DashboardSiteStats, type DashboardMonthStats } from "@/lib/pg-ff-client";
-import { TrendingUp, TrendingDown, Minus, Store, ShoppingCart, Euro, Percent } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, Store, ShoppingCart, Euro, Percent, Users } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -80,8 +80,8 @@ function KpiCard({ label, value, sub, delta: d, icon: Icon }: {
 function SiteCard({ site }: { site: DashboardSiteStats }) {
     const name = SITE_NAMES[site.site] ?? site.site;
     const txMarge = site.ca_hier > 0 ? (site.marge_hier / site.ca_hier) * 100 : 0;
-    const dCa = delta(site.ca_hier, site.ca_d7);
-    const dQte = delta(site.qte_hier, site.qte_d7);
+    const dCa = delta(site.ca_hier, site.ca_n1);
+    const dTickets = delta(site.tickets_hier, site.tickets_n1);
 
     return (
         <div className="rounded-xl p-5 flex flex-col gap-4" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
@@ -94,12 +94,18 @@ function SiteCard({ site }: { site: DashboardSiteStats }) {
                 <div>
                     <div className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>CA</div>
                     <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>{fmtEur(site.ca_hier)}</div>
-                    <DeltaBadge pct={dCa} />
+                    <div className="flex items-center gap-1.5">
+                        <DeltaBadge pct={dCa} />
+                        {site.ca_n1 > 0 && <span className="text-xs" style={{ color: "var(--text-muted)" }}>N-1 {fmtEur(site.ca_n1)}</span>}
+                    </div>
                 </div>
                 <div>
-                    <div className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Quantité</div>
-                    <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>{fmtQte(site.qte_hier)}</div>
-                    <DeltaBadge pct={dQte} />
+                    <div className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Trafic (tickets)</div>
+                    <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>{fmtQte(site.tickets_hier)}</div>
+                    <div className="flex items-center gap-1.5">
+                        <DeltaBadge pct={dTickets} />
+                        {site.tickets_n1 > 0 && <span className="text-xs" style={{ color: "var(--text-muted)" }}>N-1 {fmtQte(site.tickets_n1)}</span>}
+                    </div>
                 </div>
                 <div>
                     <div className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Marge</div>
@@ -113,7 +119,7 @@ function SiteCard({ site }: { site: DashboardSiteStats }) {
                 </div>
             </div>
             <div className="text-xs pt-2" style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border)" }}>
-                {fmtQte(site.lignes_hier)} lignes vendues
+                {fmtQte(site.qte_hier)} articles · {fmtQte(site.lignes_hier)} lignes
             </div>
         </div>
     );
@@ -307,14 +313,13 @@ export default async function DashboardPage() {
 
     // Totaux réseau
     const totalCa = sites.reduce((s, r) => s + r.ca_hier, 0);
+    const totalCaN1 = sites.reduce((s, r) => s + r.ca_n1, 0);
+    const totalTickets = sites.reduce((s, r) => s + r.tickets_hier, 0);
+    const totalTicketsN1 = sites.reduce((s, r) => s + r.tickets_n1, 0);
     const totalQte = sites.reduce((s, r) => s + r.qte_hier, 0);
     const totalMarge = sites.reduce((s, r) => s + r.marge_hier, 0);
     const txMarge = totalCa > 0 ? (totalMarge / totalCa) * 100 : 0;
     const totalLignes = sites.reduce((s, r) => s + r.lignes_hier, 0);
-    const totalCaD7 = sites.reduce((s, r) => s + r.ca_d7, 0);
-    const totalQteD7 = sites.reduce((s, r) => s + r.qte_d7, 0);
-    const totalMargeD7 = sites.reduce((s, r) => s + r.marge_d7, 0);
-    const txMargeD7 = totalCaD7 > 0 ? (totalMargeD7 / totalCaD7) * 100 : 0;
 
     return (
         <div className="flex flex-col gap-6 p-6 pb-12 max-w-screen-2xl mx-auto">
@@ -325,7 +330,7 @@ export default async function DashboardPage() {
                 </h1>
                 <p className="text-sm mt-0.5" style={{ color: "var(--text-muted)" }}>
                     Données du <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>{dateLabel(dateHier)}</span>
-                    {" "}· Comparaison vs semaine précédente (J-7)
+                    {" "}· Comparaison vs même date N-1
                 </p>
             </div>
 
@@ -334,29 +339,26 @@ export default async function DashboardPage() {
                 <KpiCard
                     label="CA Réseau"
                     value={fmtEur(totalCa)}
-                    delta={delta(totalCa, totalCaD7)}
-                    sub={`J-7 : ${fmtEur(totalCaD7)}`}
+                    delta={delta(totalCa, totalCaN1)}
+                    sub={`N-1 : ${fmtEur(totalCaN1)}`}
                     icon={Euro}
                 />
                 <KpiCard
-                    label="Quantité vendue"
-                    value={fmtQte(totalQte)}
-                    delta={delta(totalQte, totalQteD7)}
-                    sub={`J-7 : ${fmtQte(totalQteD7)}`}
-                    icon={ShoppingCart}
+                    label="Trafic (tickets)"
+                    value={fmtQte(totalTickets)}
+                    delta={delta(totalTickets, totalTicketsN1)}
+                    sub={`N-1 : ${fmtQte(totalTicketsN1)}`}
+                    icon={Users}
                 />
                 <KpiCard
                     label="Marge Brute"
                     value={fmtEur(totalMarge)}
-                    delta={delta(totalMarge, totalMargeD7)}
-                    sub={`J-7 : ${fmtEur(totalMargeD7)}`}
+                    sub={`${fmtQte(totalQte)} articles · ${fmtQte(totalLignes)} lignes`}
                     icon={TrendingUp}
                 />
                 <KpiCard
                     label="Taux de Marge"
                     value={fmtPct(txMarge, false)}
-                    delta={txMarge - txMargeD7}
-                    sub={`J-7 : ${fmtPct(txMargeD7, false)} · ${fmtQte(totalLignes)} lignes`}
                     icon={Percent}
                 />
             </div>

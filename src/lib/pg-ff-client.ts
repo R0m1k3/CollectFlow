@@ -469,12 +469,12 @@ export async function pgGetCommandesByFournisseur(codefou: string): Promise<Map<
 export interface DashboardSiteStats {
     site: string;
     ca_hier: number;
+    ca_n1: number;          // même date N-1 (statopcajour)
+    tickets_hier: number;   // nb tickets hier (statopcajour)
+    tickets_n1: number;     // nb tickets même date N-1 (statopcajour)
     qte_hier: number;
     marge_hier: number;
     lignes_hier: number;
-    ca_d7: number;
-    qte_d7: number;
-    marge_d7: number;
 }
 
 export interface DashboardTopItem {
@@ -503,34 +503,52 @@ export interface DashboardData {
 
 /**
  * Retourne toutes les données nécessaires pour le dashboard quotidien.
- * 5 requêtes SQL en parallèle — données réseau (sites 292 + 579).
+ * 6 requêtes SQL en parallèle — données réseau (sites 292 + 579).
+ *
+ * CA + Trafic : statopcajour (précalculé, N-1 même date réelle)
+ * Top 10 + Évolution : mvtart avec cumstat = 1 (mouvements statistiques)
  */
 export async function pgGetDashboardData(): Promise<DashboardData> {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const dateHier = yesterday.toISOString().split("T")[0];
 
-    const [sitesResult, top10CaResult, top10QteResult, top10MargeResult, evolutionResult] =
+    const [caTicketsResult, mvtSitesResult, top10CaResult, top10QteResult, top10MargeResult, evolutionResult] =
         await Promise.all([
-            // Stats hier + même jour S-1 par magasin (1 seule requête avec FILTER)
+            // CA + Tickets par site depuis statopcajour : hier vs même date N-1
+            pgNoParallel(sql`
+                SELECT
+                    s.site,
+                    SUM(CASE WHEN s.datmvt = CURRENT_DATE - 1
+                             THEN s.mnt ELSE 0 END)::float      AS ca_hier,
+                    SUM(CASE WHEN s.datmvt = (CURRENT_DATE - 1 - INTERVAL '1 year')
+                             THEN s.mnt ELSE 0 END)::float      AS ca_n1,
+                    SUM(CASE WHEN s.datmvt = CURRENT_DATE - 1
+                             THEN s.nbticket ELSE 0 END)::int   AS tickets_hier,
+                    SUM(CASE WHEN s.datmvt = (CURRENT_DATE - 1 - INTERVAL '1 year')
+                             THEN s.nbticket ELSE 0 END)::int   AS tickets_n1
+                FROM statopcajour s
+                WHERE s.datmvt IN (CURRENT_DATE - 1, CURRENT_DATE - 1 - INTERVAL '1 year')
+                  AND s.site IN ('292', '579')
+                GROUP BY s.site
+                ORDER BY s.site
+            `),
+            // QTE + Marge + Lignes par site depuis mvtart (cumstat = 1)
             pgNoParallel(sql`
                 SELECT
                     m.site,
-                    SUM(CASE WHEN m.datmvt = CURRENT_DATE - 1 THEN -m.mntmvtttc ELSE 0 END)::float AS ca_hier,
-                    SUM(CASE WHEN m.datmvt = CURRENT_DATE - 1 THEN -m.qtemvt    ELSE 0 END)::float AS qte_hier,
-                    SUM(CASE WHEN m.datmvt = CURRENT_DATE - 1 THEN  m.margemvt  ELSE 0 END)::float AS marge_hier,
-                    COUNT(CASE WHEN m.datmvt = CURRENT_DATE - 1 THEN 1 END)::int                   AS lignes_hier,
-                    SUM(CASE WHEN m.datmvt = CURRENT_DATE - 7 THEN -m.mntmvtttc ELSE 0 END)::float AS ca_d7,
-                    SUM(CASE WHEN m.datmvt = CURRENT_DATE - 7 THEN -m.qtemvt    ELSE 0 END)::float AS qte_d7,
-                    SUM(CASE WHEN m.datmvt = CURRENT_DATE - 7 THEN  m.margemvt  ELSE 0 END)::float AS marge_d7
+                    SUM(-m.qtemvt)::float   AS qte_hier,
+                    SUM(m.margemvt)::float  AS marge_hier,
+                    COUNT(*)::int           AS lignes_hier
                 FROM mvtart m
-                WHERE m.datmvt IN (CURRENT_DATE - 1, CURRENT_DATE - 7)
+                WHERE m.datmvt = CURRENT_DATE - 1
                   AND m.genremvt = 3
+                  AND m.cumstat = 1
                   AND m.site IN ('292', '579')
                 GROUP BY m.site
                 ORDER BY m.site
             `),
-            // Top 10 CA réseau hier
+            // Top 10 CA réseau hier (cumstat = 1)
             pgNoParallel(sql`
                 SELECT
                     a.codein,
@@ -542,12 +560,13 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 JOIN articles a ON a.no_id = m.artnoid
                 WHERE m.datmvt = CURRENT_DATE - 1
                   AND m.genremvt = 3
+                  AND m.cumstat = 1
                   AND m.site IN ('292', '579')
                 GROUP BY a.codein, a.libelle1
                 ORDER BY ca DESC
                 LIMIT 10
             `),
-            // Top 10 QTE réseau hier
+            // Top 10 QTE réseau hier (cumstat = 1)
             pgNoParallel(sql`
                 SELECT
                     a.codein,
@@ -559,12 +578,13 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 JOIN articles a ON a.no_id = m.artnoid
                 WHERE m.datmvt = CURRENT_DATE - 1
                   AND m.genremvt = 3
+                  AND m.cumstat = 1
                   AND m.site IN ('292', '579')
                 GROUP BY a.codein, a.libelle1
                 ORDER BY qte DESC
                 LIMIT 10
             `),
-            // Top 10 Marge réseau hier
+            // Top 10 Marge réseau hier (cumstat = 1)
             pgNoParallel(sql`
                 SELECT
                     a.codein,
@@ -576,12 +596,13 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 JOIN articles a ON a.no_id = m.artnoid
                 WHERE m.datmvt = CURRENT_DATE - 1
                   AND m.genremvt = 3
+                  AND m.cumstat = 1
                   AND m.site IN ('292', '579')
                 GROUP BY a.codein, a.libelle1
                 ORDER BY marge DESC
                 LIMIT 10
             `),
-            // Évolution mensuelle sur 25 mois (N et N-1)
+            // Évolution mensuelle sur 25 mois (cumstat = 1)
             pgNoParallel(sql`
                 SELECT
                     TO_CHAR(m.datmvt, 'YYYY-MM') AS mois,
@@ -592,17 +613,49 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 WHERE m.datmvt >= (CURRENT_DATE - INTERVAL '25 months')
                   AND m.datmvt < CURRENT_DATE
                   AND m.genremvt = 3
+                  AND m.cumstat = 1
                   AND m.site IN ('292', '579')
                 GROUP BY TO_CHAR(m.datmvt, 'YYYY-MM')
                 ORDER BY mois
             `),
         ]);
 
-    console.log(`[pg-ff] Dashboard: ${sitesResult.rows.length} sites, ${evolutionResult.rows.length} mois d'évolution`);
+    // Fusionner CA+tickets (statopcajour) avec QTE+marge (mvtart) par site
+    type CaTickets = { ca_hier: number; ca_n1: number; tickets_hier: number; tickets_n1: number };
+    const caMap = new Map<string, CaTickets>();
+    for (const row of caTicketsResult.rows as unknown as (CaTickets & { site: string })[]) {
+        caMap.set(row.site, {
+            ca_hier: Number(row.ca_hier) || 0,
+            ca_n1: Number(row.ca_n1) || 0,
+            tickets_hier: Number(row.tickets_hier) || 0,
+            tickets_n1: Number(row.tickets_n1) || 0,
+        });
+    }
+
+    const sitesMap = new Map<string, DashboardSiteStats>();
+    for (const row of mvtSitesResult.rows as unknown as { site: string; qte_hier: number; marge_hier: number; lignes_hier: number }[]) {
+        const caData = caMap.get(row.site) ?? { ca_hier: 0, ca_n1: 0, tickets_hier: 0, tickets_n1: 0 };
+        sitesMap.set(row.site, {
+            site: row.site,
+            ...caData,
+            qte_hier: Number(row.qte_hier) || 0,
+            marge_hier: Number(row.marge_hier) || 0,
+            lignes_hier: Number(row.lignes_hier) || 0,
+        });
+    }
+    // Sites présents dans statopcajour mais pas dans mvtart
+    for (const [site, caData] of caMap.entries()) {
+        if (!sitesMap.has(site)) {
+            sitesMap.set(site, { site, ...caData, qte_hier: 0, marge_hier: 0, lignes_hier: 0 });
+        }
+    }
+    const sites = [...sitesMap.values()].sort((a, b) => a.site.localeCompare(b.site));
+
+    console.log(`[pg-ff] Dashboard: ${sites.length} sites, ${evolutionResult.rows.length} mois d'évolution`);
 
     return {
         dateHier,
-        sites: sitesResult.rows as unknown as DashboardSiteStats[],
+        sites,
         top10Ca: top10CaResult.rows as unknown as DashboardTopItem[],
         top10Qte: top10QteResult.rows as unknown as DashboardTopItem[],
         top10Marge: top10MargeResult.rows as unknown as DashboardTopItem[],
