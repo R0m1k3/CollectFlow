@@ -461,3 +461,151 @@ export async function pgGetCommandesByFournisseur(codefou: string): Promise<Map<
     }
     return map;
 }
+
+// ---------------------------------------------------------------------------
+// 7. Dashboard quotidien (hit parade + évolution N/N-1)
+// ---------------------------------------------------------------------------
+
+export interface DashboardSiteStats {
+    site: string;
+    ca_hier: number;
+    qte_hier: number;
+    marge_hier: number;
+    lignes_hier: number;
+    ca_d7: number;
+    qte_d7: number;
+    marge_d7: number;
+}
+
+export interface DashboardTopItem {
+    codein: string;
+    libelle1: string;
+    ca: number;
+    qte: number;
+    marge: number;
+}
+
+export interface DashboardMonthStats {
+    mois: string; // "YYYY-MM"
+    ca: number;
+    qte: number;
+    marge: number;
+}
+
+export interface DashboardData {
+    dateHier: string; // "YYYY-MM-DD"
+    sites: DashboardSiteStats[];
+    top10Ca: DashboardTopItem[];
+    top10Qte: DashboardTopItem[];
+    top10Marge: DashboardTopItem[];
+    evolution: DashboardMonthStats[]; // 25 mois pour N vs N-1
+}
+
+/**
+ * Retourne toutes les données nécessaires pour le dashboard quotidien.
+ * 5 requêtes SQL en parallèle — données réseau (sites 292 + 579).
+ */
+export async function pgGetDashboardData(): Promise<DashboardData> {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const dateHier = yesterday.toISOString().split("T")[0];
+
+    const [sitesResult, top10CaResult, top10QteResult, top10MargeResult, evolutionResult] =
+        await Promise.all([
+            // Stats hier + même jour S-1 par magasin (1 seule requête avec FILTER)
+            pgNoParallel(sql`
+                SELECT
+                    m.site,
+                    SUM(CASE WHEN m.datmvt = CURRENT_DATE - 1 THEN -m.mntmvtttc ELSE 0 END)::float AS ca_hier,
+                    SUM(CASE WHEN m.datmvt = CURRENT_DATE - 1 THEN -m.qtemvt    ELSE 0 END)::float AS qte_hier,
+                    SUM(CASE WHEN m.datmvt = CURRENT_DATE - 1 THEN  m.margemvt  ELSE 0 END)::float AS marge_hier,
+                    COUNT(CASE WHEN m.datmvt = CURRENT_DATE - 1 THEN 1 END)::int                   AS lignes_hier,
+                    SUM(CASE WHEN m.datmvt = CURRENT_DATE - 7 THEN -m.mntmvtttc ELSE 0 END)::float AS ca_d7,
+                    SUM(CASE WHEN m.datmvt = CURRENT_DATE - 7 THEN -m.qtemvt    ELSE 0 END)::float AS qte_d7,
+                    SUM(CASE WHEN m.datmvt = CURRENT_DATE - 7 THEN  m.margemvt  ELSE 0 END)::float AS marge_d7
+                FROM mvtart m
+                WHERE m.datmvt IN (CURRENT_DATE - 1, CURRENT_DATE - 7)
+                  AND m.genremvt = 3
+                  AND m.site IN ('292', '579')
+                GROUP BY m.site
+                ORDER BY m.site
+            `),
+            // Top 10 CA réseau hier
+            pgNoParallel(sql`
+                SELECT
+                    a.codein,
+                    a.libelle1,
+                    SUM(-m.mntmvtttc)::float AS ca,
+                    SUM(-m.qtemvt)::float    AS qte,
+                    SUM(m.margemvt)::float   AS marge
+                FROM mvtart m
+                JOIN articles a ON a.no_id = m.artnoid
+                WHERE m.datmvt = CURRENT_DATE - 1
+                  AND m.genremvt = 3
+                  AND m.site IN ('292', '579')
+                GROUP BY a.codein, a.libelle1
+                ORDER BY ca DESC
+                LIMIT 10
+            `),
+            // Top 10 QTE réseau hier
+            pgNoParallel(sql`
+                SELECT
+                    a.codein,
+                    a.libelle1,
+                    SUM(-m.qtemvt)::float    AS qte,
+                    SUM(-m.mntmvtttc)::float AS ca,
+                    SUM(m.margemvt)::float   AS marge
+                FROM mvtart m
+                JOIN articles a ON a.no_id = m.artnoid
+                WHERE m.datmvt = CURRENT_DATE - 1
+                  AND m.genremvt = 3
+                  AND m.site IN ('292', '579')
+                GROUP BY a.codein, a.libelle1
+                ORDER BY qte DESC
+                LIMIT 10
+            `),
+            // Top 10 Marge réseau hier
+            pgNoParallel(sql`
+                SELECT
+                    a.codein,
+                    a.libelle1,
+                    SUM(m.margemvt)::float   AS marge,
+                    SUM(-m.mntmvtttc)::float AS ca,
+                    SUM(-m.qtemvt)::float    AS qte
+                FROM mvtart m
+                JOIN articles a ON a.no_id = m.artnoid
+                WHERE m.datmvt = CURRENT_DATE - 1
+                  AND m.genremvt = 3
+                  AND m.site IN ('292', '579')
+                GROUP BY a.codein, a.libelle1
+                ORDER BY marge DESC
+                LIMIT 10
+            `),
+            // Évolution mensuelle sur 25 mois (N et N-1)
+            pgNoParallel(sql`
+                SELECT
+                    TO_CHAR(m.datmvt, 'YYYY-MM') AS mois,
+                    SUM(-m.mntmvtttc)::float AS ca,
+                    SUM(-m.qtemvt)::float    AS qte,
+                    SUM(m.margemvt)::float   AS marge
+                FROM mvtart m
+                WHERE m.datmvt >= (CURRENT_DATE - INTERVAL '25 months')
+                  AND m.datmvt < CURRENT_DATE
+                  AND m.genremvt = 3
+                  AND m.site IN ('292', '579')
+                GROUP BY TO_CHAR(m.datmvt, 'YYYY-MM')
+                ORDER BY mois
+            `),
+        ]);
+
+    console.log(`[pg-ff] Dashboard: ${sitesResult.rows.length} sites, ${evolutionResult.rows.length} mois d'évolution`);
+
+    return {
+        dateHier,
+        sites: sitesResult.rows as unknown as DashboardSiteStats[],
+        top10Ca: top10CaResult.rows as unknown as DashboardTopItem[],
+        top10Qte: top10QteResult.rows as unknown as DashboardTopItem[],
+        top10Marge: top10MargeResult.rows as unknown as DashboardTopItem[],
+        evolution: evolutionResult.rows as unknown as DashboardMonthStats[],
+    };
+}
