@@ -118,12 +118,10 @@ export async function pgGetFournisseurs(search?: string): Promise<{ code: string
  * 1 seule requête SQL — remplace getArticlesByFournisseur() + per-article fetches.
  */
 export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArticle[]> {
-    // Filtrage sur les articles "actifs" uniquement :
-    //   - avec gamme affectée (art_gamme_saison) → à gérer même sans ventes
-    //   - OU avec au moins 1 vente sur les 12 derniers mois (mvtart genremvt=3)
-    // Cela évite d'envoyer 50 000 lignes vides pour les gros fournisseurs → page blanche
-    const result = await db.execute(sql`
-        SELECT
+    // Requête principale : articles avec gamme OU ventes récentes (filtre "actifs")
+    // DISTINCT ON (a.no_id) car artfou1 peut avoir plusieurs lignes par article/fournisseur
+    const runFiltered = () => db.execute(sql`
+        SELECT DISTINCT ON (a.no_id)
             a.no_id,
             a.codein,
             af.code                     AS codefou,
@@ -136,8 +134,7 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
             ai.prix_vente_mini          AS pv_central,
             pa.pa
         FROM artfou1 af
-        JOIN articles a
-            ON a.no_id = af.art_no_id
+        JOIN articles a ON a.no_id = af.art_no_id
         -- Seulement articles avec gamme OU avec ventes récentes (scoped au fournisseur)
         JOIN (
             SELECT DISTINCT ags.artnoid
@@ -150,21 +147,50 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
             WHERE m.genremvt = 3
               AND m.datmvt >= CURRENT_DATE - INTERVAL '12 months'
         ) actif ON actif.artnoid = a.no_id
-        LEFT JOIN fouadr1 fa
-            ON fa.code = af.code AND fa.sit_code = '000'
-        LEFT JOIN article_infosup ai
-            ON ai.artnoid = a.no_id
-        LEFT JOIN cube_pa pa
-            ON pa.artnoid = a.no_id
-        LEFT JOIN art_gtin ag
-            ON ag.idarticle = a.no_id AND ag.preferentiel = 1
+        LEFT JOIN fouadr1 fa ON fa.code = af.code AND fa.sit_code = '000'
+        LEFT JOIN article_infosup ai ON ai.artnoid = a.no_id
+        LEFT JOIN cube_pa pa ON pa.artnoid = a.no_id
+        LEFT JOIN art_gtin ag ON ag.idarticle = a.no_id AND ag.preferentiel = 1
         WHERE af.code = ${codefou}
           AND a.codein IS NOT NULL
-        ORDER BY a.codein
+        ORDER BY a.no_id, af.no_id
     `);
 
-    console.log(`[pg-ff] Articles actifs: ${result.rows.length} pour ${codefou}`);
-    return (result.rows as unknown as PgArticle[]).filter(r => r.codein);
+    // Fallback sans filtre "actif" (tous les articles du fournisseur)
+    const runAll = () => db.execute(sql`
+        SELECT DISTINCT ON (a.no_id)
+            a.no_id,
+            a.codein,
+            af.code                     AS codefou,
+            fa.raisonsociale            AS nomfou,
+            a.libelle1,
+            af.pcb,
+            af.reference,
+            af.ean13,
+            COALESCE(ag.gtin, af.ean13) AS gtin,
+            ai.prix_vente_mini          AS pv_central,
+            pa.pa
+        FROM artfou1 af
+        JOIN articles a ON a.no_id = af.art_no_id
+        LEFT JOIN fouadr1 fa ON fa.code = af.code AND fa.sit_code = '000'
+        LEFT JOIN article_infosup ai ON ai.artnoid = a.no_id
+        LEFT JOIN cube_pa pa ON pa.artnoid = a.no_id
+        LEFT JOIN art_gtin ag ON ag.idarticle = a.no_id AND ag.preferentiel = 1
+        WHERE af.code = ${codefou}
+          AND a.codein IS NOT NULL
+        ORDER BY a.no_id, af.no_id
+    `);
+
+    try {
+        const result = await runFiltered();
+        console.log(`[pg-ff] Articles actifs (filtrés): ${result.rows.length} pour ${codefou}`);
+        return (result.rows as unknown as PgArticle[]).filter(r => r.codein);
+    } catch (e) {
+        console.error("[pg-ff] Articles filtrés échoué, fallback tous articles:", (e as Error).message?.slice(0, 300));
+        const result = await runAll();
+        console.log(`[pg-ff] Articles fallback (tous): ${result.rows.length} pour ${codefou}`);
+        return (result.rows as unknown as PgArticle[]).filter(r => r.codein);
+    }
 }
 
 // ---------------------------------------------------------------------------
