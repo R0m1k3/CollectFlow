@@ -513,6 +513,28 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
     yesterday.setDate(yesterday.getDate() - 1);
     const dateHier = yesterday.toISOString().split("T")[0];
 
+    // Probe schéma : vérifier l'existence de cumstat dans mvtart et de statopcajour
+    const [schemaCheck, statopCheck] = await Promise.all([
+        db.execute(sql`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'mvtart' AND column_name ILIKE 'cum%'
+            LIMIT 5
+        `).catch(() => ({ rows: [] })),
+        db.execute(sql`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name ILIKE 'statop%'
+            ORDER BY table_name, column_name
+            LIMIT 20
+        `).catch(() => ({ rows: [] })),
+    ]);
+
+    const cumstatCol = (schemaCheck.rows as { column_name: string }[])[0]?.column_name ?? null;
+    const statopCols = (statopCheck.rows as { column_name: string }[]).map(r => r.column_name);
+    console.log(`[pg-ff] Dashboard schema probe → mvtart cumstat col: "${cumstatCol}", statopcajour cols: [${statopCols.join(", ")}]`);
+
+    // Filtre cumstat dynamique selon disponibilité de la colonne
+    const cumstatFilter = cumstatCol ? sql`AND m.${sql.raw(cumstatCol)} = 1` : sql``;
+
     const [caTicketsResult, mvtSitesResult, top10CaResult, top10QteResult, top10MargeResult, evolutionResult] =
         await Promise.all([
             // CA + Tickets par site depuis statopcajour : hier vs même date N-1
@@ -536,7 +558,7 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 console.error("[pg-ff] statopcajour query failed:", err.message);
                 return { rows: [] };
             }),
-            // QTE + Marge + Lignes par site depuis mvtart (cumstat = 1)
+            // QTE + Marge + Lignes par site depuis mvtart
             pgNoParallel(sql`
                 SELECT
                     m.site,
@@ -546,12 +568,12 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 FROM mvtart m
                 WHERE m.datmvt = CURRENT_DATE - 1
                   AND m.genremvt = 3
-                  AND m.cumstat = 1
+                  ${cumstatFilter}
                   AND m.site IN ('292', '579')
                 GROUP BY m.site
                 ORDER BY m.site
             `).catch((err) => { console.error("[pg-ff] mvtSites query failed:", err.message); return { rows: [] }; }),
-            // Top 10 CA réseau hier (cumstat = 1)
+            // Top 10 CA réseau hier
             pgNoParallel(sql`
                 SELECT
                     a.codein,
@@ -563,13 +585,13 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 JOIN articles a ON a.no_id = m.artnoid
                 WHERE m.datmvt = CURRENT_DATE - 1
                   AND m.genremvt = 3
-                  AND m.cumstat = 1
+                  ${cumstatFilter}
                   AND m.site IN ('292', '579')
                 GROUP BY a.codein, a.libelle1
                 ORDER BY ca DESC
                 LIMIT 10
             `).catch((err) => { console.error("[pg-ff] top10Ca query failed:", err.message); return { rows: [] }; }),
-            // Top 10 QTE réseau hier (cumstat = 1)
+            // Top 10 QTE réseau hier
             pgNoParallel(sql`
                 SELECT
                     a.codein,
@@ -581,13 +603,13 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 JOIN articles a ON a.no_id = m.artnoid
                 WHERE m.datmvt = CURRENT_DATE - 1
                   AND m.genremvt = 3
-                  AND m.cumstat = 1
+                  ${cumstatFilter}
                   AND m.site IN ('292', '579')
                 GROUP BY a.codein, a.libelle1
                 ORDER BY qte DESC
                 LIMIT 10
             `).catch((err) => { console.error("[pg-ff] top10Qte query failed:", err.message); return { rows: [] }; }),
-            // Top 10 Marge réseau hier (cumstat = 1)
+            // Top 10 Marge réseau hier
             pgNoParallel(sql`
                 SELECT
                     a.codein,
@@ -599,13 +621,13 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 JOIN articles a ON a.no_id = m.artnoid
                 WHERE m.datmvt = CURRENT_DATE - 1
                   AND m.genremvt = 3
-                  AND m.cumstat = 1
+                  ${cumstatFilter}
                   AND m.site IN ('292', '579')
                 GROUP BY a.codein, a.libelle1
                 ORDER BY marge DESC
                 LIMIT 10
             `).catch((err) => { console.error("[pg-ff] top10Marge query failed:", err.message); return { rows: [] }; }),
-            // Évolution mensuelle sur 25 mois (cumstat = 1)
+            // Évolution mensuelle sur 25 mois
             pgNoParallel(sql`
                 SELECT
                     TO_CHAR(m.datmvt, 'YYYY-MM') AS mois,
@@ -616,7 +638,7 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 WHERE m.datmvt >= (CURRENT_DATE - INTERVAL '25 months')
                   AND m.datmvt < CURRENT_DATE
                   AND m.genremvt = 3
-                  AND m.cumstat = 1
+                  ${cumstatFilter}
                   AND m.site IN ('292', '579')
                 GROUP BY TO_CHAR(m.datmvt, 'YYYY-MM')
                 ORDER BY mois
