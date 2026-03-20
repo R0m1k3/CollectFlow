@@ -300,10 +300,12 @@ export default async function DashboardPage() {
     try {
         data = await pgGetDashboardData();
     } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error("[Dashboard] pgGetDashboardData failed:", e);
         return (
             <div className="p-8 text-center">
                 <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-                    Impossible de charger le tableau de bord : {(e as Error).message?.slice(0, 200)}
+                    Impossible de charger le tableau de bord : {msg.slice(0, 500)}
                 </p>
             </div>
         );

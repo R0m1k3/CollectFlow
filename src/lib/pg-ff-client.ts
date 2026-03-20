@@ -532,7 +532,10 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                   AND s.site IN ('292', '579')
                 GROUP BY s.site
                 ORDER BY s.site
-            `),
+            `).catch((err) => {
+                console.error("[pg-ff] statopcajour query failed:", err.message);
+                return { rows: [] };
+            }),
             // QTE + Marge + Lignes par site depuis mvtart (cumstat = 1)
             pgNoParallel(sql`
                 SELECT
@@ -547,7 +550,7 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                   AND m.site IN ('292', '579')
                 GROUP BY m.site
                 ORDER BY m.site
-            `),
+            `).catch((err) => { console.error("[pg-ff] mvtSites query failed:", err.message); return { rows: [] }; }),
             // Top 10 CA réseau hier (cumstat = 1)
             pgNoParallel(sql`
                 SELECT
@@ -565,7 +568,7 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 GROUP BY a.codein, a.libelle1
                 ORDER BY ca DESC
                 LIMIT 10
-            `),
+            `).catch((err) => { console.error("[pg-ff] top10Ca query failed:", err.message); return { rows: [] }; }),
             // Top 10 QTE réseau hier (cumstat = 1)
             pgNoParallel(sql`
                 SELECT
@@ -583,7 +586,7 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 GROUP BY a.codein, a.libelle1
                 ORDER BY qte DESC
                 LIMIT 10
-            `),
+            `).catch((err) => { console.error("[pg-ff] top10Qte query failed:", err.message); return { rows: [] }; }),
             // Top 10 Marge réseau hier (cumstat = 1)
             pgNoParallel(sql`
                 SELECT
@@ -601,7 +604,7 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 GROUP BY a.codein, a.libelle1
                 ORDER BY marge DESC
                 LIMIT 10
-            `),
+            `).catch((err) => { console.error("[pg-ff] top10Marge query failed:", err.message); return { rows: [] }; }),
             // Évolution mensuelle sur 25 mois (cumstat = 1)
             pgNoParallel(sql`
                 SELECT
@@ -617,7 +620,7 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                   AND m.site IN ('292', '579')
                 GROUP BY TO_CHAR(m.datmvt, 'YYYY-MM')
                 ORDER BY mois
-            `),
+            `).catch((err) => { console.error("[pg-ff] evolution query failed:", err.message); return { rows: [] }; }),
         ]);
 
     // Fusionner CA+tickets (statopcajour) avec QTE+marge (mvtart) par site
