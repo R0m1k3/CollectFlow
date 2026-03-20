@@ -170,11 +170,13 @@ export async function pgGetMensuelByFournisseur(
             a.codein,
             m.site,
             TO_CHAR(m.datmvt, 'YYYY-MM')                                          AS mois,
-            SUM(CASE WHEN m.genremvt = 3 THEN ABS(m.qtemvt)    ELSE 0 END)::float AS qte_vendue,
-            SUM(CASE WHEN m.genremvt = 3 THEN ABS(m.mntmvtttc) ELSE 0 END)::float AS ca_ht,
-            SUM(CASE WHEN m.genremvt = 3 THEN m.margemvt        ELSE 0 END)::float AS marge,
-            MAX(m.qtestock)::float                                                  AS stock_fin_mois,
-            SUM(CASE WHEN m.genremvt IN (1, 2) THEN ABS(m.qtemvt) ELSE 0 END)::float AS qte_recue
+            -- genremvt=3 : vente → qtemvt négatif, retour → qtemvt positif
+            -- qte_vendue nette = SUM(-qtemvt) : ventes moins retours
+            SUM(CASE WHEN m.genremvt = 3 THEN -m.qtemvt   ELSE 0 END)::float AS qte_vendue,
+            SUM(CASE WHEN m.genremvt = 3 THEN  m.mntmvtttc ELSE 0 END)::float AS ca_ht,
+            SUM(CASE WHEN m.genremvt = 3 THEN  m.margemvt  ELSE 0 END)::float AS marge,
+            MAX(m.qtestock)::float                                              AS stock_fin_mois,
+            SUM(CASE WHEN m.genremvt IN (1, 2) THEN -m.qtemvt ELSE 0 END)::float AS qte_recue
         FROM mvtart m
         JOIN articles a ON a.no_id = m.artnoid
         -- Sous-requête dédupliquée : 1 seule ligne par article/fournisseur
