@@ -67,24 +67,21 @@ export interface PgRankingRow {
 // ---------------------------------------------------------------------------
 
 /**
- * Retourne la liste de tous les fournisseurs depuis fouadr1.
+ * Retourne la liste des fournisseurs actifs et non suspendus depuis fouident.
  * 1 requête SQL — remplace getFournisseursFromApi().
  */
 export async function pgGetFournisseurs(search?: string): Promise<{ code: string; nom: string }[]> {
-    // Jointure avec artfou1 pour ne retourner QUE les fournisseurs ayant des articles
     const result = await db.execute(sql`
-        SELECT DISTINCT
-            fa.code,
-            fa.raisonsociale AS nom
-        FROM fouadr1 fa
-        INNER JOIN artfou1 af ON af.code = fa.code
-        WHERE fa.sit_code = '000'
-          AND fa.raisonsociale IS NOT NULL
-          AND fa.code IS NOT NULL
-          -- Exclure les raisonsociales qui commencent par un chiffre (adresses postales)
-          AND fa.raisonsociale !~ '^\s*\d'
-          ${search ? sql`AND (fa.raisonsociale ILIKE ${'%' + search + '%'} OR fa.code ILIKE ${'%' + search + '%'})` : sql``}
-        ORDER BY fa.raisonsociale
+        SELECT
+            fi.code,
+            fi.nom
+        FROM fouident fi
+        WHERE fi.actif = true
+          AND fi.suspendu = false
+          AND fi.code IS NOT NULL
+          AND fi.nom IS NOT NULL
+          ${search ? sql`AND (fi.nom ILIKE ${'%' + search + '%'} OR fi.code ILIKE ${'%' + search + '%'})` : sql``}
+        ORDER BY fi.nom
     `);
 
     return (result.rows as unknown as { code: string; nom: string }[])
