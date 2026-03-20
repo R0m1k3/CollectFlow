@@ -23,9 +23,10 @@ interface GridClientProps {
     magasin: string;
 }
 
-export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins, magasin }: GridClientProps) {
+export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fournisseurs, magasins, magasin }: GridClientProps) {
     const setRows = useGridStore((s) => s.setRows);
     const setActiveGridQuery = useGridStore((s) => s.setActiveGridQuery);
+    const setFilter = useGridStore((s) => s.setFilter);
     const searchParams = useSearchParams();
 
     const [selectedCodeins, setSelectedCodeins] = useState<string[]>([]);
@@ -52,12 +53,15 @@ export function GridClient({ initialRows, nomFournisseur, fournisseurs, magasins
     useEffect(() => {
         if (!isMounted) return;
 
-        // Optimisation : On évite le JSON.parse(JSON.stringify()) qui est très lourd sur 1000 lignes
-        // On passe directement les initialRows au moteur de score, ou on fait une copie superficielle si nécessaire.
-        // Le moteur de score doit idéalement retourner de nouveaux objets.
+        // Réinitialiser les filtres gamme et code3 lors du changement de fournisseur.
+        // Ces filtres sont persistés en localStorage (Zustand persist) et s'appliquent
+        // au nouveau fournisseur, cachant toutes les lignes si le filtre ne correspond pas.
+        setFilter("codeGamme", null);
+        setFilter("code3", null);
+
         const scoredRows = computeProductScores([...initialRows]);
         setRows(scoredRows);
-    }, [initialRows, setRows, isMounted]);
+    }, [codeFournisseur, initialRows, setRows, setFilter, isMounted]);
 
     const handleSave = () => {
         startTransition(async () => {

@@ -267,12 +267,19 @@ export async function pgGetNomenclatureByFournisseur(codefou: string): Promise<M
     // Découverte de la colonne parent : mise en cache module-level (1 seule fois par process)
     if (_nomenclatureParentCol === undefined) {
         const metaResult = await db.execute(sql`
-            SELECT column_name FROM information_schema.columns
+            SELECT column_name, data_type FROM information_schema.columns
             WHERE table_name = 'nomenclature' ORDER BY ordinal_position
         `);
-        const nomCols = (metaResult.rows as { column_name: string }[]).map(r => r.column_name);
-        console.log("[pg-ff] Nomenclature colonnes:", nomCols.join(", "));
-        _nomenclatureParentCol = nomCols.find(c => /parent/i.test(c) || (c !== "no_id" && /no_id$/i.test(c))) ?? null;
+        const nomCols = (metaResult.rows as { column_name: string; data_type: string }[]);
+        console.log("[pg-ff] Nomenclature colonnes:", nomCols.map(r => `${r.column_name}(${r.data_type})`).join(", "));
+        // Cherche une colonne "parent" qui soit un entier (FK vers no_id du parent)
+        // "chemin_pere" = chemin vers le père en français
+        // On vérifie le data_type : integer/bigint/smallint uniquement (pas text/varchar qui serait un chemin matérialisé)
+        const parentRow = nomCols.find(r =>
+            (/parent|pere|father/i.test(r.column_name) || (r.column_name !== "no_id" && /no_id$/i.test(r.column_name)))
+            && /int|serial/i.test(r.data_type)
+        );
+        _nomenclatureParentCol = parentRow?.column_name ?? null;
         console.log("[pg-ff] Nomenclature parentCol:", _nomenclatureParentCol);
     }
     const parentCol = _nomenclatureParentCol;
