@@ -485,20 +485,18 @@ export interface DashboardTopItem {
     marge: number;
 }
 
-export interface DashboardMonthStats {
-    mois: string; // "YYYY-MM"
-    ca: number;
-    qte: number;
-    marge: number;
+export interface DashboardSiteTop10 {
+    site: string;
+    ca: DashboardTopItem[];
+    qte: DashboardTopItem[];
+    marge: DashboardTopItem[];
 }
 
 export interface DashboardData {
     dateHier: string;
+    dateN1: string;
     sites: DashboardSiteStats[];
-    top10Ca: DashboardTopItem[];
-    top10Qte: DashboardTopItem[];
-    top10Marge: DashboardTopItem[];
-    evolution: DashboardMonthStats[];
+    top10BySite: DashboardSiteTop10[];
 }
 
 // ---------------------------------------------------------------------------
@@ -534,23 +532,27 @@ interface ApiPerfDashboard {
 /**
  * Retourne toutes les données nécessaires pour le dashboard quotidien.
  * 100% via l'API REST api.ffnancy.fr — aucune requête PostgreSQL directe.
+ * N-1 : même jour de semaine (52 semaines = 364 jours avant hier).
  */
 export async function pgGetDashboardData(): Promise<DashboardData> {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const dateHier = yesterday.toISOString().split("T")[0];
 
+    // Même jour de semaine N-1 : 364 jours = 52 semaines exactes (conserve le jour)
+    const n1Date = new Date(yesterday);
+    n1Date.setDate(n1Date.getDate() - 364);
+    const dateN1Param = n1Date.toISOString().split("T")[0];
+
     const apiBase = "https://api.ffnancy.fr/api/performance";
 
-    // 2 appels API en parallèle : dashboard (hier) + évolution mensuelle (si endpoint dispo)
-    const [apiResult, evoResult] = await Promise.all([
-        fetch(`${apiBase}/dashboard?date=${dateHier}`, { cache: "no-store" })
-            .then(r => { if (!r.ok) throw new Error(`API dashboard ${r.status}: ${r.statusText}`); return r.json() as Promise<ApiPerfDashboard>; }),
-        // Évolution mensuelle — endpoint séparé (à confirmer), fallback à null
-        fetch(`${apiBase}/evolution`, { cache: "no-store" })
-            .then(r => r.ok ? r.json() as Promise<{ months: DashboardMonthStats[] }> : null)
-            .catch(() => null),
-    ]);
+    const apiResult = await fetch(
+        `${apiBase}/dashboard?date=${dateHier}&date_n1=${dateN1Param}`,
+        { cache: "no-store" }
+    ).then(r => {
+        if (!r.ok) throw new Error(`API dashboard ${r.status}: ${r.statusText}`);
+        return r.json() as Promise<ApiPerfDashboard>;
+    });
 
     const sites: DashboardSiteStats[] = (apiResult.sites ?? []).map(s => ({
         site: s.site,
@@ -559,40 +561,47 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
         tickets_hier: Number(s.trafic) || 0,
         tickets_n1: Number(s.trafic_n1) || 0,
         qte_hier: 0,
-        marge_hier: 0,   // non disponible dans l'API — affichera 0
+        marge_hier: 0,
         lignes_hier: 0,
     }));
 
-    // Top 10 réseau : agréger les N lignes par site → top 10 global
-    const mapTop = (items: ApiPerfTopItem[], sortKey: "ca" | "qte" | "marge"): DashboardTopItem[] => {
-        const byCodein = new Map<string, DashboardTopItem>();
-        for (const i of items) {
-            const existing = byCodein.get(i.codein);
-            if (existing) {
-                existing.ca += Number(i.ca_ttc) || 0;
-                existing.qte += Number(i.qte_vendue) || 0;
-                existing.marge += Number(i.marge) || 0;
-            } else {
-                byCodein.set(i.codein, {
-                    codein: i.codein,
-                    libelle1: i.libelle1,
-                    ca: Number(i.ca_ttc) || 0,
-                    qte: Number(i.qte_vendue) || 0,
-                    marge: Number(i.marge) || 0,
-                });
-            }
-        }
-        return [...byCodein.values()].sort((a, b) => b[sortKey] - a[sortKey]).slice(0, 10);
-    };
+    // Top 10 par magasin : grouper les items par site, trier, garder top 10
+    const buildTop10 = (items: ApiPerfTopItem[], sortKey: "ca" | "qte" | "marge"): DashboardTopItem[] =>
+        items
+            .map(i => ({
+                codein: i.codein,
+                libelle1: i.libelle1,
+                ca: Number(i.ca_ttc) || 0,
+                qte: Number(i.qte_vendue) || 0,
+                marge: Number(i.marge) || 0,
+            }))
+            .sort((a, b) => b[sortKey] - a[sortKey])
+            .slice(0, 10);
 
-    console.log(`[pg-ff] Dashboard API: ${sites.length} sites, date=${apiResult.date}`);
+    const allItems = [
+        ...(apiResult.top10_ca ?? []),
+        ...(apiResult.top10_qte ?? []),
+        ...(apiResult.top10_marge ?? []),
+    ];
+    const siteSet = [...new Set(allItems.map(i => i.site).filter(Boolean))].sort();
+
+    const top10BySite: DashboardSiteTop10[] = siteSet.map(site => {
+        const byS = (arr: ApiPerfTopItem[]) => arr.filter(i => i.site === site);
+        return {
+            site,
+            ca: buildTop10(byS(apiResult.top10_ca ?? []), "ca"),
+            qte: buildTop10(byS(apiResult.top10_qte ?? []), "qte"),
+            marge: buildTop10(byS(apiResult.top10_marge ?? []), "marge"),
+        };
+    });
+
+    const dateN1 = apiResult.date_n1 ?? dateN1Param;
+    console.log(`[pg-ff] Dashboard API: ${sites.length} sites, date=${apiResult.date}, date_n1=${dateN1}`);
 
     return {
         dateHier: apiResult.date ?? dateHier,
+        dateN1,
         sites,
-        top10Ca: mapTop(apiResult.top10_ca ?? [], "ca"),
-        top10Qte: mapTop(apiResult.top10_qte ?? [], "qte"),
-        top10Marge: mapTop(apiResult.top10_marge ?? [], "marge"),
-        evolution: evoResult?.months ?? [],
+        top10BySite,
     };
 }

@@ -1,24 +1,21 @@
-import { pgGetDashboardData, type DashboardTopItem, type DashboardSiteStats, type DashboardMonthStats } from "@/lib/pg-ff-client";
-import { TrendingUp, TrendingDown, Minus, Store, Euro, Percent, Users } from "lucide-react";
+import { pgGetDashboardData, type DashboardTopItem, type DashboardSiteStats, type DashboardSiteTop10 } from "@/lib/pg-ff-client";
+import { TrendingUp, TrendingDown, Minus, Store, Euro, Users } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-// Codes sites tels que retournés par l'API (ex: "F01") → nom affiché
 const SITE_NAMES: Record<string, string> = {
     "F01": "Frouard",
     "F02": "Houdemont",
-    // Anciens codes PostgreSQL si jamais
     "292": "Frouard",
     "579": "Houdemont",
 };
 
 function fmtEur(n: number): string {
     const abs = Math.abs(n);
-    if (abs >= 1_000_000) return `${(n / 1_000_000).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} M€`;
-    if (abs >= 1_000) return `${(n / 1_000).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} k€`;
-    return `${n.toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €`;
+    if (abs >= 1_000_000) return `${(n / 1_000_000).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} M€`;
+    return `${Math.round(n).toLocaleString("fr-FR")} €`;
 }
 
 function fmtQte(n: number): string {
@@ -35,19 +32,13 @@ function delta(current: number, previous: number): number | null {
     return ((current - previous) / Math.abs(previous)) * 100;
 }
 
-function monthLabel(mois: string): string {
-    const [y, m] = mois.split("-");
-    const names = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"];
-    return `${names[parseInt(m) - 1]} ${y.slice(2)}`;
-}
-
 function dateLabel(iso: string): string {
     const [y, m, d] = iso.split("-");
     return `${d}/${m}/${y}`;
 }
 
 // ---------------------------------------------------------------------------
-// Sub-components (server-side, no "use client" needed)
+// Sub-components
 // ---------------------------------------------------------------------------
 
 function DeltaBadge({ pct }: { pct: number | null }) {
@@ -86,7 +77,6 @@ function KpiCard({ label, value, sub, delta: d, icon: Icon }: {
 
 function SiteCard({ site }: { site: DashboardSiteStats }) {
     const name = SITE_NAMES[site.site] ?? site.site;
-    const txMarge = site.ca_hier > 0 ? (site.marge_hier / site.ca_hier) * 100 : 0;
     const dCa = delta(site.ca_hier, site.ca_n1);
     const dTickets = delta(site.tickets_hier, site.tickets_n1);
 
@@ -124,7 +114,7 @@ function Top10Table({ title, items, sortKey }: {
 }) {
     const maxVal = items[0]?.[sortKey] ?? 1;
     return (
-        <div className="rounded-xl overflow-hidden flex flex-col" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
+        <div className="rounded-xl flex flex-col" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
             <div className="px-4 py-3 flex items-center gap-2" style={{ borderBottom: "1px solid var(--border)" }}>
                 <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{title}</span>
             </div>
@@ -157,7 +147,7 @@ function Top10Table({ title, items, sortKey }: {
                                     <div className="h-full rounded-full" style={{ width: `${barPct}%`, background: "var(--accent)" }} />
                                 </div>
                                 <span className="text-xs shrink-0" style={{ color: "var(--text-muted)" }}>
-                                    {sortKey !== "ca" && `CA ${fmtEur(item.ca)} • `}
+                                    {sortKey !== "ca" && `CA ${fmtEur(item.ca)} · `}
                                     {fmtPct(txMarge, false)} marge
                                 </span>
                             </div>
@@ -169,117 +159,19 @@ function Top10Table({ title, items, sortKey }: {
     );
 }
 
-function EvolutionTable({ evolution }: { evolution: DashboardMonthStats[] }) {
-    // Regrouper par mois YYYY-MM → data
-    const byMois = new Map(evolution.map(e => [e.mois, e]));
-
-    // Calculer les 12 derniers mois complets (pas le mois en cours)
-    const now = new Date();
-    const months12: string[] = [];
-    for (let i = 13; i >= 2; i--) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        months12.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
-    }
-
-    const rows = months12.map(mois => {
-        const [y, m] = mois.split("-");
-        const prevMois = `${parseInt(y) - 1}-${m}`;
-        const n = byMois.get(mois);
-        const n1 = byMois.get(prevMois);
-        const dCa = n && n1 ? delta(n.ca, n1.ca) : null;
-        const dQte = n && n1 ? delta(n.qte, n1.qte) : null;
-        return { mois, n, n1, dCa, dQte };
-    });
-
-    // Trouver les maxCA pour les barres
-    const maxCa = Math.max(...rows.map(r => Math.max(r.n?.ca ?? 0, r.n1?.ca ?? 0)), 1);
-
+function SiteHitParade({ siteData, dateHier }: { siteData: DashboardSiteTop10; dateHier: string }) {
+    const name = SITE_NAMES[siteData.site] ?? siteData.site;
     return (
-        <div className="rounded-xl overflow-hidden" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
-            <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
-                <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Évolution mensuelle — CA réseau</span>
-                <span className="text-xs" style={{ color: "var(--text-muted)" }}>N vs N-1 · 12 mois complets</span>
+        <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+                <Store className="w-4 h-4" style={{ color: "var(--accent)" }} />
+                <h3 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{name}</h3>
+                <span className="text-xs" style={{ color: "var(--text-muted)" }}>· {dateLabel(dateHier)}</span>
             </div>
-            <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                    <thead>
-                        <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                            <th className="px-4 py-2 text-left font-medium" style={{ color: "var(--text-muted)" }}>Mois</th>
-                            <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--text-muted)" }}>CA N</th>
-                            <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--text-muted)" }}>CA N-1</th>
-                            <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--text-muted)" }}>Δ CA</th>
-                            <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--text-muted)" }}>Qté N</th>
-                            <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--text-muted)" }}>Qté N-1</th>
-                            <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--text-muted)" }}>Δ Qté</th>
-                            <th className="px-3 py-2 text-right font-medium" style={{ color: "var(--text-muted)" }}>Tx Marge N</th>
-                            <th className="px-4 py-2 font-medium min-w-[120px]" style={{ color: "var(--text-muted)" }}>Tendance</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows.map(({ mois, n, n1, dCa, dQte }) => {
-                            const txN = n && n.ca > 0 ? (n.marge / n.ca) * 100 : null;
-                            const barN = n ? (n.ca / maxCa) * 100 : 0;
-                            const barN1 = n1 ? (n1.ca / maxCa) * 100 : 0;
-                            const isPositive = dCa !== null && dCa >= 0;
-                            return (
-                                <tr key={mois} style={{ borderBottom: "1px solid var(--border)" }}>
-                                    <td className="px-4 py-2 font-semibold" style={{ color: "var(--text-primary)" }}>
-                                        {monthLabel(mois)}
-                                    </td>
-                                    <td className="px-3 py-2 text-right font-medium" style={{ color: "var(--text-primary)" }}>
-                                        {n ? fmtEur(n.ca) : "—"}
-                                    </td>
-                                    <td className="px-3 py-2 text-right" style={{ color: "var(--text-secondary)" }}>
-                                        {n1 ? fmtEur(n1.ca) : "—"}
-                                    </td>
-                                    <td className="px-3 py-2 text-right">
-                                        {dCa !== null ? (
-                                            <span className="font-semibold" style={{ color: isPositive ? "#10b981" : "#ef4444" }}>
-                                                {fmtPct(dCa)}
-                                            </span>
-                                        ) : "—"}
-                                    </td>
-                                    <td className="px-3 py-2 text-right font-medium" style={{ color: "var(--text-primary)" }}>
-                                        {n ? fmtQte(n.qte) : "—"}
-                                    </td>
-                                    <td className="px-3 py-2 text-right" style={{ color: "var(--text-secondary)" }}>
-                                        {n1 ? fmtQte(n1.qte) : "—"}
-                                    </td>
-                                    <td className="px-3 py-2 text-right">
-                                        {dQte !== null ? (
-                                            <span className="font-semibold" style={{ color: dQte >= 0 ? "#10b981" : "#ef4444" }}>
-                                                {fmtPct(dQte)}
-                                            </span>
-                                        ) : "—"}
-                                    </td>
-                                    <td className="px-3 py-2 text-right">
-                                        {txN !== null ? (
-                                            <span style={{ color: txN >= 25 ? "#10b981" : txN >= 15 ? "#f59e0b" : "#ef4444" }}>
-                                                {fmtPct(txN, false)}
-                                            </span>
-                                        ) : "—"}
-                                    </td>
-                                    <td className="px-4 py-2">
-                                        <div className="flex flex-col gap-0.5">
-                                            <div className="flex items-center gap-1">
-                                                <span className="text-[10px] w-5 shrink-0" style={{ color: "var(--accent)" }}>N</span>
-                                                <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
-                                                    <div className="h-full rounded-full" style={{ width: `${barN}%`, background: "var(--accent)" }} />
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-1">
-                                                <span className="text-[10px] w-5 shrink-0" style={{ color: "var(--text-muted)" }}>N-1</span>
-                                                <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
-                                                    <div className="h-full rounded-full" style={{ width: `${barN1}%`, background: "var(--text-muted)" }} />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Top10Table title="Top 10 CA" items={siteData.ca} sortKey="ca" />
+                <Top10Table title="Top 10 Quantité" items={siteData.qte} sortKey="qte" />
+                <Top10Table title="Top 10 Marge" items={siteData.marge} sortKey="marge" />
             </div>
         </div>
     );
@@ -305,16 +197,15 @@ export default async function DashboardPage() {
         );
     }
 
-    const { dateHier, sites, top10Ca, top10Qte, top10Marge, evolution } = data;
+    const { dateHier, dateN1, sites, top10BySite } = data;
 
-    // Totaux réseau
     const totalCa = sites.reduce((s, r) => s + r.ca_hier, 0);
     const totalCaN1 = sites.reduce((s, r) => s + r.ca_n1, 0);
     const totalTickets = sites.reduce((s, r) => s + r.tickets_hier, 0);
     const totalTicketsN1 = sites.reduce((s, r) => s + r.tickets_n1, 0);
 
     return (
-        <div className="flex flex-col gap-6 p-6 pb-12 max-w-screen-2xl mx-auto">
+        <div className="flex flex-col gap-6 pb-12">
             {/* Header */}
             <div>
                 <h1 className="text-2xl font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>
@@ -322,7 +213,8 @@ export default async function DashboardPage() {
                 </h1>
                 <p className="text-sm mt-0.5" style={{ color: "var(--text-muted)" }}>
                     Données du <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>{dateLabel(dateHier)}</span>
-                    {" "}· Comparaison vs même date N-1
+                    {" "}· Comparaison vs même jour de semaine N-1
+                    {dateN1 && <span> ({dateLabel(dateN1)})</span>}
                 </p>
             </div>
 
@@ -364,24 +256,20 @@ export default async function DashboardPage() {
                 )}
             </div>
 
-            {/* Hit Parade */}
+            {/* Hit Parade par magasin */}
             <div>
-                <h2 className="text-sm font-semibold mb-3 uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-                    Hit Parade — réseau · {dateLabel(dateHier)}
+                <h2 className="text-sm font-semibold mb-4 uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                    Hit Parade par magasin
                 </h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <Top10Table title="Top 10 Chiffre d'affaires" items={top10Ca} sortKey="ca" />
-                    <Top10Table title="Top 10 Quantité vendue" items={top10Qte} sortKey="qte" />
-                    <Top10Table title="Top 10 Marge brute" items={top10Marge} sortKey="marge" />
-                </div>
-            </div>
-
-            {/* Évolution N/N-1 */}
-            <div>
-                <h2 className="text-sm font-semibold mb-3 uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-                    Évolution annuelle
-                </h2>
-                <EvolutionTable evolution={evolution} />
+                {top10BySite.length === 0 ? (
+                    <p className="text-sm" style={{ color: "var(--text-muted)" }}>Aucune donnée pour hier.</p>
+                ) : (
+                    <div className="flex flex-col gap-8">
+                        {top10BySite.map(s => (
+                            <SiteHitParade key={s.site} siteData={s} dateHier={dateHier} />
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
     );
