@@ -240,7 +240,6 @@ function StoreCard({ site, dateHier, dateN1 }: { site: DashboardSiteStats; dateH
                             </div>
                         </div>
                     </div>
-                    <DeltaBadge pct={dCa} large />
                 </div>
 
                 {/* Metrics row */}
