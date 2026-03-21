@@ -106,6 +106,7 @@ function NetworkKpiCard({
                 padding: "1.5rem",
                 position: "relative",
                 overflow: "hidden",
+                boxShadow: "0 4px 24px rgba(0,0,0,0.18), 0 1px 4px rgba(0,0,0,0.12)",
             }}
         >
             {/* Decorative glow */}
@@ -204,6 +205,7 @@ function StoreCard({ site, dateHier, dateN1 }: { site: DashboardSiteStats; dateH
                 border: "1px solid var(--border)",
                 overflow: "hidden",
                 position: "relative",
+                boxShadow: "0 4px 24px rgba(0,0,0,0.18), 0 1px 4px rgba(0,0,0,0.12)",
             }}
         >
             {/* Top accent bar */}
@@ -363,6 +365,7 @@ function Top10Table({ title, items, sortKey, accent }: {
                 overflow: "hidden",
                 flex: 1,
                 minWidth: 0,
+                boxShadow: `0 4px 24px rgba(0,0,0,0.18), 0 0 0 0px ${accent.bar}`,
             }}
         >
             {/* Table header */}
@@ -604,6 +607,7 @@ export default async function DashboardPage() {
                     padding: "1.5rem 2rem",
                     position: "relative",
                     overflow: "hidden",
+                    boxShadow: "0 4px 24px rgba(0,0,0,0.18), 0 1px 4px rgba(0,0,0,0.12)",
                 }}
             >
                 {/* subtle background pattern */}

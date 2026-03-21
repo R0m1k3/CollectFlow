@@ -561,14 +561,18 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
         n1BySite.set(s.site, { ca: Number(s.ca_ttc) || 0, trafic: Number(s.trafic) || 0 });
     }
 
+    // Si le 2ème appel a renvoyé des données (n1BySite.size > 0), on utilise le jour de semaine N-1.
+    // Sinon (appel échoué ou jour sans données), on retombe sur ca_ttc_n1 de l'API (même date calendaire).
+    const weekdayN1Available = n1BySite.size > 0;
+
     const sites: DashboardSiteStats[] = (apiResult.sites ?? []).map(s => {
         const n1 = n1BySite.get(s.site);
         return {
             site: s.site,
             ca_hier: Number(s.ca_ttc) || 0,
-            ca_n1: n1?.ca ?? 0,           // uniquement jour de semaine N-1, jamais date calendaire
+            ca_n1: weekdayN1Available ? (n1?.ca ?? 0) : (Number(s.ca_ttc_n1) || 0),
             tickets_hier: Number(s.trafic) || 0,
-            tickets_n1: n1?.trafic ?? 0,  // idem
+            tickets_n1: weekdayN1Available ? (n1?.trafic ?? 0) : (Number(s.trafic_n1) || 0),
             qte_hier: 0,
             marge_hier: 0,
             lignes_hier: 0,
