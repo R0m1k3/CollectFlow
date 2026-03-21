@@ -566,9 +566,9 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
         return {
             site: s.site,
             ca_hier: Number(s.ca_ttc) || 0,
-            ca_n1: n1?.ca ?? Number(s.ca_ttc_n1) || 0,
+            ca_n1: n1?.ca ?? 0,           // uniquement jour de semaine N-1, jamais date calendaire
             tickets_hier: Number(s.trafic) || 0,
-            tickets_n1: n1?.trafic ?? Number(s.trafic_n1) || 0,
+            tickets_n1: n1?.trafic ?? 0,  // idem
             qte_hier: 0,
             marge_hier: 0,
             lignes_hier: 0,
