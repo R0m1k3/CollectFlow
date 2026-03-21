@@ -1,5 +1,5 @@
 import { pgGetDashboardData, type DashboardTopItem, type DashboardSiteStats, type DashboardSiteTop10 } from "@/lib/pg-ff-client";
-import { TrendingUp, TrendingDown, Minus, Store, Euro, Users } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, Store, Euro, Users, ShoppingCart, Award, BarChart3 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -38,123 +38,448 @@ function dateLabel(iso: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Design tokens (inline color helpers)
+// ---------------------------------------------------------------------------
+
+const clrPositive = "#22c55e";
+const clrNegative = "#ef4444";
+const clrGold = "#f59e0b";
+const clrSilver = "#94a3b8";
+const clrBronze = "#cd7c2b";
+
+const tableAccents = {
+    ca: { bar: "#3b82f6", header: "rgba(59,130,246,0.12)", border: "rgba(59,130,246,0.3)", label: "#60a5fa" },
+    qte: { bar: "#8b5cf6", header: "rgba(139,92,246,0.12)", border: "rgba(139,92,246,0.3)", label: "#a78bfa" },
+    marge: { bar: "#10b981", header: "rgba(16,185,129,0.12)", border: "rgba(16,185,129,0.3)", label: "#34d399" },
+};
+
+// ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function DeltaBadge({ pct }: { pct: number | null }) {
-    if (pct === null) return <span className="text-xs" style={{ color: "var(--text-muted)" }}>—</span>;
+function DeltaBadge({ pct, large = false }: { pct: number | null; large?: boolean }) {
+    if (pct === null) return <span style={{ color: "var(--text-muted)", fontSize: large ? "0.9rem" : "0.7rem" }}>—</span>;
     const isPos = pct >= 0;
     const Icon = pct > 0.5 ? TrendingUp : pct < -0.5 ? TrendingDown : Minus;
+    const color = isPos ? clrPositive : clrNegative;
+    const bg = isPos ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)";
+    const borderClr = isPos ? "rgba(34,197,94,0.25)" : "rgba(239,68,68,0.25)";
     return (
-        <span className="inline-flex items-center gap-0.5 text-xs font-semibold"
-            style={{ color: isPos ? "#10b981" : "#ef4444" }}>
-            <Icon className="w-3 h-3" />
+        <span
+            className="inline-flex items-center gap-1 font-bold"
+            style={{
+                color,
+                background: bg,
+                border: `1px solid ${borderClr}`,
+                borderRadius: "9999px",
+                padding: large ? "0.25rem 0.75rem" : "0.15rem 0.5rem",
+                fontSize: large ? "0.95rem" : "0.7rem",
+                letterSpacing: "-0.01em",
+            }}
+        >
+            <Icon style={{ width: large ? "1rem" : "0.7rem", height: large ? "1rem" : "0.7rem" }} />
             {fmtPct(pct)}
         </span>
     );
 }
 
-function KpiCard({ label, value, sub, delta: d, icon: Icon }: {
-    label: string; value: string; sub?: string; delta?: number | null;
-    icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+function NetworkKpiCard({
+    label, value, valueSub, delta: d, n1Value, n1Label, dateHier, dateN1, icon: Icon, accentColor,
+}: {
+    label: string;
+    value: string;
+    valueSub?: string;
+    delta?: number | null;
+    n1Value: string;
+    n1Label: string;
+    dateHier: string;
+    dateN1: string;
+    icon: React.ComponentType<{ style?: React.CSSProperties }>;
+    accentColor: string;
 }) {
     return (
-        <div className="rounded-xl p-4 flex flex-col gap-2" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
-            <div className="flex items-center justify-between">
-                <span className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>{label}</span>
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "var(--accent-bg)", border: "1px solid var(--accent-border)" }}>
-                    <Icon className="w-4 h-4" style={{ color: "var(--accent)" }} />
+        <div
+            className="rounded-2xl flex flex-col gap-5"
+            style={{
+                background: "var(--bg-elevated)",
+                border: "1px solid var(--border)",
+                padding: "1.5rem",
+                position: "relative",
+                overflow: "hidden",
+            }}
+        >
+            {/* Decorative glow */}
+            <div style={{
+                position: "absolute",
+                top: "-30px",
+                right: "-30px",
+                width: "120px",
+                height: "120px",
+                borderRadius: "50%",
+                background: `radial-gradient(circle, ${accentColor}22 0%, transparent 70%)`,
+                pointerEvents: "none",
+            }} />
+
+            <div className="flex items-start justify-between">
+                <div className="flex flex-col gap-1">
+                    <span
+                        className="text-xs font-semibold uppercase tracking-widest"
+                        style={{ color: "var(--text-muted)", letterSpacing: "0.1em" }}
+                    >
+                        {label}
+                    </span>
+                    <div className="flex items-baseline gap-2" style={{ marginTop: "0.25rem" }}>
+                        <span
+                            className="font-bold tracking-tight"
+                            style={{ fontSize: "2rem", lineHeight: 1, color: "var(--text-primary)" }}
+                        >
+                            {value}
+                        </span>
+                        {valueSub && (
+                            <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{valueSub}</span>
+                        )}
+                    </div>
+                </div>
+                <div
+                    className="flex items-center justify-center rounded-xl shrink-0"
+                    style={{
+                        width: "2.75rem",
+                        height: "2.75rem",
+                        background: `${accentColor}18`,
+                        border: `1px solid ${accentColor}30`,
+                    }}
+                >
+                    <Icon style={{ width: "1.25rem", height: "1.25rem", color: accentColor }} />
                 </div>
             </div>
-            <span className="text-2xl font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>{value}</span>
-            <div className="flex items-center gap-2">
-                {d !== undefined && <DeltaBadge pct={d} />}
-                {sub && <span className="text-xs" style={{ color: "var(--text-muted)" }}>{sub}</span>}
+
+            {/* Delta badge */}
+            {d !== undefined && (
+                <div className="flex items-center gap-3">
+                    <DeltaBadge pct={d} large />
+                    <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                        vs même jour N-1
+                    </span>
+                </div>
+            )}
+
+            {/* Divider */}
+            <div style={{ height: "1px", background: "var(--border)", margin: "0 -1.5rem" }} />
+
+            {/* N-1 comparison row */}
+            <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-0.5">
+                    <span style={{ fontSize: "0.68rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                        Hier — {dateHier}
+                    </span>
+                    <span style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-secondary)" }}>
+                        {value}
+                    </span>
+                </div>
+                <div style={{ width: "1px", height: "2rem", background: "var(--border)" }} />
+                <div className="flex flex-col gap-0.5 items-end">
+                    <span style={{ fontSize: "0.68rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                        N-1 — {dateN1}
+                    </span>
+                    <span style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-muted)" }}>
+                        {n1Value}
+                    </span>
+                </div>
             </div>
         </div>
     );
 }
 
-function SiteCard({ site }: { site: DashboardSiteStats }) {
+function StoreCard({ site, dateHier, dateN1 }: { site: DashboardSiteStats; dateHier: string; dateN1: string }) {
     const name = SITE_NAMES[site.site] ?? site.site;
     const dCa = delta(site.ca_hier, site.ca_n1);
     const dTickets = delta(site.tickets_hier, site.tickets_n1);
+    const isPos = dCa !== null && dCa >= 0;
 
     return (
-        <div className="rounded-xl p-5 flex flex-col gap-4" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
-            <div className="flex items-center gap-2">
-                <Store className="w-4 h-4" style={{ color: "var(--accent)" }} />
-                <span className="text-base font-bold" style={{ color: "var(--text-primary)" }}>{name}</span>
-                <span className="text-xs ml-auto" style={{ color: "var(--text-muted)" }}>site {site.site}</span>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-                <div>
-                    <div className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>CA</div>
-                    <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>{fmtEur(site.ca_hier)}</div>
-                    <div className="flex items-center gap-1.5">
-                        <DeltaBadge pct={dCa} />
-                        {site.ca_n1 > 0 && <span className="text-xs" style={{ color: "var(--text-muted)" }}>N-1 {fmtEur(site.ca_n1)}</span>}
+        <div
+            className="rounded-2xl flex flex-col"
+            style={{
+                background: "var(--bg-elevated)",
+                border: "1px solid var(--border)",
+                overflow: "hidden",
+                position: "relative",
+            }}
+        >
+            {/* Top accent bar */}
+            <div style={{
+                height: "3px",
+                background: isPos
+                    ? "linear-gradient(90deg, #22c55e, #10b981)"
+                    : "linear-gradient(90deg, #ef4444, #f97316)",
+            }} />
+
+            <div style={{ padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+                {/* Store header */}
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div
+                            className="rounded-xl flex items-center justify-center"
+                            style={{
+                                width: "2.5rem",
+                                height: "2.5rem",
+                                background: "var(--accent-bg)",
+                                border: "1px solid var(--accent-border)",
+                            }}
+                        >
+                            <Store style={{ width: "1.1rem", height: "1.1rem", color: "var(--accent)" }} />
+                        </div>
+                        <div>
+                            <div style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.2 }}>
+                                {name}
+                            </div>
+                            <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: "0.1rem" }}>
+                                Site {site.site}
+                            </div>
+                        </div>
+                    </div>
+                    <DeltaBadge pct={dCa} large />
+                </div>
+
+                {/* Metrics row */}
+                <div
+                    className="grid grid-cols-2 gap-4"
+                >
+                    {/* CA */}
+                    <div
+                        className="rounded-xl flex flex-col gap-2"
+                        style={{ background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.15)", padding: "1rem" }}
+                    >
+                        <div className="flex items-center gap-1.5">
+                            <Euro style={{ width: "0.8rem", height: "0.8rem", color: "#60a5fa" }} />
+                            <span style={{ fontSize: "0.65rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#60a5fa" }}>
+                                Chiffre d&apos;affaires
+                            </span>
+                        </div>
+                        <div style={{ fontSize: "1.35rem", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.02em", lineHeight: 1 }}>
+                            {fmtEur(site.ca_hier)}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                            <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>N-1 :</span>
+                            <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)" }}>
+                                {site.ca_n1 > 0 ? fmtEur(site.ca_n1) : "—"}
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Tickets */}
+                    <div
+                        className="rounded-xl flex flex-col gap-2"
+                        style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.15)", padding: "1rem" }}
+                    >
+                        <div className="flex items-center gap-1.5">
+                            <Users style={{ width: "0.8rem", height: "0.8rem", color: "#a78bfa" }} />
+                            <span style={{ fontSize: "0.65rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "#a78bfa" }}>
+                                Trafic tickets
+                            </span>
+                        </div>
+                        <div style={{ fontSize: "1.35rem", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.02em", lineHeight: 1 }}>
+                            {fmtQte(site.tickets_hier)}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                            <DeltaBadge pct={dTickets} />
+                            {site.tickets_n1 > 0 && (
+                                <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                                    N-1 : {fmtQte(site.tickets_n1)}
+                                </span>
+                            )}
+                        </div>
                     </div>
                 </div>
-                <div>
-                    <div className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Trafic (tickets)</div>
-                    <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>{fmtQte(site.tickets_hier)}</div>
-                    <div className="flex items-center gap-1.5">
-                        <DeltaBadge pct={dTickets} />
-                        {site.tickets_n1 > 0 && <span className="text-xs" style={{ color: "var(--text-muted)" }}>N-1 {fmtQte(site.tickets_n1)}</span>}
-                    </div>
+
+                {/* Date footer */}
+                <div
+                    className="flex items-center justify-between rounded-lg"
+                    style={{ background: "var(--bg-base)", border: "1px solid var(--border)", padding: "0.5rem 0.75rem" }}
+                >
+                    <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
+                        Hier : <strong style={{ color: "var(--text-secondary)" }}>{dateLabel(dateHier)}</strong>
+                    </span>
+                    <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
+                        N-1 : <strong style={{ color: "var(--text-secondary)" }}>{dateLabel(dateN1)}</strong>
+                    </span>
                 </div>
             </div>
         </div>
     );
 }
 
-function Top10Table({ title, items, sortKey }: {
-    title: string; items: DashboardTopItem[]; sortKey: "ca" | "qte" | "marge";
-}) {
-    const maxVal = items[0]?.[sortKey] ?? 1;
+function RankBadge({ rank }: { rank: number }) {
+    if (rank === 0) return (
+        <span style={{
+            width: "1.4rem", height: "1.4rem", borderRadius: "50%",
+            background: "linear-gradient(135deg, #f59e0b, #d97706)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "0.6rem", fontWeight: 800, color: "#fff", flexShrink: 0,
+            boxShadow: "0 0 8px rgba(245,158,11,0.5)",
+        }}>1</span>
+    );
+    if (rank === 1) return (
+        <span style={{
+            width: "1.4rem", height: "1.4rem", borderRadius: "50%",
+            background: "linear-gradient(135deg, #94a3b8, #64748b)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "0.6rem", fontWeight: 800, color: "#fff", flexShrink: 0,
+        }}>2</span>
+    );
+    if (rank === 2) return (
+        <span style={{
+            width: "1.4rem", height: "1.4rem", borderRadius: "50%",
+            background: "linear-gradient(135deg, #cd7c2b, #a05c1e)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "0.6rem", fontWeight: 800, color: "#fff", flexShrink: 0,
+        }}>3</span>
+    );
     return (
-        <div className="rounded-xl flex flex-col" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
-            <div className="px-4 py-3 flex items-center gap-2" style={{ borderBottom: "1px solid var(--border)" }}>
-                <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{title}</span>
+        <span style={{
+            width: "1.4rem", height: "1.4rem", borderRadius: "50%",
+            background: "var(--bg-base)",
+            border: "1px solid var(--border)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "0.6rem", fontWeight: 600, color: "var(--text-muted)", flexShrink: 0,
+        }}>{rank + 1}</span>
+    );
+}
+
+function Top10Table({ title, items, sortKey, accent }: {
+    title: string;
+    items: DashboardTopItem[];
+    sortKey: "ca" | "qte" | "marge";
+    accent: typeof tableAccents.ca;
+}) {
+    const maxVal = Math.max(items[0]?.[sortKey] ?? 1, 1);
+
+    return (
+        <div
+            className="rounded-2xl flex flex-col"
+            style={{
+                background: "var(--bg-elevated)",
+                border: `1px solid ${accent.border}`,
+                overflow: "hidden",
+                flex: 1,
+                minWidth: 0,
+            }}
+        >
+            {/* Table header */}
+            <div
+                className="flex items-center gap-2.5"
+                style={{
+                    background: accent.header,
+                    borderBottom: `1px solid ${accent.border}`,
+                    padding: "0.75rem 1rem",
+                }}
+            >
+                <div
+                    className="rounded-lg flex items-center justify-center"
+                    style={{
+                        width: "1.75rem",
+                        height: "1.75rem",
+                        background: `${accent.bar}20`,
+                        border: `1px solid ${accent.bar}40`,
+                    }}
+                >
+                    {sortKey === "ca" && <Euro style={{ width: "0.8rem", height: "0.8rem", color: accent.bar }} />}
+                    {sortKey === "qte" && <ShoppingCart style={{ width: "0.8rem", height: "0.8rem", color: accent.bar }} />}
+                    {sortKey === "marge" && <BarChart3 style={{ width: "0.8rem", height: "0.8rem", color: accent.bar }} />}
+                </div>
+                <span style={{ fontSize: "0.78rem", fontWeight: 700, color: accent.label, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                    {title}
+                </span>
             </div>
-            <div className="flex flex-col divide-y" style={{ borderColor: "var(--border)" }}>
-                {items.length === 0 && (
-                    <div className="px-4 py-8 text-center text-sm" style={{ color: "var(--text-muted)" }}>
-                        Aucune donnée pour hier
+
+            {/* Rows */}
+            <div className="flex flex-col">
+                {items.length === 0 ? (
+                    <div style={{ padding: "2rem", textAlign: "center", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                        Aucune donnée
                     </div>
-                )}
-                {items.map((item, i) => {
-                    const val = item[sortKey];
-                    const barPct = maxVal > 0 ? (val / maxVal) * 100 : 0;
-                    const txMarge = item.ca > 0 ? (item.marge / item.ca) * 100 : 0;
-                    return (
-                        <div key={item.codein} className="px-4 py-2.5 flex flex-col gap-1">
-                            <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold w-5 shrink-0 text-center rounded"
-                                    style={{ color: i === 0 ? "#f59e0b" : i === 1 ? "#94a3b8" : i === 2 ? "#92400e" : "var(--text-muted)" }}>
-                                    {i + 1}
-                                </span>
-                                <span className="text-xs flex-1 truncate" style={{ color: "var(--text-primary)" }} title={item.libelle1}>
-                                    {item.libelle1 ?? item.codein}
-                                </span>
-                                <span className="text-xs font-semibold shrink-0" style={{ color: "var(--text-primary)" }}>
-                                    {sortKey === "qte" ? fmtQte(val) : fmtEur(val)}
-                                </span>
-                            </div>
-                            <div className="flex items-center gap-2 pl-7">
-                                <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
-                                    <div className="h-full rounded-full" style={{ width: `${barPct}%`, background: "var(--accent)" }} />
+                ) : (
+                    items.map((item, i) => {
+                        const val = item[sortKey];
+                        const barPct = maxVal > 0 ? Math.max((val / maxVal) * 100, 2) : 0;
+                        const txMarge = item.ca > 0 ? (item.marge / item.ca) * 100 : 0;
+                        const isTopThree = i < 3;
+
+                        return (
+                            <div
+                                key={item.codein}
+                                style={{
+                                    padding: "0.55rem 1rem",
+                                    borderBottom: i < items.length - 1 ? "1px solid var(--border)" : undefined,
+                                    background: isTopThree ? `${accent.bar}06` : undefined,
+                                    transition: "background 0.15s",
+                                }}
+                            >
+                                {/* Main row */}
+                                <div className="flex items-center gap-2">
+                                    <RankBadge rank={i} />
+                                    <span
+                                        style={{
+                                            flex: 1,
+                                            fontSize: "0.78rem",
+                                            color: isTopThree ? "var(--text-primary)" : "var(--text-secondary)",
+                                            fontWeight: isTopThree ? 600 : 400,
+                                            overflow: "hidden",
+                                            textOverflow: "ellipsis",
+                                            whiteSpace: "nowrap",
+                                            minWidth: 0,
+                                        }}
+                                        title={item.libelle1}
+                                    >
+                                        {item.libelle1 ?? item.codein}
+                                    </span>
+                                    <span style={{
+                                        fontSize: "0.82rem",
+                                        fontWeight: 700,
+                                        color: "var(--text-primary)",
+                                        flexShrink: 0,
+                                        fontVariantNumeric: "tabular-nums",
+                                    }}>
+                                        {sortKey === "qte" ? fmtQte(val) : fmtEur(val)}
+                                    </span>
                                 </div>
-                                <span className="text-xs shrink-0" style={{ color: "var(--text-muted)" }}>
-                                    {sortKey === "ca" && `${fmtQte(item.qte)} pcs · `}
-                                    {sortKey !== "ca" && `CA ${fmtEur(item.ca)} · `}
-                                    {fmtPct(txMarge, false)} marge
-                                </span>
+
+                                {/* Progress bar + meta */}
+                                <div className="flex items-center gap-2" style={{ marginTop: "0.3rem", paddingLeft: "1.9rem" }}>
+                                    <div style={{
+                                        flex: 1,
+                                        height: "3px",
+                                        borderRadius: "9999px",
+                                        background: "var(--border)",
+                                        overflow: "hidden",
+                                    }}>
+                                        <div style={{
+                                            height: "100%",
+                                            width: `${barPct}%`,
+                                            borderRadius: "9999px",
+                                            background: i === 0
+                                                ? `linear-gradient(90deg, ${accent.bar}, ${clrGold})`
+                                                : accent.bar,
+                                            opacity: 1 - i * 0.07,
+                                        }} />
+                                    </div>
+                                    <span style={{
+                                        fontSize: "0.65rem",
+                                        color: "var(--text-muted)",
+                                        flexShrink: 0,
+                                        fontVariantNumeric: "tabular-nums",
+                                    }}>
+                                        {sortKey === "ca" && `${fmtQte(item.qte)} pcs · `}
+                                        {sortKey !== "ca" && `CA ${fmtEur(item.ca)} · `}
+                                        <span style={{ color: txMarge > 25 ? "#22c55e" : txMarge > 15 ? "#f59e0b" : "var(--text-muted)" }}>
+                                            {fmtPct(txMarge, false)} mg
+                                        </span>
+                                    </span>
+                                </div>
                             </div>
-                        </div>
-                    );
-                })}
+                        );
+                    })
+                )}
             </div>
         </div>
     );
@@ -162,17 +487,54 @@ function Top10Table({ title, items, sortKey }: {
 
 function SiteHitParade({ siteData, dateHier }: { siteData: DashboardSiteTop10; dateHier: string }) {
     const name = SITE_NAMES[siteData.site] ?? siteData.site;
+
     return (
-        <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-                <Store className="w-4 h-4" style={{ color: "var(--accent)" }} />
-                <h3 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{name}</h3>
-                <span className="text-xs" style={{ color: "var(--text-muted)" }}>· {dateLabel(dateHier)}</span>
+        <div className="flex flex-col gap-4">
+            {/* Section title */}
+            <div className="flex items-center gap-3">
+                <div
+                    className="rounded-xl flex items-center justify-center"
+                    style={{
+                        width: "2.25rem",
+                        height: "2.25rem",
+                        background: "var(--accent-bg)",
+                        border: "1px solid var(--accent-border)",
+                    }}
+                >
+                    <Award style={{ width: "1rem", height: "1rem", color: "var(--accent)" }} />
+                </div>
+                <div>
+                    <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.2 }}>
+                        Hit Parade — {name}
+                    </h3>
+                    <p style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: "0.1rem" }}>
+                        Données du {dateLabel(dateHier)} · site {siteData.site}
+                    </p>
+                </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <Top10Table title="Top 10 CA" items={siteData.ca} sortKey="ca" />
-                <Top10Table title="Top 10 Quantité" items={siteData.qte} sortKey="qte" />
-                <Top10Table title="Top 10 Marge" items={siteData.marge} sortKey="marge" />
+
+            {/* Three tables */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4" style={{ alignItems: "start" }}>
+                <Top10Table title="Top CA" items={siteData.ca} sortKey="ca" accent={tableAccents.ca} />
+                <Top10Table title="Top Quantité" items={siteData.qte} sortKey="qte" accent={tableAccents.qte} />
+                <Top10Table title="Top Marge" items={siteData.marge} sortKey="marge" accent={tableAccents.marge} />
+            </div>
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Section divider
+// ---------------------------------------------------------------------------
+
+function SectionHeader({ label, sub }: { label: string; sub?: string }) {
+    return (
+        <div className="flex items-end justify-between" style={{ paddingBottom: "0.75rem", borderBottom: "1px solid var(--border)" }}>
+            <div>
+                <h2 style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--text-muted)" }}>
+                    {label}
+                </h2>
+                {sub && <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "0.15rem" }}>{sub}</p>}
             </div>
         </div>
     );
@@ -190,9 +552,28 @@ export default async function DashboardPage() {
         const msg = e instanceof Error ? e.message : String(e);
         console.error("[Dashboard] pgGetDashboardData failed:", e);
         return (
-            <div className="p-8 text-center">
-                <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-                    Impossible de charger le tableau de bord : {msg.slice(0, 500)}
+            <div
+                className="rounded-2xl flex flex-col items-center gap-3"
+                style={{
+                    margin: "3rem auto",
+                    maxWidth: "480px",
+                    background: "var(--bg-elevated)",
+                    border: "1px solid var(--border)",
+                    padding: "2.5rem",
+                    textAlign: "center",
+                }}
+            >
+                <div
+                    className="rounded-xl flex items-center justify-center"
+                    style={{ width: "3rem", height: "3rem", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)" }}
+                >
+                    <TrendingDown style={{ width: "1.25rem", height: "1.25rem", color: "#ef4444" }} />
+                </div>
+                <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+                    Impossible de charger le tableau de bord
+                </p>
+                <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", fontFamily: "monospace" }}>
+                    {msg.slice(0, 300)}
                 </p>
             </div>
         );
@@ -205,73 +586,131 @@ export default async function DashboardPage() {
     const totalTickets = sites.reduce((s, r) => s + r.tickets_hier, 0);
     const totalTicketsN1 = sites.reduce((s, r) => s + r.tickets_n1, 0);
 
+    const dCaReseau = delta(totalCa, totalCaN1);
+    const dTicketsReseau = delta(totalTickets, totalTicketsN1);
+
+    const dHier = dateLabel(dateHier);
+    const dN1 = dateN1 ? dateLabel(dateN1) : "—";
+
     return (
-        <div className="flex flex-col gap-6 pb-12">
-            {/* Header */}
-            <div>
-                <h1 className="text-2xl font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>
-                    Tableau de Bord
-                </h1>
-                <p className="text-sm mt-0.5" style={{ color: "var(--text-muted)" }}>
-                    Données du <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>{dateLabel(dateHier)}</span>
-                    {" "}· Comparaison vs même jour de semaine N-1
-                    {dateN1 && <span> ({dateLabel(dateN1)})</span>}
-                </p>
+        <div className="flex flex-col gap-10 pb-16" style={{ width: "100%" }}>
+
+            {/* ── PAGE HEADER ─────────────────────────────────────────────── */}
+            <div
+                className="flex items-start justify-between rounded-2xl"
+                style={{
+                    background: "var(--bg-elevated)",
+                    border: "1px solid var(--border)",
+                    padding: "1.5rem 2rem",
+                    position: "relative",
+                    overflow: "hidden",
+                }}
+            >
+                {/* subtle background pattern */}
+                <div style={{
+                    position: "absolute", inset: 0, pointerEvents: "none",
+                    background: "radial-gradient(ellipse 60% 80% at 90% 50%, var(--accent-bg) 0%, transparent 70%)",
+                }} />
+
+                <div style={{ position: "relative" }}>
+                    <h1
+                        className="font-bold tracking-tight"
+                        style={{ fontSize: "1.75rem", color: "var(--text-primary)", lineHeight: 1 }}
+                    >
+                        Tableau de Bord
+                    </h1>
+                    <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", marginTop: "0.4rem" }}>
+                        Données du{" "}
+                        <strong style={{ color: "var(--text-secondary)" }}>{dHier}</strong>
+                        {" · "}
+                        Comparaison vs même jour de semaine N-1{" "}
+                        <strong style={{ color: "var(--text-secondary)" }}>({dN1})</strong>
+                    </p>
+                </div>
+
+                <div
+                    className="flex items-center gap-2 rounded-xl shrink-0"
+                    style={{
+                        position: "relative",
+                        background: "var(--accent-bg)",
+                        border: "1px solid var(--accent-border)",
+                        padding: "0.5rem 0.875rem",
+                    }}
+                >
+                    <Store style={{ width: "0.85rem", height: "0.85rem", color: "var(--accent)" }} />
+                    <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--accent)" }}>
+                        {sites.length} magasin{sites.length > 1 ? "s" : ""} actif{sites.length > 1 ? "s" : ""}
+                    </span>
+                </div>
             </div>
 
-            {/* KPI réseau */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <KpiCard
-                    label="CA Réseau"
-                    value={fmtEur(totalCa)}
-                    delta={delta(totalCa, totalCaN1)}
-                    sub={`N-1 : ${fmtEur(totalCaN1)}`}
-                    icon={Euro}
-                />
-                <KpiCard
-                    label="Trafic (tickets)"
-                    value={fmtQte(totalTickets)}
-                    delta={delta(totalTickets, totalTicketsN1)}
-                    sub={`N-1 : ${fmtQte(totalTicketsN1)}`}
-                    icon={Users}
-                />
-                <KpiCard
-                    label="Magasins actifs"
-                    value={`${sites.length}`}
-                    sub={sites.map(s => SITE_NAMES[s.site] ?? s.site).join(" · ")}
-                    icon={TrendingUp}
-                />
+            {/* ── KPI RÉSEAU ──────────────────────────────────────────────── */}
+            <div className="flex flex-col gap-4">
+                <SectionHeader label="Performance réseau" sub="Agrégat tous magasins — hier vs N-1" />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <NetworkKpiCard
+                        label="CA Réseau"
+                        value={fmtEur(totalCa)}
+                        delta={dCaReseau}
+                        n1Value={fmtEur(totalCaN1)}
+                        n1Label="N-1"
+                        dateHier={dHier}
+                        dateN1={dN1}
+                        icon={Euro}
+                        accentColor="#3b82f6"
+                    />
+                    <NetworkKpiCard
+                        label="Trafic — Tickets"
+                        value={fmtQte(totalTickets)}
+                        delta={dTicketsReseau}
+                        n1Value={fmtQte(totalTicketsN1)}
+                        n1Label="N-1"
+                        dateHier={dHier}
+                        dateN1={dN1}
+                        icon={Users}
+                        accentColor="#8b5cf6"
+                    />
+                </div>
             </div>
 
-            {/* Par magasin */}
-            <div>
-                <h2 className="text-sm font-semibold mb-3 uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-                    Par magasin
-                </h2>
-                {sites.length === 0 ? (
-                    <p className="text-sm" style={{ color: "var(--text-muted)" }}>Aucune donnée pour hier.</p>
-                ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {sites.map(s => <SiteCard key={s.site} site={s} />)}
-                    </div>
-                )}
-            </div>
+            {/* ── PAR MAGASIN ─────────────────────────────────────────────── */}
+            {sites.length > 0 && (
+                <div className="flex flex-col gap-4">
+                    <SectionHeader label="Détail par magasin" sub={`${sites.map(s => SITE_NAMES[s.site] ?? s.site).join(" · ")}`} />
 
-            {/* Hit Parade par magasin */}
-            <div>
-                <h2 className="text-sm font-semibold mb-4 uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-                    Hit Parade par magasin
-                </h2>
-                {top10BySite.length === 0 ? (
-                    <p className="text-sm" style={{ color: "var(--text-muted)" }}>Aucune donnée pour hier.</p>
-                ) : (
-                    <div className="flex flex-col gap-8">
-                        {top10BySite.map(s => (
-                            <SiteHitParade key={s.site} siteData={s} dateHier={dateHier} />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        {sites.map(s => (
+                            <StoreCard key={s.site} site={s} dateHier={dateHier} dateN1={dateN1 ?? dateHier} />
                         ))}
                     </div>
-                )}
-            </div>
+                </div>
+            )}
+
+            {/* ── HIT PARADE ──────────────────────────────────────────────── */}
+            {top10BySite.length > 0 && (
+                <div className="flex flex-col gap-8">
+                    <SectionHeader label="Hit Parade produits" sub="Top 10 par CA, Quantité et Marge — par magasin" />
+
+                    <div className="flex flex-col gap-10">
+                        {top10BySite.map((s, idx) => (
+                            <div key={s.site}>
+                                {idx > 0 && (
+                                    <div style={{ height: "1px", background: "var(--border)", marginBottom: "2.5rem" }} />
+                                )}
+                                <SiteHitParade siteData={s} dateHier={dateHier} />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* ── EMPTY STATE ─────────────────────────────────────────────── */}
+            {sites.length === 0 && (
+                <div style={{ textAlign: "center", padding: "3rem", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                    Aucune donnée disponible pour hier.
+                </div>
+            )}
         </div>
     );
 }
