@@ -15,7 +15,7 @@ const SITE_NAMES: Record<string, string> = {
 function fmtEur(n: number): string {
     const abs = Math.abs(n);
     if (abs >= 1_000_000) return `${(n / 1_000_000).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} M€`;
-    return `${Math.round(n).toLocaleString("fr-FR")} €`;
+    return `${n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 }
 
 function fmtQte(n: number): string {
@@ -147,6 +147,7 @@ function Top10Table({ title, items, sortKey }: {
                                     <div className="h-full rounded-full" style={{ width: `${barPct}%`, background: "var(--accent)" }} />
                                 </div>
                                 <span className="text-xs shrink-0" style={{ color: "var(--text-muted)" }}>
+                                    {sortKey === "ca" && `${fmtQte(item.qte)} pcs · `}
                                     {sortKey !== "ca" && `CA ${fmtEur(item.ca)} · `}
                                     {fmtPct(txMarge, false)} marge
                                 </span>

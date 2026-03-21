@@ -539,31 +539,41 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
     yesterday.setDate(yesterday.getDate() - 1);
     const dateHier = yesterday.toISOString().split("T")[0];
 
-    // Même jour de semaine N-1 : 364 jours = 52 semaines exactes (conserve le jour)
+    // N-1 : même jour de semaine, même semaine N-1 → 364 jours = 52 semaines exactes
     const n1Date = new Date(yesterday);
     n1Date.setDate(n1Date.getDate() - 364);
     const dateN1Param = n1Date.toISOString().split("T")[0];
 
     const apiBase = "https://api.ffnancy.fr/api/performance";
 
-    const apiResult = await fetch(
-        `${apiBase}/dashboard?date=${dateHier}&date_n1=${dateN1Param}`,
-        { cache: "no-store" }
-    ).then(r => {
-        if (!r.ok) throw new Error(`API dashboard ${r.status}: ${r.statusText}`);
-        return r.json() as Promise<ApiPerfDashboard>;
-    });
+    // Deux appels parallèles : données hier + données même jour N-1
+    const [apiResult, apiN1Result] = await Promise.all([
+        fetch(`${apiBase}/dashboard?date=${dateHier}`, { cache: "no-store" })
+            .then(r => { if (!r.ok) throw new Error(`API dashboard ${r.status}: ${r.statusText}`); return r.json() as Promise<ApiPerfDashboard>; }),
+        fetch(`${apiBase}/dashboard?date=${dateN1Param}`, { cache: "no-store" })
+            .then(r => r.ok ? r.json() as Promise<ApiPerfDashboard> : null)
+            .catch(() => null),
+    ]);
 
-    const sites: DashboardSiteStats[] = (apiResult.sites ?? []).map(s => ({
-        site: s.site,
-        ca_hier: Number(s.ca_ttc) || 0,
-        ca_n1: Number(s.ca_ttc_n1) || 0,
-        tickets_hier: Number(s.trafic) || 0,
-        tickets_n1: Number(s.trafic_n1) || 0,
-        qte_hier: 0,
-        marge_hier: 0,
-        lignes_hier: 0,
-    }));
+    // Construire map N-1 par site depuis l'appel séparé
+    const n1BySite = new Map<string, { ca: number; trafic: number }>();
+    for (const s of apiN1Result?.sites ?? []) {
+        n1BySite.set(s.site, { ca: Number(s.ca_ttc) || 0, trafic: Number(s.trafic) || 0 });
+    }
+
+    const sites: DashboardSiteStats[] = (apiResult.sites ?? []).map(s => {
+        const n1 = n1BySite.get(s.site);
+        return {
+            site: s.site,
+            ca_hier: Number(s.ca_ttc) || 0,
+            ca_n1: n1?.ca ?? Number(s.ca_ttc_n1) || 0,
+            tickets_hier: Number(s.trafic) || 0,
+            tickets_n1: n1?.trafic ?? Number(s.trafic_n1) || 0,
+            qte_hier: 0,
+            marge_hier: 0,
+            lignes_hier: 0,
+        };
+    });
 
     // Top 10 par magasin : grouper les items par site, trier, garder top 10
     const buildTop10 = (items: ApiPerfTopItem[], sortKey: "ca" | "qte" | "marge"): DashboardTopItem[] =>
@@ -595,12 +605,11 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
         };
     });
 
-    const dateN1 = apiResult.date_n1 ?? dateN1Param;
-    console.log(`[pg-ff] Dashboard API: ${sites.length} sites, date=${apiResult.date}, date_n1=${dateN1}`);
+    console.log(`[pg-ff] Dashboard: hier=${dateHier} n1=${dateN1Param} sites=${sites.length} n1_found=${n1BySite.size}`);
 
     return {
         dateHier: apiResult.date ?? dateHier,
-        dateN1,
+        dateN1: apiN1Result?.date ?? dateN1Param,
         sites,
         top10BySite,
     };
