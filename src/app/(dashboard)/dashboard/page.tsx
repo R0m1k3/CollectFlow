@@ -258,8 +258,11 @@ function StoreCard({ site, dateHier, dateN1 }: { site: DashboardSiteStats; dateH
                                 Chiffre d&apos;affaires
                             </span>
                         </div>
-                        <div style={{ fontSize: "1.35rem", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.02em", lineHeight: 1 }}>
-                            {fmtEur(site.ca_hier)}
+                        <div className="flex items-baseline gap-2">
+                            <div style={{ fontSize: "1.35rem", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.02em", lineHeight: 1 }}>
+                                {fmtEur(site.ca_hier)}
+                            </div>
+                            <DeltaBadge pct={dCa} large />
                         </div>
                         <div className="flex items-center gap-1.5">
                             <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>N-1 :</span>
