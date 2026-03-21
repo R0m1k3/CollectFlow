@@ -337,8 +337,9 @@ export default async function DashboardPage() {
             </div>
 
             {/* Debug probe — à supprimer une fois les colonnes confirmées */}
-            <div className="rounded-lg px-4 py-2 text-xs font-mono" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
-                🔍 probe: cumstatCol=&quot;{debug.cumstatCol ?? "null"}&quot; · mvtart(genremvt=3,400j)={debug.mvtartCount} · statopcajour={debug.statopCount} · cols=[{debug.statopCols.join(", ")}]
+            <div className="rounded-lg px-4 py-2 text-xs font-mono break-all" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
+                🔍 cumstat=&quot;{debug.cumstatCol ?? "∅"}&quot; · mvtart={debug.mvtartCount} · statop_rows={debug.statopCount} · {debug.extra}<br/>
+                cols=[{debug.statopCols.join(" | ")}]
             </div>
 
             {/* KPI réseau */}

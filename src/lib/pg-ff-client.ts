@@ -504,6 +504,7 @@ export interface DashboardData {
         statopCols: string[];
         mvtartCount: number;
         statopCount: number;
+        extra: string;
     };
 }
 
@@ -519,43 +520,51 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
     yesterday.setDate(yesterday.getDate() - 1);
     const dateHier = yesterday.toISOString().split("T")[0];
 
-    // Probe schéma en parallèle avec les vraies requêtes
-    const [schemaCheck, statopCheck, mvtCountCheck, statopCountCheck] = await Promise.all([
+    // Probe schéma : identifier le vrai nom de StatOpCAJour + colonne cumstat + count mvtart
+    const [statopTablesCheck, cumstatColCheck, mvtCountCheck, mvtSiteCheck] = await Promise.all([
+        // Chercher la table StatOpCAJour (peu importe la casse)
+        db.execute(sql`
+            SELECT t.table_name, c.column_name
+            FROM information_schema.tables t
+            JOIN information_schema.columns c ON c.table_name = t.table_name
+            WHERE LOWER(t.table_name) LIKE '%statop%'
+            ORDER BY t.table_name, c.column_name
+            LIMIT 30
+        `).catch(() => ({ rows: [] })),
+        // Colonne cumstat dans mvtart
         db.execute(sql`
             SELECT column_name FROM information_schema.columns
             WHERE table_name = 'mvtart' AND column_name ILIKE 'cum%'
             LIMIT 5
         `).catch(() => ({ rows: [] })),
+        // Vérifier qu'il y a des données mvtart récentes pour ces sites
         db.execute(sql`
-            SELECT table_name, column_name FROM information_schema.columns
-            WHERE table_name ILIKE 'statop%'
-            ORDER BY table_name, column_name LIMIT 20
+            SELECT COUNT(*)::int AS cnt, MAX(datmvt)::text AS last_date
+            FROM mvtart
+            WHERE genremvt = 3
+        `).catch(() => ({ rows: [{ cnt: -1, last_date: null }] })),
+        // Confirmer les valeurs de site disponibles
+        db.execute(sql`
+            SELECT DISTINCT site FROM mvtart WHERE genremvt = 3 ORDER BY site LIMIT 20
         `).catch(() => ({ rows: [] })),
-        db.execute(sql`
-            SELECT COUNT(*)::int AS cnt FROM mvtart
-            WHERE genremvt = 3 AND site IN ('292', '579')
-              AND datmvt >= CURRENT_DATE - 400
-        `).catch(() => ({ rows: [{ cnt: -1 }] })),
-        db.execute(sql`
-            SELECT COUNT(*)::int AS cnt FROM statopcajour
-            WHERE site IN ('292', '579') LIMIT 1
-        `).catch(() => ({ rows: [{ cnt: -1 }] })),
     ]);
 
-    const cumstatCol = (schemaCheck.rows as { column_name: string }[])[0]?.column_name ?? null;
-    const statopCols = (statopCheck.rows as { table_name: string; column_name: string }[]).map(r => `${r.table_name}.${r.column_name}`);
-    const mvtartCount = Number((mvtCountCheck.rows as { cnt: number }[])[0]?.cnt ?? -1);
-    const statopCount = Number((statopCountCheck.rows as { cnt: number }[])[0]?.cnt ?? -1);
-    console.log(`[pg-ff] Dashboard probe: cumstatCol="${cumstatCol}", mvtart rows(genremvt=3,last400d)=${mvtartCount}, statopcajour rows=${statopCount}`);
-    console.log(`[pg-ff] statopcajour cols: [${statopCols.join(", ")}]`);
+    const statopRows = statopTablesCheck.rows as { table_name: string; column_name: string }[];
+    const statopTableName = statopRows[0]?.table_name ?? null;
+    const statopCols = [...new Set(statopRows.map(r => r.column_name))];
+    const cumstatCol = (cumstatColCheck.rows as { column_name: string }[])[0]?.column_name ?? null;
+    const mvtartTotal = (mvtCountCheck.rows as { cnt: number; last_date: string | null }[])[0];
+    const mvtartSites = (mvtSiteCheck.rows as { site: string }[]).map(r => r.site);
 
-    // Pas de filtre cumstat pour l'instant — on le ré-ajoutera avec le bon nom de colonne
-    const cumstatFilter = sql``;
+    console.log(`[pg-ff] Dashboard probe:`);
+    console.log(`  StatOp table: "${statopTableName}", cols: [${statopCols.join(", ")}]`);
+    console.log(`  cumstatCol: "${cumstatCol}"`);
+    console.log(`  mvtart genremvt=3: cnt=${mvtartTotal?.cnt}, last_date=${mvtartTotal?.last_date}`);
+    console.log(`  mvtart sites dispo: [${mvtartSites.join(", ")}]`);
 
-    const [caTicketsResult, mvtSitesResult, top10CaResult, top10QteResult, top10MargeResult, evolutionResult] =
-        await Promise.all([
-            // CA + Tickets par site depuis statopcajour : hier vs même date N-1
-            pgNoParallel(sql`
+    // Requête StatOp avec le vrai nom de table découvert (ou fallback vide)
+    const caTicketsPromise = statopTableName
+        ? pgNoParallel(sql`
                 SELECT
                     s.site,
                     SUM(CASE WHEN s.datmvt = CURRENT_DATE - 1
@@ -566,15 +575,20 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                              THEN s.nbticket ELSE 0 END)::int   AS tickets_hier,
                     SUM(CASE WHEN s.datmvt = (CURRENT_DATE - 1 - INTERVAL '1 year')
                              THEN s.nbticket ELSE 0 END)::int   AS tickets_n1
-                FROM statopcajour s
+                FROM ${sql.raw(`"${statopTableName}"`)} s
                 WHERE s.datmvt IN (CURRENT_DATE - 1, CURRENT_DATE - 1 - INTERVAL '1 year')
                   AND s.site IN ('292', '579')
                 GROUP BY s.site
                 ORDER BY s.site
             `).catch((err) => {
-                console.error("[pg-ff] statopcajour query failed:", err.message);
+                console.error("[pg-ff] StatOp query failed:", err.message);
                 return { rows: [] };
-            }),
+            })
+        : Promise.resolve({ rows: [] });
+
+    const [caTicketsResult, mvtSitesResult, top10CaResult, top10QteResult, top10MargeResult, evolutionResult] =
+        await Promise.all([
+            caTicketsPromise,
             // QTE + Marge + Lignes par site depuis mvtart
             pgNoParallel(sql`
                 SELECT
@@ -585,7 +599,6 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 FROM mvtart m
                 WHERE m.datmvt = CURRENT_DATE - 1
                   AND m.genremvt = 3
-                  ${cumstatFilter}
                   AND m.site IN ('292', '579')
                 GROUP BY m.site
                 ORDER BY m.site
@@ -602,7 +615,6 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 JOIN articles a ON a.no_id = m.artnoid
                 WHERE m.datmvt = CURRENT_DATE - 1
                   AND m.genremvt = 3
-                  ${cumstatFilter}
                   AND m.site IN ('292', '579')
                 GROUP BY a.codein, a.libelle1
                 ORDER BY ca DESC
@@ -620,7 +632,6 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 JOIN articles a ON a.no_id = m.artnoid
                 WHERE m.datmvt = CURRENT_DATE - 1
                   AND m.genremvt = 3
-                  ${cumstatFilter}
                   AND m.site IN ('292', '579')
                 GROUP BY a.codein, a.libelle1
                 ORDER BY qte DESC
@@ -638,7 +649,6 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 JOIN articles a ON a.no_id = m.artnoid
                 WHERE m.datmvt = CURRENT_DATE - 1
                   AND m.genremvt = 3
-                  ${cumstatFilter}
                   AND m.site IN ('292', '579')
                 GROUP BY a.codein, a.libelle1
                 ORDER BY marge DESC
@@ -655,7 +665,6 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 WHERE m.datmvt >= (CURRENT_DATE - INTERVAL '25 months')
                   AND m.datmvt < CURRENT_DATE
                   AND m.genremvt = 3
-                  ${cumstatFilter}
                   AND m.site IN ('292', '579')
                 GROUP BY TO_CHAR(m.datmvt, 'YYYY-MM')
                 ORDER BY mois
@@ -702,6 +711,12 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
         top10Qte: top10QteResult.rows as unknown as DashboardTopItem[],
         top10Marge: top10MargeResult.rows as unknown as DashboardTopItem[],
         evolution: evolutionResult.rows as unknown as DashboardMonthStats[],
-        debug: { cumstatCol, statopCols, mvtartCount, statopCount },
+        debug: {
+            cumstatCol,
+            statopCols: [`table="${statopTableName}"`, ...statopCols],
+            mvtartCount: mvtartTotal?.cnt ?? -1,
+            statopCount: caTicketsResult.rows.length,
+            extra: `last_mvt=${mvtartTotal?.last_date ?? "?"} sites=[${mvtartSites.join(",")}]`,
+        },
     };
 }
