@@ -311,7 +311,7 @@ export default async function DashboardPage() {
         );
     }
 
-    const { dateHier, sites, top10Ca, top10Qte, top10Marge, evolution } = data;
+    const { dateHier, sites, top10Ca, top10Qte, top10Marge, evolution, debug } = data;
 
     // Totaux réseau
     const totalCa = sites.reduce((s, r) => s + r.ca_hier, 0);
@@ -334,6 +334,11 @@ export default async function DashboardPage() {
                     Données du <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>{dateLabel(dateHier)}</span>
                     {" "}· Comparaison vs même date N-1
                 </p>
+            </div>
+
+            {/* Debug probe — à supprimer une fois les colonnes confirmées */}
+            <div className="rounded-lg px-4 py-2 text-xs font-mono" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
+                🔍 probe: cumstatCol=&quot;{debug.cumstatCol ?? "null"}&quot; · mvtart(genremvt=3,400j)={debug.mvtartCount} · statopcajour={debug.statopCount} · cols=[{debug.statopCols.join(", ")}]
             </div>
 
             {/* KPI réseau */}

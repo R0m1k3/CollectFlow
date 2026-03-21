@@ -499,6 +499,12 @@ export interface DashboardData {
     top10Qte: DashboardTopItem[];
     top10Marge: DashboardTopItem[];
     evolution: DashboardMonthStats[]; // 25 mois pour N vs N-1
+    debug: {
+        cumstatCol: string | null;
+        statopCols: string[];
+        mvtartCount: number;
+        statopCount: number;
+    };
 }
 
 /**
@@ -513,27 +519,38 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
     yesterday.setDate(yesterday.getDate() - 1);
     const dateHier = yesterday.toISOString().split("T")[0];
 
-    // Probe schéma : vérifier l'existence de cumstat dans mvtart et de statopcajour
-    const [schemaCheck, statopCheck] = await Promise.all([
+    // Probe schéma en parallèle avec les vraies requêtes
+    const [schemaCheck, statopCheck, mvtCountCheck, statopCountCheck] = await Promise.all([
         db.execute(sql`
             SELECT column_name FROM information_schema.columns
             WHERE table_name = 'mvtart' AND column_name ILIKE 'cum%'
             LIMIT 5
         `).catch(() => ({ rows: [] })),
         db.execute(sql`
-            SELECT column_name FROM information_schema.columns
+            SELECT table_name, column_name FROM information_schema.columns
             WHERE table_name ILIKE 'statop%'
-            ORDER BY table_name, column_name
-            LIMIT 20
+            ORDER BY table_name, column_name LIMIT 20
         `).catch(() => ({ rows: [] })),
+        db.execute(sql`
+            SELECT COUNT(*)::int AS cnt FROM mvtart
+            WHERE genremvt = 3 AND site IN ('292', '579')
+              AND datmvt >= CURRENT_DATE - 400
+        `).catch(() => ({ rows: [{ cnt: -1 }] })),
+        db.execute(sql`
+            SELECT COUNT(*)::int AS cnt FROM statopcajour
+            WHERE site IN ('292', '579') LIMIT 1
+        `).catch(() => ({ rows: [{ cnt: -1 }] })),
     ]);
 
     const cumstatCol = (schemaCheck.rows as { column_name: string }[])[0]?.column_name ?? null;
-    const statopCols = (statopCheck.rows as { column_name: string }[]).map(r => r.column_name);
-    console.log(`[pg-ff] Dashboard schema probe → mvtart cumstat col: "${cumstatCol}", statopcajour cols: [${statopCols.join(", ")}]`);
+    const statopCols = (statopCheck.rows as { table_name: string; column_name: string }[]).map(r => `${r.table_name}.${r.column_name}`);
+    const mvtartCount = Number((mvtCountCheck.rows as { cnt: number }[])[0]?.cnt ?? -1);
+    const statopCount = Number((statopCountCheck.rows as { cnt: number }[])[0]?.cnt ?? -1);
+    console.log(`[pg-ff] Dashboard probe: cumstatCol="${cumstatCol}", mvtart rows(genremvt=3,last400d)=${mvtartCount}, statopcajour rows=${statopCount}`);
+    console.log(`[pg-ff] statopcajour cols: [${statopCols.join(", ")}]`);
 
-    // Filtre cumstat dynamique selon disponibilité de la colonne
-    const cumstatFilter = cumstatCol ? sql`AND m.${sql.raw(cumstatCol)} = 1` : sql``;
+    // Pas de filtre cumstat pour l'instant — on le ré-ajoutera avec le bon nom de colonne
+    const cumstatFilter = sql``;
 
     const [caTicketsResult, mvtSitesResult, top10CaResult, top10QteResult, top10MargeResult, evolutionResult] =
         await Promise.all([
@@ -685,5 +702,6 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
         top10Qte: top10QteResult.rows as unknown as DashboardTopItem[],
         top10Marge: top10MargeResult.rows as unknown as DashboardTopItem[],
         evolution: evolutionResult.rows as unknown as DashboardMonthStats[],
+        debug: { cumstatCol, statopCols, mvtartCount, statopCount },
     };
 }
