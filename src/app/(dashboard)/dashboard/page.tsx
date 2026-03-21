@@ -1,11 +1,18 @@
 import { pgGetDashboardData, type DashboardTopItem, type DashboardSiteStats, type DashboardMonthStats } from "@/lib/pg-ff-client";
-import { TrendingUp, TrendingDown, Minus, Store, ShoppingCart, Euro, Percent, Users } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, Store, Euro, Percent, Users } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const SITE_NAMES: Record<string, string> = { "292": "Frouard", "579": "Houdemont" };
+// Codes sites tels que retournés par l'API (ex: "F01") → nom affiché
+const SITE_NAMES: Record<string, string> = {
+    "F01": "Frouard",
+    "F02": "Houdemont",
+    // Anciens codes PostgreSQL si jamais
+    "292": "Frouard",
+    "579": "Houdemont",
+};
 
 function fmtEur(n: number): string {
     const abs = Math.abs(n);
@@ -107,19 +114,6 @@ function SiteCard({ site }: { site: DashboardSiteStats }) {
                         {site.tickets_n1 > 0 && <span className="text-xs" style={{ color: "var(--text-muted)" }}>N-1 {fmtQte(site.tickets_n1)}</span>}
                     </div>
                 </div>
-                <div>
-                    <div className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Marge</div>
-                    <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>{fmtEur(site.marge_hier)}</div>
-                </div>
-                <div>
-                    <div className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Tx Marge</div>
-                    <div className="text-lg font-bold" style={{ color: txMarge >= 25 ? "#10b981" : txMarge >= 15 ? "#f59e0b" : "#ef4444" }}>
-                        {fmtPct(txMarge, false)}
-                    </div>
-                </div>
-            </div>
-            <div className="text-xs pt-2" style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border)" }}>
-                {fmtQte(site.qte_hier)} articles · {fmtQte(site.lignes_hier)} lignes
             </div>
         </div>
     );
@@ -311,17 +305,13 @@ export default async function DashboardPage() {
         );
     }
 
-    const { dateHier, sites, top10Ca, top10Qte, top10Marge, evolution, debug } = data;
+    const { dateHier, sites, top10Ca, top10Qte, top10Marge, evolution } = data;
 
     // Totaux réseau
     const totalCa = sites.reduce((s, r) => s + r.ca_hier, 0);
     const totalCaN1 = sites.reduce((s, r) => s + r.ca_n1, 0);
     const totalTickets = sites.reduce((s, r) => s + r.tickets_hier, 0);
     const totalTicketsN1 = sites.reduce((s, r) => s + r.tickets_n1, 0);
-    const totalQte = sites.reduce((s, r) => s + r.qte_hier, 0);
-    const totalMarge = sites.reduce((s, r) => s + r.marge_hier, 0);
-    const txMarge = totalCa > 0 ? (totalMarge / totalCa) * 100 : 0;
-    const totalLignes = sites.reduce((s, r) => s + r.lignes_hier, 0);
 
     return (
         <div className="flex flex-col gap-6 p-6 pb-12 max-w-screen-2xl mx-auto">
@@ -334,12 +324,6 @@ export default async function DashboardPage() {
                     Données du <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>{dateLabel(dateHier)}</span>
                     {" "}· Comparaison vs même date N-1
                 </p>
-            </div>
-
-            {/* Debug probe — à supprimer une fois les colonnes confirmées */}
-            <div className="rounded-lg px-4 py-2 text-xs font-mono break-all" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
-                🔍 cumstat=&quot;{debug.cumstatCol ?? "∅"}&quot; · mvtart={debug.mvtartCount} · statop_rows={debug.statopCount} · {debug.extra}<br/>
-                cols=[{debug.statopCols.join(" | ")}]
             </div>
 
             {/* KPI réseau */}
@@ -359,15 +343,10 @@ export default async function DashboardPage() {
                     icon={Users}
                 />
                 <KpiCard
-                    label="Marge Brute"
-                    value={fmtEur(totalMarge)}
-                    sub={`${fmtQte(totalQte)} articles · ${fmtQte(totalLignes)} lignes`}
+                    label="Magasins actifs"
+                    value={`${sites.length}`}
+                    sub={sites.map(s => SITE_NAMES[s.site] ?? s.site).join(" · ")}
                     icon={TrendingUp}
-                />
-                <KpiCard
-                    label="Taux de Marge"
-                    value={fmtPct(txMarge, false)}
-                    icon={Percent}
                 />
             </div>
 

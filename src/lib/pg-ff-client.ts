@@ -469,9 +469,9 @@ export async function pgGetCommandesByFournisseur(codefou: string): Promise<Map<
 export interface DashboardSiteStats {
     site: string;
     ca_hier: number;
-    ca_n1: number;          // même date N-1 (statopcajour)
-    tickets_hier: number;   // nb tickets hier (statopcajour)
-    tickets_n1: number;     // nb tickets même date N-1 (statopcajour)
+    ca_n1: number;
+    tickets_hier: number;
+    tickets_n1: number;
     qte_hier: number;
     marge_hier: number;
     lignes_hier: number;
@@ -493,230 +493,106 @@ export interface DashboardMonthStats {
 }
 
 export interface DashboardData {
-    dateHier: string; // "YYYY-MM-DD"
+    dateHier: string;
     sites: DashboardSiteStats[];
     top10Ca: DashboardTopItem[];
     top10Qte: DashboardTopItem[];
     top10Marge: DashboardTopItem[];
-    evolution: DashboardMonthStats[]; // 25 mois pour N vs N-1
-    debug: {
-        cumstatCol: string | null;
-        statopCols: string[];
-        mvtartCount: number;
-        statopCount: number;
-        extra: string;
-    };
+    evolution: DashboardMonthStats[];
+}
+
+// ---------------------------------------------------------------------------
+// Types internes API performance
+// ---------------------------------------------------------------------------
+
+interface ApiPerfSite {
+    site: string;
+    ca_ttc: number;
+    ca_ttc_n1: number;
+    trafic: number;
+    trafic_n1: number;
+}
+
+interface ApiPerfTopItem {
+    codein: string;
+    libelle1: string;
+    site: string;
+    ca_ttc: number;
+    qte_vendue: number;
+    marge: number;
+}
+
+interface ApiPerfDashboard {
+    date: string;
+    date_n1: string;
+    sites: ApiPerfSite[];
+    top10_ca: ApiPerfTopItem[];
+    top10_qte: ApiPerfTopItem[];
+    top10_marge: ApiPerfTopItem[];
 }
 
 /**
  * Retourne toutes les données nécessaires pour le dashboard quotidien.
- * 6 requêtes SQL en parallèle — données réseau (sites 292 + 579).
- *
- * CA + Trafic : statopcajour (précalculé, N-1 même date réelle)
- * Top 10 + Évolution : mvtart avec cumstat = 1 (mouvements statistiques)
+ * 100% via l'API REST api.ffnancy.fr — aucune requête PostgreSQL directe.
  */
 export async function pgGetDashboardData(): Promise<DashboardData> {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const dateHier = yesterday.toISOString().split("T")[0];
 
-    // Probe schéma : identifier le vrai nom de StatOpCAJour + colonne cumstat + count mvtart
-    const [statopTablesCheck, cumstatColCheck, mvtCountCheck, mvtSiteCheck] = await Promise.all([
-        // Chercher la table StatOpCAJour (peu importe la casse)
-        db.execute(sql`
-            SELECT t.table_name, c.column_name
-            FROM information_schema.tables t
-            JOIN information_schema.columns c ON c.table_name = t.table_name
-            WHERE LOWER(t.table_name) LIKE '%statop%'
-            ORDER BY t.table_name, c.column_name
-            LIMIT 30
-        `).catch(() => ({ rows: [] })),
-        // Colonne cumstat dans mvtart
-        db.execute(sql`
-            SELECT column_name FROM information_schema.columns
-            WHERE table_name = 'mvtart' AND column_name ILIKE 'cum%'
-            LIMIT 5
-        `).catch(() => ({ rows: [] })),
-        // Vérifier qu'il y a des données mvtart récentes pour ces sites
-        db.execute(sql`
-            SELECT COUNT(*)::int AS cnt, MAX(datmvt)::text AS last_date
-            FROM mvtart
-            WHERE genremvt = 3
-        `).catch(() => ({ rows: [{ cnt: -1, last_date: null }] })),
-        // Confirmer les valeurs de site disponibles
-        db.execute(sql`
-            SELECT DISTINCT site FROM mvtart WHERE genremvt = 3 ORDER BY site LIMIT 20
-        `).catch(() => ({ rows: [] })),
+    const apiBase = "https://api.ffnancy.fr/api/performance";
+
+    // 2 appels API en parallèle : dashboard (hier) + évolution mensuelle (si endpoint dispo)
+    const [apiResult, evoResult] = await Promise.all([
+        fetch(`${apiBase}/dashboard?date=${dateHier}`, { cache: "no-store" })
+            .then(r => { if (!r.ok) throw new Error(`API dashboard ${r.status}: ${r.statusText}`); return r.json() as Promise<ApiPerfDashboard>; }),
+        // Évolution mensuelle — endpoint séparé (à confirmer), fallback à null
+        fetch(`${apiBase}/evolution`, { cache: "no-store" })
+            .then(r => r.ok ? r.json() as Promise<{ months: DashboardMonthStats[] }> : null)
+            .catch(() => null),
     ]);
 
-    const statopRows = statopTablesCheck.rows as { table_name: string; column_name: string }[];
-    const statopTableName = statopRows[0]?.table_name ?? null;
-    const statopCols = [...new Set(statopRows.map(r => r.column_name))];
-    const cumstatCol = (cumstatColCheck.rows as { column_name: string }[])[0]?.column_name ?? null;
-    const mvtartTotal = (mvtCountCheck.rows as { cnt: number; last_date: string | null }[])[0];
-    const mvtartSites = (mvtSiteCheck.rows as { site: string }[]).map(r => r.site);
+    const sites: DashboardSiteStats[] = (apiResult.sites ?? []).map(s => ({
+        site: s.site,
+        ca_hier: Number(s.ca_ttc) || 0,
+        ca_n1: Number(s.ca_ttc_n1) || 0,
+        tickets_hier: Number(s.trafic) || 0,
+        tickets_n1: Number(s.trafic_n1) || 0,
+        qte_hier: 0,
+        marge_hier: 0,   // non disponible dans l'API — affichera 0
+        lignes_hier: 0,
+    }));
 
-    console.log(`[pg-ff] Dashboard probe:`);
-    console.log(`  StatOp table: "${statopTableName}", cols: [${statopCols.join(", ")}]`);
-    console.log(`  cumstatCol: "${cumstatCol}"`);
-    console.log(`  mvtart genremvt=3: cnt=${mvtartTotal?.cnt}, last_date=${mvtartTotal?.last_date}`);
-    console.log(`  mvtart sites dispo: [${mvtartSites.join(", ")}]`);
-
-    // Requête StatOp avec le vrai nom de table découvert (ou fallback vide)
-    const caTicketsPromise = statopTableName
-        ? pgNoParallel(sql`
-                SELECT
-                    s.site,
-                    SUM(CASE WHEN s.datmvt = CURRENT_DATE - 1
-                             THEN s.mnt ELSE 0 END)::float      AS ca_hier,
-                    SUM(CASE WHEN s.datmvt = (CURRENT_DATE - 1 - INTERVAL '1 year')
-                             THEN s.mnt ELSE 0 END)::float      AS ca_n1,
-                    SUM(CASE WHEN s.datmvt = CURRENT_DATE - 1
-                             THEN s.nbticket ELSE 0 END)::int   AS tickets_hier,
-                    SUM(CASE WHEN s.datmvt = (CURRENT_DATE - 1 - INTERVAL '1 year')
-                             THEN s.nbticket ELSE 0 END)::int   AS tickets_n1
-                FROM ${sql.raw(`"${statopTableName}"`)} s
-                WHERE s.datmvt IN (CURRENT_DATE - 1, CURRENT_DATE - 1 - INTERVAL '1 year')
-                  AND s.site IN ('292', '579')
-                GROUP BY s.site
-                ORDER BY s.site
-            `).catch((err) => {
-                console.error("[pg-ff] StatOp query failed:", err.message);
-                return { rows: [] };
-            })
-        : Promise.resolve({ rows: [] });
-
-    const [caTicketsResult, mvtSitesResult, top10CaResult, top10QteResult, top10MargeResult, evolutionResult] =
-        await Promise.all([
-            caTicketsPromise,
-            // QTE + Marge + Lignes par site depuis mvtart
-            pgNoParallel(sql`
-                SELECT
-                    m.site,
-                    SUM(-m.qtemvt)::float   AS qte_hier,
-                    SUM(m.margemvt)::float  AS marge_hier,
-                    COUNT(*)::int           AS lignes_hier
-                FROM mvtart m
-                WHERE m.datmvt = CURRENT_DATE - 1
-                  AND m.genremvt = 3
-                  AND m.site IN ('292', '579')
-                GROUP BY m.site
-                ORDER BY m.site
-            `).catch((err) => { console.error("[pg-ff] mvtSites query failed:", err.message); return { rows: [] }; }),
-            // Top 10 CA réseau hier
-            pgNoParallel(sql`
-                SELECT
-                    a.codein,
-                    a.libelle1,
-                    SUM(-m.mntmvtttc)::float AS ca,
-                    SUM(-m.qtemvt)::float    AS qte,
-                    SUM(m.margemvt)::float   AS marge
-                FROM mvtart m
-                JOIN articles a ON a.no_id = m.artnoid
-                WHERE m.datmvt = CURRENT_DATE - 1
-                  AND m.genremvt = 3
-                  AND m.site IN ('292', '579')
-                GROUP BY a.codein, a.libelle1
-                ORDER BY ca DESC
-                LIMIT 10
-            `).catch((err) => { console.error("[pg-ff] top10Ca query failed:", err.message); return { rows: [] }; }),
-            // Top 10 QTE réseau hier
-            pgNoParallel(sql`
-                SELECT
-                    a.codein,
-                    a.libelle1,
-                    SUM(-m.qtemvt)::float    AS qte,
-                    SUM(-m.mntmvtttc)::float AS ca,
-                    SUM(m.margemvt)::float   AS marge
-                FROM mvtart m
-                JOIN articles a ON a.no_id = m.artnoid
-                WHERE m.datmvt = CURRENT_DATE - 1
-                  AND m.genremvt = 3
-                  AND m.site IN ('292', '579')
-                GROUP BY a.codein, a.libelle1
-                ORDER BY qte DESC
-                LIMIT 10
-            `).catch((err) => { console.error("[pg-ff] top10Qte query failed:", err.message); return { rows: [] }; }),
-            // Top 10 Marge réseau hier
-            pgNoParallel(sql`
-                SELECT
-                    a.codein,
-                    a.libelle1,
-                    SUM(m.margemvt)::float   AS marge,
-                    SUM(-m.mntmvtttc)::float AS ca,
-                    SUM(-m.qtemvt)::float    AS qte
-                FROM mvtart m
-                JOIN articles a ON a.no_id = m.artnoid
-                WHERE m.datmvt = CURRENT_DATE - 1
-                  AND m.genremvt = 3
-                  AND m.site IN ('292', '579')
-                GROUP BY a.codein, a.libelle1
-                ORDER BY marge DESC
-                LIMIT 10
-            `).catch((err) => { console.error("[pg-ff] top10Marge query failed:", err.message); return { rows: [] }; }),
-            // Évolution mensuelle sur 25 mois
-            pgNoParallel(sql`
-                SELECT
-                    TO_CHAR(m.datmvt, 'YYYY-MM') AS mois,
-                    SUM(-m.mntmvtttc)::float AS ca,
-                    SUM(-m.qtemvt)::float    AS qte,
-                    SUM(m.margemvt)::float   AS marge
-                FROM mvtart m
-                WHERE m.datmvt >= (CURRENT_DATE - INTERVAL '25 months')
-                  AND m.datmvt < CURRENT_DATE
-                  AND m.genremvt = 3
-                  AND m.site IN ('292', '579')
-                GROUP BY TO_CHAR(m.datmvt, 'YYYY-MM')
-                ORDER BY mois
-            `).catch((err) => { console.error("[pg-ff] evolution query failed:", err.message); return { rows: [] }; }),
-        ]);
-
-    // Fusionner CA+tickets (statopcajour) avec QTE+marge (mvtart) par site
-    type CaTickets = { ca_hier: number; ca_n1: number; tickets_hier: number; tickets_n1: number };
-    const caMap = new Map<string, CaTickets>();
-    for (const row of caTicketsResult.rows as unknown as (CaTickets & { site: string })[]) {
-        caMap.set(row.site, {
-            ca_hier: Number(row.ca_hier) || 0,
-            ca_n1: Number(row.ca_n1) || 0,
-            tickets_hier: Number(row.tickets_hier) || 0,
-            tickets_n1: Number(row.tickets_n1) || 0,
-        });
-    }
-
-    const sitesMap = new Map<string, DashboardSiteStats>();
-    for (const row of mvtSitesResult.rows as unknown as { site: string; qte_hier: number; marge_hier: number; lignes_hier: number }[]) {
-        const caData = caMap.get(row.site) ?? { ca_hier: 0, ca_n1: 0, tickets_hier: 0, tickets_n1: 0 };
-        sitesMap.set(row.site, {
-            site: row.site,
-            ...caData,
-            qte_hier: Number(row.qte_hier) || 0,
-            marge_hier: Number(row.marge_hier) || 0,
-            lignes_hier: Number(row.lignes_hier) || 0,
-        });
-    }
-    // Sites présents dans statopcajour mais pas dans mvtart
-    for (const [site, caData] of caMap.entries()) {
-        if (!sitesMap.has(site)) {
-            sitesMap.set(site, { site, ...caData, qte_hier: 0, marge_hier: 0, lignes_hier: 0 });
+    // Top 10 réseau : agréger les N lignes par site → top 10 global
+    const mapTop = (items: ApiPerfTopItem[], sortKey: "ca" | "qte" | "marge"): DashboardTopItem[] => {
+        const byCodein = new Map<string, DashboardTopItem>();
+        for (const i of items) {
+            const existing = byCodein.get(i.codein);
+            if (existing) {
+                existing.ca += Number(i.ca_ttc) || 0;
+                existing.qte += Number(i.qte_vendue) || 0;
+                existing.marge += Number(i.marge) || 0;
+            } else {
+                byCodein.set(i.codein, {
+                    codein: i.codein,
+                    libelle1: i.libelle1,
+                    ca: Number(i.ca_ttc) || 0,
+                    qte: Number(i.qte_vendue) || 0,
+                    marge: Number(i.marge) || 0,
+                });
+            }
         }
-    }
-    const sites = [...sitesMap.values()].sort((a, b) => a.site.localeCompare(b.site));
+        return [...byCodein.values()].sort((a, b) => b[sortKey] - a[sortKey]).slice(0, 10);
+    };
 
-    console.log(`[pg-ff] Dashboard: ${sites.length} sites, ${evolutionResult.rows.length} mois d'évolution`);
+    console.log(`[pg-ff] Dashboard API: ${sites.length} sites, date=${apiResult.date}`);
 
     return {
-        dateHier,
+        dateHier: apiResult.date ?? dateHier,
         sites,
-        top10Ca: top10CaResult.rows as unknown as DashboardTopItem[],
-        top10Qte: top10QteResult.rows as unknown as DashboardTopItem[],
-        top10Marge: top10MargeResult.rows as unknown as DashboardTopItem[],
-        evolution: evolutionResult.rows as unknown as DashboardMonthStats[],
-        debug: {
-            cumstatCol,
-            statopCols: [`table="${statopTableName}"`, ...statopCols],
-            mvtartCount: mvtartTotal?.cnt ?? -1,
-            statopCount: caTicketsResult.rows.length,
-            extra: `last_mvt=${mvtartTotal?.last_date ?? "?"} sites=[${mvtartSites.join(",")}]`,
-        },
+        top10Ca: mapTop(apiResult.top10_ca ?? [], "ca"),
+        top10Qte: mapTop(apiResult.top10_qte ?? [], "qte"),
+        top10Marge: mapTop(apiResult.top10_marge ?? [], "marge"),
+        evolution: evoResult?.months ?? [],
     };
 }
