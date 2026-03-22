@@ -356,136 +356,237 @@ function Top10Table({ title, items, sortKey, accent }: {
     sortKey: "ca" | "qte" | "marge";
     accent: typeof tableAccents.ca;
 }) {
-    const maxVal = Math.max(items[0]?.[sortKey] ?? 1, 1);
-
     return (
         <div
-            className="rounded-2xl flex flex-col"
             style={{
                 background: "var(--bg-elevated)",
                 border: `1px solid ${accent.border}`,
+                borderRadius: "1rem",
                 overflow: "hidden",
                 flex: 1,
                 minWidth: 0,
-                boxShadow: `0 4px 24px rgba(0,0,0,0.18), 0 0 0 0px ${accent.bar}`,
+                boxShadow: "0 4px 24px rgba(0,0,0,0.22), 0 1px 6px rgba(0,0,0,0.14)",
+                display: "flex",
+                flexDirection: "column",
             }}
         >
-            {/* Table header */}
+            {/* ── Header strip ── */}
             <div
-                className="flex items-center gap-2.5"
                 style={{
                     background: accent.header,
                     borderBottom: `1px solid ${accent.border}`,
-                    padding: "0.75rem 1rem",
+                    padding: "0.625rem 0.875rem",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.5rem",
                 }}
             >
                 <div
-                    className="rounded-lg flex items-center justify-center"
                     style={{
-                        width: "1.75rem",
-                        height: "1.75rem",
-                        background: `${accent.bar}20`,
-                        border: `1px solid ${accent.bar}40`,
+                        width: "1.6rem",
+                        height: "1.6rem",
+                        borderRadius: "0.4rem",
+                        background: `${accent.bar}22`,
+                        border: `1px solid ${accent.bar}44`,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
                     }}
                 >
-                    {sortKey === "ca" && <Euro style={{ width: "0.8rem", height: "0.8rem", color: accent.bar }} />}
-                    {sortKey === "qte" && <ShoppingCart style={{ width: "0.8rem", height: "0.8rem", color: accent.bar }} />}
-                    {sortKey === "marge" && <BarChart3 style={{ width: "0.8rem", height: "0.8rem", color: accent.bar }} />}
+                    {sortKey === "ca" && <Euro style={{ width: "0.75rem", height: "0.75rem", color: accent.bar }} />}
+                    {sortKey === "qte" && <ShoppingCart style={{ width: "0.75rem", height: "0.75rem", color: accent.bar }} />}
+                    {sortKey === "marge" && <BarChart3 style={{ width: "0.75rem", height: "0.75rem", color: accent.bar }} />}
                 </div>
-                <span style={{ fontSize: "0.78rem", fontWeight: 700, color: accent.label, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                <span style={{
+                    fontSize: "0.7rem",
+                    fontWeight: 700,
+                    color: accent.label,
+                    textTransform: "uppercase" as const,
+                    letterSpacing: "0.09em",
+                }}>
                     {title}
                 </span>
+                {/* column labels */}
+                <div style={{ marginLeft: "auto", display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                    {sortKey === "ca" && (
+                        <>
+                            <span style={{ fontSize: "0.6rem", color: accent.label, opacity: 0.7, fontVariantNumeric: "tabular-nums" as const, letterSpacing: "0.05em" }}>QTÉ</span>
+                            <span style={{ fontSize: "0.6rem", color: accent.label, opacity: 0.7, letterSpacing: "0.05em", marginLeft: "0.5rem" }}>CA</span>
+                        </>
+                    )}
+                    {sortKey === "qte" && (
+                        <span style={{ fontSize: "0.6rem", color: accent.label, opacity: 0.7, letterSpacing: "0.05em" }}>QTÉ</span>
+                    )}
+                    {sortKey === "marge" && (
+                        <span style={{ fontSize: "0.6rem", color: accent.label, opacity: 0.7, letterSpacing: "0.05em" }}>MARGE</span>
+                    )}
+                </div>
             </div>
 
-            {/* Rows */}
-            <div className="flex flex-col">
-                {items.length === 0 ? (
-                    <div style={{ padding: "2rem", textAlign: "center", fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                        Aucune donnée
-                    </div>
-                ) : (
-                    items.map((item, i) => {
-                        const val = item[sortKey];
-                        const barPct = maxVal > 0 ? Math.max((val / maxVal) * 100, 2) : 0;
-                        const txMarge = item.ca > 0 ? (item.marge / item.ca) * 100 : 0;
-                        const isTopThree = i < 3;
+            {/* ── Rows ── */}
+            {items.length === 0 ? (
+                <div style={{ padding: "2rem", textAlign: "center", fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                    Aucune donnée
+                </div>
+            ) : (
+                items.map((item, i) => {
+                    const txMarge = item.ca > 0 ? (item.marge / item.ca) * 100 : 0;
+                    const margeColor = txMarge > 25 ? "#22c55e" : txMarge > 15 ? "#f59e0b" : "var(--text-muted)";
+                    const margeBg = txMarge > 25 ? "rgba(34,197,94,0.1)" : txMarge > 15 ? "rgba(245,158,11,0.1)" : "rgba(100,116,139,0.1)";
+                    const margeBorder = txMarge > 25 ? "rgba(34,197,94,0.25)" : txMarge > 15 ? "rgba(245,158,11,0.25)" : "rgba(100,116,139,0.18)";
+                    const isEven = i % 2 === 0;
+                    const isTopThree = i < 3;
 
-                        return (
-                            <div
-                                key={item.codein}
-                                style={{
-                                    padding: "0.55rem 1rem",
-                                    borderBottom: i < items.length - 1 ? "1px solid var(--border)" : undefined,
-                                    background: isTopThree ? `${accent.bar}06` : undefined,
-                                    transition: "background 0.15s",
-                                }}
-                            >
-                                {/* Main row */}
-                                <div className="flex items-center gap-2">
-                                    <RankBadge rank={i} />
-                                    <span
-                                        style={{
-                                            flex: 1,
-                                            fontSize: "0.78rem",
-                                            color: isTopThree ? "var(--text-primary)" : "var(--text-secondary)",
-                                            fontWeight: isTopThree ? 600 : 400,
-                                            overflow: "hidden",
-                                            textOverflow: "ellipsis",
-                                            whiteSpace: "nowrap",
-                                            minWidth: 0,
-                                        }}
-                                        title={item.libelle1}
-                                    >
-                                        {item.libelle1 ?? item.codein}
-                                    </span>
-                                    <span style={{
-                                        fontSize: "0.82rem",
-                                        fontWeight: 700,
-                                        color: "var(--text-primary)",
-                                        flexShrink: 0,
-                                        fontVariantNumeric: "tabular-nums",
-                                    }}>
-                                        {sortKey === "qte" ? fmtQte(val) : fmtEur(val)}
-                                    </span>
-                                </div>
+                    return (
+                        <div
+                            key={item.codein}
+                            style={{
+                                padding: "0.45rem 0.875rem",
+                                borderBottom: i < items.length - 1 ? "1px solid var(--border)" : undefined,
+                                background: isEven ? "transparent" : "rgba(255,255,255,0.022)",
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: "0.2rem",
+                            }}
+                        >
+                            {/* ── Primary row: rank + name + main value ── */}
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0 }}>
+                                <RankBadge rank={i} />
 
-                                {/* Progress bar + meta */}
-                                <div className="flex items-center gap-2" style={{ marginTop: "0.3rem", paddingLeft: "1.9rem" }}>
-                                    <div style={{
+                                <span
+                                    title={item.libelle1}
+                                    style={{
                                         flex: 1,
-                                        height: "3px",
-                                        borderRadius: "9999px",
-                                        background: "var(--border)",
+                                        fontSize: "0.775rem",
+                                        fontWeight: isTopThree ? 600 : 400,
+                                        color: isTopThree ? "var(--text-primary)" : "var(--text-secondary)",
                                         overflow: "hidden",
-                                    }}>
-                                        <div style={{
-                                            height: "100%",
-                                            width: `${barPct}%`,
-                                            borderRadius: "9999px",
-                                            background: i === 0
-                                                ? `linear-gradient(90deg, ${accent.bar}, ${clrGold})`
-                                                : accent.bar,
-                                            opacity: 1 - i * 0.07,
-                                        }} />
-                                    </div>
-                                    <span style={{
-                                        fontSize: "0.65rem",
-                                        color: "var(--text-muted)",
-                                        flexShrink: 0,
-                                        fontVariantNumeric: "tabular-nums",
-                                    }}>
-                                        {sortKey === "ca" && `${fmtQte(item.qte)} pcs · `}
-                                        {sortKey !== "ca" && `CA ${fmtEur(item.ca)} · `}
-                                        <span style={{ color: txMarge > 25 ? "#22c55e" : txMarge > 15 ? "#f59e0b" : "var(--text-muted)" }}>
-                                            {fmtPct(txMarge, false)} mg
-                                        </span>
-                                    </span>
-                                </div>
+                                        textOverflow: "ellipsis",
+                                        whiteSpace: "nowrap",
+                                        minWidth: 0,
+                                        lineHeight: 1.3,
+                                    }}
+                                >
+                                    {item.libelle1 ?? item.codein}
+                                </span>
+
+                                {/* Main sort-key value */}
+                                <span style={{
+                                    fontSize: "0.825rem",
+                                    fontWeight: 700,
+                                    color: isTopThree ? "var(--text-primary)" : "var(--text-secondary)",
+                                    flexShrink: 0,
+                                    fontVariantNumeric: "tabular-nums" as const,
+                                    fontFamily: "ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
+                                    letterSpacing: "-0.01em",
+                                }}>
+                                    {sortKey === "qte"
+                                        ? `${fmtQte(item.qte)} pcs`
+                                        : sortKey === "marge"
+                                        ? fmtEur(item.marge)
+                                        : fmtEur(item.ca)}
+                                </span>
                             </div>
-                        );
-                    })
-                )}
-            </div>
+
+                            {/* ── Secondary info row ── */}
+                            <div style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "0.5rem",
+                                paddingLeft: "1.9rem",
+                                flexWrap: "wrap" as const,
+                            }}>
+                                {/* For CA table: show qte + marge */}
+                                {sortKey === "ca" && (
+                                    <>
+                                        <span style={{
+                                            fontSize: "0.65rem",
+                                            color: "var(--text-muted)",
+                                            fontVariantNumeric: "tabular-nums" as const,
+                                            fontFamily: "ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
+                                        }}>
+                                            {fmtQte(item.qte)}&thinsp;pcs
+                                        </span>
+                                        <span style={{ fontSize: "0.55rem", color: "var(--border)", lineHeight: 1 }}>│</span>
+                                        <span style={{
+                                            fontSize: "0.65rem",
+                                            color: "var(--text-muted)",
+                                            fontVariantNumeric: "tabular-nums" as const,
+                                            fontFamily: "ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
+                                        }}>
+                                            mg&thinsp;{fmtEur(item.marge)}
+                                        </span>
+                                    </>
+                                )}
+
+                                {/* For QTE table: show CA + marge */}
+                                {sortKey === "qte" && (
+                                    <>
+                                        <span style={{
+                                            fontSize: "0.65rem",
+                                            color: "var(--text-muted)",
+                                            fontVariantNumeric: "tabular-nums" as const,
+                                            fontFamily: "ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
+                                        }}>
+                                            CA&thinsp;{fmtEur(item.ca)}
+                                        </span>
+                                        <span style={{ fontSize: "0.55rem", color: "var(--border)", lineHeight: 1 }}>│</span>
+                                        <span style={{
+                                            fontSize: "0.65rem",
+                                            color: "var(--text-muted)",
+                                            fontVariantNumeric: "tabular-nums" as const,
+                                            fontFamily: "ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
+                                        }}>
+                                            mg&thinsp;{fmtEur(item.marge)}
+                                        </span>
+                                    </>
+                                )}
+
+                                {/* For Marge table: show CA + qte */}
+                                {sortKey === "marge" && (
+                                    <>
+                                        <span style={{
+                                            fontSize: "0.65rem",
+                                            color: "var(--text-muted)",
+                                            fontVariantNumeric: "tabular-nums" as const,
+                                            fontFamily: "ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
+                                        }}>
+                                            CA&thinsp;{fmtEur(item.ca)}
+                                        </span>
+                                        <span style={{ fontSize: "0.55rem", color: "var(--border)", lineHeight: 1 }}>│</span>
+                                        <span style={{
+                                            fontSize: "0.65rem",
+                                            color: "var(--text-muted)",
+                                            fontVariantNumeric: "tabular-nums" as const,
+                                            fontFamily: "ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
+                                        }}>
+                                            {fmtQte(item.qte)}&thinsp;pcs
+                                        </span>
+                                    </>
+                                )}
+
+                                {/* Taux de marge pill — always shown */}
+                                <span style={{
+                                    marginLeft: "auto",
+                                    fontSize: "0.6rem",
+                                    fontWeight: 600,
+                                    color: margeColor,
+                                    background: margeBg,
+                                    border: `1px solid ${margeBorder}`,
+                                    borderRadius: "9999px",
+                                    padding: "0.1rem 0.375rem",
+                                    fontVariantNumeric: "tabular-nums" as const,
+                                    letterSpacing: "0.01em",
+                                    flexShrink: 0,
+                                }}>
+                                    {fmtPct(txMarge, false)}
+                                </span>
+                            </div>
+                        </div>
+                    );
+                })
+            )}
         </div>
     );
 }
@@ -494,32 +595,101 @@ function SiteHitParade({ siteData, dateHier }: { siteData: DashboardSiteTop10; d
     const name = SITE_NAMES[siteData.site] ?? siteData.site;
 
     return (
-        <div className="flex flex-col gap-4">
-            {/* Section title */}
-            <div className="flex items-center gap-3">
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            {/* ── Section header ── */}
+            <div
+                style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "1rem",
+                    background: "var(--bg-elevated)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "0.875rem",
+                    padding: "0.875rem 1.25rem",
+                    boxShadow: "0 4px 24px rgba(0,0,0,0.22), 0 1px 6px rgba(0,0,0,0.14)",
+                    position: "relative" as const,
+                    overflow: "hidden",
+                }}
+            >
+                {/* subtle glow behind icon */}
+                <div style={{
+                    position: "absolute",
+                    left: "-10px",
+                    top: "-10px",
+                    width: "80px",
+                    height: "80px",
+                    borderRadius: "50%",
+                    background: `radial-gradient(circle, ${clrGold}18 0%, transparent 70%)`,
+                    pointerEvents: "none",
+                }} />
+
                 <div
-                    className="rounded-xl flex items-center justify-center"
                     style={{
-                        width: "2.25rem",
-                        height: "2.25rem",
-                        background: "var(--accent-bg)",
-                        border: "1px solid var(--accent-border)",
+                        width: "2.5rem",
+                        height: "2.5rem",
+                        borderRadius: "0.625rem",
+                        background: `${clrGold}15`,
+                        border: `1px solid ${clrGold}35`,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
+                        position: "relative" as const,
                     }}
                 >
-                    <Award style={{ width: "1rem", height: "1rem", color: "var(--accent)" }} />
+                    <Award style={{ width: "1.1rem", height: "1.1rem", color: clrGold }} />
                 </div>
-                <div>
-                    <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.2 }}>
-                        Hit Parade — {name}
-                    </h3>
-                    <p style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: "0.1rem" }}>
-                        Données du {dateLabel(dateHier)} · site {siteData.site}
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.1rem" }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem" }}>
+                        <h3 style={{
+                            fontSize: "1.05rem",
+                            fontWeight: 800,
+                            color: "var(--text-primary)",
+                            lineHeight: 1,
+                            letterSpacing: "-0.02em",
+                            margin: 0,
+                        }}>
+                            Hit Parade
+                        </h3>
+                        <span style={{
+                            fontSize: "1.05rem",
+                            fontWeight: 800,
+                            color: clrGold,
+                            lineHeight: 1,
+                            letterSpacing: "-0.02em",
+                        }}>
+                            {name}
+                        </span>
+                    </div>
+                    <p style={{ fontSize: "0.68rem", color: "var(--text-muted)", margin: 0 }}>
+                        Données du {dateLabel(dateHier)}&ensp;·&ensp;Site {siteData.site}
+                        &ensp;·&ensp;Top 10 produits par CA, Quantité et Marge
                     </p>
+                </div>
+
+                {/* Store badge */}
+                <div style={{
+                    marginLeft: "auto",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.4rem",
+                    background: "var(--accent-bg)",
+                    border: "1px solid var(--accent-border)",
+                    borderRadius: "0.5rem",
+                    padding: "0.3rem 0.625rem",
+                    flexShrink: 0,
+                }}>
+                    <Store style={{ width: "0.75rem", height: "0.75rem", color: "var(--accent)" }} />
+                    <span style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--accent)" }}>{name}</span>
                 </div>
             </div>
 
-            {/* Three tables */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4" style={{ alignItems: "start" }}>
+            {/* ── Three tables side by side ── */}
+            <div
+                className="grid grid-cols-1 md:grid-cols-3 gap-4"
+                style={{ alignItems: "start" }}
+            >
                 <Top10Table title="Top CA" items={siteData.ca} sortKey="ca" accent={tableAccents.ca} />
                 <Top10Table title="Top Quantité" items={siteData.qte} sortKey="qte" accent={tableAccents.qte} />
                 <Top10Table title="Top Marge" items={siteData.marge} sortKey="marge" accent={tableAccents.marge} />
