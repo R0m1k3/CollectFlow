@@ -579,18 +579,8 @@ export async function getSyncStatus(): Promise<FfSyncStatus | null> {
 // ---------------------------------------------------------------------------
 
 export async function getSitesFromApi(): Promise<{ code: string; nom: string }[]> {
-    try {
-        const res = await fetch(`${FF_API_BASE}/api/sites`, { cache: "no-store" });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        const list = Array.isArray(data) ? data : ((data as any).items ?? (data as any).data ?? []);
-        return list.map((s: any) => ({ code: s.code ?? s.codesite ?? s.site, nom: s.nom ?? s.libelle ?? s.code }));
-    } catch (err) {
-        console.error("[api-ff] getSitesFromApi error:", err);
-        // Fallback : sites connus de FF Nancy
-        return [
-            { code: "292", nom: "Frouard (Nancy)" },
-            { code: "579", nom: "Houdemont" },
-        ];
-    }
+    return [
+        { code: "292", nom: "Frouard (Nancy)" },
+        { code: "579", nom: "Houdemont" },
+    ];
 }

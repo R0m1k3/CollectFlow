@@ -83,45 +83,25 @@ export interface PgRankingRow {
 // ---------------------------------------------------------------------------
 
 /**
- * Retourne la liste des fournisseurs actifs et non suspendus depuis fouident.
- * 1 requête SQL — remplace getFournisseursFromApi().
+ * Retourne la liste des fournisseurs depuis fouadr1 + artfou1.
  */
 export async function pgGetFournisseurs(search?: string): Promise<{ code: string; nom: string }[]> {
     try {
         const result = await db.execute(sql`
-            SELECT DISTINCT
-                fi.code,
-                fi.nom
-            FROM fouident fi
-            INNER JOIN artfou1 af ON af.code = fi.code
-            WHERE fi.actif = true
-              AND fi.suspendu = false
-              AND fi.code IS NOT NULL
-              AND fi.nom IS NOT NULL
-              ${search ? sql`AND (fi.nom ILIKE ${'%' + search + '%'} OR fi.code ILIKE ${'%' + search + '%'})` : sql``}
-            ORDER BY fi.nom
+            SELECT DISTINCT fa.code, fa.raisonsociale AS nom
+            FROM fouadr1 fa
+            INNER JOIN artfou1 af ON af.code = fa.code
+            WHERE fa.sit_code = '000'
+              AND fa.raisonsociale IS NOT NULL
+              AND fa.raisonsociale !~ '^\s*\d'
+              ${search ? sql`AND (fa.raisonsociale ILIKE ${'%' + search + '%'} OR fa.code ILIKE ${'%' + search + '%'})` : sql``}
+            ORDER BY fa.raisonsociale
         `);
-        console.log(`[pg-ff] pgGetFournisseurs (fouident): ${result.rows.length} fournisseurs`);
+        console.log(`[pg-ff] pgGetFournisseurs: ${result.rows.length} fournisseurs`);
         return (result.rows as unknown as { code: string; nom: string }[]).filter(r => r.code && r.nom);
     } catch (e) {
-        console.error("[pg-ff] pgGetFournisseurs fouident error:", (e as Error).message?.slice(0, 200));
-        // Fallback : fouident inaccessible → fouadr1 avec artfou1
-        try {
-            const fallback = await db.execute(sql`
-                SELECT DISTINCT fa.code, fa.raisonsociale AS nom
-                FROM fouadr1 fa
-                INNER JOIN artfou1 af ON af.code = fa.code
-                WHERE fa.sit_code = '000'
-                  AND fa.raisonsociale IS NOT NULL
-                  AND fa.raisonsociale !~ '^\s*\d'
-                  ${search ? sql`AND (fa.raisonsociale ILIKE ${'%' + search + '%'} OR fa.code ILIKE ${'%' + search + '%'})` : sql``}
-                ORDER BY fa.raisonsociale
-            `);
-            return (fallback.rows as unknown as { code: string; nom: string }[]).filter(r => r.code && r.nom);
-        } catch (e2) {
-            console.error("[pg-ff] pgGetFournisseurs fallback error:", e2);
-            return [];
-        }
+        console.error("[pg-ff] pgGetFournisseurs error:", (e as Error).message?.slice(0, 200));
+        return [];
     }
 }
 
