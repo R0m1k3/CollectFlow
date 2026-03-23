@@ -13,7 +13,7 @@ import {
     RowSelectionState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, Warehouse } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -21,6 +21,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { GammeSelect } from "@/features/grid/components/gamme-select";
 import { HeatmapCell } from "@/features/grid/components/heatmap-cell";
 import type { ProductRow, GammeCode } from "@/types/grid";
@@ -181,6 +182,72 @@ const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnVisi
 GridRow.displayName = "GridRow";
 
 // =========================================================================
+// Composant modal pour le détail d'une cellule mensuelle
+// =========================================================================
+
+interface CellDetailData {
+    row: ProductRow;
+    monthKey: string;
+    qty: number | null;
+    stock: number | null;
+    receptions: number | null;
+}
+
+function CellDetailModal({ d, activeMagasin, onClose }: { d: CellDetailData; activeMagasin: string; onClose: () => void }) {
+    const hasReceptions = (d.receptions ?? 0) > 0;
+    const storeLabel = activeMagasin === "TOTAL" ? "Total réseau" : (SITE_LABELS[activeMagasin]?.nom ?? activeMagasin);
+
+    return (
+        <DialogContent className="max-w-sm" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }} onInteractOutside={onClose}>
+            <DialogHeader>
+                <DialogTitle className="text-base leading-snug pr-6" style={{ color: "var(--text-primary)" }}>
+                    {d.row.libelle1}
+                </DialogTitle>
+                <p className="text-[12px] mt-0.5" style={{ color: "var(--text-muted)" }}>
+                    {formatMonthLabel(d.monthKey)}{" · "}
+                    <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>{storeLabel}</span>
+                </p>
+            </DialogHeader>
+
+            <div className="grid grid-cols-3 gap-3 mt-1">
+                {/* Ventes */}
+                <div className="flex flex-col items-center gap-1.5 rounded-xl p-3" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
+                    <ShoppingCart className="w-4 h-4 opacity-60" style={{ color: "var(--text-muted)" }} />
+                    <span className="text-[22px] font-black tabular-nums leading-none" style={{ color: "var(--text-primary)" }}>
+                        {d.qty != null ? Math.round(d.qty).toLocaleString("fr-FR") : "—"}
+                    </span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Ventes</span>
+                </div>
+
+                {/* Entrées */}
+                <div
+                    className="flex flex-col items-center gap-1.5 rounded-xl p-3"
+                    style={{
+                        background: hasReceptions ? "rgba(16,185,129,0.08)" : "var(--bg-elevated)",
+                        border: `1px solid ${hasReceptions ? "rgba(16,185,129,0.25)" : "var(--border)"}`,
+                    }}
+                >
+                    <PackageOpen className="w-4 h-4" style={{ color: hasReceptions ? "rgb(16,185,129)" : "var(--text-muted)" }} />
+                    <span className="text-[22px] font-black tabular-nums leading-none" style={{ color: hasReceptions ? "rgb(16,185,129)" : "var(--text-primary)" }}>
+                        {hasReceptions ? `+${Math.round(d.receptions!).toLocaleString("fr-FR")}` : "—"}
+                    </span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Entrées</span>
+                </div>
+
+                {/* Stock fin de mois */}
+                <div className="flex flex-col items-center gap-1.5 rounded-xl p-3" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
+                    <Warehouse className="w-4 h-4 opacity-60" style={{ color: "var(--text-muted)" }} />
+                    <span className="text-[22px] font-black tabular-nums leading-none" style={{ color: "var(--text-primary)" }}>
+                        {d.stock != null ? Math.round(d.stock).toLocaleString("fr-FR") : "—"}
+                    </span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-center" style={{ color: "var(--text-muted)" }}>Stock fin mois</span>
+                </div>
+            </div>
+        </DialogContent>
+    );
+}
+
+// =========================================================================
 
 export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     // L'abonnement doit être minimal ici ! PAS de draftChanges ni de setDraftGamme.
@@ -206,6 +273,9 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     const { columnVisibility, setColumnVisibility, columnSizing, setColumnSizing } = useGridStore();
     const [isMounted, setIsMounted] = useState(false);
     const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
+
+    // État pour le détail d'une cellule mensuelle (modal)
+    const [cellDetail, setCellDetail] = useState<CellDetailData | null>(null);
     const tableContainerRef = useRef<HTMLDivElement>(null);
 
     // Calculer les mois dynamiquement pour éviter le mismatch entre serveur et client
@@ -466,7 +536,17 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                 const receptions = activeMagasin === "TOTAL"
                     ? (row.original.receptions12m[monthKey] ?? null)
                     : (row.original.receptions12mByStore?.[activeMagasin]?.[monthKey] ?? null);
-                return <HeatmapCell value={qty} tooltipStock={stock} tooltipReceptions={receptions} />;
+                return (
+                    <HeatmapCell
+                        value={qty}
+                        tooltipStock={stock}
+                        tooltipReceptions={receptions}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setCellDetail({ row: row.original, monthKey, qty, stock, receptions });
+                        }}
+                    />
+                );
             },
         })),
         {
@@ -611,6 +691,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     }
 
     return (
+        <>
         <div className="h-full w-full relative">
             {portalContainer && createPortal(
                 <DropdownMenu>
@@ -733,5 +814,11 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                 </table>
             </div>
         </div>
+
+        {/* Modal détail cellule mensuelle */}
+        <Dialog open={cellDetail !== null} onOpenChange={(open) => { if (!open) setCellDetail(null); }}>
+            {cellDetail !== null && <CellDetailModal d={cellDetail!} activeMagasin={activeMagasin} onClose={() => setCellDetail(null)} />}
+        </Dialog>
+        </>
     );
 }

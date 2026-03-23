@@ -4,6 +4,7 @@ interface HeatmapCellProps {
     value: number | null;
     tooltipStock?: number | null;
     tooltipReceptions?: number | null;
+    onClick?: (e: React.MouseEvent) => void;
 }
 
 function getHeatmapClass(value: number | null): string {
@@ -15,7 +16,7 @@ function getHeatmapClass(value: number | null): string {
     return "heatmap-zero";
 }
 
-export const HeatmapCell = React.memo(({ value, tooltipStock, tooltipReceptions }: HeatmapCellProps) => {
+export const HeatmapCell = React.memo(({ value, tooltipStock, tooltipReceptions, onClick }: HeatmapCellProps) => {
     const heatClass = getHeatmapClass(value);
     const display = value === null || value === 0 ? "0" : Math.round(Math.abs(value)).toString();
 
@@ -28,8 +29,9 @@ export const HeatmapCell = React.memo(({ value, tooltipStock, tooltipReceptions 
 
     return (
         <div
-            className={`rounded text-center text-[12px] tabular-nums px-0.5 py-0.5 font-bold tracking-tighter transition-colors min-h-[24px] flex items-center justify-center font-mono-nums ${heatClass}`}
+            className={`rounded text-center text-[12px] tabular-nums px-0.5 py-0.5 font-bold tracking-tighter transition-colors min-h-[24px] flex items-center justify-center font-mono-nums ${heatClass} ${onClick ? "cursor-pointer hover:ring-1 hover:ring-white/30" : ""}`}
             title={title}
+            onClick={onClick}
         >
             {display}
         </div>
