@@ -20,7 +20,7 @@ export function BulkAiAnalyzer() {
 
     const batchSetDraftGamme = useGridStore((s) => s.batchSetDraftGamme);
     const setDraftGamme = useGridStore((s) => s.setDraftGamme);
-    const { setInsight, batchSetLoading, setError } = useAiCopilotStore();
+    const { setInsight, batchSetInsights, batchSetLoading, setError } = useAiCopilotStore();
 
     const prevSupplierRef = useRef(supplierCode);
     useEffect(() => {
@@ -61,9 +61,10 @@ export function BulkAiAnalyzer() {
             const zChanges: Record<string, GammeCode> = {};
             zeroSalesRows.forEach(r => { zChanges[r.codein] = "Z"; });
             batchSetDraftGamme(zChanges);
-            zeroSalesRows.forEach(r => {
-                setInsight(r.codein, "Aucune vente sur 12 mois — produit classé Z automatiquement.");
-            });
+            batchSetInsights(zeroSalesRows.map(r => ({
+                codein: r.codein,
+                insight: "Aucune vente sur 12 mois — produit classé Z automatiquement.",
+            })));
         }
 
         // Construire les payloads uniquement pour les produits avec ventes
@@ -129,9 +130,10 @@ export function BulkAiAnalyzer() {
             const zChanges: Record<string, GammeCode> = {};
             deadStockRows.forEach(r => { zChanges[r.codein] = "Z"; });
             batchSetDraftGamme(zChanges);
-            deadStockRows.forEach(r => {
-                setInsight(r.codein, `CA < 100€ (${(r.totalCa ?? 0).toFixed(0)}€) et quantité < 30 (${r.totalQuantite} uté) — stock mort absolu, classé Z automatiquement.`);
-            });
+            batchSetInsights(deadStockRows.map(r => ({
+                codein: r.codein,
+                insight: `CA < 100€ (${(r.totalCa ?? 0).toFixed(0)}€) et quantité < 30 (${r.totalQuantite} uté) — stock mort absolu, classé Z automatiquement.`,
+            })));
         }
         const deadStockCodes = new Set(deadStockRows.map(r => r.codein));
 
@@ -145,12 +147,15 @@ export function BulkAiAnalyzer() {
             const aChanges: Record<string, GammeCode> = {};
             top20Rows.forEach(r => { aChanges[r.codein] = "A"; });
             batchSetDraftGamme(aChanges);
-            top20Rows.forEach(r => {
+            batchSetInsights(top20Rows.map(r => {
                 const rkCa = r.rankingCa != null ? `${r.rankingCa}e CA` : "";
                 const rkQte = r.rankingQte != null ? `${r.rankingQte}e Qté` : "";
                 const total = r.totalRankedProducts ? ` / ${r.totalRankedProducts.toLocaleString("fr-FR")} produits` : "";
-                setInsight(r.codein, `Top 20 réseau (${[rkCa, rkQte].filter(Boolean).join(", ")}${total}) — classé A automatiquement.`);
-            });
+                return {
+                    codein: r.codein,
+                    insight: `Top 20 réseau (${[rkCa, rkQte].filter(Boolean).join(", ")}${total}) — classé A automatiquement.`,
+                };
+            }));
         }
         const top20Codes = new Set(top20Rows.map(r => r.codein));
 

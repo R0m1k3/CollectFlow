@@ -13,6 +13,7 @@ interface AiInsight {
 interface AiCopilotState {
     insights: Record<string, AiInsight>;
     setInsight: (codein: string, insight: string, isDuplicate?: boolean) => void;
+    batchSetInsights: (entries: { codein: string; insight: string }[]) => void;
     setLoading: (codein: string) => void;
     batchSetLoading: (codeins: string[]) => void;
     setError: (codein: string, error: string) => void;
@@ -74,6 +75,16 @@ export const useAiCopilotStore = create<AiCopilotState>()(
                         [codein]: { codein, insight, status: "done", isDuplicate },
                     },
                 }));
+            },
+
+            batchSetInsights: (entries) => {
+                set((s) => {
+                    const nextInsights = { ...s.insights };
+                    entries.forEach(({ codein, insight }) => {
+                        nextInsights[codein] = { codein, insight, status: "done" };
+                    });
+                    return { insights: nextInsights };
+                });
             },
 
             setLoading: (codein) => {
