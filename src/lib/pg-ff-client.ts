@@ -199,7 +199,7 @@ export async function pgGetMensuelByFournisseur(
             SUM(CASE WHEN genremvt = 3 THEN -mntmvtttc ELSE 0 END)::float           AS ca_ht,
             SUM(CASE WHEN genremvt = 3 THEN  margemvt  ELSE 0 END)::float           AS marge,
             MAX(CASE WHEN rn_last = 1 THEN qtestock ELSE NULL END)::float            AS stock_fin_mois,
-            SUM(CASE WHEN genremvt IN (1, 2) THEN -qtemvt ELSE 0 END)::float        AS qte_recue
+            SUM(CASE WHEN genremvt IN (1, 2) THEN  qtemvt ELSE 0 END)::float        AS qte_recue
         FROM base
         GROUP BY codein, site, mois
         ORDER BY codein, site, mois
