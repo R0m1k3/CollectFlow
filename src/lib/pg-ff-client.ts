@@ -166,24 +166,43 @@ export async function pgGetMensuelByFournisseur(
     // IMPORTANT : utiliser DISTINCT sur artfou1 pour éviter les doublons de mouvements.
     // Un article peut avoir plusieurs lignes artfou1 pour le même fournisseur (pcb/ref différents),
     // ce qui multiplierait chaque mouvement et gonflerait les totaux.
+    //
+    // stock_fin_mois = qtestock du DERNIER mouvement du mois (tri par datmvt DESC).
+    // MAX(qtestock) donnait le stock de début de mois (avant les premières ventes), ce qui était faux.
     const result = await pgNoParallel(sql`
+        WITH base AS (
+            SELECT
+                a.codein,
+                m.site,
+                TO_CHAR(m.datmvt, 'YYYY-MM')  AS mois,
+                m.qtemvt,
+                m.mntmvtttc,
+                m.margemvt,
+                m.genremvt,
+                m.qtestock,
+                ROW_NUMBER() OVER (
+                    PARTITION BY a.codein, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
+                    ORDER BY m.datmvt DESC
+                ) AS rn_last
+            FROM mvtart m
+            JOIN articles a ON a.no_id = m.artnoid
+            JOIN (SELECT DISTINCT art_no_id FROM artfou1 WHERE code = ${codefou}) af
+                ON af.art_no_id = a.no_id
+            WHERE m.datmvt BETWEEN ${dateDebut}::date AND ${dateFin}::date
+              AND m.site IN ('292', '579')
+        )
         SELECT
-            a.codein,
-            m.site,
-            TO_CHAR(m.datmvt, 'YYYY-MM')                                          AS mois,
-            SUM(CASE WHEN m.genremvt = 3 THEN -m.qtemvt    ELSE 0 END)::float AS qte_vendue,
-            SUM(CASE WHEN m.genremvt = 3 THEN -m.mntmvtttc ELSE 0 END)::float AS ca_ht,
-            SUM(CASE WHEN m.genremvt = 3 THEN  m.margemvt  ELSE 0 END)::float AS marge,
-            MAX(m.qtestock)::float                                              AS stock_fin_mois,
-            SUM(CASE WHEN m.genremvt IN (1, 2) THEN -m.qtemvt ELSE 0 END)::float AS qte_recue
-        FROM mvtart m
-        JOIN articles a ON a.no_id = m.artnoid
-        JOIN (SELECT DISTINCT art_no_id FROM artfou1 WHERE code = ${codefou}) af
-            ON af.art_no_id = a.no_id
-        WHERE m.datmvt BETWEEN ${dateDebut}::date AND ${dateFin}::date
-          AND m.site IN ('292', '579')
-        GROUP BY a.codein, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
-        ORDER BY a.codein, m.site, mois
+            codein,
+            site,
+            mois,
+            SUM(CASE WHEN genremvt = 3 THEN -qtemvt    ELSE 0 END)::float           AS qte_vendue,
+            SUM(CASE WHEN genremvt = 3 THEN -mntmvtttc ELSE 0 END)::float           AS ca_ht,
+            SUM(CASE WHEN genremvt = 3 THEN  margemvt  ELSE 0 END)::float           AS marge,
+            MAX(CASE WHEN rn_last = 1 THEN qtestock ELSE NULL END)::float            AS stock_fin_mois,
+            SUM(CASE WHEN genremvt IN (1, 2) THEN -qtemvt ELSE 0 END)::float        AS qte_recue
+        FROM base
+        GROUP BY codein, site, mois
+        ORDER BY codein, site, mois
     `);
 
     return result.rows as unknown as PgMensuelRow[];

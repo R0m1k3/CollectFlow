@@ -125,10 +125,11 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             const siteByPeriod = bySite.get(row.site)!;
             if (!siteByPeriod.has(periode)) siteByPeriod.set(periode, { qty: 0, ca: 0, marge: 0, stock: 0, receptions: 0 });
             const sp = siteByPeriod.get(periode)!;
-            sp.qty   += Number(row.qte_vendue)     || 0;
-            sp.ca    += Number(row.ca_ht)          || 0;
-            sp.marge += Number(row.marge)          || 0;
-            sp.stock  = Math.max(sp.stock, Number(row.stock_fin_mois) || 0);
+            sp.qty        += Number(row.qte_vendue)     || 0;
+            sp.ca         += Number(row.ca_ht)          || 0;
+            sp.marge      += Number(row.marge)          || 0;
+            sp.stock       = Number(row.stock_fin_mois) || 0; // SQL donne déjà le dernier mouvement
+            sp.receptions += Number(row.qte_recue)      || 0;
 
             // Suivi magasins actifs (pour workingStores) : 1 vente suffit
             if (Number(row.qte_vendue) > 0) {
@@ -165,19 +166,28 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             // Breakdowns par site pour le switch client-side
             const siteMap = mensuelBySite.get(codein);
             if (siteMap) {
-                product.sales12mByStore = {};
-                product.stock12mByStore = {};
-                product.caByStore       = {};
-                product.quantiteByStore = {};
-                product.margeByStore    = {};
+                product.sales12mByStore       = {};
+                product.stock12mByStore       = {};
+                product.receptions12mByStore  = {};
+                product.caByStore             = {};
+                product.quantiteByStore       = {};
+                product.margeByStore          = {};
                 for (const [site, siteByPeriod] of siteMap.entries()) {
-                    product.sales12mByStore[site] = {};
-                    product.stock12mByStore[site] = {};
+                    product.sales12mByStore[site]      = {};
+                    product.stock12mByStore[site]      = {};
+                    product.receptions12mByStore![site] = {};
                     let sQty = 0, sCa = 0, sMarge = 0;
+                    let lastSiteStock = 0;
                     for (const periode of sortedPeriods) {
                         const sp = siteByPeriod.get(periode);
-                        product.sales12mByStore[site][periode] = sp?.qty   ?? 0;
-                        product.stock12mByStore[site][periode] = sp?.stock ?? 0;
+                        product.sales12mByStore[site][periode]      = sp?.qty        ?? 0;
+                        product.receptions12mByStore![site][periode] = sp?.receptions ?? 0;
+                        if (sp) {
+                            product.stock12mByStore[site][periode] = sp.stock;
+                            lastSiteStock = sp.stock;
+                        } else {
+                            product.stock12mByStore[site][periode] = lastSiteStock; // carry-forward
+                        }
                         sQty   += sp?.qty   ?? 0;
                         sCa    += sp?.ca    ?? 0;
                         sMarge += sp?.marge ?? 0;

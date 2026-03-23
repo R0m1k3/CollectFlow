@@ -3,6 +3,7 @@ import React from "react";
 interface HeatmapCellProps {
     value: number | null;
     tooltipStock?: number | null;
+    tooltipReceptions?: number | null;
 }
 
 function getHeatmapClass(value: number | null): string {
@@ -14,15 +15,16 @@ function getHeatmapClass(value: number | null): string {
     return "heatmap-zero";
 }
 
-export const HeatmapCell = React.memo(({ value, tooltipStock }: HeatmapCellProps) => {
+export const HeatmapCell = React.memo(({ value, tooltipStock, tooltipReceptions }: HeatmapCellProps) => {
     const heatClass = getHeatmapClass(value);
     const display = value === null || value === 0 ? "0" : Math.round(Math.abs(value)).toString();
 
     const titleParts: string[] = [];
-    if (value !== null && value !== 0) titleParts.push(`${Math.abs(value).toLocaleString("fr-FR")} unités`);
-    else titleParts.push("Aucune vente");
-    if (tooltipStock != null) titleParts.push(`Stock fin de mois : ${tooltipStock.toLocaleString("fr-FR")}`);
-    const title = titleParts.join(" · ");
+    if (tooltipReceptions != null && tooltipReceptions > 0)
+        titleParts.push(`Entrées : +${Math.round(tooltipReceptions).toLocaleString("fr-FR")}`);
+    if (tooltipStock != null)
+        titleParts.push(`Stock fin de mois : ${Math.round(tooltipStock).toLocaleString("fr-FR")}`);
+    const title = titleParts.length > 0 ? titleParts.join(" · ") : (value ? `${Math.abs(value).toLocaleString("fr-FR")} unités` : "Aucune vente");
 
     return (
         <div

@@ -54,8 +54,10 @@ export interface ProductRow {
     receptions12m: Record<string, number>;
     /** Per-store breakdown (site → YYYYMM → qty) — always present even in TOTAL mode */
     sales12mByStore?: Record<string, Record<string, number>>;
-    /** Per-store stock breakdown (site → YYYYMM → stock) */
+    /** Per-store stock breakdown (site → YYYYMM → stock fin de mois) */
     stock12mByStore?: Record<string, Record<string, number>>;
+    /** Per-store reception breakdown (site → YYYYMM → qté reçue) */
+    receptions12mByStore?: Record<string, Record<string, number>>;
     /** Per-store CA totals */
     caByStore?: Record<string, number>;
     /** Per-store quantity totals */

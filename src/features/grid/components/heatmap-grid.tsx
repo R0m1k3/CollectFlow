@@ -463,7 +463,10 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                 const stock = activeMagasin === "TOTAL"
                     ? (row.original.stock12m[monthKey] ?? null)
                     : (row.original.stock12mByStore?.[activeMagasin]?.[monthKey] ?? null);
-                return <HeatmapCell value={qty} tooltipStock={stock} />;
+                const receptions = activeMagasin === "TOTAL"
+                    ? (row.original.receptions12m[monthKey] ?? null)
+                    : (row.original.receptions12mByStore?.[activeMagasin]?.[monthKey] ?? null);
+                return <HeatmapCell value={qty} tooltipStock={stock} tooltipReceptions={receptions} />;
             },
         })),
         {
@@ -571,7 +574,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
         getSortedRowModel: getSortedRowModel(),
         getFilteredRowModel: getFilteredRowModel(),
         enableRowSelection: true,
-        globalFilterFn: (row, columnId, filterValue) => {
+        globalFilterFn: (row, _columnId, filterValue) => {
             const search = String(filterValue).toLowerCase();
             const libelle = String(row.original.libelle1 || "").toLowerCase();
             const code = String(row.original.codein || "").toLowerCase();
