@@ -184,7 +184,7 @@ GridRow.displayName = "GridRow";
 
 export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
     // L'abonnement doit être minimal ici ! PAS de draftChanges ni de setDraftGamme.
-    const { rows, filters, displayDensity, draftChanges } = useGridStore();
+    const { rows, filters, displayDensity, draftChanges, activeMagasin } = useGridStore();
 
     // Filtre client-side par code3 (famille) et codeGamme
     const filteredData = useMemo(() => {
@@ -456,50 +456,75 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
             header: () => <div className="text-center w-full">{formatMonthLabel(monthKey)}</div>,
             size: 68,
             enableSorting: false,
-            cell: ({ row }: { row: { original: ProductRow } }) => (
-                <HeatmapCell value={row.original.sales12m[monthKey] ?? null} />
-            ),
+            cell: ({ row }: { row: { original: ProductRow } }) => {
+                const qty = activeMagasin === "TOTAL"
+                    ? (row.original.sales12m[monthKey] ?? null)
+                    : (row.original.sales12mByStore?.[activeMagasin]?.[monthKey] ?? null);
+                const stock = activeMagasin === "TOTAL"
+                    ? (row.original.stock12m[monthKey] ?? null)
+                    : (row.original.stock12mByStore?.[activeMagasin]?.[monthKey] ?? null);
+                return <HeatmapCell value={qty} tooltipStock={stock} />;
+            },
         })),
         {
-            accessorKey: "totalQuantite",
+            id: "totalQuantite",
             header: () => <div className="text-center w-full">Tot. 12m</div>,
             size: 90,
-            cell: ({ getValue }) => (
-                <div className="mx-auto w-[60px] text-center px-1 tabular-nums text-sm font-black py-1.5 rounded-md border" style={{
-                    background: "var(--bg-elevated)",
-                    color: "var(--text-primary)",
-                    borderColor: "var(--border-strong)"
-                }}>
-                    {Math.round(getValue<number>()).toLocaleString("fr-FR")}
-                </div>
-            ),
+            cell: ({ row }: { row: { original: ProductRow } }) => {
+                const qty = activeMagasin === "TOTAL"
+                    ? row.original.totalQuantite
+                    : (row.original.quantiteByStore?.[activeMagasin] ?? 0);
+                return (
+                    <div className="mx-auto w-[60px] text-center px-1 tabular-nums text-sm font-black py-1.5 rounded-md border" style={{
+                        background: "var(--bg-elevated)",
+                        color: "var(--text-primary)",
+                        borderColor: "var(--border-strong)"
+                    }}>
+                        {Math.round(qty).toLocaleString("fr-FR")}
+                    </div>
+                );
+            },
         },
         {
-            accessorKey: "totalCa",
+            id: "totalCa",
             header: () => <div className="text-center w-full">CA</div>,
             size: 90,
-            cell: ({ getValue }) => (
-                <div className="text-center tabular-nums text-[13px] font-bold" style={{ color: "var(--text-primary)" }}>
-                    {Math.round(getValue<number>()).toLocaleString("fr-FR")}&nbsp;€
-                </div>
-            ),
+            cell: ({ row }: { row: { original: ProductRow } }) => {
+                const ca = activeMagasin === "TOTAL"
+                    ? row.original.totalCa
+                    : (row.original.caByStore?.[activeMagasin] ?? 0);
+                return (
+                    <div className="text-center tabular-nums text-[13px] font-bold" style={{ color: "var(--text-primary)" }}>
+                        {Math.round(ca).toLocaleString("fr-FR")}&nbsp;€
+                    </div>
+                );
+            },
         },
         {
-            accessorKey: "totalMarge",
+            id: "totalMarge",
             header: () => <div className="text-center w-full">Marge</div>,
             size: 110,
-            cell: ({ row }) => (
-                <div className="flex flex-col items-center justify-center">
-                    <span className="tabular-nums text-[13px] font-bold" style={{ color: "var(--text-primary)" }}>
-                        {Math.round(row.original.totalMarge).toLocaleString("fr-FR")}&nbsp;€
-                    </span>
-                    <span className="tabular-nums text-[10px] font-bold opacity-70" style={{
-                        color: row.original.tauxMarge >= 40 ? "var(--accent-success)" : row.original.tauxMarge >= 25 ? "var(--accent-warning)" : "var(--accent-error)"
-                    }}>
-                        {row.original.tauxMarge.toFixed(1)}%
-                    </span>
-                </div>
-            ),
+            cell: ({ row }: { row: { original: ProductRow } }) => {
+                const marge = activeMagasin === "TOTAL"
+                    ? row.original.totalMarge
+                    : (row.original.margeByStore?.[activeMagasin] ?? 0);
+                const ca = activeMagasin === "TOTAL"
+                    ? row.original.totalCa
+                    : (row.original.caByStore?.[activeMagasin] ?? 0);
+                const taux = ca > 0 ? (marge / ca) * 100 : 0;
+                return (
+                    <div className="flex flex-col items-center justify-center">
+                        <span className="tabular-nums text-[13px] font-bold" style={{ color: "var(--text-primary)" }}>
+                            {Math.round(marge).toLocaleString("fr-FR")}&nbsp;€
+                        </span>
+                        <span className="tabular-nums text-[10px] font-bold opacity-70" style={{
+                            color: taux >= 40 ? "var(--accent-success)" : taux >= 25 ? "var(--accent-warning)" : "var(--accent-error)"
+                        }}>
+                            {taux.toFixed(1)}%
+                        </span>
+                    </div>
+                );
+            },
         },
         {
             id: "gammeInitial",
@@ -528,7 +553,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
                 </div>
             ),
         },
-    ], [MONTHS_12]); // Dépendances extrêmement stables : pas de re-render du header !
+    ], [MONTHS_12, activeMagasin]); // activeMagasin déclenche re-render des cellules mensuelles et totaux
 
     const table = useReactTable({
         data: filteredData,

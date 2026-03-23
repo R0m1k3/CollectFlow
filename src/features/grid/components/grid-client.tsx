@@ -27,6 +27,7 @@ export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fourn
     const setRows = useGridStore((s) => s.setRows);
     const setActiveGridQuery = useGridStore((s) => s.setActiveGridQuery);
     const setFilter = useGridStore((s) => s.setFilter);
+    const setActiveMagasin = useGridStore((s) => s.setActiveMagasin);
     const searchParams = useSearchParams();
 
     const [selectedCodeins, setSelectedCodeins] = useState<string[]>([]);
@@ -61,7 +62,8 @@ export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fourn
 
         const scoredRows = computeProductScores([...initialRows]);
         setRows(scoredRows);
-    }, [codeFournisseur, initialRows, setRows, setFilter, isMounted]);
+        setActiveMagasin(magasin || "TOTAL");
+    }, [codeFournisseur, initialRows, setRows, setFilter, setActiveMagasin, magasin, isMounted]);
 
     const handleSave = () => {
         startTransition(async () => {

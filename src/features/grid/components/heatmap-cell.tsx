@@ -2,6 +2,7 @@ import React from "react";
 
 interface HeatmapCellProps {
     value: number | null;
+    tooltipStock?: number | null;
 }
 
 function getHeatmapClass(value: number | null): string {
@@ -13,14 +14,20 @@ function getHeatmapClass(value: number | null): string {
     return "heatmap-zero";
 }
 
-export const HeatmapCell = React.memo(({ value }: HeatmapCellProps) => {
+export const HeatmapCell = React.memo(({ value, tooltipStock }: HeatmapCellProps) => {
     const heatClass = getHeatmapClass(value);
     const display = value === null || value === 0 ? "0" : Math.round(Math.abs(value)).toString();
+
+    const titleParts: string[] = [];
+    if (value !== null && value !== 0) titleParts.push(`${Math.abs(value).toLocaleString("fr-FR")} unités`);
+    else titleParts.push("Aucune vente");
+    if (tooltipStock != null) titleParts.push(`Stock fin de mois : ${tooltipStock.toLocaleString("fr-FR")}`);
+    const title = titleParts.join(" · ");
 
     return (
         <div
             className={`rounded text-center text-[12px] tabular-nums px-0.5 py-0.5 font-bold tracking-tighter transition-colors min-h-[24px] flex items-center justify-center font-mono-nums ${heatClass}`}
-            title={value !== null ? `${Math.abs(value).toLocaleString("fr-FR")} unités` : "Aucune vente"}
+            title={title}
         >
             {display}
         </div>

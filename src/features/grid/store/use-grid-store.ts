@@ -19,6 +19,10 @@ interface GridState {
     /** Persisted column sizing state */
     columnSizing: Record<string, number>;
 
+    /** Currently displayed store: "TOTAL" | "292" | "579" */
+    activeMagasin: string;
+    setActiveMagasin: (code: string) => void;
+
     // Actions
     setRows: (rows: ProductRow[]) => void;
     setDraftGamme: (codein: string, gamme: GammeCode) => void;
@@ -36,17 +40,20 @@ interface GridState {
     setColumnSizing: (updater: Record<string, number> | ((old: Record<string, number>) => Record<string, number>)) => void;
 }
 
-function computeSummary(rows: ProductRow[], drafts: Record<string, GammeCode>): GridSummary {
+function computeSummary(rows: ProductRow[], drafts: Record<string, GammeCode>, magasin = "TOTAL"): GridSummary {
     const active = rows.filter((r) => {
         const g = drafts[r.codein] ?? r.codeGamme;
         return g !== "Z";
     });
-    const totalCa = active.reduce((s, r) => s + (r.totalCa ?? 0), 0);
-    const totalMarge = active.reduce((s, r) => s + (r.totalMarge ?? 0), 0);
+    const getCa    = (r: ProductRow) => magasin === "TOTAL" ? (r.totalCa     ?? 0) : (r.caByStore?.[magasin]       ?? 0);
+    const getQte   = (r: ProductRow) => magasin === "TOTAL" ? (r.totalQuantite ?? 0) : (r.quantiteByStore?.[magasin] ?? 0);
+    const getMarge = (r: ProductRow) => magasin === "TOTAL" ? (r.totalMarge  ?? 0) : (r.margeByStore?.[magasin]    ?? 0);
+    const totalCa    = active.reduce((s, r) => s + getCa(r),    0);
+    const totalMarge = active.reduce((s, r) => s + getMarge(r), 0);
     return {
         totalProducts: rows.length,
         totalRows: active.length,
-        totalQuantite: active.reduce((s, r) => s + (r.totalQuantite ?? 0), 0),
+        totalQuantite: active.reduce((s, r) => s + getQte(r), 0),
         totalCa,
         totalMarge,
         tauxMargeGlobal: totalCa > 0 ? (totalMarge / totalCa) * 100 : 0,
@@ -57,6 +64,7 @@ export const useGridStore = create<GridState>()(
     persist(
         (set, get) => ({
             rows: [],
+            activeMagasin: "TOTAL",
             draftChanges: {},
             filters: {
                 magasin: null,
@@ -80,8 +88,13 @@ export const useGridStore = create<GridState>()(
             columnVisibility: {},
             columnSizing: {},
 
+            setActiveMagasin: (code) => {
+                const { rows, draftChanges } = get();
+                set({ activeMagasin: code, summary: computeSummary(rows, draftChanges, code) });
+            },
+
             setRows: (rows) => {
-                set({ rows, summary: computeSummary(rows, get().draftChanges) });
+                set({ rows, summary: computeSummary(rows, get().draftChanges, get().activeMagasin) });
             },
 
             setDraftGamme: (codein, gamme) => {
@@ -99,16 +112,16 @@ export const useGridStore = create<GridState>()(
                     draftChanges[codein] = gamme;
                 }
 
-                set({ draftChanges, summary: computeSummary(rows, draftChanges) });
+                set({ draftChanges, summary: computeSummary(rows, draftChanges, get().activeMagasin) });
             },
 
             resetDrafts: () => {
-                set({ draftChanges: {}, summary: computeSummary(get().rows, {}) });
+                set({ draftChanges: {}, summary: computeSummary(get().rows, {}, get().activeMagasin) });
             },
             clearDrafts: (codeins) => {
                 const draftChanges = { ...get().draftChanges };
                 codeins.forEach((id) => delete draftChanges[id]);
-                set({ draftChanges, summary: computeSummary(get().rows, draftChanges) });
+                set({ draftChanges, summary: computeSummary(get().rows, draftChanges, get().activeMagasin) });
             },
             /** Apply saved drafts onto row.codeGamme so isModified works after clearing drafts */
             applyDraftsToRows: (draftsToApply: Record<string, GammeCode>) => {
@@ -127,7 +140,7 @@ export const useGridStore = create<GridState>()(
             setDisplayDensity: (density) => set({ displayDensity: density }),
             setActiveGridQuery: (query) => set({ activeGridQuery: query }),
             restoreSnapshot: (changes) => {
-                set({ draftChanges: changes, summary: computeSummary(get().rows, changes) });
+                set({ draftChanges: changes, summary: computeSummary(get().rows, changes, get().activeMagasin) });
             },
 
             batchSetDraftGamme: (newChanges) => {
@@ -145,7 +158,7 @@ export const useGridStore = create<GridState>()(
                     }
                 });
 
-                set({ draftChanges: updatedDrafts, summary: computeSummary(rows, updatedDrafts) });
+                set({ draftChanges: updatedDrafts, summary: computeSummary(rows, updatedDrafts, get().activeMagasin) });
             },
 
             setColumnVisibility: (updater) => {

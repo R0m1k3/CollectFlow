@@ -85,10 +85,13 @@ export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
         router.push(`/grid?${params.toString()}`);
     };
 
+    const { setActiveMagasin, activeMagasin } = useGridStore();
+
     const handleStoreSelect = (code: string) => {
+        setActiveMagasin(code);
         const params = new URLSearchParams(searchParams.toString());
         params.set("magasin", code);
-        router.push(`/grid?${params.toString()}`);
+        router.replace(`/grid?${params.toString()}`, { scroll: false });
     };
 
     const handleRefresh = () => {
@@ -125,7 +128,7 @@ export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
             {/* Store Selector */}
             <StoreCombobox
                 magasins={magasins}
-                selectedCode={searchParams.get("magasin")}
+                selectedCode={activeMagasin === "TOTAL" ? null : activeMagasin}
                 onSelect={handleStoreSelect}
                 className="w-[220px]"
             />

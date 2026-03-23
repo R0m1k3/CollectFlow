@@ -97,22 +97,19 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
 
         // ─── Phase 4 : Agréger mensuelRows → byPeriod par codein ─────────────
         // SQL a déjà fait l'agrégation par (codein, site, mois).
-        // On somme ici les 2 sites (292 + 579) par période.
-        const filterSite = magasin !== "TOTAL" ? magasin : null;
-
+        // On somme les 2 sites (TOTAL) ET on accumule par site pour le switch client-side.
         type PeriodData = { qty: number; ca: number; marge: number; stock: number; receptions: number };
         const mensuelByCodein = new Map<string, Map<string, PeriodData>>();
+        const mensuelBySite = new Map<string, Map<string, Map<string, PeriodData>>>(); // codein → site → periode → data
         const storeMonthsByCodein = new Map<string, Map<string, Set<string>>>();
 
         for (const row of mensuelRows) {
-            if (filterSite && row.site !== filterSite) continue;
-
             const periode = row.mois.replace("-", ""); // "2026-02" → "202602"
             if (!allowedPeriods.has(periode)) continue;
 
+            // Accumulation TOTAL (toujours tous sites)
             if (!mensuelByCodein.has(row.codein)) mensuelByCodein.set(row.codein, new Map());
             const byPeriod = mensuelByCodein.get(row.codein)!;
-
             if (!byPeriod.has(periode)) byPeriod.set(periode, { qty: 0, ca: 0, marge: 0, stock: 0, receptions: 0 });
             const p = byPeriod.get(periode)!;
             p.stock      += Number(row.stock_fin_mois) || 0;
@@ -121,10 +118,22 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             p.marge      += Number(row.marge)          || 0;
             p.receptions += Number(row.qte_recue)      || 0;
 
+            // Accumulation par site (pour switch client-side)
+            if (!mensuelBySite.has(row.codein)) mensuelBySite.set(row.codein, new Map());
+            const bySite = mensuelBySite.get(row.codein)!;
+            if (!bySite.has(row.site)) bySite.set(row.site, new Map());
+            const siteByPeriod = bySite.get(row.site)!;
+            if (!siteByPeriod.has(periode)) siteByPeriod.set(periode, { qty: 0, ca: 0, marge: 0, stock: 0, receptions: 0 });
+            const sp = siteByPeriod.get(periode)!;
+            sp.qty   += Number(row.qte_vendue)     || 0;
+            sp.ca    += Number(row.ca_ht)          || 0;
+            sp.marge += Number(row.marge)          || 0;
+            sp.stock  = Math.max(sp.stock, Number(row.stock_fin_mois) || 0);
+
             // Suivi magasins actifs (pour workingStores) : 1 vente suffit
             if (Number(row.qte_vendue) > 0) {
                 if (!storeMonthsByCodein.has(row.codein)) storeMonthsByCodein.set(row.codein, new Map());
-                storeMonthsByCodein.get(row.codein)!.set(row.site, new Set()); // on garde juste le site
+                storeMonthsByCodein.get(row.codein)!.set(row.site, new Set());
             }
         }
 
@@ -152,6 +161,32 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             }
 
             product.tauxMarge = product.totalCa > 0 ? (product.totalMarge / product.totalCa) * 100 : 0;
+
+            // Breakdowns par site pour le switch client-side
+            const siteMap = mensuelBySite.get(codein);
+            if (siteMap) {
+                product.sales12mByStore = {};
+                product.stock12mByStore = {};
+                product.caByStore       = {};
+                product.quantiteByStore = {};
+                product.margeByStore    = {};
+                for (const [site, siteByPeriod] of siteMap.entries()) {
+                    product.sales12mByStore[site] = {};
+                    product.stock12mByStore[site] = {};
+                    let sQty = 0, sCa = 0, sMarge = 0;
+                    for (const periode of sortedPeriods) {
+                        const sp = siteByPeriod.get(periode);
+                        product.sales12mByStore[site][periode] = sp?.qty   ?? 0;
+                        product.stock12mByStore[site][periode] = sp?.stock ?? 0;
+                        sQty   += sp?.qty   ?? 0;
+                        sCa    += sp?.ca    ?? 0;
+                        sMarge += sp?.marge ?? 0;
+                    }
+                    product.quantiteByStore[site] = sQty;
+                    product.caByStore[site]       = sCa;
+                    product.margeByStore[site]    = sMarge;
+                }
+            }
 
             // workingStores : sites avec au moins 1 vente sur les 12 derniers mois
             const storeMonths = storeMonthsByCodein.get(codein);
@@ -189,9 +224,7 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
             const product = productMap.get(codein);
             if (!product) continue;
 
-            const sitesStock = filterSite
-                ? stocks.filter(s => s.site === filterSite)
-                : stocks;
+            const sitesStock = stocks;
 
             product.stockActuel = sitesStock.reduce((s, r) => s + (Number(r.stockdispo) || 0), 0);
             product.stockTotal  = sitesStock.reduce((s, r) => s + (Number(r.qte)         || 0), 0);
