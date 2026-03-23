@@ -55,7 +55,20 @@ export function BulkAiAnalyzer() {
             }
         }
 
-        const initialPayloads: ProductAnalysisInput[] = rows.map((r) => {
+        // 2a. Produits sans aucune vente → Z direct, sans appel IA (avant de construire les payloads)
+        const zeroSalesRows = rows.filter((r) => (r.totalQuantite || 0) === 0);
+        if (zeroSalesRows.length > 0) {
+            const zChanges: Record<string, GammeCode> = {};
+            zeroSalesRows.forEach(r => { zChanges[r.codein] = "Z"; });
+            batchSetDraftGamme(zChanges);
+            zeroSalesRows.forEach(r => {
+                setInsight(r.codein, "Aucune vente sur 12 mois — produit classé Z automatiquement.");
+            });
+        }
+
+        // Construire les payloads uniquement pour les produits avec ventes
+        const rowsWithSales = rows.filter((r) => (r.totalQuantite || 0) > 0);
+        const initialPayloads: ProductAnalysisInput[] = rowsWithSales.map((r) => {
             const sc = r.workingStores?.length || 1;
             const weight = sc === 1 ? 2 : 1;
 
@@ -105,19 +118,7 @@ export function BulkAiAnalyzer() {
                 totalFournisseurCa: r.totalFournisseurCa,
                 supplierContext: supplierContext,
             };
-
         });
-
-        // 2a. Produits sans aucune vente → Z direct, sans appel IA
-        const zeroSalesRows = rows.filter((r) => (r.totalQuantite || 0) === 0);
-        if (zeroSalesRows.length > 0) {
-            const zChanges: Record<string, GammeCode> = {};
-            zeroSalesRows.forEach(r => { zChanges[r.codein] = "Z"; });
-            batchSetDraftGamme(zChanges);
-            zeroSalesRows.forEach(r => {
-                setInsight(r.codein, "Aucune vente sur 12 mois — produit classé Z automatiquement.");
-            });
-        }
 
         // 2b. Stock mort absolu : CA < 100€ ET quantité < 30 → Z direct, sans appel IA
         const deadStockRows = rows.filter(r =>
