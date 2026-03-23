@@ -468,6 +468,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
         })),
         {
             id: "totalQuantite",
+            accessorFn: (row: ProductRow) => activeMagasin === "TOTAL" ? row.totalQuantite : (row.quantiteByStore?.[activeMagasin] ?? 0),
             header: () => <div className="text-center w-full">Tot. 12m</div>,
             size: 90,
             cell: ({ row }: { row: { original: ProductRow } }) => {
@@ -487,6 +488,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
         },
         {
             id: "totalCa",
+            accessorFn: (row: ProductRow) => activeMagasin === "TOTAL" ? row.totalCa : (row.caByStore?.[activeMagasin] ?? 0),
             header: () => <div className="text-center w-full">CA</div>,
             size: 90,
             cell: ({ row }: { row: { original: ProductRow } }) => {
@@ -502,6 +504,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
         },
         {
             id: "totalMarge",
+            accessorFn: (row: ProductRow) => activeMagasin === "TOTAL" ? row.totalMarge : (row.margeByStore?.[activeMagasin] ?? 0),
             header: () => <div className="text-center w-full">Marge</div>,
             size: 110,
             cell: ({ row }: { row: { original: ProductRow } }) => {

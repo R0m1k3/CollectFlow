@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { HeatmapGrid } from "@/features/grid/components/heatmap-grid";
 import { FloatingSummaryBar } from "@/features/grid/components/floating-summary-bar";
 import { BulkActionToolbar } from "@/features/grid/components/bulk-action-toolbar";
@@ -51,19 +51,24 @@ export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fourn
         setActiveGridQuery(currentQueryString ? `?${currentQueryString}` : "");
     }, [searchParams, setActiveGridQuery, isMounted]);
 
+    // Réinitialiser les filtres UNIQUEMENT quand le fournisseur change
+    const prevFournisseurRef = useRef<string | null>(null);
     useEffect(() => {
         if (!isMounted) return;
-
-        // Réinitialiser les filtres gamme et code3 lors du changement de fournisseur.
-        // Ces filtres sont persistés en localStorage (Zustand persist) et s'appliquent
-        // au nouveau fournisseur, cachant toutes les lignes si le filtre ne correspond pas.
-        setFilter("codeGamme", null);
-        setFilter("code3", null);
-
+        if (prevFournisseurRef.current !== codeFournisseur) {
+            setFilter("codeGamme", null);
+            setFilter("code3", null);
+            prevFournisseurRef.current = codeFournisseur;
+        }
         const scoredRows = computeProductScores([...initialRows]);
         setRows(scoredRows);
+    }, [codeFournisseur, initialRows, setRows, setFilter, isMounted]);
+
+    // Synchroniser le magasin actif depuis la prop URL (changement de magasin sans rechargement)
+    useEffect(() => {
+        if (!isMounted) return;
         setActiveMagasin(magasin || "TOTAL");
-    }, [codeFournisseur, initialRows, setRows, setFilter, setActiveMagasin, magasin, isMounted]);
+    }, [magasin, setActiveMagasin, isMounted]);
 
     const handleSave = () => {
         startTransition(async () => {
