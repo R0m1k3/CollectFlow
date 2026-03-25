@@ -115,6 +115,9 @@ export function computeProductScores(rows: ProductRow[]): ProductRow[] {
             const lastY = parseInt(lastSaleMonth.substring(0, 4));
             const lastM = parseInt(lastSaleMonth.substring(4, 6));
             inactivity = (refY - lastY) * 12 + (refM - lastM);
+        } else if (refMonth && !lastSaleMonth) {
+            // Jamais vendu sur la fenêtre → inactivité maximale
+            inactivity = 24;
         }
 
         return {
@@ -157,6 +160,25 @@ export function computeProductScores(rows: ProductRow[]): ProductRow[] {
     for (let idx = 0; idx < weightedData.length; idx++) {
         const d = weightedData[idx];
         const r = d.row;
+
+        // --- Guard absolu : aucune vente → score 0, quelle que soit la marge ou le ranking ---
+        if (d.wQty === 0 && d.wCa === 0) {
+            r.avgQtyFournisseur   = avgQty;
+            r.totalFournisseurCa  = totalCa;
+            r.shareQty            = 0;
+            r.shareCa             = 0;
+            r.shareMarge          = 0;
+            const r2z             = r.code2 || "default";
+            const rStat           = rayonTotals.get(r2z);
+            r.avgQtyRayon         = rStat ? rStat.total / rStat.count : 0;
+            r.unitsPerStorePerMonth = 0;
+            r.caPerStorePerYear   = 0;
+            r.score               = 0;
+            r.isRecent            = true;
+            r.isLastProduct       = rows.length === 1;
+            r.isTop30Supplier     = false;
+            continue;
+        }
 
         // --- Métriques de contexte (inchangées, pour l'IA et l'affichage) ---
         r.avgQtyFournisseur = avgQty;
