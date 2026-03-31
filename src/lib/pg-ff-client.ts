@@ -645,21 +645,27 @@ export async function pgGetCaByFournisseur(
     moisN1: string
 ): Promise<CaByFournisseurRow[]> {
     const result = await pgNoParallel(sql`
+        WITH art_fou AS (
+            -- Un seul fournisseur par article (le plus ancien no_id = fournisseur principal)
+            SELECT DISTINCT ON (art_no_id) art_no_id, code AS codefou
+            FROM artfou1
+            ORDER BY art_no_id, no_id
+        )
         SELECT
-            af.code                            AS code,
+            af.codefou                         AS code,
             MAX(f.raisonsociale)::text         AS nom,
             m.site,
             TO_CHAR(m.datmvt, 'YYYY-MM')      AS mois,
             SUM(-m.mntmvtttc)::float           AS ca_ttc
         FROM mvtart m
-        JOIN articles a  ON a.no_id        = m.artnoid
-        JOIN artfou1  af ON af.art_no_id   = a.no_id
-        JOIN fouadr1  f  ON f.code         = af.code AND f.sit_code = '000'
+        JOIN articles   a  ON a.no_id      = m.artnoid
+        JOIN art_fou    af ON af.art_no_id  = a.no_id
+        JOIN fouadr1    f  ON f.code        = af.codefou AND f.sit_code = '000'
         WHERE (TO_CHAR(m.datmvt, 'YYYY-MM') = ${mois} OR TO_CHAR(m.datmvt, 'YYYY-MM') = ${moisN1})
           AND m.site IN ('292', '579')
           AND m.genremvt = 3
-        GROUP BY af.code, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
-        ORDER BY af.code, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
+        GROUP BY af.codefou, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
+        ORDER BY af.codefou, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
     `);
 
     console.log(`[pg-ff] CaByFournisseur: ${result.rows.length} lignes pour ${mois}/${moisN1}`);
