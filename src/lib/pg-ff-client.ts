@@ -655,11 +655,11 @@ export async function pgGetCaByFournisseur(
         JOIN articles a  ON a.no_id        = m.artnoid
         JOIN artfou1  af ON af.art_no_id   = a.no_id
         JOIN fouadr1  f  ON f.code         = af.code AND f.sit_code = '000'
-        WHERE TO_CHAR(m.datmvt, 'YYYY-MM') IN (${mois}, ${moisN1})
+        WHERE (TO_CHAR(m.datmvt, 'YYYY-MM') = ${mois} OR TO_CHAR(m.datmvt, 'YYYY-MM') = ${moisN1})
           AND m.site IN ('292', '579')
           AND m.genremvt = 3
         GROUP BY af.code, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
-        ORDER BY af.code, m.site, mois
+        ORDER BY af.code, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
     `);
 
     console.log(`[pg-ff] CaByFournisseur: ${result.rows.length} lignes pour ${mois}/${moisN1}`);
@@ -683,11 +683,11 @@ export async function pgGetCaByNomenclature(
         FROM mvtart m
         JOIN articles     a ON a.no_id    = m.artnoid
         JOIN nomenclature n ON n.no_id    = a.nom_no_id
-        WHERE TO_CHAR(m.datmvt, 'YYYY-MM') IN (${mois}, ${moisN1})
+        WHERE (TO_CHAR(m.datmvt, 'YYYY-MM') = ${mois} OR TO_CHAR(m.datmvt, 'YYYY-MM') = ${moisN1})
           AND m.site IN ('292', '579')
           AND m.genremvt = 3
         GROUP BY n.code, n.libelle, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
-        ORDER BY n.code, m.site, mois
+        ORDER BY n.code, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
     `);
 
     console.log(`[pg-ff] CaByNomenclature: ${result.rows.length} lignes pour ${mois}/${moisN1}`);
