@@ -83,19 +83,18 @@ export interface PgRankingRow {
 // ---------------------------------------------------------------------------
 
 /**
- * Retourne la liste des fournisseurs depuis fouadr1 + artfou1.
+ * Retourne la liste des fournisseurs depuis fouident (vrais noms) + artfou1.
  */
 export async function pgGetFournisseurs(search?: string): Promise<{ code: string; nom: string }[]> {
     try {
         const result = await db.execute(sql`
-            SELECT DISTINCT fa.code, fa.raisonsociale AS nom
-            FROM fouadr1 fa
-            INNER JOIN artfou1 af ON af.code = fa.code
-            WHERE fa.sit_code = '000'
-              AND fa.raisonsociale IS NOT NULL
-              AND fa.raisonsociale !~ '^\s*\d'
-              ${search ? sql`AND (fa.raisonsociale ILIKE ${'%' + search + '%'} OR fa.code ILIKE ${'%' + search + '%'})` : sql``}
-            ORDER BY fa.raisonsociale
+            SELECT DISTINCT fi.code, fi.nom
+            FROM fouident fi
+            INNER JOIN artfou1 af ON af.code = fi.code
+            WHERE fi.nom IS NOT NULL
+              AND fi.nom != ''
+              ${search ? sql`AND (fi.nom ILIKE ${'%' + search + '%'} OR fi.code ILIKE ${'%' + search + '%'})` : sql``}
+            ORDER BY fi.nom
         `);
         console.log(`[pg-ff] pgGetFournisseurs: ${result.rows.length} fournisseurs`);
         return (result.rows as unknown as { code: string; nom: string }[]).filter(r => r.code && r.nom);
@@ -123,7 +122,7 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
             a.no_id,
             a.codein,
             af.code                     AS codefou,
-            fa.raisonsociale            AS nomfou,
+            fi.nom                      AS nomfou,
             a.libelle1,
             af.pcb,
             af.reference,
@@ -133,7 +132,7 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
             pa.pa
         FROM artfou1 af
         JOIN articles a ON a.no_id = af.art_no_id
-        LEFT JOIN fouadr1 fa ON fa.code = af.code AND fa.sit_code = '000'
+        LEFT JOIN fouident fi ON fi.code = af.code
         LEFT JOIN article_infosup ai ON ai.artnoid = a.no_id
         LEFT JOIN cube_pa pa ON pa.artnoid = a.no_id
         LEFT JOIN art_gtin ag ON ag.idarticle = a.no_id AND ag.preferentiel = 1
@@ -660,15 +659,14 @@ export async function pgGetCaByFournisseur(
             ORDER BY m.artnoid, m.datmvt DESC, af.no_id DESC
         )
         SELECT
-            lr.codefou                                                   AS code,
-            MAX(CASE WHEN lr.codefou = 'D005' THEN 'Dépôt'
-                     ELSE f.raisonsociale END)::text                     AS nom,
+            lr.codefou                         AS code,
+            MAX(fi.nom)::text                  AS nom,
             m.site,
             TO_CHAR(m.datmvt, 'YYYY-MM')      AS mois,
             SUM(-m.mntmvtttc)::float           AS ca_ttc
         FROM mvtart m
         JOIN last_reception lr ON lr.artnoid   = m.artnoid
-        JOIN fouadr1        f  ON f.code       = lr.codefou AND f.sit_code = '000'
+        JOIN fouident       fi ON fi.code      = lr.codefou
         WHERE (TO_CHAR(m.datmvt, 'YYYY-MM') = ${mois} OR TO_CHAR(m.datmvt, 'YYYY-MM') = ${moisN1})
           AND m.site IN ('292', '579')
           AND m.genremvt = 3
