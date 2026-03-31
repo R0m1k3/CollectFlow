@@ -616,3 +616,80 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
         top10BySite,
     };
 }
+
+// ---------------------------------------------------------------------------
+// Analytics — CA TTC par fournisseur et nomenclature
+// ---------------------------------------------------------------------------
+
+export interface CaByFournisseurRow {
+    code: string;
+    nom: string;
+    site: string;
+    mois: string;
+    ca_ttc: number;
+}
+
+export interface CaByNomenclatureRow {
+    code: string;
+    libelle: string;
+    site: string;
+    mois: string;
+    ca_ttc: number;
+}
+
+/**
+ * Retourne le CA TTC par fournisseur et site pour deux mois donnés (mois et mois N-1).
+ */
+export async function pgGetCaByFournisseur(
+    mois: string,
+    moisN1: string
+): Promise<CaByFournisseurRow[]> {
+    const result = await pgNoParallel(sql`
+        SELECT
+            af.code                            AS code,
+            MAX(f.raisonsociale)::text         AS nom,
+            m.site,
+            TO_CHAR(m.datmvt, 'YYYY-MM')      AS mois,
+            SUM(-m.mntmvtttc)::float           AS ca_ttc
+        FROM mvtart m
+        JOIN articles a  ON a.no_id        = m.artnoid
+        JOIN artfou1  af ON af.art_no_id   = a.no_id
+        JOIN fouadr1  f  ON f.code         = af.code AND f.sit_code = '000'
+        WHERE TO_CHAR(m.datmvt, 'YYYY-MM') = ANY(ARRAY[${mois}, ${moisN1}])
+          AND m.site IN ('292', '579')
+          AND m.genremvt = 3
+        GROUP BY af.code, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
+        ORDER BY af.code, m.site, mois
+    `);
+
+    console.log(`[pg-ff] CaByFournisseur: ${result.rows.length} lignes pour ${mois}/${moisN1}`);
+    return result.rows as unknown as CaByFournisseurRow[];
+}
+
+/**
+ * Retourne le CA TTC par nomenclature (code3) et site pour deux mois donnés.
+ */
+export async function pgGetCaByNomenclature(
+    mois: string,
+    moisN1: string
+): Promise<CaByNomenclatureRow[]> {
+    const result = await pgNoParallel(sql`
+        SELECT
+            n.code                         AS code,
+            n.libelle::text                AS libelle,
+            m.site,
+            TO_CHAR(m.datmvt, 'YYYY-MM')  AS mois,
+            SUM(-m.mntmvtttc)::float       AS ca_ttc
+        FROM mvtart m
+        JOIN articles     a ON a.no_id    = m.artnoid
+        JOIN nomenclature n ON n.no_id    = a.nom_no_id
+        WHERE TO_CHAR(m.datmvt, 'YYYY-MM') = ANY(ARRAY[${mois}, ${moisN1}])
+          AND m.site IN ('292', '579')
+          AND m.genremvt = 3
+        GROUP BY n.code, n.libelle, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
+        ORDER BY n.code, m.site, mois
+    `);
+
+    console.log(`[pg-ff] CaByNomenclature: ${result.rows.length} lignes pour ${mois}/${moisN1}`);
+    return result.rows as unknown as CaByNomenclatureRow[];
+}

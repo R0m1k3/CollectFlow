@@ -11,6 +11,7 @@ import { useSession, signOut } from "next-auth/react";
 const NAV_ITEMS = [
     { icon: BarChart2, label: "Dashboard", href: "/dashboard" },
     { icon: LayoutGrid, label: "Grille", href: "/grid" },
+    { icon: BarChart2, label: "Analytics", href: "/analytics" },
     { icon: Camera, label: "Snapshots", href: "/snapshots" },
     { icon: FileDown, label: "Exports", href: "/exports" },
     { icon: Settings, label: "Paramètres", href: "/settings", adminOnly: true },
