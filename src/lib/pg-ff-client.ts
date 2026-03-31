@@ -646,10 +646,11 @@ export async function pgGetCaByFournisseur(
 ): Promise<CaByFournisseurRow[]> {
     const result = await pgNoParallel(sql`
         WITH art_fou AS (
-            -- Un seul fournisseur par article (le plus ancien no_id = fournisseur principal)
+            -- Un seul fournisseur par article : le plus récent (no_id DESC = entrée courante)
+            -- no_id est une séquence croissante → DESC sélectionne le fournisseur actif actuel
             SELECT DISTINCT ON (art_no_id) art_no_id, code AS codefou
             FROM artfou1
-            ORDER BY art_no_id, no_id
+            ORDER BY art_no_id, no_id DESC
         )
         SELECT
             af.codefou                         AS code,
