@@ -2,126 +2,150 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 
-/**
- * Diagnostic endpoint for supplier attribution investigation.
- * Usage:
- *   /api/diag-supplier                      → top suppliers by CA (current month) both methods
- *   /api/diag-supplier?code=BAZAR5000       → inspect artfou1 entries for that supplier's articles
- */
 export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const supplierCode = searchParams.get("code");
-
     const mois = "2026-03";
-    const moisN1 = "2025-03";
 
     try {
         if (supplierCode) {
-            // Mode inspection : montrer les artfou1 entrées pour ce fournisseur
-            const artfou1Rows = await db.execute(sql`
-                SELECT af.art_no_id, af.no_id, af.code AS codefou, a.codein,
-                       f.raisonsociale AS nom_fournisseur
-                FROM artfou1 af
+            // ── Inspection d'un fournisseur spécifique ──────────────────────────
+
+            // 1. Articles attribués à ce code via DESC (méthode actuelle)
+            const articlesDesc = await db.execute(sql`
+                WITH art_fou AS (
+                    SELECT DISTINCT ON (art_no_id) art_no_id, code AS codefou
+                    FROM artfou1
+                    ORDER BY art_no_id, no_id DESC
+                )
+                SELECT a.codein, a.libelle1,
+                       af.codefou AS codefou_courant,
+                       -- Tous les fournisseurs de cet article dans artfou1
+                       (SELECT STRING_AGG(af2.code || '(' || af2.no_id || ')', ',' ORDER BY af2.no_id)
+                        FROM artfou1 af2 WHERE af2.art_no_id = a.no_id) AS tous_fournisseurs,
+                       -- Dernière réception (livraison)
+                       (SELECT TO_CHAR(MAX(m2.datmvt), 'YYYY-MM-DD')
+                        FROM mvtart m2 WHERE m2.artnoid = a.no_id AND m2.genremvt IN (1,2)) AS derniere_reception,
+                       -- CA du mois sur cet article
+                       (SELECT SUM(-m3.mntmvtttc) FROM mvtart m3
+                        WHERE m3.artnoid = a.no_id AND TO_CHAR(m3.datmvt,'YYYY-MM') = ${mois}
+                          AND m3.genremvt = 3) AS ca_mois
+                FROM art_fou af
                 JOIN articles a ON a.no_id = af.art_no_id
-                LEFT JOIN fouadr1 f ON f.code = af.code AND f.sit_code = '000'
-                WHERE af.code = ${supplierCode}
-                ORDER BY af.art_no_id, af.no_id DESC
+                WHERE af.codefou = ${supplierCode}
+                ORDER BY ca_mois DESC NULLS LAST
                 LIMIT 20
             `);
 
-            // Pour ces articles, voir si d'autres fournisseurs existent dans artfou1
-            const multiSupplierArticles = await db.execute(sql`
-                SELECT a.codein, af.code AS codefou, af.no_id,
-                       f.raisonsociale AS nom,
-                       ROW_NUMBER() OVER (PARTITION BY af.art_no_id ORDER BY af.no_id DESC) AS rn
-                FROM artfou1 af
-                JOIN articles a ON a.no_id = af.art_no_id
-                LEFT JOIN fouadr1 f ON f.code = af.code AND f.sit_code = '000'
-                WHERE af.art_no_id IN (
-                    SELECT art_no_id FROM artfou1 WHERE code = ${supplierCode}
+            // 2. CA total attribué à ce code ce mois
+            const caMois = await db.execute(sql`
+                WITH art_fou AS (
+                    SELECT DISTINCT ON (art_no_id) art_no_id, code AS codefou
+                    FROM artfou1
+                    ORDER BY art_no_id, no_id DESC
                 )
-                ORDER BY a.codein, af.no_id DESC
-                LIMIT 50
+                SELECT SUM(-m.mntmvtttc)::float AS ca_total, COUNT(DISTINCT m.artnoid) AS nb_articles
+                FROM mvtart m
+                JOIN art_fou af ON af.art_no_id = m.artnoid
+                WHERE af.codefou = ${supplierCode}
+                  AND TO_CHAR(m.datmvt,'YYYY-MM') = ${mois}
+                  AND m.genremvt = 3
+            `);
+
+            // 3. Y a-t-il des réceptions récentes pour ce fournisseur ?
+            const recentReceptions = await db.execute(sql`
+                SELECT TO_CHAR(m.datmvt,'YYYY-MM') AS mois_reception,
+                       COUNT(*) AS nb_lignes,
+                       SUM(m.qtemvt)::float AS qte_recue
+                FROM mvtart m
+                JOIN articles a ON a.no_id = m.artnoid
+                JOIN artfou1 af ON af.art_no_id = a.no_id AND af.code = ${supplierCode}
+                WHERE m.genremvt IN (1,2)
+                  AND m.datmvt >= NOW() - INTERVAL '18 months'
+                GROUP BY TO_CHAR(m.datmvt,'YYYY-MM')
+                ORDER BY mois_reception DESC
+                LIMIT 12
             `);
 
             return NextResponse.json({
                 mode: "inspect",
                 supplierCode,
-                artfou1Sample: artfou1Rows.rows,
-                multiSupplierArticles: multiSupplierArticles.rows,
+                ca_mois: caMois.rows[0],
+                articles_top20_par_ca: articlesDesc.rows,
+                receptions_18_derniers_mois: recentReceptions.rows,
             });
         }
 
-        // Mode comparaison : ancien (ASC) vs nouveau (DESC) pour le mois courant
-        const withAsc = await db.execute(sql`
+        // ── Mode comparaison global ──────────────────────────────────────────────
+
+        // Méthode 1 : artfou1 DESC (actuelle)
+        const desc = await db.execute(sql`
             WITH art_fou AS (
                 SELECT DISTINCT ON (art_no_id) art_no_id, code AS codefou
-                FROM artfou1
-                ORDER BY art_no_id, no_id ASC
+                FROM artfou1 ORDER BY art_no_id, no_id DESC
             )
             SELECT af.codefou AS code, MAX(f.raisonsociale)::text AS nom,
-                   SUM(-m.mntmvtttc)::float AS ca_ttc
+                   ROUND(SUM(-m.mntmvtttc)::numeric, 0) AS ca_ttc
             FROM mvtart m
             JOIN articles a ON a.no_id = m.artnoid
             JOIN art_fou af ON af.art_no_id = a.no_id
             JOIN fouadr1 f ON f.code = af.codefou AND f.sit_code = '000'
-            WHERE TO_CHAR(m.datmvt, 'YYYY-MM') = ${mois}
-              AND m.site IN ('292', '579')
-              AND m.genremvt = 3
-            GROUP BY af.codefou
-            ORDER BY ca_ttc DESC
-            LIMIT 15
+            WHERE TO_CHAR(m.datmvt,'YYYY-MM') = ${mois}
+              AND m.site IN ('292','579') AND m.genremvt = 3
+            GROUP BY af.codefou ORDER BY ca_ttc DESC LIMIT 15
         `);
 
-        const withDesc = await db.execute(sql`
-            WITH art_fou AS (
-                SELECT DISTINCT ON (art_no_id) art_no_id, code AS codefou
-                FROM artfou1
-                ORDER BY art_no_id, no_id DESC
+        // Méthode 2 : dernière RÉCEPTION comme attribution (plus fiable)
+        const byLastReception = await db.execute(sql`
+            WITH last_reception AS (
+                -- Pour chaque article, dernier fournisseur qui a livré (genremvt 1 ou 2)
+                SELECT DISTINCT ON (m.artnoid)
+                    m.artnoid,
+                    af.code AS codefou,
+                    m.datmvt AS date_reception
+                FROM mvtart m
+                JOIN artfou1 af ON af.art_no_id = m.artnoid
+                WHERE m.genremvt IN (1, 2)
+                ORDER BY m.artnoid, m.datmvt DESC, af.no_id DESC
             )
-            SELECT af.codefou AS code, MAX(f.raisonsociale)::text AS nom,
-                   SUM(-m.mntmvtttc)::float AS ca_ttc
+            SELECT lr.codefou AS code, MAX(f.raisonsociale)::text AS nom,
+                   ROUND(SUM(-m.mntmvtttc)::numeric, 0) AS ca_ttc,
+                   MIN(TO_CHAR(lr.date_reception,'YYYY-MM-DD')) AS plus_ancienne_recep,
+                   MAX(TO_CHAR(lr.date_reception,'YYYY-MM-DD')) AS plus_recente_recep
             FROM mvtart m
-            JOIN articles a ON a.no_id = m.artnoid
-            JOIN art_fou af ON af.art_no_id = a.no_id
-            JOIN fouadr1 f ON f.code = af.codefou AND f.sit_code = '000'
-            WHERE TO_CHAR(m.datmvt, 'YYYY-MM') = ${mois}
-              AND m.site IN ('292', '579')
-              AND m.genremvt = 3
-            GROUP BY af.codefou
-            ORDER BY ca_ttc DESC
-            LIMIT 15
+            JOIN last_reception lr ON lr.artnoid = m.artnoid
+            JOIN fouadr1 f ON f.code = lr.codefou AND f.sit_code = '000'
+            WHERE TO_CHAR(m.datmvt,'YYYY-MM') = ${mois}
+              AND m.site IN ('292','579') AND m.genremvt = 3
+            GROUP BY lr.codefou ORDER BY ca_ttc DESC LIMIT 15
         `);
 
-        // Combien d'articles ont plusieurs fournisseurs dans artfou1 ?
-        const multiStats = await db.execute(sql`
+        // Stats multi-fournisseurs
+        const stats = await db.execute(sql`
             SELECT COUNT(*) AS articles_multi_fournisseur,
-                   MAX(cnt) AS max_fournisseurs_par_article
-            FROM (
-                SELECT art_no_id, COUNT(*) AS cnt
-                FROM artfou1
-                GROUP BY art_no_id
-                HAVING COUNT(*) > 1
-            ) t
+                   MAX(cnt) AS max_fournisseurs_par_article,
+                   SUM(CASE WHEN cnt = 1 THEN 1 ELSE 0 END) AS articles_unique_fournisseur
+            FROM (SELECT art_no_id, COUNT(*) AS cnt FROM artfou1 GROUP BY art_no_id) t
         `);
 
-        // Chercher BAZAR 5000 spécifiquement
-        const bazarCode = await db.execute(sql`
-            SELECT DISTINCT af.code, f.raisonsociale
+        // Codes BAZAR 5000
+        const bazar = await db.execute(sql`
+            SELECT DISTINCT af.code, f.raisonsociale,
+                   COUNT(af.art_no_id) AS nb_articles_lies
             FROM artfou1 af
             JOIN fouadr1 f ON f.code = af.code AND f.sit_code = '000'
             WHERE f.raisonsociale ILIKE '%bazar%'
-            LIMIT 5
+            GROUP BY af.code, f.raisonsociale
         `);
 
         return NextResponse.json({
             mode: "compare",
             mois,
-            top15_method_ASC_oldest: withAsc.rows,
-            top15_method_DESC_newest: withDesc.rows,
-            multi_supplier_stats: multiStats.rows,
-            bazar_supplier_codes: bazarCode.rows,
-            hint: "Add ?code=BAZAR5000_CODE to inspect specific supplier's articles",
+            method_DESC_artfou1_newest: desc.rows,
+            method_last_reception: byLastReception.rows,
+            multi_supplier_stats: stats.rows[0],
+            bazar_codes: bazar.rows,
+            next_steps: "Add ?code=D005 or ?code=B0071 to inspect specific supplier articles",
         });
 
     } catch (e) {

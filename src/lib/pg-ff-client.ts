@@ -645,28 +645,34 @@ export async function pgGetCaByFournisseur(
     moisN1: string
 ): Promise<CaByFournisseurRow[]> {
     const result = await pgNoParallel(sql`
-        WITH art_fou AS (
-            -- Un seul fournisseur par article : le plus récent (no_id DESC = entrée courante)
-            -- no_id est une séquence croissante → DESC sélectionne le fournisseur actif actuel
-            SELECT DISTINCT ON (art_no_id) art_no_id, code AS codefou
-            FROM artfou1
-            ORDER BY art_no_id, no_id DESC
+        WITH last_reception AS (
+            -- Attribution par dernière entrée en stock (genremvt 1 ou 2).
+            -- mvtart ne stocke pas le codefou directement → on joint artfou1.
+            -- DISTINCT ON (artnoid) ORDER BY datmvt DESC, af.no_id DESC :
+            --   1. prend la réception la plus récente
+            --   2. en cas d'égalité de date, prend le dernier artfou1 (no_id DESC)
+            SELECT DISTINCT ON (m.artnoid)
+                m.artnoid,
+                af.code AS codefou
+            FROM mvtart m
+            JOIN artfou1 af ON af.art_no_id = m.artnoid
+            WHERE m.genremvt IN (1, 2)
+            ORDER BY m.artnoid, m.datmvt DESC, af.no_id DESC
         )
         SELECT
-            af.codefou                         AS code,
+            lr.codefou                         AS code,
             MAX(f.raisonsociale)::text         AS nom,
             m.site,
             TO_CHAR(m.datmvt, 'YYYY-MM')      AS mois,
             SUM(-m.mntmvtttc)::float           AS ca_ttc
         FROM mvtart m
-        JOIN articles   a  ON a.no_id      = m.artnoid
-        JOIN art_fou    af ON af.art_no_id  = a.no_id
-        JOIN fouadr1    f  ON f.code        = af.codefou AND f.sit_code = '000'
+        JOIN last_reception lr ON lr.artnoid   = m.artnoid
+        JOIN fouadr1        f  ON f.code       = lr.codefou AND f.sit_code = '000'
         WHERE (TO_CHAR(m.datmvt, 'YYYY-MM') = ${mois} OR TO_CHAR(m.datmvt, 'YYYY-MM') = ${moisN1})
           AND m.site IN ('292', '579')
           AND m.genremvt = 3
-        GROUP BY af.codefou, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
-        ORDER BY af.codefou, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
+        GROUP BY lr.codefou, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
+        ORDER BY lr.codefou, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
     `);
 
     console.log(`[pg-ff] CaByFournisseur: ${result.rows.length} lignes pour ${mois}/${moisN1}`);
