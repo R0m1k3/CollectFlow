@@ -1,7 +1,6 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
-import { BarChart2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 interface AnalyticsClientProps {
     mode: string;
@@ -30,7 +29,14 @@ interface AnalyticsClientProps {
     evolutionTotal292: number | null;
     evolutionTotal579: number | null;
     evolutionTotalReseau: number | null;
-    formatCA: (value: number) => string;
+}
+
+function formatCA(value: number): string {
+    return new Intl.NumberFormat("fr-FR", {
+        style: "currency",
+        currency: "EUR",
+        maximumFractionDigits: 0,
+    }).format(value);
 }
 
 function EvolutionBadge({ value }: { value: number | null }) {
@@ -58,23 +64,15 @@ export function AnalyticsClient({
     evolutionTotal292,
     evolutionTotal579,
     evolutionTotalReseau,
-    formatCA,
 }: AnalyticsClientProps) {
     const router = useRouter();
-    const searchParams = useSearchParams();
 
     const handleModeChange = (newMode: string) => {
-        const params = new URLSearchParams(searchParams);
-        params.set("mode", newMode);
-        params.set("mois", mois);
-        router.push(`/analytics?${params.toString()}`);
+        router.push(`/analytics?mode=${newMode}&mois=${mois}`);
     };
 
     const handleMonthChange = (newMois: string) => {
-        const params = new URLSearchParams(searchParams);
-        params.set("mode", mode);
-        params.set("mois", newMois);
-        router.push(`/analytics?${params.toString()}`);
+        router.push(`/analytics?mode=${mode}&mois=${newMois}`);
     };
 
     // Générer liste des 24 derniers mois

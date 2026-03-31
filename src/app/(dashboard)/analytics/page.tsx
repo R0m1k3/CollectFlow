@@ -8,15 +8,6 @@ function getMoisN1(mois: string): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-// Formatage courant français
-function formatCA(value: number): string {
-    return new Intl.NumberFormat("fr-FR", {
-        style: "currency",
-        currency: "EUR",
-        maximumFractionDigits: 0,
-    }).format(value);
-}
-
 // Helper pivot : transformer les lignes de requête en tableau pivotté par site
 function pivotData(
     rows: Array<{ code: string; label: string; site: string; mois: string; ca_ttc: number }>,
@@ -145,7 +136,6 @@ export default async function AnalyticsPage(props: {
                     evolutionTotal292={evolutionTotal292}
                     evolutionTotal579={evolutionTotal579}
                     evolutionTotalReseau={evolutionTotalReseau}
-                    formatCA={formatCA}
                 />
             </div>
         </div>
