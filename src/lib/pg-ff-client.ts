@@ -660,8 +660,9 @@ export async function pgGetCaByFournisseur(
             ORDER BY m.artnoid, m.datmvt DESC, af.no_id DESC
         )
         SELECT
-            lr.codefou                         AS code,
-            MAX(f.raisonsociale)::text         AS nom,
+            lr.codefou                                                   AS code,
+            MAX(CASE WHEN lr.codefou = 'D005' THEN 'Dépôt'
+                     ELSE f.raisonsociale END)::text                     AS nom,
             m.site,
             TO_CHAR(m.datmvt, 'YYYY-MM')      AS mois,
             SUM(-m.mntmvtttc)::float           AS ca_ttc
