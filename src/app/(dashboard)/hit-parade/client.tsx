@@ -4,28 +4,21 @@ import { useRouter } from "next/navigation";
 import { useState, useMemo } from "react";
 import type { HitParadePivotRow } from "./page";
 
-type SortKey = "caTotal" | "ca292" | "ca579" | "qteTotal" | "qte292" | "qte579" | "margeTotal";
+type SortKey = "caTotal" | "ca292" | "ca579" | "qteTotal" | "qte292" | "qte579";
 type SortDir = "desc" | "asc";
+
+const DEFAULT_SORT: SortKey = "caTotal";
+const DEFAULT_DIR: SortDir = "desc";
 
 function formatCA(v: number) {
     return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(v);
 }
-
 function formatQte(v: number) {
     return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(v);
 }
-
 function formatPct(ca: number, marge: number) {
-    if (ca === 0) return null;
-    return ((marge / ca) * 100).toFixed(1) + "%";
-}
-
-function SortBtn({ active, dir, onClick }: { active: boolean; dir: SortDir; onClick: () => void }) {
-    return (
-        <button onClick={onClick} className="ml-1 text-xs text-gray-400 hover:text-gray-700">
-            {active ? (dir === "desc" ? "▼" : "▲") : "⇅"}
-        </button>
-    );
+    if (ca === 0) return "—";
+    return ((marge / ca) * 100).toFixed(1) + " %";
 }
 
 interface Props {
@@ -34,10 +27,10 @@ interface Props {
     pivotted: HitParadePivotRow[];
 }
 
-export function HitParadeClient({ mois, currentMois, pivotted }: Props) {
+export function HitParadeClient({ mois, pivotted }: Props) {
     const router = useRouter();
-    const [sortKey, setSortKey] = useState<SortKey>("caTotal");
-    const [sortDir, setSortDir] = useState<SortDir>("desc");
+    const [sortKey, setSortKey] = useState<SortKey>(DEFAULT_SORT);
+    const [sortDir, setSortDir] = useState<SortDir>(DEFAULT_DIR);
 
     const months: { value: string; label: string }[] = [];
     const now = new Date();
@@ -48,13 +41,6 @@ export function HitParadeClient({ mois, currentMois, pivotted }: Props) {
         months.push({ value, label: label.charAt(0).toUpperCase() + label.slice(1) });
     }
 
-    const sorted = useMemo(() => {
-        return [...pivotted].sort((a, b) => {
-            const diff = a[sortKey] - b[sortKey];
-            return sortDir === "desc" ? -diff : diff;
-        });
-    }, [pivotted, sortKey, sortDir]);
-
     function handleSort(key: SortKey) {
         if (sortKey === key) {
             setSortDir(d => d === "desc" ? "asc" : "desc");
@@ -64,101 +50,176 @@ export function HitParadeClient({ mois, currentMois, pivotted }: Props) {
         }
     }
 
+    function resetSort() {
+        setSortKey(DEFAULT_SORT);
+        setSortDir(DEFAULT_DIR);
+    }
+
+    const isSorted = sortKey !== DEFAULT_SORT || sortDir !== DEFAULT_DIR;
+
+    const sorted = useMemo(() => {
+        return [...pivotted].sort((a, b) => {
+            const diff = a[sortKey] - b[sortKey];
+            return sortDir === "desc" ? -diff : diff;
+        });
+    }, [pivotted, sortKey, sortDir]);
+
     const totals = useMemo(() => pivotted.reduce(
         (acc, r) => ({
-            qte292: acc.qte292 + r.qte292,
-            ca292: acc.ca292 + r.ca292,
-            marge292: acc.marge292 + r.marge292,
-            qte579: acc.qte579 + r.qte579,
-            ca579: acc.ca579 + r.ca579,
-            marge579: acc.marge579 + r.marge579,
-            qteTotal: acc.qteTotal + r.qteTotal,
-            caTotal: acc.caTotal + r.caTotal,
-            margeTotal: acc.margeTotal + r.margeTotal,
+            qte292: acc.qte292 + r.qte292, ca292: acc.ca292 + r.ca292, marge292: acc.marge292 + r.marge292,
+            qte579: acc.qte579 + r.qte579, ca579: acc.ca579 + r.ca579, marge579: acc.marge579 + r.marge579,
+            qteTotal: acc.qteTotal + r.qteTotal, caTotal: acc.caTotal + r.caTotal, margeTotal: acc.margeTotal + r.margeTotal,
         }),
         { qte292: 0, ca292: 0, marge292: 0, qte579: 0, ca579: 0, marge579: 0, qteTotal: 0, caTotal: 0, margeTotal: 0 }
     ), [pivotted]);
 
-    function th(label: string, key: SortKey) {
+    function ColHeader({ label, sortable, k }: { label: string; sortable?: SortKey; k?: string }) {
+        const isActive = sortable && sortKey === sortable;
         return (
-            <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 whitespace-nowrap">
+            <th
+                key={k}
+                onClick={sortable ? () => handleSort(sortable) : undefined}
+                className={[
+                    "px-4 py-2 text-right text-xs font-semibold whitespace-nowrap select-none",
+                    sortable ? "cursor-pointer hover:bg-blue-50" : "",
+                    isActive ? "bg-blue-50 text-blue-700" : "text-gray-600",
+                ].join(" ")}
+            >
                 {label}
-                <SortBtn active={sortKey === key} dir={sortDir} onClick={() => handleSort(key)} />
+                {sortable && (
+                    <span className="ml-1 inline-block w-3 text-center">
+                        {isActive ? (sortDir === "desc" ? "↓" : "↑") : <span className="text-gray-300">↕</span>}
+                    </span>
+                )}
             </th>
         );
     }
 
     return (
         <div className="space-y-4">
-            {/* Controls */}
-            <div className="flex items-center gap-4 rounded-lg bg-white p-4 shadow">
-                <label className="font-semibold text-gray-700">Mois :</label>
-                <select
-                    value={mois}
-                    onChange={e => router.push(`/hit-parade?mois=${e.target.value}`)}
-                    className="rounded border border-gray-300 px-3 py-2 text-sm"
-                >
-                    {months.map(m => (
-                        <option key={m.value} value={m.value}>{m.label}</option>
-                    ))}
-                </select>
-                <span className="text-sm text-gray-500">{sorted.length} produits</span>
+            {/* Barre de contrôles */}
+            <div className="flex flex-wrap items-center gap-4 rounded-xl bg-white px-5 py-4 shadow-sm border border-gray-100">
+                <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-gray-600">Mois</span>
+                    <select
+                        value={mois}
+                        onChange={e => router.push(`/hit-parade?mois=${e.target.value}`)}
+                        className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    >
+                        {months.map(m => (
+                            <option key={m.value} value={m.value}>{m.label}</option>
+                        ))}
+                    </select>
+                </div>
+
+                <div className="h-6 w-px bg-gray-200" />
+
+                <span className="rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-600">
+                    {sorted.length} produits
+                </span>
+
+                {isSorted && (
+                    <button
+                        onClick={resetSort}
+                        className="flex items-center gap-1.5 rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-sm font-medium text-orange-700 hover:bg-orange-100 transition-colors"
+                    >
+                        <span>✕</span> Annuler le tri
+                    </button>
+                )}
+
+                {!isSorted && (
+                    <span className="text-xs text-gray-400 italic">Trié par CA Total ↓ — cliquez sur une colonne pour trier</span>
+                )}
             </div>
 
-            {/* Table */}
-            <div className="overflow-x-auto rounded-lg bg-white shadow">
-                <table className="w-full text-sm">
+            {/* Tableau */}
+            <div className="overflow-x-auto rounded-xl bg-white shadow-sm border border-gray-100">
+                <table className="w-full border-collapse text-sm">
                     <thead>
-                        <tr className="border-b-2 border-gray-200 bg-gray-50">
-                            <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700" rowSpan={2}>Code</th>
-                            <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700" rowSpan={2}>Désignation</th>
-                            <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700" rowSpan={2}>Fournisseur</th>
-                            <th colSpan={3} className="px-3 py-2 text-center text-xs font-semibold text-gray-700 border-l border-gray-200">Frouard/Nancy (292)</th>
-                            <th colSpan={3} className="px-3 py-2 text-center text-xs font-semibold text-gray-700 border-l border-gray-200">Houdemont (579)</th>
-                            <th colSpan={3} className="px-3 py-2 text-center text-xs font-semibold text-gray-700 border-l border-gray-200">Total Réseau</th>
+                        {/* Ligne 1 — groupes */}
+                        <tr>
+                            <th rowSpan={2} className="w-24 border-b-2 border-gray-200 bg-gray-50 px-4 py-3 text-left text-xs font-semibold text-gray-600 align-bottom">Code</th>
+                            <th rowSpan={2} className="border-b-2 border-gray-200 bg-gray-50 px-4 py-3 text-left text-xs font-semibold text-gray-600 align-bottom">Désignation</th>
+                            <th rowSpan={2} className="border-b-2 border-gray-200 bg-gray-50 px-4 py-3 text-left text-xs font-semibold text-gray-600 align-bottom">Fournisseur</th>
+                            <th colSpan={3} className="border-b border-l-2 border-blue-200 bg-blue-50 px-4 py-2 text-center text-xs font-bold text-blue-700 tracking-wide">
+                                Frouard / Nancy — 292
+                            </th>
+                            <th colSpan={3} className="border-b border-l-2 border-violet-200 bg-violet-50 px-4 py-2 text-center text-xs font-bold text-violet-700 tracking-wide">
+                                Houdemont — 579
+                            </th>
+                            <th colSpan={3} className="border-b border-l-2 border-emerald-200 bg-emerald-50 px-4 py-2 text-center text-xs font-bold text-emerald-700 tracking-wide">
+                                Total Réseau
+                            </th>
                         </tr>
-                        <tr className="border-b border-gray-200 bg-gray-50">
-                            {th("Qté", "qte292")}
-                            {th("CA TTC", "ca292")}
-                            <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600">Marge</th>
-                            {th("Qté", "qte579")}
-                            {th("CA TTC", "ca579")}
-                            <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600">Marge</th>
-                            {th("Qté", "qteTotal")}
-                            {th("CA TTC", "caTotal")}
-                            <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600">Marge</th>
+                        {/* Ligne 2 — sous-colonnes */}
+                        <tr className="border-b-2 border-gray-200">
+                            <ColHeader label="Qté" sortable="qte292" k="qte292" />
+                            <ColHeader label="CA TTC" sortable="ca292" k="ca292" />
+                            <th className="bg-blue-50/40 px-4 py-2 text-right text-xs font-semibold text-blue-500">% Marge</th>
+                            <ColHeader label="Qté" sortable="qte579" k="qte579" />
+                            <ColHeader label="CA TTC" sortable="ca579" k="ca579" />
+                            <th className="bg-violet-50/40 px-4 py-2 text-right text-xs font-semibold text-violet-500">% Marge</th>
+                            <ColHeader label="Qté" sortable="qteTotal" k="qteTotal" />
+                            <ColHeader label="CA TTC" sortable="caTotal" k="caTotal" />
+                            <th className="bg-emerald-50/40 px-4 py-2 text-right text-xs font-semibold text-emerald-600">% Marge</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {sorted.map((row, idx) => (
-                            <tr key={row.codein} className={idx % 2 === 0 ? "border-b border-gray-100 bg-white" : "border-b border-gray-100 bg-gray-50"}>
-                                <td className="px-3 py-2 font-mono text-xs text-gray-500">{row.codein}</td>
-                                <td className="px-3 py-2 text-gray-900 max-w-xs truncate" title={row.libelle}>{row.libelle.trim()}</td>
-                                <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{row.fournisseur}</td>
-                                <td className="px-3 py-2 text-right text-gray-800 border-l border-gray-100">{row.qte292 > 0 ? formatQte(row.qte292) : ""}</td>
-                                <td className="px-3 py-2 text-right text-gray-800">{row.ca292 > 0 ? formatCA(row.ca292) : ""}</td>
-                                <td className="px-3 py-2 text-right text-gray-500 text-xs">{row.ca292 > 0 ? formatPct(row.ca292, row.marge292) : ""}</td>
-                                <td className="px-3 py-2 text-right text-gray-800 border-l border-gray-100">{row.qte579 > 0 ? formatQte(row.qte579) : ""}</td>
-                                <td className="px-3 py-2 text-right text-gray-800">{row.ca579 > 0 ? formatCA(row.ca579) : ""}</td>
-                                <td className="px-3 py-2 text-right text-gray-500 text-xs">{row.ca579 > 0 ? formatPct(row.ca579, row.marge579) : ""}</td>
-                                <td className="px-3 py-2 text-right font-semibold text-gray-900 border-l border-gray-100">{row.qteTotal > 0 ? formatQte(row.qteTotal) : ""}</td>
-                                <td className="px-3 py-2 text-right font-semibold text-gray-900">{row.caTotal > 0 ? formatCA(row.caTotal) : ""}</td>
-                                <td className="px-3 py-2 text-right text-gray-500 text-xs">{row.caTotal > 0 ? formatPct(row.caTotal, row.margeTotal) : ""}</td>
-                            </tr>
-                        ))}
+                        {sorted.map((row, idx) => {
+                            const highlight = sortKey.includes("292") ? "bg-blue-50/30" : sortKey.includes("579") ? "bg-violet-50/30" : "";
+                            return (
+                                <tr key={row.codein} className={`border-b border-gray-100 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50/60"} hover:bg-yellow-50/40 transition-colors`}>
+                                    <td className="px-4 py-2.5 font-mono text-xs text-gray-400">{row.codein}</td>
+                                    <td className="px-4 py-2.5 text-gray-900 font-medium max-w-[260px] truncate" title={row.libelle.trim()}>{row.libelle.trim()}</td>
+                                    <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">{row.fournisseur}</td>
+                                    {/* 292 */}
+                                    <td className={`border-l-2 border-blue-100 px-4 py-2.5 text-right tabular-nums text-gray-700 ${sortKey === "qte292" ? "bg-blue-50/50 font-semibold" : ""}`}>
+                                        {row.qte292 > 0 ? formatQte(row.qte292) : <span className="text-gray-300">—</span>}
+                                    </td>
+                                    <td className={`px-4 py-2.5 text-right tabular-nums text-gray-800 ${sortKey === "ca292" ? "bg-blue-50/50 font-semibold" : ""}`}>
+                                        {row.ca292 > 0 ? formatCA(row.ca292) : <span className="text-gray-300">—</span>}
+                                    </td>
+                                    <td className="px-4 py-2.5 text-right text-xs tabular-nums text-blue-500">
+                                        {row.ca292 > 0 ? formatPct(row.ca292, row.marge292) : ""}
+                                    </td>
+                                    {/* 579 */}
+                                    <td className={`border-l-2 border-violet-100 px-4 py-2.5 text-right tabular-nums text-gray-700 ${sortKey === "qte579" ? "bg-violet-50/50 font-semibold" : ""}`}>
+                                        {row.qte579 > 0 ? formatQte(row.qte579) : <span className="text-gray-300">—</span>}
+                                    </td>
+                                    <td className={`px-4 py-2.5 text-right tabular-nums text-gray-800 ${sortKey === "ca579" ? "bg-violet-50/50 font-semibold" : ""}`}>
+                                        {row.ca579 > 0 ? formatCA(row.ca579) : <span className="text-gray-300">—</span>}
+                                    </td>
+                                    <td className="px-4 py-2.5 text-right text-xs tabular-nums text-violet-500">
+                                        {row.ca579 > 0 ? formatPct(row.ca579, row.marge579) : ""}
+                                    </td>
+                                    {/* Total */}
+                                    <td className={`border-l-2 border-emerald-100 px-4 py-2.5 text-right tabular-nums font-semibold text-gray-900 ${sortKey === "qteTotal" ? "bg-emerald-50/50" : ""}`}>
+                                        {row.qteTotal > 0 ? formatQte(row.qteTotal) : <span className="text-gray-300">—</span>}
+                                    </td>
+                                    <td className={`px-4 py-2.5 text-right tabular-nums font-semibold text-gray-900 ${sortKey === "caTotal" ? "bg-emerald-50/50" : ""}`}>
+                                        {row.caTotal > 0 ? formatCA(row.caTotal) : <span className="text-gray-300">—</span>}
+                                    </td>
+                                    <td className="px-4 py-2.5 text-right text-xs tabular-nums text-emerald-600">
+                                        {row.caTotal > 0 ? formatPct(row.caTotal, row.margeTotal) : ""}
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                     <tfoot>
                         <tr className="border-t-2 border-gray-300 bg-gray-100">
-                            <td colSpan={3} className="px-3 py-2 text-sm font-bold text-gray-900">TOTAL</td>
-                            <td className="px-3 py-2 text-right font-bold text-gray-900 border-l border-gray-200">{formatQte(totals.qte292)}</td>
-                            <td className="px-3 py-2 text-right font-bold text-gray-900">{formatCA(totals.ca292)}</td>
-                            <td className="px-3 py-2 text-right text-xs text-gray-600">{formatPct(totals.ca292, totals.marge292)}</td>
-                            <td className="px-3 py-2 text-right font-bold text-gray-900 border-l border-gray-200">{formatQte(totals.qte579)}</td>
-                            <td className="px-3 py-2 text-right font-bold text-gray-900">{formatCA(totals.ca579)}</td>
-                            <td className="px-3 py-2 text-right text-xs text-gray-600">{formatPct(totals.ca579, totals.marge579)}</td>
-                            <td className="px-3 py-2 text-right font-bold text-gray-900 border-l border-gray-200">{formatQte(totals.qteTotal)}</td>
-                            <td className="px-3 py-2 text-right font-bold text-gray-900">{formatCA(totals.caTotal)}</td>
-                            <td className="px-3 py-2 text-right text-xs text-gray-600">{formatPct(totals.caTotal, totals.margeTotal)}</td>
+                            <td colSpan={3} className="px-4 py-3 text-sm font-bold text-gray-800">
+                                TOTAL — {sorted.length} articles
+                            </td>
+                            <td className="border-l-2 border-blue-200 px-4 py-3 text-right font-bold tabular-nums text-gray-900">{formatQte(totals.qte292)}</td>
+                            <td className="px-4 py-3 text-right font-bold tabular-nums text-gray-900">{formatCA(totals.ca292)}</td>
+                            <td className="px-4 py-3 text-right text-xs tabular-nums text-blue-600">{formatPct(totals.ca292, totals.marge292)}</td>
+                            <td className="border-l-2 border-violet-200 px-4 py-3 text-right font-bold tabular-nums text-gray-900">{formatQte(totals.qte579)}</td>
+                            <td className="px-4 py-3 text-right font-bold tabular-nums text-gray-900">{formatCA(totals.ca579)}</td>
+                            <td className="px-4 py-3 text-right text-xs tabular-nums text-violet-600">{formatPct(totals.ca579, totals.marge579)}</td>
+                            <td className="border-l-2 border-emerald-200 px-4 py-3 text-right font-bold tabular-nums text-gray-900">{formatQte(totals.qteTotal)}</td>
+                            <td className="px-4 py-3 text-right font-bold tabular-nums text-gray-900">{formatCA(totals.caTotal)}</td>
+                            <td className="px-4 py-3 text-right text-xs tabular-nums text-emerald-700 font-semibold">{formatPct(totals.caTotal, totals.margeTotal)}</td>
                         </tr>
                     </tfoot>
                 </table>
