@@ -151,6 +151,33 @@ export async function GET(req: NextRequest) {
         ventesProduitsDiag = { error: String(e) };
     }
 
+    // Diagnostic mvtart : colonnes + totaux mars 2025 + sample vente
+    let mvtartDiag: unknown;
+    try {
+        const cols = await db.execute(sql`
+            SELECT column_name, data_type
+            FROM information_schema.columns
+            WHERE table_name = 'mvtart'
+            ORDER BY ordinal_position
+        `);
+        const totaux = await db.execute(sql`
+            SELECT site,
+                   ABS(SUM(mntmvtttc))::float AS sum_mntmvtttc,
+                   COUNT(*) AS nb_lignes
+            FROM mvtart
+            WHERE genremvt = 3
+              AND TO_CHAR(datmvt, 'YYYY-MM') = '2025-03'
+              AND site IN ('292', '579')
+            GROUP BY site
+        `);
+        const sampleVente = await db.execute(sql`
+            SELECT * FROM mvtart WHERE genremvt = 3 AND site = '292' LIMIT 1
+        `);
+        mvtartDiag = { columns: cols.rows, totaux_202503: totaux.rows, sample: sampleVente.rows };
+    } catch (e) {
+        mvtartDiag = { error: String(e) };
+    }
+
     return NextResponse.json({
         timestamp: new Date().toISOString(),
         dateRange: { dateDebut, dateFin },
@@ -170,5 +197,6 @@ export async function GET(req: NextRequest) {
         },
         postgresql,
         ventesProduitsDiag,
+        mvtartDiag,
     });
 }
