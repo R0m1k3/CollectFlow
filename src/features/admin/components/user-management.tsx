@@ -147,7 +147,7 @@ export function UserManagement() {
                     <button
                         type="submit"
                         disabled={isCreating}
-                        className="flex items-center gap-2 justify-center w-full px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                        className="apple-btn-primary w-full justify-center !h-auto py-2.5"
                     >
                         {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                         Créer le compte

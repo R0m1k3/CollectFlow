@@ -72,7 +72,7 @@ function FfApiStatusSection() {
             {status && (
                 <div className="space-y-2 mt-2">
                     <p className="text-[12px] text-[var(--text-secondary)]">
-                        Dernière sync globale : <span className="font-mono font-medium">{new Date(status.lastSync).toLocaleString("fr-FR")}</span>
+                        Dernière sync globale : <span className="font-mono font-medium">{(() => { const d = new Date(status.lastSync); return isNaN(d.getTime()) ? (status.lastSync ?? "—") : d.toLocaleString("fr-FR"); })()}</span>
                     </p>
                     {status.tables?.length > 0 && (
                         <div className="rounded-lg overflow-hidden border border-[var(--border-subtle)]">
@@ -89,7 +89,7 @@ function FfApiStatusSection() {
                                         <tr key={t.nom} className="border-t border-[var(--border-subtle)]">
                                             <td className="px-3 py-2 font-mono text-[var(--text-primary)]">{t.nom}</td>
                                             <td className="px-3 py-2 text-right text-[var(--text-secondary)]">
-                                                {new Date(t.derniereSync).toLocaleString("fr-FR")}
+                                                {(() => { const d = new Date(t.derniereSync); return isNaN(d.getTime()) ? (t.derniereSync ?? "—") : d.toLocaleString("fr-FR"); })()}
                                             </td>
                                             <td className="px-3 py-2 text-right text-[var(--text-muted)]">
                                                 {t.nbLignes?.toLocaleString("fr-FR") ?? "—"}
