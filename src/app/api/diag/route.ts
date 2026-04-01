@@ -151,18 +151,14 @@ export async function GET(req: NextRequest) {
         ventesProduitsDiag = { error: String(e) };
     }
 
-    // Diagnostic mvtart : colonnes + totaux mars 2025 + sample vente
+    // Diagnostic analytics CA TTC
     let mvtartDiag: unknown;
     try {
-        const cols = await db.execute(sql`
-            SELECT column_name, data_type
-            FROM information_schema.columns
-            WHERE table_name = 'mvtart'
-            ORDER BY ordinal_position
-        `);
+        // 1. Totaux mars 2025 avec mntmvtht et mntmvtttc pour comparer avec API (HT=225k, TTC=269k)
         const totaux = await db.execute(sql`
             SELECT site,
-                   ABS(SUM(mntmvtttc))::float AS sum_mntmvtttc,
+                   ABS(SUM(mntmvtht))::float   AS sum_ht,
+                   ABS(SUM(mntmvtttc))::float  AS sum_ttc,
                    COUNT(*) AS nb_lignes
             FROM mvtart
             WHERE genremvt = 3
@@ -170,10 +166,31 @@ export async function GET(req: NextRequest) {
               AND site IN ('292', '579')
             GROUP BY site
         `);
-        const sampleVente = await db.execute(sql`
-            SELECT * FROM mvtart WHERE genremvt = 3 AND site = '292' LIMIT 1
+        // 2. Distribution des valeurs de preference dans artfou1
+        const prefDist = await db.execute(sql`
+            SELECT preference, COUNT(*) AS nb
+            FROM artfou1
+            GROUP BY preference
+            ORDER BY preference
         `);
-        mvtartDiag = { columns: cols.rows, totaux_202503: totaux.rows, sample: sampleVente.rows };
+        // 3. Ventes mars 2025 non attribuées (aucune ligne artfou1 avec preference=1)
+        const sansPreference = await db.execute(sql`
+            SELECT COUNT(DISTINCT m.artnoid) AS nb_articles_sans_pref
+            FROM mvtart m
+            JOIN articles a ON a.no_id = m.artnoid
+            WHERE m.genremvt = 3
+              AND TO_CHAR(m.datmvt, 'YYYY-MM') = '2025-03'
+              AND m.site IN ('292','579')
+              AND NOT EXISTS (
+                  SELECT 1 FROM artfou1 af
+                  WHERE af.art_no_id = a.no_id AND af.preference = 1
+              )
+        `);
+        mvtartDiag = {
+            totaux_202503: totaux.rows,
+            artfou1_preference_distribution: prefDist.rows,
+            articles_vendus_sans_pref1: sansPreference.rows,
+        };
     } catch (e) {
         mvtartDiag = { error: String(e) };
     }
