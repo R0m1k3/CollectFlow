@@ -653,7 +653,7 @@ export async function pgGetCaByFournisseur(
             ABS(SUM(m.mntmvtttc))::float                             AS ca_ttc
         FROM mvtart m
         JOIN articles a   ON a.no_id        = m.artnoid
-        LEFT JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = true
+        LEFT JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
         LEFT JOIN fouident fi ON fi.code     = af.code
         WHERE (TO_CHAR(m.datmvt, 'YYYY-MM') = ${mois} OR TO_CHAR(m.datmvt, 'YYYY-MM') = ${moisN1})
           AND m.site IN ('292', '579')
