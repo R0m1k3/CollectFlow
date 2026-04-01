@@ -53,15 +53,22 @@ function pivotHitParade(
     return Array.from(map.values());
 }
 
+function defaultDates() {
+    const today = new Date();
+    const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    return { debut: fmt(firstOfMonth), fin: fmt(today) };
+}
+
 export default async function HitParadePage(props: {
     searchParams: Promise<Record<string, string | string[]>>;
 }) {
     const searchParams = await props.searchParams;
-    const today = new Date();
-    const currentMois = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
-    const mois = (searchParams.mois as string) || currentMois;
+    const defaults = defaultDates();
+    const dateDebut = (searchParams.debut as string) || defaults.debut;
+    const dateFin = (searchParams.fin as string) || defaults.fin;
 
-    const rows = await pgGetHitParade(mois);
+    const rows = await pgGetHitParade(dateDebut, dateFin);
     const pivotted = pivotHitParade(rows);
 
     return (
@@ -69,8 +76,8 @@ export default async function HitParadePage(props: {
             <div className="mx-auto max-w-screen-2xl">
                 <h1 className="mb-6 text-3xl font-bold text-gray-900">Hit Parade</h1>
                 <HitParadeClient
-                    mois={mois}
-                    currentMois={currentMois}
+                    dateDebut={dateDebut}
+                    dateFin={dateFin}
                     pivotted={pivotted}
                 />
             </div>

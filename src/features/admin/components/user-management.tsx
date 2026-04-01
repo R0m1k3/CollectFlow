@@ -111,43 +111,45 @@ export function UserManagement() {
                     </div>
                 </div>
 
-                <form onSubmit={handleCreate} className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
-                    <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] ml-1">Utilisateur</label>
-                        <input
-                            required
-                            value={newUsername}
-                            onChange={(e) => setNewUsername(e.target.value)}
-                            className="apple-input"
-                            placeholder="ex: jean.dupont"
-                        />
-                    </div>
-                    <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] ml-1">Mot de passe</label>
-                        <input
-                            required
-                            type="password"
-                            value={newPassword}
-                            onChange={(e) => setNewPassword(e.target.value)}
-                            className="apple-input"
-                            placeholder="••••••••"
-                        />
-                    </div>
-                    <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] ml-1">Rôle</label>
-                        <select
-                            value={newRole}
-                            onChange={(e) => setNewRole(e.target.value as any)}
-                            className="apple-input"
-                        >
-                            <option value="user">Utilisateur</option>
-                            <option value="admin">Administrateur</option>
-                        </select>
+                <form onSubmit={handleCreate} className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] ml-1">Utilisateur</label>
+                            <input
+                                required
+                                value={newUsername}
+                                onChange={(e) => setNewUsername(e.target.value)}
+                                className="apple-input"
+                                placeholder="ex: jean.dupont"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] ml-1">Mot de passe</label>
+                            <input
+                                required
+                                type="password"
+                                value={newPassword}
+                                onChange={(e) => setNewPassword(e.target.value)}
+                                className="apple-input"
+                                placeholder="••••••••"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] ml-1">Rôle</label>
+                            <select
+                                value={newRole}
+                                onChange={(e) => setNewRole(e.target.value as any)}
+                                className="apple-input"
+                            >
+                                <option value="user">Utilisateur</option>
+                                <option value="admin">Administrateur</option>
+                            </select>
+                        </div>
                     </div>
                     <button
                         type="submit"
                         disabled={isCreating}
-                        className="apple-btn-primary w-full justify-center !h-auto py-2.5"
+                        className="apple-btn-primary"
                     >
                         {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                         Créer le compte
