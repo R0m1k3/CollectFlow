@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutGrid, Camera, FileDown, Settings, Package, BarChart2, TrendingUp, LogOut, User as UserIcon, Loader2, ChevronRight, ChevronLeft } from "lucide-react";
+import { LayoutGrid, Camera, FileDown, Settings, Package, BarChart2, TrendingUp, Trophy, LogOut, User as UserIcon, Loader2, ChevronRight, ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ const NAV_ITEMS = [
     { icon: BarChart2, label: "Dashboard", href: "/dashboard" },
     { icon: LayoutGrid, label: "Grille", href: "/grid" },
     { icon: TrendingUp, label: "Analytics", href: "/analytics" },
+    { icon: Trophy, label: "Hit Parade", href: "/hit-parade" },
     { icon: Camera, label: "Snapshots", href: "/snapshots" },
     { icon: FileDown, label: "Exports", href: "/exports" },
     { icon: Settings, label: "Paramètres", href: "/settings", adminOnly: true },

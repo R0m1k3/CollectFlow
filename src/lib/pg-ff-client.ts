@@ -693,3 +693,45 @@ export async function pgGetCaByNomenclature(
     console.log(`[pg-ff] CaByNomenclature: ${result.rows.length} lignes pour ${mois}/${moisN1}`);
     return result.rows as unknown as CaByNomenclatureRow[];
 }
+
+// ---------------------------------------------------------------------------
+// Hit Parade — produits les plus vendus sur un mois donné
+// ---------------------------------------------------------------------------
+
+export interface HitParadeRow {
+    codein: string;
+    libelle: string;
+    fournisseur: string;
+    site: string;
+    qte_vendue: number;
+    ca_ttc: number;
+    marge: number;
+}
+
+/**
+ * Retourne les ventes produit pour un mois donné, avec fournisseur, qté, CA TTC et marge par site.
+ */
+export async function pgGetHitParade(mois: string): Promise<HitParadeRow[]> {
+    const result = await pgNoParallel(sql`
+        SELECT
+            a.codein::text                                              AS codein,
+            a.libelle1::text                                            AS libelle,
+            COALESCE(fi.nom, af.code, 'Sans fournisseur')::text         AS fournisseur,
+            m.site,
+            SUM(ABS(m.qtemvt))::float                                  AS qte_vendue,
+            ABS(SUM(m.mntmvtttc))::float                               AS ca_ttc,
+            SUM(m.margemvt)::float                                      AS marge
+        FROM mvtart m
+        JOIN articles a      ON a.no_id        = m.artnoid
+        LEFT JOIN artfou1 af ON af.art_no_id   = a.no_id AND af.preference = 1
+        LEFT JOIN fouident fi ON fi.code        = af.code
+        WHERE TO_CHAR(m.datmvt, 'YYYY-MM') = ${mois}
+          AND m.site IN ('292', '579')
+          AND m.genremvt = 3
+        GROUP BY a.codein, a.libelle1, fi.nom, af.code, m.site
+        ORDER BY ca_ttc DESC
+    `);
+
+    console.log(`[pg-ff] HitParade: ${result.rows.length} lignes pour ${mois}`);
+    return result.rows as unknown as HitParadeRow[];
+}
