@@ -83,6 +83,7 @@ function getStoreConfig(name: string) {
 
 interface HeatmapGridProps {
     onSelectionChange?: (codeins: string[]) => void;
+    isAdmin?: boolean;
 }
 
 // =========================================================================
@@ -90,7 +91,7 @@ interface HeatmapGridProps {
 // =========================================================================
 
 // 1. Composant isolé pour la Cellule Gamme (évite le re-render des colonnes)
-const GammeCell = React.memo(({ row }: { row: ProductRow }) => {
+const GammeCell = React.memo(({ row, isAdmin }: { row: ProductRow; isAdmin?: boolean }) => {
     // Abonnement ultra-ciblé : la cellule ne re-render que si SA valeur change
     const codein = row.codein;
     const isDraft = useGridStore((s) => s.draftChanges[codein] !== undefined);
@@ -98,6 +99,23 @@ const GammeCell = React.memo(({ row }: { row: ProductRow }) => {
     const setDraftGamme = useGridStore((s) => s.setDraftGamme);
 
     const isModified = row.codeGamme !== row.codeGammeInit && row.codeGammeInit !== null;
+    const displayValue = (!effectiveGamme || effectiveGamme.trim() === "") ? "Aucune" : effectiveGamme;
+
+    if (!isAdmin) {
+        return (
+            <div className={[
+                "w-full text-xs font-bold rounded-lg py-1.5 px-2 text-center",
+                displayValue === "A" ? "bg-emerald-500/10 text-emerald-700" :
+                displayValue === "B" ? "bg-blue-500/10 text-blue-700" :
+                displayValue === "C" ? "bg-amber-500/10 text-amber-700" :
+                displayValue === "Y" ? "bg-violet-500/10 text-violet-700" :
+                displayValue === "Z" ? "bg-rose-500/10 text-rose-700" :
+                "bg-slate-500/10 text-slate-500"
+            ].join(" ")}>
+                {displayValue === "Aucune" ? "—" : displayValue}
+            </div>
+        );
+    }
 
     return (
         <div className="relative group/gamme">
@@ -249,7 +267,7 @@ function CellDetailModal({ d, activeMagasin, onClose }: { d: CellDetailData; act
 
 // =========================================================================
 
-export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
+export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
     // L'abonnement doit être minimal ici ! PAS de draftChanges ni de setDraftGamme.
     const { rows, filters, displayDensity, draftChanges, activeMagasin } = useGridStore();
 
@@ -626,7 +644,7 @@ export function HeatmapGrid({ onSelectionChange }: HeatmapGridProps) {
             id: "gamme",
             header: () => <div className="text-center w-full">Gamme</div>,
             size: 110,
-            cell: ({ row }) => <GammeCell row={row.original} />,
+            cell: ({ row }) => <GammeCell row={row.original} isAdmin={isAdmin} />,
         },
         {
             id: "ai",

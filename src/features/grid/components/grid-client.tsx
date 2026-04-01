@@ -10,6 +10,7 @@ import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
 import type { ProductRow } from "@/types/grid";
 import { CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { useSession } from "next-auth/react";
 
 import { useSearchParams } from "next/navigation";
 import { computeProductScores } from "@/lib/score-engine";
@@ -24,6 +25,8 @@ interface GridClientProps {
 }
 
 export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fournisseurs, magasins, magasin }: GridClientProps) {
+    const { data: session } = useSession();
+    const isAdmin = (session?.user as any)?.role === "admin";
     const setRows = useGridStore((s) => s.setRows);
     const setActiveGridQuery = useGridStore((s) => s.setActiveGridQuery);
     const setFilter = useGridStore((s) => s.setFilter);
@@ -98,8 +101,8 @@ export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fourn
                 </div>
                 <div className="flex items-center gap-3">
                     <div id="grid-toolbar-actions"></div>
-                    <ExportDropdown nomFournisseur={nomFournisseur} />
-                    {hasDrafts && (
+                    {isAdmin && <ExportDropdown nomFournisseur={nomFournisseur} />}
+                    {isAdmin && hasDrafts && (
                         <button
                             onClick={handleSave}
                             disabled={isPending}
@@ -141,6 +144,7 @@ export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fourn
             <div className="flex-1 min-h-0 min-w-0">
                 <HeatmapGrid
                     onSelectionChange={setSelectedCodeins}
+                    isAdmin={isAdmin}
                 />
             </div>
 

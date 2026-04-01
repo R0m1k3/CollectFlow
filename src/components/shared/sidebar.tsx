@@ -14,7 +14,7 @@ const NAV_ITEMS = [
     { icon: TrendingUp, label: "Analytics", href: "/analytics" },
     { icon: Trophy, label: "Hit Parade", href: "/hit-parade" },
     { icon: Camera, label: "Snapshots", href: "/snapshots" },
-    { icon: FileDown, label: "Exports", href: "/exports" },
+    { icon: FileDown, label: "Exports", href: "/exports", adminOnly: true },
     { icon: Settings, label: "Paramètres", href: "/settings", adminOnly: true },
 ];
 
