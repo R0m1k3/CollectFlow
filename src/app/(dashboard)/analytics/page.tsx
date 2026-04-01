@@ -12,7 +12,8 @@ function getMoisN1(mois: string): string {
 function pivotData(
     rows: Array<{ code: string; label: string; site: string; mois: string; ca_ttc: number }>,
     mois: string,
-    moisN1: string
+    moisN1: string,
+    mode: string
 ): Array<{
     key: string;
     label: string;
@@ -58,8 +59,11 @@ function pivotData(
         };
     });
 
-    // Trier par CA Total décroissant
-    result.sort((a, b) => b.caTotal - a.caTotal);
+    if (mode === "nomenclature") {
+        result.sort((a, b) => a.key.localeCompare(b.key));
+    } else {
+        result.sort((a, b) => a.label.localeCompare(b.label, "fr"));
+    }
     return result;
 }
 
@@ -92,14 +96,14 @@ export default async function AnalyticsPage(props: {
         const result = await pgGetCaByNomenclature(mois, moisN1);
         rows = result.map((r) => ({
             code: r.code,
-            label: r.libelle,
+            label: `${r.code} — ${r.libelle}`,
             site: r.site,
             mois: r.mois,
             ca_ttc: r.ca_ttc,
         }));
     }
 
-    const pivotted = pivotData(rows, mois, moisN1);
+    const pivotted = pivotData(rows, mois, moisN1, mode);
 
     // Calcul des totaux
     const totals = pivotted.reduce(
