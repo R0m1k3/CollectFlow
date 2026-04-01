@@ -638,40 +638,28 @@ export interface CaByNomenclatureRow {
 
 /**
  * Retourne le CA TTC par fournisseur et site pour deux mois donnés (mois et mois N-1).
+ * Attribution via artfou1.preference = true (fournisseur principal de l'article).
  */
 export async function pgGetCaByFournisseur(
     mois: string,
     moisN1: string
 ): Promise<CaByFournisseurRow[]> {
     const result = await pgNoParallel(sql`
-        WITH last_reception AS (
-            -- Attribution par dernière entrée en stock (genremvt 1 ou 2).
-            -- mvtart ne stocke pas le codefou directement → on joint artfou1.
-            -- DISTINCT ON (artnoid) ORDER BY datmvt DESC, af.no_id DESC :
-            --   1. prend la réception la plus récente
-            --   2. en cas d'égalité de date, prend le dernier artfou1 (no_id DESC)
-            SELECT DISTINCT ON (m.artnoid)
-                m.artnoid,
-                af.code AS codefou
-            FROM mvtart m
-            JOIN artfou1 af ON af.art_no_id = m.artnoid
-            WHERE m.genremvt IN (1, 2)
-            ORDER BY m.artnoid, m.datmvt DESC, af.no_id DESC
-        )
         SELECT
-            lr.codefou                         AS code,
-            MAX(fi.nom)::text                  AS nom,
+            COALESCE(af.code, 'SANS_FOURNISSEUR')::text              AS code,
+            COALESCE(fi.nom, af.code, 'Sans fournisseur')::text       AS nom,
             m.site,
-            TO_CHAR(m.datmvt, 'YYYY-MM')      AS mois,
-            SUM(-m.mntmvtttc)::float           AS ca_ttc
+            TO_CHAR(m.datmvt, 'YYYY-MM')                             AS mois,
+            ABS(SUM(m.mntmvtttc))::float                             AS ca_ttc
         FROM mvtart m
-        JOIN last_reception lr ON lr.artnoid   = m.artnoid
-        JOIN fouident       fi ON fi.code      = lr.codefou
+        JOIN articles a   ON a.no_id        = m.artnoid
+        LEFT JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = true
+        LEFT JOIN fouident fi ON fi.code     = af.code
         WHERE (TO_CHAR(m.datmvt, 'YYYY-MM') = ${mois} OR TO_CHAR(m.datmvt, 'YYYY-MM') = ${moisN1})
           AND m.site IN ('292', '579')
           AND m.genremvt = 3
-        GROUP BY lr.codefou, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
-        ORDER BY lr.codefou, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
+        GROUP BY af.code, fi.nom, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
+        ORDER BY af.code, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
     `);
 
     console.log(`[pg-ff] CaByFournisseur: ${result.rows.length} lignes pour ${mois}/${moisN1}`);
@@ -679,7 +667,7 @@ export async function pgGetCaByFournisseur(
 }
 
 /**
- * Retourne le CA TTC par nomenclature (code3) et site pour deux mois donnés.
+ * Retourne le CA TTC par nomenclature et site pour deux mois donnés.
  */
 export async function pgGetCaByNomenclature(
     mois: string,
@@ -687,18 +675,18 @@ export async function pgGetCaByNomenclature(
 ): Promise<CaByNomenclatureRow[]> {
     const result = await pgNoParallel(sql`
         SELECT
-            n.code                         AS code,
-            n.libelle::text                AS libelle,
+            COALESCE(n.code, 'SANS_NOM')::text      AS code,
+            COALESCE(n.libelle, 'Sans nomenclature')::text AS libelle,
             m.site,
-            TO_CHAR(m.datmvt, 'YYYY-MM')  AS mois,
-            SUM(-m.mntmvtttc)::float       AS ca_ttc
+            TO_CHAR(m.datmvt, 'YYYY-MM')            AS mois,
+            ABS(SUM(m.mntmvtttc))::float             AS ca_ttc
         FROM mvtart m
-        JOIN articles     a ON a.no_id    = m.artnoid
-        JOIN nomenclature n ON n.no_id    = a.nom_no_id
+        JOIN articles      a ON a.no_id    = m.artnoid
+        LEFT JOIN nomenclature n ON n.no_id = a.nom_no_id
         WHERE (TO_CHAR(m.datmvt, 'YYYY-MM') = ${mois} OR TO_CHAR(m.datmvt, 'YYYY-MM') = ${moisN1})
           AND m.site IN ('292', '579')
           AND m.genremvt = 3
-        GROUP BY n.code, n.libelle, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
+        GROUP BY n.no_id, n.code, n.libelle, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
         ORDER BY n.code, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
     `);
 
