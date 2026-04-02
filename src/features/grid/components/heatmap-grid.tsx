@@ -268,27 +268,39 @@ function CellDetailModal({ d, activeMagasin, onClose }: { d: CellDetailData; act
 // =========================================================================
 
 export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
-    // L'abonnement doit être minimal ici ! PAS de draftChanges ni de setDraftGamme.
-    const { rows, filters, displayDensity, draftChanges, activeMagasin } = useGridStore();
+    // L'abonnement doit être ultra-minimal ! JAMAIS de destructuring brut sur useGridStore().
+    const rows = useGridStore((s) => s.rows);
+    const filters = useGridStore((s) => s.filters);
+    const displayDensity = useGridStore((s) => s.displayDensity);
+    const activeMagasin = useGridStore((s) => s.activeMagasin);
 
-    // Filtre client-side par code3 (famille) et codeGamme
+    // Filtre client-side par code3 (famille) et codeGamme sans abonnement réactif aux brouillons pour éviter le freeze.
     const filteredData = useMemo(() => {
         const { code3, codeGamme } = filters;
         if (!code3 && !codeGamme) return rows;
+        
+        // On récupère le state de façon non-réactive pour ne pas trigger 130k renders
+        const currentDrafts = useGridStore.getState().draftChanges;
+        
         return rows.filter(r => {
             if (code3 && r.code3 !== code3) return false;
             if (codeGamme) {
-                const g = draftChanges[r.codein] ?? r.codeGamme ?? "";
+                const g = currentDrafts[r.codein] ?? r.codeGamme ?? "";
                 const norm = g.trim() === "" ? "Aucune" : g;
                 if (norm !== codeGamme) return false;
             }
             return true;
         });
-    }, [rows, filters, draftChanges]);
+    }, [rows, filters]); // ❌ Surtout pas draftChanges ici
 
     const [sorting, setSorting] = useState<SortingState>([]);
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-    const { columnVisibility, setColumnVisibility, columnSizing, setColumnSizing } = useGridStore();
+    
+    // Selectors granulaires
+    const columnVisibility = useGridStore((s) => s.columnVisibility);
+    const setColumnVisibility = useGridStore((s) => s.setColumnVisibility);
+    const columnSizing = useGridStore((s) => s.columnSizing);
+    const setColumnSizing = useGridStore((s) => s.setColumnSizing);
     const [isMounted, setIsMounted] = useState(false);
     const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
 
