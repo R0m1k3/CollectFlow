@@ -16,6 +16,7 @@ import {
 import { db } from "@/db";
 import { sessionSnapshots } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
+import { unstable_cache } from "next/cache";
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 export interface GetProductRowsInput {
@@ -37,13 +38,19 @@ export interface GetProductRowsResult {
     totalPages: number;
 }
 
+// Fonction utilitaire cachée pour mémoiser le chargement par fournisseur
+const getCachedSupplierRows = (codeFournisseur: string) => {
+    return unstable_cache(
+        async () => _fetchAllProductRows(codeFournisseur),
+        [`grid-rows-${codeFournisseur}`],
+        { revalidate: 300, tags: [`grid-rows-${codeFournisseur}`] }
+    )();
+};
+
 // ─── Fonction interne : fetch complet non-paginé (cachée) ───────────────────
-// Cette fonction est le « dataloader » central. Elle est enveloppée dans
-// unstable_cache pour ne jamais refaire les 6 requêtes SQL tant que le cache
-// est valide (revalidate : 300s). Le tag permet une invalidation ciblée.
 async function _fetchAllProductRows(codeFournisseur: string): Promise<ProductRow[]> {
     const magasin = "TOTAL"; // Le cache est toujours TOTAL ; le switch magasin est client-side
-    console.log(`\n>>> [getProductRows] supplier: ${codeFournisseur}, magasin: ${magasin}`);
+    console.log(`\n>>> [_fetchAllProductRows] (NO CACHE) supplier: ${codeFournisseur}, magasin: ${magasin}`);
 
     try {
         const { dateDebut, dateFin } = buildLast12MonthsRange();
@@ -337,8 +344,8 @@ export async function getProductRows(input: GetProductRowsInput): Promise<GetPro
         code3,
     } = input;
 
-    // Récupérer toutes les lignes (idéalement mis en cache ici via unstable_cache, mais on l'a désactivé pour l'instant)
-    const allRows = await _fetchAllProductRows(codeFournisseur);
+    // Récupérer toutes les lignes mises en cache pour éviter les 650 requêtes SQL
+    const allRows = await getCachedSupplierRows(codeFournisseur);
 
     let filtered = allRows;
 

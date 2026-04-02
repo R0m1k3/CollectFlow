@@ -27,6 +27,7 @@ interface GridState {
 
     // Actions
     setRows: (rows: ProductRow[]) => void;
+    appendRows: (newRows: ProductRow[]) => void;
     setDraftGamme: (codein: string, gamme: GammeCode) => void;
     resetDrafts: () => void;
     /** Clear specific draft changes by codein */
@@ -100,6 +101,18 @@ export const useGridStore = create<GridState>()(
                 // Construire l'index en O(n) une seule fois au lieu de O(n) à chaque lookup.
                 const rowsIndex = new Map<string, ProductRow>(rows.map(r => [r.codein, r]));
                 set({ rows, rowsIndex, summary: computeSummary(rows, get().draftChanges, get().activeMagasin) });
+            },
+
+            appendRows: (newRows) => {
+                const { rows, rowsIndex, draftChanges, activeMagasin } = get();
+                // O(n) uniquement sur les nouveaux éléments, au lieu de re-calculer les 130k existants
+                const mergedRows = [...rows, ...newRows];
+                newRows.forEach(r => rowsIndex.set(r.codein, r));
+                set({
+                    rows: mergedRows,
+                    rowsIndex,
+                    summary: computeSummary(mergedRows, draftChanges, activeMagasin)
+                });
             },
 
             setDraftGamme: (codein, gamme) => {

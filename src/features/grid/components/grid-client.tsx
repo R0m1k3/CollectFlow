@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition, useCallback } from "react";
 import { HeatmapGrid } from "@/features/grid/components/heatmap-grid";
 import { FloatingSummaryBar } from "@/features/grid/components/floating-summary-bar";
 import { BulkActionToolbar } from "@/features/grid/components/bulk-action-toolbar";
@@ -28,6 +28,8 @@ export function GridClient({ initialRows, initialTotal, codeFournisseur, nomFour
     const { data: session } = useSession();
     const isAdmin = (session?.user as { role?: string })?.role === "admin";
     const setRows = useGridStore((s) => s.setRows);
+    const appendRows = useGridStore((s) => s.appendRows);
+    const rows = useGridStore((s) => s.rows);
     const setActiveGridQuery = useGridStore((s) => s.setActiveGridQuery);
     const setFilter = useGridStore((s) => s.setFilter);
     const setActiveMagasin = useGridStore((s) => s.setActiveMagasin);
@@ -43,11 +45,16 @@ export function GridClient({ initialRows, initialTotal, codeFournisseur, nomFour
     const [isMounted, setIsMounted] = useState(false);
 
     // ─── Chargement progressif des pages suivantes ─────────────────────────────
-    const { rows: allRows, total, isLoadingMore, hasMore, loadNextPage, progress } = useInfiniteGrid({
+    const handlePageLoaded = useCallback((newRows: ProductRow[]) => {
+        // Ajout O(n_nouveaux_items) au lieu de O(N_total)
+        appendRows(newRows);
+    }, [appendRows]);
+
+    const { total, isLoadingMore, hasMore, loadNextPage, progress } = useInfiniteGrid({
         codeFournisseur,
-        initialRows,
         initialTotal,
-        pageSize: 200,
+        pageSize: 10000,
+        onPageLoaded: handlePageLoaded
     });
 
     useEffect(() => {
@@ -70,10 +77,9 @@ export function GridClient({ initialRows, initialTotal, codeFournisseur, nomFour
             setFilter("code3", null);
             prevFournisseurRef.current = codeFournisseur;
         }
-        // Les scores ont déjà été calculés côté serveur.
-        // On pousse toutes les lignes accumulées par l'infinite scroll dans le store.
-        setRows(allRows);
-    }, [codeFournisseur, allRows, setRows, setFilter, isMounted]);
+        // Reset du store pour ce fournisseur
+        setRows(initialRows);
+    }, [codeFournisseur, initialRows, setRows, setFilter, isMounted]);
 
     // Synchroniser le magasin actif
     useEffect(() => {
@@ -112,12 +118,7 @@ export function GridClient({ initialRows, initialTotal, codeFournisseur, nomFour
                     <p className="text-[13px] mt-0.5" style={{ color: "var(--text-secondary)" }}>
                         <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{nomFournisseur}</span>
                         {" "}• <span className="font-medium" style={{ color: "var(--text-muted)" }}>{activeStoreNom}</span>
-                        {" "}• {allRows.length.toLocaleString("fr-FR")} références
-                        {hasMore && (
-                            <span className="text-[11px] opacity-60">
-                                {" "}/ {total.toLocaleString("fr-FR")}
-                            </span>
-                        )}
+                        {" "}• {total.toLocaleString("fr-FR")} références
                     </p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -155,15 +156,14 @@ export function GridClient({ initialRows, initialTotal, codeFournisseur, nomFour
                 >
                     <Loader2 className="w-3 h-3 animate-spin shrink-0" style={{ color: "var(--accent)" }} />
                     <span>
-                        Chargement&nbsp;: {allRows.length.toLocaleString("fr-FR")} / {total.toLocaleString("fr-FR")} références
+                        Téléchargement&nbsp;: {rows.length.toLocaleString("fr-FR")} / {total.toLocaleString("fr-FR")} références
                     </span>
-                    <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+                    <div className="flex-1 h-1 w-[100px] rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
                         <div
                             className="h-full rounded-full transition-all duration-500"
                             style={{ width: `${progress}%`, background: "var(--accent)" }}
                         />
                     </div>
-                    <span>{progress}%</span>
                 </div>
             )}
 

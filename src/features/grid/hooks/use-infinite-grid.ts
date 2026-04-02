@@ -5,37 +5,37 @@ import type { ProductRow } from "@/types/grid";
 
 export interface InfiniteGridOptions {
     codeFournisseur: string | null;
-    initialRows: ProductRow[];
     initialTotal: number;
     pageSize?: number;
     search?: string;
     gamme?: string | null;
     code3?: string | null;
+    onPageLoaded: (newRows: ProductRow[]) => void;
 }
 
 export interface InfiniteGridState {
-    rows: ProductRow[];
     total: number;
     isLoadingMore: boolean;
     hasMore: boolean;
     loadNextPage: () => void;
     reset: () => void;
     progress: number;
+    loadedPagesCount: number;
 }
 
 export function useInfiniteGrid({
     codeFournisseur,
-    initialRows,
     initialTotal,
-    pageSize = 200,
+    pageSize = 10000,
     search,
     gamme,
     code3,
+    onPageLoaded,
 }: InfiniteGridOptions): InfiniteGridState {
-    const [rows, setRows] = useState<ProductRow[]>(initialRows);
     const [total, setTotal] = useState(initialTotal);
     const [currentPage, setCurrentPage] = useState(0);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const [loadedPagesCount, setLoadedPagesCount] = useState(1); // Page 0 est initialRows
 
     const fetchIdRef = useRef(0);
     const loadedPagesRef = useRef(new Set<number>([0]));
@@ -57,12 +57,12 @@ export function useInfiniteGrid({
     );
 
     useEffect(() => {
-        setRows(initialRows);
         setTotal(initialTotal);
         setCurrentPage(0);
+        setLoadedPagesCount(1);
         loadedPagesRef.current = new Set([0]);
         fetchIdRef.current += 1;
-    }, [codeFournisseur, initialRows, initialTotal, search, gamme, code3]);
+    }, [codeFournisseur, initialTotal, search, gamme, code3]);
 
     const loadNextPage = useCallback(async () => {
         if (!codeFournisseur || isLoadingMore) return;
@@ -95,9 +95,12 @@ export function useInfiniteGrid({
             };
 
             loadedPagesRef.current.add(nextPage);
-            setRows(prev => [...prev, ...data.rows]);
+            setLoadedPagesCount(prev => prev + 1);
             setTotal(data.total);
             setCurrentPage(nextPage);
+            
+            // Envoyer directement au Store Zustand pour bypasser le cycle React DOM
+            onPageLoaded(data.rows);
         } catch (error) {
             console.error("[useInfiniteGrid] loadNextPage error:", error);
         } finally {
@@ -105,27 +108,28 @@ export function useInfiniteGrid({
                 setIsLoadingMore(false);
             }
         }
-    }, [codeFournisseur, currentPage, total, pageSize, isLoadingMore, buildUrl]);
+    }, [codeFournisseur, currentPage, total, pageSize, isLoadingMore, buildUrl, onPageLoaded]);
 
     const reset = useCallback(() => {
         fetchIdRef.current += 1;
         loadedPagesRef.current = new Set([0]);
-        setRows(initialRows);
         setTotal(initialTotal);
         setCurrentPage(0);
+        setLoadedPagesCount(1);
         setIsLoadingMore(false);
-    }, [initialRows, initialTotal]);
+    }, [initialTotal]);
 
-    const hasMore = rows.length < total;
-    const progress = total > 0 ? Math.round((rows.length / total) * 100) : 100;
+    const loadedItemsEstimation = loadedPagesCount * pageSize;
+    const hasMore = loadedItemsEstimation < total && loadedPagesCount < Math.ceil(total / pageSize);
+    const progress = total > 0 ? Math.round(Math.min((loadedItemsEstimation / total) * 100, 100)) : 100;
 
     return {
-        rows,
         total,
         isLoadingMore,
         hasMore,
         loadNextPage,
         reset,
         progress,
+        loadedPagesCount,
     };
 }
