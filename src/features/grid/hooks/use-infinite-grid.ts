@@ -77,7 +77,10 @@ export function useInfiniteGrid({
 
         const nextPage = currentPage + 1;
         const alreadyLoaded = loadedPagesRef.current.has(nextPage);
-        const totalPages = Math.ceil(total / pageSize);
+        
+        // Page 0 comprenait 200 éléments. Le reste est divisé par pageSize (10000).
+        const remainingItems = Math.max(0, total - 200);
+        const totalPages = 1 + Math.ceil(remainingItems / pageSize);
 
         if (alreadyLoaded || nextPage >= totalPages) return;
 
