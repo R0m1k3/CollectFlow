@@ -7,6 +7,8 @@ import type { GammeCode, GridFilters, GridSummary, ProductRow } from "@/types/gr
 interface GridState {
     /** Source data from server */
     rows: ProductRow[];
+    /** Index O(1) pour les lookups par codein (Map<codein, ProductRow>) */
+    rowsIndex: Map<string, ProductRow>;
     /** Draft edits: codein → new GammeCode */
     draftChanges: Record<string, GammeCode>;
     filters: GridFilters;
@@ -64,6 +66,7 @@ export const useGridStore = create<GridState>()(
     persist(
         (set, get) => ({
             rows: [],
+            rowsIndex: new Map(),
             activeMagasin: "TOTAL",
             draftChanges: {},
             filters: {
@@ -94,12 +97,15 @@ export const useGridStore = create<GridState>()(
             },
 
             setRows: (rows) => {
-                set({ rows, summary: computeSummary(rows, get().draftChanges, get().activeMagasin) });
+                // Construire l'index en O(n) une seule fois au lieu de O(n) à chaque lookup.
+                const rowsIndex = new Map<string, ProductRow>(rows.map(r => [r.codein, r]));
+                set({ rows, rowsIndex, summary: computeSummary(rows, get().draftChanges, get().activeMagasin) });
             },
 
             setDraftGamme: (codein, gamme) => {
-                const { rows, draftChanges: oldDrafts } = get();
-                const originalRow = rows.find(r => r.codein === codein);
+                const { rows, rowsIndex, draftChanges: oldDrafts } = get();
+                // Lookup O(1) via l'index au lieu de O(n) via .find()
+                const originalRow = rowsIndex.get(codein);
                 const originalGamme = originalRow?.codeGamme;
 
                 const draftChanges = { ...oldDrafts };
@@ -144,11 +150,12 @@ export const useGridStore = create<GridState>()(
             },
 
             batchSetDraftGamme: (newChanges) => {
-                const { rows, draftChanges: oldDrafts } = get();
+                const { rows, rowsIndex, draftChanges: oldDrafts } = get();
                 const updatedDrafts = { ...oldDrafts };
 
                 Object.entries(newChanges).forEach(([codein, gamme]) => {
-                    const originalRow = rows.find(r => r.codein === codein);
+                    // Lookup O(1) via l'index au lieu de O(n) via .find()
+                    const originalRow = rowsIndex.get(codein);
                     const originalGamme = originalRow?.codeGamme;
 
                     if (gamme === originalGamme) {

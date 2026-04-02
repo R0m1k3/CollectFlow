@@ -3,7 +3,31 @@
     "allow": [
       "Bash(git push:*)",
       "Bash(npx next:*)",
-      "Bash(git status:*)"
+      "Bash(git status:*)",
+      "Bash(find c:/Users/Michael/VSCODE/CollectFlow/src -name *.ts -o -name *.tsx)",
+      "Bash(curl -s \"http://localhost:3001/analytics\")",
+      "Bash(ls -la \"c:/Users/Michael/VSCODE/CollectFlow/src/app/\\(dashboard\\)/analytics/\")",
+      "Read(//tmp/**)",
+      "Bash(npm run:*)",
+      "Bash(find /c/Users/Michael/VSCODE/CollectFlow -type f -name *.sql)",
+      "WebFetch(domain:api.ffnancy.fr)",
+      "Bash(find . -name *.env* -o -name .env.local)",
+      "WebFetch(domain:localhost)",
+      "Bash(curl -s https://api.ffnancy.fr/api/fournisseurs?limit=200)",
+      "Bash(curl -s https://api.ffnancy.fr/api/fournisseurs?limit=500)",
+      "Bash(git rm:*)",
+      "Bash(curl -s -w \"\\\\n%{http_code}\" \"https://api.ffnancy.fr/api/performance/ca/fournisseur?dateDebut=2026-01-01&dateFin=2026-03-31&site=\")",
+      "Bash(curl -s -w \"\\\\n%{http_code}\" \"https://api.ffnancy.fr/api/performance/ca/nomenclature?dateDebut=2026-01-01&dateFin=2026-03-31&site=&niveau=1\")",
+      "Bash(curl -s -w \"\\\\nSTATUS:%{http_code}\\\\n\" \"https://api.ffnancy.fr/api/performance/ca\")",
+      "Bash(curl -s -w \"\\\\nSTATUS:%{http_code}\\\\n\" \"https://api.ffnancy.fr/api/performance\")",
+      "Bash(curl -s -w \"\\\\nSTATUS:%{http_code}\\\\n\" \"https://api.ffnancy.fr/api/performance/ca/fournisseur\")",
+      "Bash(curl -s \"https://api.ffnancy.fr/api/performance/ca/nomenclature?dateDebut=2025-03-01&dateFin=2025-03-31&site=&niveau=1\")",
+      "Bash(curl -s \"https://api.ffnancy.fr/api/performance/ca/nomenclature?dateDebut=2025-03-01&dateFin=2025-03-31&site=292&niveau=1\")",
+      "Bash(curl -s \"https://api.ffnancy.fr/api/performance/ca?dateDebut=2025-03-01&dateFin=2025-03-31&groupBy=mois\")",
+      "Bash(curl -i -s \"https://api.ffnancy.fr/api/performance/ca/nomenclature?dateDebut=2025-03-01&dateFin=2025-03-31&site=&niveau=1\")",
+      "Bash(curl -i -s \"https://api.ffnancy.fr/api/performance/ca?dateDebut=2025-03-01&dateFin=2025-03-31&groupBy=mois\")",
+      "WebFetch(domain:collect.ffnancy.fr)",
+      "Bash(curl -s \"https://collect.ffnancy.fr/api/diag-mvtart\")"
     ]
   }
 }

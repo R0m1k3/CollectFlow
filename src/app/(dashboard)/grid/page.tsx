@@ -33,7 +33,8 @@ export default async function GridPage({ searchParams }: GridPageProps) {
         return <SupplierSelectionLanding fournisseurs={fournisseurs} />;
     }
 
-    // 3. Load real product data for the selected supplier
+    // 3. Load product data — résultat mis en cache 5 min par fournisseur (unstable_cache).
+    //    La première requête est lente mais les suivantes (refresh, navigation) sont instantanées.
     console.log(`\n>>> [GridPage] Fetching data for: ${codeFournisseur}, shop: ${magasin}`);
     const rows = await getGridData(codeFournisseur, magasin, filters);
     console.log(`>>> [GridPage] Received ${rows.length} rows from getGridData`);

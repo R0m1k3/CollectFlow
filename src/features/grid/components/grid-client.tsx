@@ -11,9 +11,7 @@ import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
 import type { ProductRow } from "@/types/grid";
 import { CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import { useSession } from "next-auth/react";
-
 import { useSearchParams } from "next/navigation";
-import { computeProductScores } from "@/lib/score-engine";
 
 interface GridClientProps {
     initialRows: ProductRow[];
@@ -26,7 +24,7 @@ interface GridClientProps {
 
 export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fournisseurs, magasins, magasin }: GridClientProps) {
     const { data: session } = useSession();
-    const isAdmin = (session?.user as any)?.role === "admin";
+    const isAdmin = (session?.user as { role?: string })?.role === "admin";
     const setRows = useGridStore((s) => s.setRows);
     const setActiveGridQuery = useGridStore((s) => s.setActiveGridQuery);
     const setFilter = useGridStore((s) => s.setFilter);
@@ -50,7 +48,6 @@ export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fourn
     useEffect(() => {
         if (!isMounted) return;
         const currentQueryString = searchParams.toString();
-        // Set the active query, ensuring it starts with ? if not empty
         setActiveGridQuery(currentQueryString ? `?${currentQueryString}` : "");
     }, [searchParams, setActiveGridQuery, isMounted]);
 
@@ -63,8 +60,9 @@ export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fourn
             setFilter("code3", null);
             prevFournisseurRef.current = codeFournisseur;
         }
-        const scoredRows = computeProductScores([...initialRows]);
-        setRows(scoredRows);
+        // Les scores ont déjà été calculés côté serveur dans _fetchAllProductRows.
+        // On pousse directement les lignes dans le store sans recalcul côté client.
+        setRows(initialRows);
     }, [codeFournisseur, initialRows, setRows, setFilter, isMounted]);
 
     // Synchroniser le magasin actif depuis la prop URL (changement de magasin sans rechargement)

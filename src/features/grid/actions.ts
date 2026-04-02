@@ -21,14 +21,16 @@ export async function getMagasins() {
 
 /**
  * Nomenclature filter is disabled — code3 is not available from the API.
- * Returns an empty hierarchy so the sidebar filter is hidden gracefully.
  */
 export async function getAvailableNomenclature() {
     return {};
 }
 
 /**
- * Get product data for a specific supplier and store.
+ * Retourne tous les produits d'un fournisseur.
+ * Le résultat est mis en cache 5 min côté serveur (unstable_cache par fournisseur).
+ * La première requête est lente (6 SQL + agrégation mémoire).
+ * Toutes les requêtes suivantes dans la fenêtre de 5 min sont instantanées.
  */
 export async function getGridData(
     codeFournisseur: string,

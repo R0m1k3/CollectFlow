@@ -16,15 +16,26 @@ import {
 import { db } from "@/db";
 import { sessionSnapshots } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
+import { unstable_cache } from "next/cache";
 
-interface GetProductRowsInput {
+// ─── Tag de cache par fournisseur ─────────────────────────────────────────────
+// Permet d'invalider précisément le cache d'un seul fournisseur lors d'une sauvegarde.
+export function getGridCacheTag(codeFournisseur: string): string {
+    return `grid-rows-${codeFournisseur}`;
+}
+
+export interface GetProductRowsInput {
     codeFournisseur: string;
     magasin?: string;
     filters?: Partial<GridFilters>;
 }
 
-export async function getProductRows(input: GetProductRowsInput): Promise<ProductRow[]> {
-    const { codeFournisseur, magasin = "TOTAL" } = input;
+// ─── Fonction interne : fetch complet non-paginé (cachée) ───────────────────
+// Cette fonction est le « dataloader » central. Elle est enveloppée dans
+// unstable_cache pour ne jamais refaire les 6 requêtes SQL tant que le cache
+// est valide (revalidate : 300s). Le tag permet une invalidation ciblée.
+async function _fetchAllProductRows(codeFournisseur: string): Promise<ProductRow[]> {
+    const magasin = "TOTAL"; // Le cache est toujours TOTAL ; le switch magasin est client-side
     console.log(`\n>>> [getProductRows] supplier: ${codeFournisseur}, magasin: ${magasin}`);
 
     try {
@@ -299,7 +310,36 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
         return computeProductScores(rows);
 
     } catch (error) {
-        console.error(`[getProductRows] Error for ${codeFournisseur}:`, error);
+        console.error(`[_fetchAllProductRows] Error for ${codeFournisseur}:`, error);
         return [];
+    }
+}
+
+// ─── Fonction publique (Option B : cache pur, pas de pagination) ─────────────
+/**
+ * Point d'entrée unique pour la grille.
+ * - Met en cache le résultat complet par fournisseur (5 min, tag invalidable)
+ * - Retourne toutes les lignes (filtrage/tri restent côté client)
+ *
+ * La première requête pour un fournisseur donné est lente (6 SQL + agrégation).
+ * Toutes les requêtes suivantes dans la fenêtre de 5 min sont instantanées.
+ */
+export async function getProductRows(input: GetProductRowsInput): Promise<ProductRow[]> {
+    const { codeFournisseur } = input;
+
+    // Créer dynamiquement la fonction cachée avec le tag spécifique au fournisseur.
+    // unstable_cache mémoïse par le tableau de clés [`grid-rows-${codeFournisseur}`].
+    const cachedFn = unstable_cache(
+        async () => _fetchAllProductRows(codeFournisseur),
+        [`grid-rows-${codeFournisseur}`],
+        { revalidate: 300, tags: [`grid-rows-${codeFournisseur}`] }
+    );
+
+    try {
+        return await cachedFn();
+    } catch (e) {
+        console.error(`[getProductRows] Cache error for ${codeFournisseur}:`, e);
+        // Fallback sans cache si unstable_cache échoue
+        return _fetchAllProductRows(codeFournisseur);
     }
 }
