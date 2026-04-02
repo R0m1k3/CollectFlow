@@ -377,7 +377,7 @@ export async function getProductRows(input: GetProductRowsInput): Promise<GetPro
         return { rows: filtered, total, page: 0, pageSize: total, totalPages: 1 };
     }
 
-    const safePageSize = Math.max(1, Math.min(pageSize, 500));
+    const safePageSize = Math.max(1, Math.min(pageSize, 20000));
     const totalPages = Math.ceil(total / safePageSize);
     const safePage = Math.max(0, Math.min(page, totalPages - 1));
     const start = safePage * safePageSize;
