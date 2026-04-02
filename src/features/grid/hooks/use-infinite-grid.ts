@@ -7,6 +7,7 @@ export interface InfiniteGridOptions {
     codeFournisseur: string | null;
     initialTotal: number;
     pageSize?: number;
+    magasin?: string;
     search?: string;
     gamme?: string | null;
     code3?: string | null;
@@ -28,6 +29,7 @@ export function useInfiniteGrid({
     codeFournisseur,
     initialTotal,
     pageSize = 10000,
+    magasin,
     search,
     gamme,
     code3,
@@ -58,9 +60,10 @@ export function useInfiniteGrid({
             if (search) params.set("search", search);
             if (gamme) params.set("gamme", gamme);
             if (code3) params.set("code3", code3);
+            if (magasin) params.set("magasin", magasin);
             return `/api/grid/rows?${params.toString()}`;
         },
-        [codeFournisseur, pageSize, search, gamme, code3]
+        [codeFournisseur, pageSize, search, gamme, code3, magasin]
     );
 
     useEffect(() => {
@@ -70,7 +73,7 @@ export function useInfiniteGrid({
         setIsStopped(false);
         loadedPagesRef.current = new Set([0]);
         fetchIdRef.current += 1;
-    }, [codeFournisseur, initialTotal, search, gamme, code3]);
+    }, [codeFournisseur, initialTotal, search, gamme, code3, magasin]);
 
     const loadNextPage = useCallback(async () => {
         if (!codeFournisseur || isLoadingMore || isStopped) return;

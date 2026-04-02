@@ -22,10 +22,12 @@ export async function GET(request: NextRequest) {
     const search   = searchParams.get("search")  ?? undefined;
     const gamme    = searchParams.get("gamme")   ?? undefined;
     const code3    = searchParams.get("code3")   ?? undefined;
+    const magasin  = searchParams.get("magasin") ?? undefined;
 
     try {
         const result = await getProductRows({
             codeFournisseur,
+            magasin,
             page:     isNaN(page)     ? 0   : page,
             pageSize: isNaN(pageSize) ? 200 : pageSize,
             offset:   offset !== undefined && !isNaN(offset) ? offset : undefined,

@@ -52,6 +52,7 @@ export function GridClient({ initialRows, initialTotal, codeFournisseur, nomFour
 
     const { total, isLoadingMore, hasMore, loadNextPage, stopLoading, progress } = useInfiniteGrid({
         codeFournisseur,
+        magasin: magasin || "TOTAL",
         initialTotal,
         pageSize: 10000,
         onPageLoaded: handlePageLoaded
