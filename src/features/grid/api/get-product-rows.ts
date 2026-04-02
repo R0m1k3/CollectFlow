@@ -16,7 +16,6 @@ import {
 import { db } from "@/db";
 import { sessionSnapshots } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
-import { unstable_cache } from "next/cache";
 
 // ─── Tag de cache par fournisseur ─────────────────────────────────────────────
 // Permet d'invalider précisément le cache d'un seul fournisseur lors d'une sauvegarde.
@@ -315,31 +314,14 @@ async function _fetchAllProductRows(codeFournisseur: string): Promise<ProductRow
     }
 }
 
-// ─── Fonction publique (Option B : cache pur, pas de pagination) ─────────────
+// ─── Fonction publique ─────────────
 /**
  * Point d'entrée unique pour la grille.
- * - Met en cache le résultat complet par fournisseur (5 min, tag invalidable)
  * - Retourne toutes les lignes (filtrage/tri restent côté client)
- *
- * La première requête pour un fournisseur donné est lente (6 SQL + agrégation).
- * Toutes les requêtes suivantes dans la fenêtre de 5 min sont instantanées.
  */
 export async function getProductRows(input: GetProductRowsInput): Promise<ProductRow[]> {
     const { codeFournisseur } = input;
-
-    // Créer dynamiquement la fonction cachée avec le tag spécifique au fournisseur.
-    // unstable_cache mémoïse par le tableau de clés [`grid-rows-${codeFournisseur}`].
-    const cachedFn = unstable_cache(
-        async () => _fetchAllProductRows(codeFournisseur),
-        [`grid-rows-${codeFournisseur}`],
-        { revalidate: 300, tags: [`grid-rows-${codeFournisseur}`] }
-    );
-
-    try {
-        return await cachedFn();
-    } catch (e) {
-        console.error(`[getProductRows] Cache error for ${codeFournisseur}:`, e);
-        // Fallback sans cache si unstable_cache échoue
-        return _fetchAllProductRows(codeFournisseur);
-    }
+    
+    // Appel direct sans l'enveloppe dynamique de unstable_cache qui cause un freeze/timeout
+    return _fetchAllProductRows(codeFournisseur);
 }
