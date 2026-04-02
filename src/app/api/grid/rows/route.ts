@@ -17,6 +17,8 @@ export async function GET(request: NextRequest) {
 
     const page     = parseInt(searchParams.get("page")     ?? "0",   10);
     const pageSize = parseInt(searchParams.get("pageSize") ?? "200", 10);
+    const offsetRaw = searchParams.get("offset");
+    const offset   = offsetRaw ? parseInt(offsetRaw, 10) : undefined;
     const search   = searchParams.get("search")  ?? undefined;
     const gamme    = searchParams.get("gamme")   ?? undefined;
     const code3    = searchParams.get("code3")   ?? undefined;
@@ -26,6 +28,7 @@ export async function GET(request: NextRequest) {
             codeFournisseur,
             page:     isNaN(page)     ? 0   : page,
             pageSize: isNaN(pageSize) ? 200 : pageSize,
+            offset:   offset !== undefined && !isNaN(offset) ? offset : undefined,
             search,
             gamme:    gamme  || null,
             code3:    code3  || null,

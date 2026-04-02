@@ -25,6 +25,7 @@ export interface GetProductRowsInput {
     filters?: Partial<GridFilters>;
     page?: number;
     pageSize?: number;
+    offset?: number;
     search?: string;
     gamme?: string | null;
     code3?: string | null;
@@ -317,7 +318,7 @@ async function _fetchAllProductRows(codeFournisseur: string): Promise<ProductRow
 
         // ─── Phase 10 : Filtrer gamme Y sans ventes + compute scores ─────────
         const allRows = Array.from(productMap.values());
-        const rows = allRows.filter(p => p.codeGamme !== "Y" || p.totalQuantite > 0);
+        const rows = allRows.filter(p => p.codeGamme?.trim().toUpperCase() !== "Y" || p.totalQuantite > 0);
         const excludedY = allRows.length - rows.length;
         console.log(`[getProductRows] ${rows.length} produits (${excludedY} gamme Y sans ventes exclus), ${mensuelByCodein.size} avec ventes`);
 
@@ -339,6 +340,7 @@ export async function getProductRows(input: GetProductRowsInput): Promise<GetPro
         codeFournisseur,
         page,
         pageSize = 200,
+        offset,
         search,
         gamme,
         code3,
@@ -379,9 +381,16 @@ export async function getProductRows(input: GetProductRowsInput): Promise<GetPro
 
     const safePageSize = Math.max(1, Math.min(pageSize, 20000));
     const totalPages = Math.ceil(total / safePageSize);
-    const safePage = Math.max(0, Math.min(page, totalPages - 1));
-    const start = safePage * safePageSize;
-    const rows = filtered.slice(start, start + safePageSize);
+    const safePage = Math.max(0, Math.min(page ?? 0, Math.max(0, totalPages - 1)));
+    
+    // Priorité à l'offset s'il est fourni (pour la pagination côté client qui ne respecte pas les blocs de 10k au départ)
+    const startIdx = offset !== undefined ? offset : safePage * safePageSize;
+    
+    if (startIdx >= total) {
+        return { rows: [], total, page: safePage, pageSize: safePageSize, totalPages };
+    }
+    
+    const rows = filtered.slice(startIdx, startIdx + safePageSize);
 
     return { rows, total, page: safePage, pageSize: safePageSize, totalPages };
 }

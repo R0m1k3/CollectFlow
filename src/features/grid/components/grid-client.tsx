@@ -10,7 +10,7 @@ import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
 import { useInfiniteGrid } from "@/features/grid/hooks/use-infinite-grid";
 import type { ProductRow } from "@/types/grid";
-import { CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { CheckCircle, AlertCircle, Loader2, StopCircle } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 
@@ -50,7 +50,7 @@ export function GridClient({ initialRows, initialTotal, codeFournisseur, nomFour
         appendRows(newRows);
     }, [appendRows]);
 
-    const { total, isLoadingMore, hasMore, loadNextPage, progress } = useInfiniteGrid({
+    const { total, isLoadingMore, hasMore, loadNextPage, stopLoading, progress } = useInfiniteGrid({
         codeFournisseur,
         initialTotal,
         pageSize: 10000,
@@ -164,6 +164,14 @@ export function GridClient({ initialRows, initialTotal, codeFournisseur, nomFour
                             style={{ width: `${progress}%`, background: "var(--accent)" }}
                         />
                     </div>
+                    <button 
+                        onClick={stopLoading}
+                        className="ml-2 flex items-center gap-1 px-2 py-0.5 rounded-full hover:bg-red-500/10 text-red-600 transition-colors"
+                        title="Arrêter le téléchargement du reste des références"
+                    >
+                        <StopCircle className="w-3.5 h-3.5" />
+                        <span className="text-[10px] uppercase font-bold">Stop</span>
+                    </button>
                 </div>
             )}
 

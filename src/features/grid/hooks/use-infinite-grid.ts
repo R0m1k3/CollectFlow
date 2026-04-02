@@ -18,6 +18,7 @@ export interface InfiniteGridState {
     isLoadingMore: boolean;
     hasMore: boolean;
     loadNextPage: () => void;
+    stopLoading: () => void;
     reset: () => void;
     progress: number;
     loadedPagesCount: number;
@@ -35,6 +36,7 @@ export function useInfiniteGrid({
     const [total, setTotal] = useState(initialTotal);
     const [currentPage, setCurrentPage] = useState(0);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const [isStopped, setIsStopped] = useState(false);
     const [loadedPagesCount, setLoadedPagesCount] = useState(1); // Page 0 est initialRows
 
     const fetchIdRef = useRef(0);
@@ -48,6 +50,11 @@ export function useInfiniteGrid({
                 page: String(page),
                 pageSize: String(pageSize),
             });
+            
+            if (page > 0) {
+                params.set("offset", String(200 + (page - 1) * pageSize));
+            }
+
             if (search) params.set("search", search);
             if (gamme) params.set("gamme", gamme);
             if (code3) params.set("code3", code3);
@@ -60,12 +67,13 @@ export function useInfiniteGrid({
         setTotal(initialTotal);
         setCurrentPage(0);
         setLoadedPagesCount(1);
+        setIsStopped(false);
         loadedPagesRef.current = new Set([0]);
         fetchIdRef.current += 1;
     }, [codeFournisseur, initialTotal, search, gamme, code3]);
 
     const loadNextPage = useCallback(async () => {
-        if (!codeFournisseur || isLoadingMore) return;
+        if (!codeFournisseur || isLoadingMore || isStopped) return;
 
         const nextPage = currentPage + 1;
         const alreadyLoaded = loadedPagesRef.current.has(nextPage);
@@ -102,13 +110,19 @@ export function useInfiniteGrid({
             // Envoyer directement au Store Zustand pour bypasser le cycle React DOM
             onPageLoaded(data.rows);
         } catch (error) {
+            if ((error as Error).name === "AbortError") return;
             console.error("[useInfiniteGrid] loadNextPage error:", error);
         } finally {
             if (currentFetchId === fetchIdRef.current) {
                 setIsLoadingMore(false);
             }
         }
-    }, [codeFournisseur, currentPage, total, pageSize, isLoadingMore, buildUrl, onPageLoaded]);
+    }, [codeFournisseur, currentPage, total, pageSize, isLoadingMore, isStopped, buildUrl, onPageLoaded]);
+
+    const stopLoading = useCallback(() => {
+        setIsStopped(true);
+        setIsLoadingMore(false);
+    }, []);
 
     const reset = useCallback(() => {
         fetchIdRef.current += 1;
@@ -117,10 +131,12 @@ export function useInfiniteGrid({
         setCurrentPage(0);
         setLoadedPagesCount(1);
         setIsLoadingMore(false);
+        setIsStopped(false);
     }, [initialTotal]);
 
-    const loadedItemsEstimation = loadedPagesCount * pageSize;
-    const hasMore = loadedItemsEstimation < total && loadedPagesCount < Math.ceil(total / pageSize);
+    // On part du principe qu'il y en a 200 + n * 10 000
+    const loadedItemsEstimation = 200 + (loadedPagesCount - 1) * pageSize;
+    const hasMore = !isStopped && loadedItemsEstimation < total;
     const progress = total > 0 ? Math.round(Math.min((loadedItemsEstimation / total) * 100, 100)) : 100;
 
     return {
@@ -128,6 +144,7 @@ export function useInfiniteGrid({
         isLoadingMore,
         hasMore,
         loadNextPage,
+        stopLoading,
         reset,
         progress,
         loadedPagesCount,
