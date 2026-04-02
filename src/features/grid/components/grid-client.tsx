@@ -8,6 +8,7 @@ import { GridFilterBar } from "@/features/grid/components/grid-filter-bar";
 import { ExportDropdown } from "@/features/grid/components/export-dropdown";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
+import { useInfiniteGrid } from "@/features/grid/hooks/use-infinite-grid";
 import type { ProductRow } from "@/types/grid";
 import { CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import { useSession } from "next-auth/react";
@@ -15,6 +16,7 @@ import { useSearchParams } from "next/navigation";
 
 interface GridClientProps {
     initialRows: ProductRow[];
+    initialTotal: number;
     codeFournisseur: string;
     nomFournisseur: string;
     fournisseurs: { code: string; nom: string }[];
@@ -22,7 +24,7 @@ interface GridClientProps {
     magasin: string;
 }
 
-export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fournisseurs, magasins, magasin }: GridClientProps) {
+export function GridClient({ initialRows, initialTotal, codeFournisseur, nomFournisseur, fournisseurs, magasins, magasin }: GridClientProps) {
     const { data: session } = useSession();
     const isAdmin = (session?.user as { role?: string })?.role === "admin";
     const setRows = useGridStore((s) => s.setRows);
@@ -39,6 +41,14 @@ export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fourn
     const { save, hasDrafts, count } = useSaveDrafts(magasin, visibleCodeins);
 
     const [isMounted, setIsMounted] = useState(false);
+
+    // ─── Chargement progressif des pages suivantes ─────────────────────────────
+    const { rows: allRows, total, isLoadingMore, hasMore, loadNextPage, progress } = useInfiniteGrid({
+        codeFournisseur,
+        initialRows,
+        initialTotal,
+        pageSize: 200,
+    });
 
     useEffect(() => {
         setIsMounted(true);
@@ -60,16 +70,24 @@ export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fourn
             setFilter("code3", null);
             prevFournisseurRef.current = codeFournisseur;
         }
-        // Les scores ont déjà été calculés côté serveur dans _fetchAllProductRows.
-        // On pousse directement les lignes dans le store sans recalcul côté client.
-        setRows(initialRows);
-    }, [codeFournisseur, initialRows, setRows, setFilter, isMounted]);
+        // Les scores ont déjà été calculés côté serveur.
+        // On pousse toutes les lignes accumulées par l'infinite scroll dans le store.
+        setRows(allRows);
+    }, [codeFournisseur, allRows, setRows, setFilter, isMounted]);
 
-    // Synchroniser le magasin actif depuis la prop URL (changement de magasin sans rechargement)
+    // Synchroniser le magasin actif
     useEffect(() => {
         if (!isMounted) return;
         setActiveMagasin(magasin || "TOTAL");
     }, [magasin, setActiveMagasin, isMounted]);
+
+    // Chargement automatique des pages suivantes en arrière-plan
+    useEffect(() => {
+        if (!isMounted || !hasMore || isLoadingMore) return;
+        // Délai court pour ne pas bloquer le rendu
+        const timer = setTimeout(loadNextPage, 300);
+        return () => clearTimeout(timer);
+    }, [isMounted, hasMore, isLoadingMore, loadNextPage]);
 
     const handleSave = () => {
         startTransition(async () => {
@@ -94,7 +112,12 @@ export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fourn
                     <p className="text-[13px] mt-0.5" style={{ color: "var(--text-secondary)" }}>
                         <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{nomFournisseur}</span>
                         {" "}• <span className="font-medium" style={{ color: "var(--text-muted)" }}>{activeStoreNom}</span>
-                        {" "}• {initialRows.length} références
+                        {" "}• {allRows.length.toLocaleString("fr-FR")} références
+                        {hasMore && (
+                            <span className="text-[11px] opacity-60">
+                                {" "}/ {total.toLocaleString("fr-FR")}
+                            </span>
+                        )}
                     </p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -124,6 +147,25 @@ export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fourn
                     )}
                 </div>
             </div>
+
+            {/* Barre de progression chargement en arrière-plan */}
+            {(hasMore || isLoadingMore) && (
+                <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-medium"
+                    style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+                >
+                    <Loader2 className="w-3 h-3 animate-spin shrink-0" style={{ color: "var(--accent)" }} />
+                    <span>
+                        Chargement&nbsp;: {allRows.length.toLocaleString("fr-FR")} / {total.toLocaleString("fr-FR")} références
+                    </span>
+                    <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+                        <div
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{ width: `${progress}%`, background: "var(--accent)" }}
+                        />
+                    </div>
+                    <span>{progress}%</span>
+                </div>
+            )}
 
             {/* Filters */}
             <div className="shrink-0 print:hidden">

@@ -2,8 +2,8 @@
 
 import { getSitesFromApi } from "@/lib/api-ff-client";
 import { pgGetFournisseurs } from "@/lib/pg-ff-client";
-import { getProductRows } from "./api/get-product-rows";
-import type { ProductRow, GridFilters } from "@/types/grid";
+import { getProductRows, type GetProductRowsResult } from "./api/get-product-rows";
+import type { GridFilters } from "@/types/grid";
 
 /**
  * Get the list of all suppliers from PostgreSQL (fouadr1).
@@ -28,14 +28,14 @@ export async function getAvailableNomenclature() {
 
 /**
  * Retourne tous les produits d'un fournisseur.
- * Le résultat est mis en cache 5 min côté serveur (unstable_cache par fournisseur).
- * La première requête est lente (6 SQL + agrégation mémoire).
- * Toutes les requêtes suivantes dans la fenêtre de 5 min sont instantanées.
+ * La charge est paginée (renvoie la première page en SSR) pour empêcher le figeage du thread principal UI.
  */
 export async function getGridData(
     codeFournisseur: string,
     magasin: string = "TOTAL",
-    filters?: Partial<GridFilters>
-): Promise<ProductRow[]> {
-    return getProductRows({ codeFournisseur, magasin, filters });
+    filters?: Partial<GridFilters>,
+    page: number = 0,
+    pageSize: number = 200,
+): Promise<GetProductRowsResult> {
+    return getProductRows({ codeFournisseur, magasin, filters, page, pageSize });
 }

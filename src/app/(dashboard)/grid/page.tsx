@@ -33,16 +33,16 @@ export default async function GridPage({ searchParams }: GridPageProps) {
         return <SupplierSelectionLanding fournisseurs={fournisseurs} />;
     }
 
-    // 3. Load product data — résultat mis en cache 5 min par fournisseur (unstable_cache).
-    //    La première requête est lente mais les suivantes (refresh, navigation) sont instantanées.
-    console.log(`\n>>> [GridPage] Fetching data for: ${codeFournisseur}, shop: ${magasin}`);
-    const rows = await getGridData(codeFournisseur, magasin, filters);
-    console.log(`>>> [GridPage] Received ${rows.length} rows from getGridData`);
+    // 3. Load product data — pagination pour ne pas crasher le JS client
+    console.log(`\n>>> [GridPage] Fetching page 0 for: ${codeFournisseur}, shop: ${magasin}`);
+    const { rows: initialRows, total } = await getGridData(codeFournisseur, magasin, filters, 0, 200);
+    console.log(`>>> [GridPage] Received ${initialRows.length}/${total} rows from getGridData`);
     const selectedFournisseur = fournisseurs.find((f: { code: string; nom: string }) => f.code === codeFournisseur);
 
     return (
         <GridClient
-            initialRows={rows}
+            initialRows={initialRows}
+            initialTotal={total}
             codeFournisseur={codeFournisseur}
             nomFournisseur={selectedFournisseur?.nom || "Fournisseur inconnu"}
             fournisseurs={fournisseurs}

@@ -22,6 +22,19 @@ export interface GetProductRowsInput {
     codeFournisseur: string;
     magasin?: string;
     filters?: Partial<GridFilters>;
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    gamme?: string | null;
+    code3?: string | null;
+}
+
+export interface GetProductRowsResult {
+    rows: ProductRow[];
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
 }
 
 // ─── Fonction interne : fetch complet non-paginé (cachée) ───────────────────
@@ -312,11 +325,56 @@ async function _fetchAllProductRows(codeFournisseur: string): Promise<ProductRow
 // ─── Fonction publique ─────────────
 /**
  * Point d'entrée unique pour la grille.
- * - Retourne toutes les lignes (filtrage/tri restent côté client)
+ * - Retourne les lignes paginées pour préserver le client.
  */
-export async function getProductRows(input: GetProductRowsInput): Promise<ProductRow[]> {
-    const { codeFournisseur } = input;
-    
-    // Appel direct sans l'enveloppe dynamique de unstable_cache qui cause un freeze/timeout
-    return _fetchAllProductRows(codeFournisseur);
+export async function getProductRows(input: GetProductRowsInput): Promise<GetProductRowsResult> {
+    const {
+        codeFournisseur,
+        page,
+        pageSize = 200,
+        search,
+        gamme,
+        code3,
+    } = input;
+
+    // Récupérer toutes les lignes (idéalement mis en cache ici via unstable_cache, mais on l'a désactivé pour l'instant)
+    const allRows = await _fetchAllProductRows(codeFournisseur);
+
+    let filtered = allRows;
+
+    if (search && search.trim() !== "") {
+        const q = search.trim().toLowerCase();
+        filtered = filtered.filter(r =>
+            (r.libelle1 ?? "").toLowerCase().includes(q) ||
+            (r.codein ?? "").toLowerCase().includes(q) ||
+            (r.reference ?? "").toLowerCase().includes(q) ||
+            (r.gtin ?? "").toLowerCase().includes(q)
+        );
+    }
+
+    if (gamme !== undefined && gamme !== null && gamme !== "") {
+        filtered = filtered.filter(r => {
+            const g = r.codeGamme ?? "";
+            const norm = g.trim() === "" ? "Aucune" : g;
+            return norm === gamme;
+        });
+    }
+
+    if (code3) {
+        filtered = filtered.filter(r => r.code3 === code3);
+    }
+
+    const total = filtered.length;
+
+    if (page === undefined) {
+        return { rows: filtered, total, page: 0, pageSize: total, totalPages: 1 };
+    }
+
+    const safePageSize = Math.max(1, Math.min(pageSize, 500));
+    const totalPages = Math.ceil(total / safePageSize);
+    const safePage = Math.max(0, Math.min(page, totalPages - 1));
+    const start = safePage * safePageSize;
+    const rows = filtered.slice(start, start + safePageSize);
+
+    return { rows, total, page: safePage, pageSize: safePageSize, totalPages };
 }
