@@ -17,12 +17,7 @@ import { db } from "@/db";
 import { sessionSnapshots } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 
-// ─── Tag de cache par fournisseur ─────────────────────────────────────────────
-// Permet d'invalider précisément le cache d'un seul fournisseur lors d'une sauvegarde.
-export function getGridCacheTag(codeFournisseur: string): string {
-    return `grid-rows-${codeFournisseur}`;
-}
-
+// ─── Interfaces ───────────────────────────────────────────────────────────────
 export interface GetProductRowsInput {
     codeFournisseur: string;
     magasin?: string;
