@@ -753,6 +753,10 @@ export interface StockBySite {
 export async function pgGetStockForCodeins(codeins: string[]): Promise<Map<string, StockBySite>> {
     if (codeins.length === 0) return new Map();
 
+    // Drizzle expands JS arrays into individual $1,$2,... params regardless of syntax,
+    // hitting PostgreSQL's 1664-entry ROW expression limit. Use sql.raw() with an escaped
+    // literal array instead — codeins come from the DB so single-quote escaping is sufficient.
+    const arrayLiteral = codeins.map(c => `'${String(c).replace(/'/g, "''")}'`).join(",");
     const result = await pgNoParallel(sql`
         SELECT
             a.codein,
@@ -760,7 +764,7 @@ export async function pgGetStockForCodeins(codeins: string[]): Promise<Map<strin
             cs.stockdispo::float AS stockdispo
         FROM cube_stock cs
         JOIN articles a ON a.no_id = cs.artnoid
-        WHERE a.codein = ANY(${codeins}::text[])
+        WHERE a.codein = ANY(ARRAY[${sql.raw(arrayLiteral)}])
     `);
 
     const map = new Map<string, StockBySite>();
