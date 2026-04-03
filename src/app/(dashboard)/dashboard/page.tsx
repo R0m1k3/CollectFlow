@@ -1,4 +1,11 @@
 import { pgGetDashboardData, type DashboardTopItem, type DashboardSiteStats, type DashboardSiteTop10 } from "@/lib/pg-ff-client";
+import { unstable_cache } from "next/cache";
+
+const getCachedDashboardData = unstable_cache(
+    pgGetDashboardData,
+    ["dashboard-data"],
+    { revalidate: 600 } // 10 minutes
+);
 import { TrendingUp, TrendingDown, Minus, Store, Euro, Users, ShoppingCart, Award, BarChart3 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -722,7 +729,7 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
 export default async function DashboardPage() {
     let data;
     try {
-        data = await pgGetDashboardData();
+        data = await getCachedDashboardData();
     } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error("[Dashboard] pgGetDashboardData failed:", e);

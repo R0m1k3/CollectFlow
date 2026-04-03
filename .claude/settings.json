@@ -27,7 +27,9 @@
       "Bash(curl -i -s \"https://api.ffnancy.fr/api/performance/ca/nomenclature?dateDebut=2025-03-01&dateFin=2025-03-31&site=&niveau=1\")",
       "Bash(curl -i -s \"https://api.ffnancy.fr/api/performance/ca?dateDebut=2025-03-01&dateFin=2025-03-31&groupBy=mois\")",
       "WebFetch(domain:collect.ffnancy.fr)",
-      "Bash(curl -s \"https://collect.ffnancy.fr/api/diag-mvtart\")"
+      "Bash(curl -s \"https://collect.ffnancy.fr/api/diag-mvtart\")",
+      "Read(//c/Users/Michael/VSCODE/CollectFlow/**)",
+      "Bash(xargs wc:*)"
     ]
   }
 }
