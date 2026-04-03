@@ -36,7 +36,7 @@ const BatchAnalyzeSchema = z.object({
 export async function POST(req: NextRequest) {
     const config = await getSavedDatabaseConfig();
     const apiKey = process.env.OPENROUTER_API_KEY || config?.openRouterKey;
-    const model = config?.openRouterModel || "google/gemini-flash-1.5";
+    const model = config?.openRouterModel || "google/gemini-2.0-flash-001";
 
     if (!apiKey) {
         console.error("[batch-analyze] API key manquante.");

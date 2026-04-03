@@ -118,7 +118,7 @@ export default function SettingsPage() {
     const [dbError, setDbError] = useState<string | null>(null);
     const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
     const [models, setModels] = useState<OpenRouterModel[]>([]);
-    const [selectedModel, setSelectedModel] = useState("google/gemini-flash-1.5");
+    const [selectedModel, setSelectedModel] = useState("google/gemini-2.0-flash-001");
     const [modelsStatus, setModelsStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
 
     const [isMounted, setIsMounted] = useState(false);
