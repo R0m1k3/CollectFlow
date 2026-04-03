@@ -1,5 +1,6 @@
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { useAiCopilotStore } from "@/features/ai-copilot/store/use-ai-copilot-store";
+import { useSession } from "next-auth/react";
 
 import { BulkAiAnalyzer } from "./bulk-ai-analyzer";
 import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
@@ -27,6 +28,8 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 }
 
 export function FloatingSummaryBar() {
+    const { data: session } = useSession();
+    const isAdmin = (session?.user as any)?.role === "admin";
     const { summary, resetDrafts, rows, filters, draftChanges } = useGridStore();
     const { resetInsights } = useAiCopilotStore();
     const [isPending, startTransition] = useTransition();
@@ -175,7 +178,7 @@ export function FloatingSummaryBar() {
             </div>
 
             <div className="flex space-x-3 items-center">
-                <BulkAiAnalyzer />
+                {isAdmin && <BulkAiAnalyzer />}
 
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>

@@ -6,6 +6,7 @@ import { Loader2, AlertCircle, Sparkles, Maximize2 } from "lucide-react";
 import { AiExplanationModal } from "./ai-explanation-modal";
 import { useAiCopilotStore } from "../store/use-ai-copilot-store";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
+import { useSession } from "next-auth/react";
 import type { ProductRow } from "@/types/grid";
 
 
@@ -14,6 +15,8 @@ interface AiInsightBlockProps {
 }
 
 export function AiInsightBlock({ row }: AiInsightBlockProps) {
+    const { data: session } = useSession();
+    const isAdmin = (session?.user as any)?.role === "admin";
     const insight = useAiCopilotStore((s: any) => s.insights[row.codein]);
     const analyzeProduct = useAiCopilotStore((s: any) => s.analyzeProduct);
     const setLoading = useAiCopilotStore((s: any) => s.setLoading);
@@ -125,6 +128,7 @@ export function AiInsightBlock({ row }: AiInsightBlockProps) {
     };
 
     if (status === "idle") {
+        if (!isAdmin) return null;
         return (
             <button
                 onClick={handleAnalyze}
