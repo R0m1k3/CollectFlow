@@ -107,14 +107,12 @@ REPONDS EN JSON VALIDE uniquement :
         const userPrompt = `${products.length} produits du rayon "${rayon}" (sur ${supplierStats?.totalProducts ?? products.length} au total).
 ${JSON.stringify(products, null, 2)}`;
 
-        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        const FALLBACK_MODEL = "google/gemini-2.0-flash-001";
+        const tryModel = async (modelToTry: string) => fetch("https://openrouter.ai/api/v1/chat/completions", {
             method: "POST",
-            headers: {
-                "Authorization": `Bearer ${apiKey}`,
-                "Content-Type": "application/json",
-            },
+            headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
             body: JSON.stringify({
-                model,
+                model: modelToTry,
                 messages: [
                     { role: "system", content: systemPrompt },
                     { role: "user", content: userPrompt }
@@ -123,6 +121,14 @@ ${JSON.stringify(products, null, 2)}`;
                 temperature: 0.1,
             }),
         });
+
+        let response = await tryModel(model);
+
+        // Fallback if configured model is deprecated/not found
+        if (!response.ok && response.status === 400 && model !== FALLBACK_MODEL) {
+            console.warn(`[batch-analyze] Model "${model}" returned 400, retrying with fallback ${FALLBACK_MODEL}`);
+            response = await tryModel(FALLBACK_MODEL);
+        }
 
         if (response.status === 429) {
             const retryAfter = response.headers.get("Retry-After") || response.headers.get("x-ratelimit-reset-requests");
