@@ -151,8 +151,8 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
         ) last_fournisseur ON true
         WHERE af.code = ${codefou}
           AND a.codein IS NOT NULL
-          AND NOT COALESCE(af.suspendu::boolean, false)
-          AND NOT COALESCE(a.suspendu::boolean, false)
+          AND (af.suspendu IS NULL OR af.suspendu::text NOT IN ('1', 'true', 't', 'yes', 'y', 'on'))
+          AND (a.suspendu IS NULL OR a.suspendu::text NOT IN ('1', 'true', 't', 'yes', 'y', 'on'))
         ORDER BY a.no_id, af.no_id
     `);
 
