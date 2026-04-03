@@ -7,7 +7,7 @@
  * Chaque fonction fait 1 seule requête filtrée par codefou — O(1) au lieu de O(N).
  */
 
-import { db, getPool } from "@/db";
+import { db } from "@/db";
 import { sql, type SQL } from "drizzle-orm";
 
 // Cache module-level pour éviter les requêtes information_schema répétées
@@ -749,21 +749,22 @@ export interface StockBySite {
 /**
  * Retourne le stock actuel (stockdispo) par codein pour une liste de codeins.
  * 1 seule requête bulk — utilisé pour enrichir le Hit Parade.
+ *
+ * On passe les codeins comme une SEULE chaîne CSV ($1) et on utilise
+ * string_to_array côté PG — cela évite l'expansion Drizzle en $1,$2,...$N
+ * qui déclencherait le PG error 54011 (ROW > 1664 entries).
  */
 export async function pgGetStockForCodeins(codeins: string[]): Promise<Map<string, StockBySite>> {
     if (codeins.length === 0) return new Map();
 
-    // Bypass Drizzle entirely — it always expands arrays into individual params,
-    // hitting PG's 1664-entry ROW expression limit. Use the raw pg Pool directly
-    // with a native $1::text[] binding (entire array = single parameter).
-    const res = await getPool().query<{ codein: string; site: string; stockdispo: number }>(
-        `SELECT a.codein, cs.site, cs.stockdispo::float AS stockdispo
-         FROM cube_stock cs
-         JOIN articles a ON a.no_id = cs.artnoid
-         WHERE a.codein = ANY($1::text[])`,
-        [codeins]
+    const codeinsStr = codeins.join(",");
+    const result = await pgNoParallel(
+        sql`SELECT a.codein, cs.site, cs.stockdispo::float AS stockdispo
+            FROM cube_stock cs
+            JOIN articles a ON a.no_id = cs.artnoid
+            WHERE a.codein = ANY(string_to_array(${codeinsStr}, ','))`
     );
-    const rows = res.rows;
+    const rows = result.rows as { codein: string; site: string; stockdispo: number }[];
 
     const map = new Map<string, StockBySite>();
     for (const r of rows) {
