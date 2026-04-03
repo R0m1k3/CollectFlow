@@ -706,30 +706,60 @@ export interface HitParadeRow {
     qte_vendue: number;
     ca_ttc: number;
     marge: number;
+    stock292: number;
+    stock579: number;
+    stockTotal: number;
 }
 
 /**
- * Retourne les ventes produit sur une période, avec fournisseur, qté, CA TTC et marge par site.
+ * Retourne les ventes produit sur une période, avec fournisseur, qté, CA TTC, marge et stock par site.
+ * Le stock est intégré via un LEFT JOIN — pas de requête séparée, pas de tableau de paramètres.
  */
 export async function pgGetHitParade(dateDebut: string, dateFin: string): Promise<HitParadeRow[]> {
     const result = await pgNoParallel(sql`
+        WITH ventes AS (
+            SELECT
+                a.no_id                                                         AS art_no_id,
+                a.codein::text                                                  AS codein,
+                a.libelle1::text                                                AS libelle,
+                COALESCE(fi.nom, af.code, 'Sans fournisseur')::text             AS fournisseur,
+                m.site,
+                SUM(ABS(m.qtemvt))::float                                      AS qte_vendue,
+                ABS(SUM(m.mntmvtttc))::float                                   AS ca_ttc,
+                SUM(m.margemvt)::float                                          AS marge
+            FROM mvtart m
+            JOIN articles a      ON a.no_id        = m.artnoid
+            LEFT JOIN artfou1 af ON af.art_no_id   = a.no_id AND af.preference = 1
+            LEFT JOIN fouident fi ON fi.code        = af.code
+            WHERE m.datmvt BETWEEN ${dateDebut}::date AND ${dateFin}::date
+              AND m.site IN ('292', '579')
+              AND m.genremvt = 3
+            GROUP BY a.no_id, a.codein, a.libelle1, fi.nom, af.code, m.site
+        ),
+        stock_agg AS (
+            SELECT
+                cs.artnoid,
+                SUM(CASE WHEN cs.site = '292' THEN cs.stockdispo ELSE 0 END)::float AS stock292,
+                SUM(CASE WHEN cs.site = '579' THEN cs.stockdispo ELSE 0 END)::float AS stock579,
+                SUM(cs.stockdispo)::float                                            AS stockTotal
+            FROM cube_stock cs
+            WHERE cs.artnoid IN (SELECT DISTINCT art_no_id FROM ventes)
+            GROUP BY cs.artnoid
+        )
         SELECT
-            a.codein::text                                              AS codein,
-            a.libelle1::text                                            AS libelle,
-            COALESCE(fi.nom, af.code, 'Sans fournisseur')::text         AS fournisseur,
-            m.site,
-            SUM(ABS(m.qtemvt))::float                                  AS qte_vendue,
-            ABS(SUM(m.mntmvtttc))::float                               AS ca_ttc,
-            SUM(m.margemvt)::float                                      AS marge
-        FROM mvtart m
-        JOIN articles a      ON a.no_id        = m.artnoid
-        LEFT JOIN artfou1 af ON af.art_no_id   = a.no_id AND af.preference = 1
-        LEFT JOIN fouident fi ON fi.code        = af.code
-        WHERE m.datmvt BETWEEN ${dateDebut}::date AND ${dateFin}::date
-          AND m.site IN ('292', '579')
-          AND m.genremvt = 3
-        GROUP BY a.codein, a.libelle1, fi.nom, af.code, m.site
-        ORDER BY ca_ttc DESC
+            v.codein,
+            v.libelle,
+            v.fournisseur,
+            v.site,
+            v.qte_vendue,
+            v.ca_ttc,
+            v.marge,
+            COALESCE(s.stock292, 0)    AS stock292,
+            COALESCE(s.stock579, 0)    AS stock579,
+            COALESCE(s.stockTotal, 0)  AS "stockTotal"
+        FROM ventes v
+        LEFT JOIN stock_agg s ON s.artnoid = v.art_no_id
+        ORDER BY v.ca_ttc DESC
     `);
 
     console.log(`[pg-ff] HitParade: ${result.rows.length} lignes pour ${dateDebut}→${dateFin}`);

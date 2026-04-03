@@ -1,4 +1,4 @@
-import { pgGetHitParade, pgGetStockForCodeins } from "@/lib/pg-ff-client";
+import { pgGetHitParade, HitParadeRow } from "@/lib/pg-ff-client";
 import { HitParadeClient } from "./client";
 
 export interface HitParadePivotRow {
@@ -19,9 +19,7 @@ export interface HitParadePivotRow {
     stockTotal: number;
 }
 
-function pivotHitParade(
-    rows: Array<{ codein: string; libelle: string; fournisseur: string; site: string; qte_vendue: number; ca_ttc: number; marge: number }>
-): HitParadePivotRow[] {
+function pivotHitParade(rows: HitParadeRow[]): HitParadePivotRow[] {
     const map = new Map<string, HitParadePivotRow>();
 
     for (const row of rows) {
@@ -33,7 +31,10 @@ function pivotHitParade(
                 qte292: 0, ca292: 0, marge292: 0,
                 qte579: 0, ca579: 0, marge579: 0,
                 qteTotal: 0, caTotal: 0, margeTotal: 0,
-                stock292: 0, stock579: 0, stockTotal: 0,
+                // Stock comes from the SQL query directly (LEFT JOIN cube_stock)
+                stock292: row.stock292 ?? 0,
+                stock579: row.stock579 ?? 0,
+                stockTotal: row.stockTotal ?? 0,
             });
         }
         const entry = map.get(row.codein)!;
@@ -74,13 +75,6 @@ export default async function HitParadePage(props: {
 
     const rows = await pgGetHitParade(dateDebut, dateFin);
     const pivotted = pivotHitParade(rows);
-
-    const codeins = pivotted.map(r => r.codein);
-    const stockMap = await pgGetStockForCodeins(codeins);
-    for (const row of pivotted) {
-        const s = stockMap.get(row.codein);
-        if (s) { row.stock292 = s.stock292; row.stock579 = s.stock579; row.stockTotal = s.stockTotal; }
-    }
 
     return (
         <div className="min-h-screen bg-gray-50 p-6">
