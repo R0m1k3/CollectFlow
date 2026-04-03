@@ -342,21 +342,27 @@ export default function SettingsPage() {
                     label={`Modèle IA${models.length > 0 ? ` (${models.length} disponibles)` : ""}`}
                     hint={modelsStatus === "error" ? "⚠ Erreur — vérifiez votre clé puis rechargez" : modelsStatus === "idle" ? "Entrez votre clé et cliquez « Charger les modèles »" : undefined}
                 >
-                    <select
-                        value={selectedModel}
-                        onChange={(e) => setSelectedModel(e.target.value)}
-                        disabled={models.length === 0}
-                        className="apple-input"
-                    >
-                        {models.length === 0
-                            ? <option>— Modèles non chargés —</option>
-                            : models.map((m) => (
+                    {models.length > 0 ? (
+                        <select
+                            value={selectedModel}
+                            onChange={(e) => setSelectedModel(e.target.value)}
+                            className="apple-input"
+                        >
+                            {models.map((m) => (
                                 <option key={m.id} value={m.id}>
                                     {m.free ? "🆓 " : ""}{m.name}
                                 </option>
-                            ))
-                        }
-                    </select>
+                            ))}
+                        </select>
+                    ) : (
+                        <input
+                            type="text"
+                            value={selectedModel}
+                            onChange={(e) => setSelectedModel(e.target.value)}
+                            placeholder="ex: google/gemini-2.0-flash-001"
+                            className="apple-input"
+                        />
+                    )}
                 </Field>
             </Section>
 
