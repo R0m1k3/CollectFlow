@@ -7,7 +7,7 @@
  * Chaque fonction fait 1 seule requête filtrée par codefou — O(1) au lieu de O(N).
  */
 
-import { db } from "@/db";
+import { db, getPool } from "@/db";
 import { sql, type SQL } from "drizzle-orm";
 
 // Cache module-level pour éviter les requêtes information_schema répétées
@@ -753,22 +753,20 @@ export interface StockBySite {
 export async function pgGetStockForCodeins(codeins: string[]): Promise<Map<string, StockBySite>> {
     if (codeins.length === 0) return new Map();
 
-    // Drizzle expands JS arrays into individual $1,$2,... params regardless of syntax,
-    // hitting PostgreSQL's 1664-entry ROW expression limit. Use sql.raw() with an escaped
-    // literal array instead — codeins come from the DB so single-quote escaping is sufficient.
-    const arrayLiteral = codeins.map(c => `'${String(c).replace(/'/g, "''")}'`).join(",");
-    const result = await pgNoParallel(sql`
-        SELECT
-            a.codein,
-            cs.site,
-            cs.stockdispo::float AS stockdispo
-        FROM cube_stock cs
-        JOIN articles a ON a.no_id = cs.artnoid
-        WHERE a.codein = ANY(ARRAY[${sql.raw(arrayLiteral)}])
-    `);
+    // Bypass Drizzle entirely — it always expands arrays into individual params,
+    // hitting PG's 1664-entry ROW expression limit. Use the raw pg Pool directly
+    // with a native $1::text[] binding (entire array = single parameter).
+    const res = await getPool().query<{ codein: string; site: string; stockdispo: number }>(
+        `SELECT a.codein, cs.site, cs.stockdispo::float AS stockdispo
+         FROM cube_stock cs
+         JOIN articles a ON a.no_id = cs.artnoid
+         WHERE a.codein = ANY($1::text[])`,
+        [codeins]
+    );
+    const rows = res.rows;
 
     const map = new Map<string, StockBySite>();
-    for (const r of result.rows as Array<{ codein: string; site: string; stockdispo: number }>) {
+    for (const r of rows) {
         if (!map.has(r.codein)) map.set(r.codein, { stock292: 0, stock579: 0, stockTotal: 0 });
         const entry = map.get(r.codein)!;
         if (r.site === "292") entry.stock292 += r.stockdispo;
