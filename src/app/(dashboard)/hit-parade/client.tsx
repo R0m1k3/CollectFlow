@@ -181,32 +181,29 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                             <th rowSpan={2} className="w-24 border-b-2 border-gray-200 bg-gray-50 px-4 py-3 text-left text-xs font-semibold text-gray-600 align-bottom">Code</th>
                             <th rowSpan={2} className="border-b-2 border-gray-200 bg-gray-50 px-4 py-3 text-left text-xs font-semibold text-gray-600 align-bottom">Désignation</th>
                             <th rowSpan={2} className="border-b-2 border-gray-200 bg-gray-50 px-4 py-3 text-left text-xs font-semibold text-gray-600 align-bottom">Fournisseur</th>
-                            <th colSpan={3} className="border-b border-l-2 border-blue-200 bg-blue-50 px-4 py-2 text-center text-xs font-bold text-blue-700 tracking-wide">
+                            <th colSpan={4} className="border-b border-l-2 border-blue-200 bg-blue-50 px-4 py-2 text-center text-xs font-bold text-blue-700 tracking-wide">
                                 Frouard / Nancy — 292
                             </th>
-                            <th colSpan={3} className="border-b border-l-2 border-violet-200 bg-violet-50 px-4 py-2 text-center text-xs font-bold text-violet-700 tracking-wide">
+                            <th colSpan={4} className="border-b border-l-2 border-violet-200 bg-violet-50 px-4 py-2 text-center text-xs font-bold text-violet-700 tracking-wide">
                                 Houdemont — 579
                             </th>
-                            <th colSpan={3} className="border-b border-l-2 border-emerald-200 bg-emerald-50 px-4 py-2 text-center text-xs font-bold text-emerald-700 tracking-wide">
+                            <th colSpan={4} className="border-b border-l-2 border-emerald-200 bg-emerald-50 px-4 py-2 text-center text-xs font-bold text-emerald-700 tracking-wide">
                                 Total Réseau
-                            </th>
-                            <th colSpan={3} className="border-b border-l-2 border-amber-200 bg-amber-50 px-4 py-2 text-center text-xs font-bold text-amber-700 tracking-wide">
-                                Stock actuel
                             </th>
                         </tr>
                         <tr className="border-b-2 border-gray-200">
                             <ColHeader label="Qté" sortable="qte292" k="qte292" />
                             <ColHeader label="CA TTC" sortable="ca292" k="ca292" />
+                            <ColHeader label="Stock" sortable="stock292" k="stock292" />
                             <th className="bg-blue-50/40 px-4 py-2 text-right text-xs font-semibold text-blue-500">% Marge</th>
                             <ColHeader label="Qté" sortable="qte579" k="qte579" />
                             <ColHeader label="CA TTC" sortable="ca579" k="ca579" />
+                            <ColHeader label="Stock" sortable="stock579" k="stock579" />
                             <th className="bg-violet-50/40 px-4 py-2 text-right text-xs font-semibold text-violet-500">% Marge</th>
                             <ColHeader label="Qté" sortable="qteTotal" k="qteTotal" />
                             <ColHeader label="CA TTC" sortable="caTotal" k="caTotal" />
+                            <ColHeader label="Stock" sortable="stockTotal" k="stockTotal" />
                             <th className="bg-emerald-50/40 px-4 py-2 text-right text-xs font-semibold text-emerald-600">% Marge</th>
-                            <ColHeader label="292" sortable="stock292" k="stock292" />
-                            <ColHeader label="579" sortable="stock579" k="stock579" />
-                            <ColHeader label="Total" sortable="stockTotal" k="stockTotal" />
                         </tr>
                     </thead>
                     <tbody>
@@ -221,6 +218,9 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                                 <td className={`px-4 py-2.5 text-right tabular-nums text-gray-800 ${sortKey === "ca292" ? "bg-blue-50/50 font-semibold" : ""}`}>
                                     {row.ca292 > 0 ? formatCA(row.ca292) : <span className="text-gray-300">—</span>}
                                 </td>
+                                <td className={`px-4 py-2.5 text-right tabular-nums text-xs ${sortKey === "stock292" ? "bg-blue-50/50 font-semibold text-blue-700" : "text-amber-600"}`}>
+                                    {row.stock292 > 0 ? formatQte(row.stock292) : <span className="text-gray-300">—</span>}
+                                </td>
                                 <td className="px-4 py-2.5 text-right text-xs tabular-nums text-blue-500">
                                     {row.ca292 > 0 ? formatPct(row.ca292, row.marge292) : ""}
                                 </td>
@@ -229,6 +229,9 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                                 </td>
                                 <td className={`px-4 py-2.5 text-right tabular-nums text-gray-800 ${sortKey === "ca579" ? "bg-violet-50/50 font-semibold" : ""}`}>
                                     {row.ca579 > 0 ? formatCA(row.ca579) : <span className="text-gray-300">—</span>}
+                                </td>
+                                <td className={`px-4 py-2.5 text-right tabular-nums text-xs ${sortKey === "stock579" ? "bg-violet-50/50 font-semibold text-violet-700" : "text-amber-600"}`}>
+                                    {row.stock579 > 0 ? formatQte(row.stock579) : <span className="text-gray-300">—</span>}
                                 </td>
                                 <td className="px-4 py-2.5 text-right text-xs tabular-nums text-violet-500">
                                     {row.ca579 > 0 ? formatPct(row.ca579, row.marge579) : ""}
@@ -239,17 +242,11 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                                 <td className={`px-4 py-2.5 text-right tabular-nums font-semibold text-gray-900 ${sortKey === "caTotal" ? "bg-emerald-50/50" : ""}`}>
                                     {row.caTotal > 0 ? formatCA(row.caTotal) : <span className="text-gray-300">—</span>}
                                 </td>
+                                <td className={`px-4 py-2.5 text-right tabular-nums text-xs font-semibold ${sortKey === "stockTotal" ? "bg-emerald-50/50 text-emerald-700" : row.stockTotal <= 0 ? "text-red-400" : "text-amber-600"}`}>
+                                    {row.stockTotal > 0 ? formatQte(row.stockTotal) : <span className="text-red-400 font-semibold">0</span>}
+                                </td>
                                 <td className="px-4 py-2.5 text-right text-xs tabular-nums text-emerald-600">
                                     {row.caTotal > 0 ? formatPct(row.caTotal, row.margeTotal) : ""}
-                                </td>
-                                <td className={`border-l-2 border-amber-100 px-4 py-2.5 text-right tabular-nums text-gray-700 ${sortKey === "stock292" ? "bg-amber-50/50 font-semibold" : ""}`}>
-                                    {row.stock292 > 0 ? formatQte(row.stock292) : <span className="text-gray-300">—</span>}
-                                </td>
-                                <td className={`px-4 py-2.5 text-right tabular-nums text-gray-700 ${sortKey === "stock579" ? "bg-amber-50/50 font-semibold" : ""}`}>
-                                    {row.stock579 > 0 ? formatQte(row.stock579) : <span className="text-gray-300">—</span>}
-                                </td>
-                                <td className={`px-4 py-2.5 text-right tabular-nums font-semibold ${sortKey === "stockTotal" ? "bg-amber-50/50" : ""} ${row.stockTotal <= 0 ? "text-red-500" : "text-amber-700"}`}>
-                                    {row.stockTotal > 0 ? formatQte(row.stockTotal) : <span className="text-red-400 font-semibold">0</span>}
                                 </td>
                             </tr>
                         ))}
@@ -261,16 +258,16 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                             </td>
                             <td className="border-l-2 border-blue-200 px-4 py-3 text-right font-bold tabular-nums text-gray-900">{formatQte(totals.qte292)}</td>
                             <td className="px-4 py-3 text-right font-bold tabular-nums text-gray-900">{formatCA(totals.ca292)}</td>
+                            <td className="px-4 py-3 text-right text-xs font-bold tabular-nums text-amber-600">{formatQte(totals.stock292)}</td>
                             <td className="px-4 py-3 text-right text-xs tabular-nums text-blue-600">{formatPct(totals.ca292, totals.marge292)}</td>
                             <td className="border-l-2 border-violet-200 px-4 py-3 text-right font-bold tabular-nums text-gray-900">{formatQte(totals.qte579)}</td>
                             <td className="px-4 py-3 text-right font-bold tabular-nums text-gray-900">{formatCA(totals.ca579)}</td>
+                            <td className="px-4 py-3 text-right text-xs font-bold tabular-nums text-amber-600">{formatQte(totals.stock579)}</td>
                             <td className="px-4 py-3 text-right text-xs tabular-nums text-violet-600">{formatPct(totals.ca579, totals.marge579)}</td>
                             <td className="border-l-2 border-emerald-200 px-4 py-3 text-right font-bold tabular-nums text-gray-900">{formatQte(totals.qteTotal)}</td>
                             <td className="px-4 py-3 text-right font-bold tabular-nums text-gray-900">{formatCA(totals.caTotal)}</td>
+                            <td className="px-4 py-3 text-right text-xs font-bold tabular-nums text-amber-600">{formatQte(totals.stockTotal)}</td>
                             <td className="px-4 py-3 text-right text-xs tabular-nums text-emerald-700 font-semibold">{formatPct(totals.caTotal, totals.margeTotal)}</td>
-                            <td className="border-l-2 border-amber-200 px-4 py-3 text-right font-bold tabular-nums text-amber-700">{formatQte(totals.stock292)}</td>
-                            <td className="px-4 py-3 text-right font-bold tabular-nums text-amber-700">{formatQte(totals.stock579)}</td>
-                            <td className="px-4 py-3 text-right font-bold tabular-nums text-amber-700">{formatQte(totals.stockTotal)}</td>
                         </tr>
                     </tfoot>
                 </table>
