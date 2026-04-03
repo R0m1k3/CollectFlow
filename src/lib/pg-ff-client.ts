@@ -735,3 +735,41 @@ export async function pgGetHitParade(dateDebut: string, dateFin: string): Promis
     console.log(`[pg-ff] HitParade: ${result.rows.length} lignes pour ${dateDebut}→${dateFin}`);
     return result.rows as unknown as HitParadeRow[];
 }
+
+// ---------------------------------------------------------------------------
+// Stock par liste de codeins (pour Hit Parade)
+// ---------------------------------------------------------------------------
+
+export interface StockBySite {
+    stock292: number;
+    stock579: number;
+    stockTotal: number;
+}
+
+/**
+ * Retourne le stock actuel (stockdispo) par codein pour une liste de codeins.
+ * 1 seule requête bulk — utilisé pour enrichir le Hit Parade.
+ */
+export async function pgGetStockForCodeins(codeins: string[]): Promise<Map<string, StockBySite>> {
+    if (codeins.length === 0) return new Map();
+
+    const result = await pgNoParallel(sql`
+        SELECT
+            a.codein,
+            cs.site,
+            cs.stockdispo::float AS stockdispo
+        FROM cube_stock cs
+        JOIN articles a ON a.no_id = cs.artnoid
+        WHERE a.codein = ANY(${codeins})
+    `);
+
+    const map = new Map<string, StockBySite>();
+    for (const r of result.rows as Array<{ codein: string; site: string; stockdispo: number }>) {
+        if (!map.has(r.codein)) map.set(r.codein, { stock292: 0, stock579: 0, stockTotal: 0 });
+        const entry = map.get(r.codein)!;
+        if (r.site === "292") entry.stock292 += r.stockdispo;
+        else if (r.site === "579") entry.stock579 += r.stockdispo;
+        entry.stockTotal += r.stockdispo;
+    }
+    return map;
+}

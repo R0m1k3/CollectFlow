@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useMemo } from "react";
 import type { HitParadePivotRow } from "./page";
 
-type SortKey = "caTotal" | "ca292" | "ca579" | "qteTotal" | "qte292" | "qte579";
+type SortKey = "caTotal" | "ca292" | "ca579" | "qteTotal" | "qte292" | "qte579" | "stockTotal" | "stock292" | "stock579";
 type SortDir = "desc" | "asc";
 
 const DEFAULT_SORT: SortKey = "caTotal";
@@ -82,8 +82,9 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
             qte292: acc.qte292 + r.qte292, ca292: acc.ca292 + r.ca292, marge292: acc.marge292 + r.marge292,
             qte579: acc.qte579 + r.qte579, ca579: acc.ca579 + r.ca579, marge579: acc.marge579 + r.marge579,
             qteTotal: acc.qteTotal + r.qteTotal, caTotal: acc.caTotal + r.caTotal, margeTotal: acc.margeTotal + r.margeTotal,
+            stock292: acc.stock292 + r.stock292, stock579: acc.stock579 + r.stock579, stockTotal: acc.stockTotal + r.stockTotal,
         }),
-        { qte292: 0, ca292: 0, marge292: 0, qte579: 0, ca579: 0, marge579: 0, qteTotal: 0, caTotal: 0, margeTotal: 0 }
+        { qte292: 0, ca292: 0, marge292: 0, qte579: 0, ca579: 0, marge579: 0, qteTotal: 0, caTotal: 0, margeTotal: 0, stock292: 0, stock579: 0, stockTotal: 0 }
     ), [sorted]);
 
     function ColHeader({ label, sortable, k }: { label: string; sortable?: SortKey; k: string }) {
@@ -189,6 +190,9 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                             <th colSpan={3} className="border-b border-l-2 border-emerald-200 bg-emerald-50 px-4 py-2 text-center text-xs font-bold text-emerald-700 tracking-wide">
                                 Total Réseau
                             </th>
+                            <th colSpan={3} className="border-b border-l-2 border-amber-200 bg-amber-50 px-4 py-2 text-center text-xs font-bold text-amber-700 tracking-wide">
+                                Stock actuel
+                            </th>
                         </tr>
                         <tr className="border-b-2 border-gray-200">
                             <ColHeader label="Qté" sortable="qte292" k="qte292" />
@@ -200,6 +204,9 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                             <ColHeader label="Qté" sortable="qteTotal" k="qteTotal" />
                             <ColHeader label="CA TTC" sortable="caTotal" k="caTotal" />
                             <th className="bg-emerald-50/40 px-4 py-2 text-right text-xs font-semibold text-emerald-600">% Marge</th>
+                            <ColHeader label="292" sortable="stock292" k="stock292" />
+                            <ColHeader label="579" sortable="stock579" k="stock579" />
+                            <ColHeader label="Total" sortable="stockTotal" k="stockTotal" />
                         </tr>
                     </thead>
                     <tbody>
@@ -235,6 +242,15 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                                 <td className="px-4 py-2.5 text-right text-xs tabular-nums text-emerald-600">
                                     {row.caTotal > 0 ? formatPct(row.caTotal, row.margeTotal) : ""}
                                 </td>
+                                <td className={`border-l-2 border-amber-100 px-4 py-2.5 text-right tabular-nums text-gray-700 ${sortKey === "stock292" ? "bg-amber-50/50 font-semibold" : ""}`}>
+                                    {row.stock292 > 0 ? formatQte(row.stock292) : <span className="text-gray-300">—</span>}
+                                </td>
+                                <td className={`px-4 py-2.5 text-right tabular-nums text-gray-700 ${sortKey === "stock579" ? "bg-amber-50/50 font-semibold" : ""}`}>
+                                    {row.stock579 > 0 ? formatQte(row.stock579) : <span className="text-gray-300">—</span>}
+                                </td>
+                                <td className={`px-4 py-2.5 text-right tabular-nums font-semibold ${sortKey === "stockTotal" ? "bg-amber-50/50" : ""} ${row.stockTotal <= 0 ? "text-red-500" : "text-amber-700"}`}>
+                                    {row.stockTotal > 0 ? formatQte(row.stockTotal) : <span className="text-red-400 font-semibold">0</span>}
+                                </td>
                             </tr>
                         ))}
                     </tbody>
@@ -252,6 +268,9 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                             <td className="border-l-2 border-emerald-200 px-4 py-3 text-right font-bold tabular-nums text-gray-900">{formatQte(totals.qteTotal)}</td>
                             <td className="px-4 py-3 text-right font-bold tabular-nums text-gray-900">{formatCA(totals.caTotal)}</td>
                             <td className="px-4 py-3 text-right text-xs tabular-nums text-emerald-700 font-semibold">{formatPct(totals.caTotal, totals.margeTotal)}</td>
+                            <td className="border-l-2 border-amber-200 px-4 py-3 text-right font-bold tabular-nums text-amber-700">{formatQte(totals.stock292)}</td>
+                            <td className="px-4 py-3 text-right font-bold tabular-nums text-amber-700">{formatQte(totals.stock579)}</td>
+                            <td className="px-4 py-3 text-right font-bold tabular-nums text-amber-700">{formatQte(totals.stockTotal)}</td>
                         </tr>
                     </tfoot>
                 </table>
