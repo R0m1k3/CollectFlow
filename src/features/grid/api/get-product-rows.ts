@@ -16,42 +16,16 @@ import {
 import { db } from "@/db";
 import { sessionSnapshots } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
-import { unstable_cache } from "next/cache";
 
-// ─── Interfaces ───────────────────────────────────────────────────────────────
-export interface GetProductRowsInput {
+interface GetProductRowsInput {
     codeFournisseur: string;
     magasin?: string;
     filters?: Partial<GridFilters>;
-    page?: number;
-    pageSize?: number;
-    offset?: number;
-    search?: string;
-    gamme?: string | null;
-    code3?: string | null;
 }
 
-export interface GetProductRowsResult {
-    rows: ProductRow[];
-    total: number;
-    page: number;
-    pageSize: number;
-    totalPages: number;
-}
-
-// Fonction utilitaire cachée pour mémoiser le chargement par fournisseur
-const getCachedSupplierRows = (codeFournisseur: string) => {
-    return unstable_cache(
-        async () => _fetchAllProductRows(codeFournisseur),
-        [`grid-rows-${codeFournisseur}`],
-        { revalidate: 300, tags: [`grid-rows-${codeFournisseur}`] }
-    )();
-};
-
-// ─── Fonction interne : fetch complet non-paginé (cachée) ───────────────────
-async function _fetchAllProductRows(codeFournisseur: string): Promise<ProductRow[]> {
-    const magasin = "TOTAL"; // Le cache est toujours TOTAL ; le switch magasin est client-side
-    console.log(`\n>>> [_fetchAllProductRows] (NO CACHE) supplier: ${codeFournisseur}, magasin: ${magasin}`);
+export async function getProductRows(input: GetProductRowsInput): Promise<ProductRow[]> {
+    const { codeFournisseur, magasin = "TOTAL" } = input;
+    console.log(`\n>>> [getProductRows] supplier: ${codeFournisseur}, magasin: ${magasin}`);
 
     try {
         const { dateDebut, dateFin } = buildLast12MonthsRange();
@@ -318,79 +292,14 @@ async function _fetchAllProductRows(codeFournisseur: string): Promise<ProductRow
 
         // ─── Phase 10 : Filtrer gamme Y sans ventes + compute scores ─────────
         const allRows = Array.from(productMap.values());
-        const rows = allRows.filter(p => p.codeGamme?.trim().toUpperCase() !== "Y" || p.totalQuantite > 0);
+        const rows = allRows.filter(p => p.codeGamme !== "Y" || p.totalQuantite > 0);
         const excludedY = allRows.length - rows.length;
         console.log(`[getProductRows] ${rows.length} produits (${excludedY} gamme Y sans ventes exclus), ${mensuelByCodein.size} avec ventes`);
 
         return computeProductScores(rows);
 
     } catch (error) {
-        console.error(`[_fetchAllProductRows] Error for ${codeFournisseur}:`, error);
+        console.error(`[getProductRows] Error for ${codeFournisseur}:`, error);
         return [];
     }
-}
-
-// ─── Fonction publique ─────────────
-/**
- * Point d'entrée unique pour la grille.
- * - Retourne les lignes paginées pour préserver le client.
- */
-export async function getProductRows(input: GetProductRowsInput): Promise<GetProductRowsResult> {
-    const {
-        codeFournisseur,
-        page,
-        pageSize = 200,
-        offset,
-        search,
-        gamme,
-        code3,
-    } = input;
-
-    // Récupérer toutes les lignes mises en cache pour éviter les 650 requêtes SQL
-    const allRows = await getCachedSupplierRows(codeFournisseur);
-
-    let filtered = allRows;
-
-    if (search && search.trim() !== "") {
-        const q = search.trim().toLowerCase();
-        filtered = filtered.filter(r =>
-            (r.libelle1 ?? "").toLowerCase().includes(q) ||
-            (r.codein ?? "").toLowerCase().includes(q) ||
-            (r.reference ?? "").toLowerCase().includes(q) ||
-            (r.gtin ?? "").toLowerCase().includes(q)
-        );
-    }
-
-    if (gamme !== undefined && gamme !== null && gamme !== "") {
-        filtered = filtered.filter(r => {
-            const g = r.codeGamme ?? "";
-            const norm = g.trim() === "" ? "Aucune" : g;
-            return norm === gamme;
-        });
-    }
-
-    if (code3) {
-        filtered = filtered.filter(r => r.code3 === code3);
-    }
-
-    const total = filtered.length;
-
-    if (page === undefined) {
-        return { rows: filtered, total, page: 0, pageSize: total, totalPages: 1 };
-    }
-
-    const safePageSize = Math.max(1, Math.min(pageSize, 20000));
-    const totalPages = Math.ceil(total / safePageSize);
-    const safePage = Math.max(0, Math.min(page ?? 0, Math.max(0, totalPages - 1)));
-    
-    // Priorité à l'offset s'il est fourni (pour la pagination côté client qui ne respecte pas les blocs de 10k au départ)
-    const startIdx = offset !== undefined ? offset : safePage * safePageSize;
-    
-    if (startIdx >= total) {
-        return { rows: [], total, page: safePage, pageSize: safePageSize, totalPages };
-    }
-    
-    const rows = filtered.slice(startIdx, startIdx + safePageSize);
-
-    return { rows, total, page: safePage, pageSize: safePageSize, totalPages };
 }
