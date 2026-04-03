@@ -760,7 +760,7 @@ export async function pgGetStockForCodeins(codeins: string[]): Promise<Map<strin
             cs.stockdispo::float AS stockdispo
         FROM cube_stock cs
         JOIN articles a ON a.no_id = cs.artnoid
-        WHERE a.codein = ANY(${codeins})
+        WHERE a.codein = ANY(${codeins}::text[])
     `);
 
     const map = new Map<string, StockBySite>();
