@@ -13,7 +13,7 @@ import {
     RowSelectionState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, Warehouse } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, Warehouse, AlertTriangle } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -430,33 +430,45 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
             accessorKey: "libelle1",
             header: "Désignation",
             size: 280,
-            cell: ({ row }) => (
-                <div className="flex items-center gap-2 overflow-hidden w-full pr-1">
-                    <span className="text-[13px] font-bold truncate flex-1" title={row.original.libelle1} style={{ color: "var(--text-primary)" }}>
-                        {row.original.libelle1}
-                    </span>
-                    <div className="flex gap-1.5 shrink-0">
-                        {row.original.workingStores.map((magasin) => {
-                            const config = getStoreConfig(magasin);
-                            return (
-                                <div
-                                    key={magasin}
-                                    title={`Travaillé par : ${SITE_LABELS[magasin]?.nom ?? magasin}`}
-                                    className="px-1.5 py-0.5 rounded-md flex items-center gap-1 text-[10px] font-black border shadow-sm transition-transform hover:scale-110"
-                                    style={{
-                                        background: config.bg,
-                                        borderColor: config.border,
-                                        color: config.text,
-                                    }}
-                                >
-                                    <Store className="w-2.5 h-2.5" strokeWidth={3} />
-                                    <span>{config.label}</span>
-                                </div>
-                            );
-                        })}
+            cell: ({ row }) => {
+                const r = row.original;
+                const isDifferentSupplier = r.fournisseurPrincipalCode && r.fournisseurPrincipalCode !== r.codeFournisseur;
+                const warnTitle = isDifferentSupplier
+                    ? `Dernier fournisseur enregistré : ${r.fournisseurPrincipalNom ?? r.fournisseurPrincipalCode} (${r.fournisseurPrincipalCode}) — les ventes sont à attribuer à ce fournisseur`
+                    : undefined;
+                return (
+                    <div className="flex items-center gap-2 overflow-hidden w-full pr-1">
+                        {isDifferentSupplier && (
+                            <span title={warnTitle} className="shrink-0 flex items-center">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                            </span>
+                        )}
+                        <span className="text-[13px] font-bold truncate flex-1" title={r.libelle1} style={{ color: "var(--text-primary)" }}>
+                            {r.libelle1}
+                        </span>
+                        <div className="flex gap-1.5 shrink-0">
+                            {r.workingStores.map((magasin) => {
+                                const config = getStoreConfig(magasin);
+                                return (
+                                    <div
+                                        key={magasin}
+                                        title={`Travaillé par : ${SITE_LABELS[magasin]?.nom ?? magasin}`}
+                                        className="px-1.5 py-0.5 rounded-md flex items-center gap-1 text-[10px] font-black border shadow-sm transition-transform hover:scale-110"
+                                        style={{
+                                            background: config.bg,
+                                            borderColor: config.border,
+                                            color: config.text,
+                                        }}
+                                    >
+                                        <Store className="w-2.5 h-2.5" strokeWidth={3} />
+                                        <span>{config.label}</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
-                </div>
-            ),
+                );
+            },
         },
         {
             accessorKey: "libelle3",

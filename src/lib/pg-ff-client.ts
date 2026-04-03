@@ -42,9 +42,11 @@ export interface PgArticle {
     pcb?: number;
     reference?: string;
     ean13?: string;
-    gtin?: string;          // art_gtin.gtin (préférentiel)
-    pv_central?: number;    // article_infosup.prix_vente_mini
-    pa?: number;            // cube_pa.pa
+    gtin?: string;              // art_gtin.gtin (préférentiel)
+    pv_central?: number;        // article_infosup.prix_vente_mini
+    pa?: number;                // cube_pa.pa
+    codefou_principal?: string; // artfou1.code où preference=1
+    nomfou_principal?: string;  // nom du fournisseur principal
 }
 
 export interface PgMensuelRow {
@@ -117,6 +119,7 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
     // Pas de filtre "actif" : on retourne tous les articles pour ne pas exclure les articles
     // d'une session précédente (snapshot) qui n'ont pas de gamme DB ni de ventes récentes.
     // Le filtrage gamme-Y sans ventes est fait en aval dans getProductRows (Phase 10).
+    // afpref : fournisseur préférentiel (preference=1) de l'article — peut différer du fournisseur consulté.
     const result = await pgNoParallel(sql`
         SELECT DISTINCT ON (a.no_id)
             a.no_id,
@@ -129,13 +132,23 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
             af.ean13,
             COALESCE(ag.gtin, af.ean13) AS gtin,
             ai.prix_vente_mini          AS pv_central,
-            pa.pa
+            pa.pa,
+            last_fournisseur.codefou_dernier AS codefou_principal,
+            last_fournisseur.nomfou_dernier  AS nomfou_principal
         FROM artfou1 af
         JOIN articles a ON a.no_id = af.art_no_id
         LEFT JOIN fouident fi ON fi.code = af.code
         LEFT JOIN article_infosup ai ON ai.artnoid = a.no_id
         LEFT JOIN cube_pa pa ON pa.artnoid = a.no_id
         LEFT JOIN art_gtin ag ON ag.idarticle = a.no_id AND ag.preferentiel = 1
+        LEFT JOIN LATERAL (
+            SELECT af2.code AS codefou_dernier, fi2.nom AS nomfou_dernier
+            FROM artfou1 af2
+            LEFT JOIN fouident fi2 ON fi2.code = af2.code
+            WHERE af2.art_no_id = a.no_id
+            ORDER BY af2.no_id DESC
+            LIMIT 1
+        ) last_fournisseur ON true
         WHERE af.code = ${codefou}
           AND a.codein IS NOT NULL
         ORDER BY a.no_id, af.no_id

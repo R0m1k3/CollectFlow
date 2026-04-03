@@ -70,6 +70,8 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
                 codein: art.codein,
                 codeFournisseur: art.codefou ?? codeFournisseur,
                 nomFournisseur: art.nomfou ?? "",
+                fournisseurPrincipalCode: art.codefou_principal ?? undefined,
+                fournisseurPrincipalNom: art.nomfou_principal ?? undefined,
                 libelle1: art.libelle1 ?? "",
                 gtin: art.gtin ?? "",
                 reference: art.reference ?? "",
