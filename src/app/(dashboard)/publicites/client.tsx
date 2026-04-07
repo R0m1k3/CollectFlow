@@ -10,12 +10,12 @@ function fmtDate(iso: string) {
     return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
-function fmtCA(v: number) {
-    return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(v);
+function fmtCA(v: number | string) {
+    return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(Number(v));
 }
 
-function fmtPct(v: number) {
-    return v.toFixed(2).replace(".", ",") + " %";
+function fmtPct(v: number | string) {
+    return Number(v).toFixed(2).replace(".", ",") + " %";
 }
 
 interface Props {
@@ -97,9 +97,9 @@ export function PublicitesClient({ year, publicites }: Props) {
                                     </td>
                                     <td className="bg-orange-50/60 px-3 py-2.5 text-right tabular-nums">
                                         <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${
-                                            pub.pourc_capub_catotal >= 20
+                                            Number(pub.pourc_capub_catotal) >= 20
                                                 ? "bg-orange-100 text-orange-700"
-                                                : pub.pourc_capub_catotal >= 10
+                                                : Number(pub.pourc_capub_catotal) >= 10
                                                 ? "bg-amber-100 text-amber-700"
                                                 : "bg-gray-100 text-gray-600"
                                         }`}>
@@ -107,13 +107,13 @@ export function PublicitesClient({ year, publicites }: Props) {
                                         </span>
                                     </td>
                                     <td className="px-3 py-2.5 text-right tabular-nums text-gray-700 text-xs">
-                                        {pub.qte_vendue_pub.toLocaleString("fr-FR")}
+                                        {Number(pub.qte_vendue_pub).toLocaleString("fr-FR")}
                                     </td>
                                     <td className="px-3 py-2.5 text-right tabular-nums text-gray-700 text-xs">
-                                        {pub.client_pub_periode.toLocaleString("fr-FR")}
+                                        {Number(pub.client_pub_periode).toLocaleString("fr-FR")}
                                     </td>
                                     <td className="px-3 py-2.5 text-right tabular-nums text-gray-700 text-xs">
-                                        {pub.taux_sortie.toFixed(1).replace(".", ",")} %
+                                        {Number(pub.taux_sortie).toFixed(1).replace(".", ",")} %
                                     </td>
                                     <td className="px-3 py-2.5 text-right tabular-nums text-gray-500 text-xs">
                                         {pub.nb_articles}
@@ -127,13 +127,13 @@ export function PublicitesClient({ year, publicites }: Props) {
                                     TOTAL — {publicites.length} publicités
                                 </td>
                                 <td className="bg-orange-100 px-3 py-3 text-right font-bold tabular-nums text-gray-900">
-                                    {fmtCA(publicites.reduce((s, p) => s + p.ca_pub_periode_pub, 0))}
+                                    {fmtCA(publicites.reduce((s, p) => s + Number(p.ca_pub_periode_pub), 0))}
                                 </td>
                                 <td className="bg-orange-100 px-3 py-3 text-right tabular-nums text-xs font-semibold text-orange-700">
                                     —
                                 </td>
                                 <td className="px-3 py-3 text-right font-bold tabular-nums text-gray-700 text-xs">
-                                    {publicites.reduce((s, p) => s + p.qte_vendue_pub, 0).toLocaleString("fr-FR")}
+                                    {publicites.reduce((s, p) => s + Number(p.qte_vendue_pub), 0).toLocaleString("fr-FR")}
                                 </td>
                                 <td colSpan={3} />
                             </tr>
