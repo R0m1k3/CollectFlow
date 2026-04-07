@@ -134,8 +134,9 @@ function TabStockNegatif({ rows, magasin }: { rows: PgStockNegatifRow[]; magasin
 
 function TabEntreesSansVente({ rows, magasin }: { rows: PgStockSansVenteRow[]; magasin: string }) {
     type SK = keyof PgStockSansVenteRow;
+    const filteredRows = useMemo(() => rows.filter(r => r.stock_actuel !== 0), [rows]);
     const { sorted, sortKey, sortDir, handleSort } = useSortedRows<PgStockSansVenteRow>(
-        rows.length ? rows : [] as PgStockSansVenteRow[],
+        filteredRows,
         ["stock_actuel"]
     );
 
@@ -288,7 +289,7 @@ export function GestionStockClient({ rowsNegatif, rowsSansVente, magasin, tab, s
                                 "ml-2 rounded-full px-2 py-0.5 text-xs font-semibold",
                                 activeTab === t.key ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500",
                             ].join(" ")}>
-                                {t.key === "negatif" ? rowsNegatif.length : rowsSansVente.length}
+                                {t.key === "negatif" ? rowsNegatif.length : rowsSansVente.filter(r => r.stock_actuel !== 0).length}
                             </span>
                         </button>
                     ))}
