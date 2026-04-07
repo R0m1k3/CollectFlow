@@ -846,6 +846,50 @@ export interface PgStockNegatifRow {
  * Retourne tous les articles avec un stock disponible négatif.
  * Si `site` est fourni, filtre sur ce magasin uniquement.
  */
+export interface PgStockSansVenteRow {
+    codein: string;
+    libelle1: string;
+    fournisseur: string;
+    site: string;
+    stock_actuel: number;
+    derniere_entree: string | null;
+}
+
+/**
+ * Retourne les articles ayant des entrées en stock (hors mois courant)
+ * mais aucune vente enregistrée sur ce site.
+ */
+export async function pgGetStockSansVente(site?: string): Promise<PgStockSansVenteRow[]> {
+    const siteFilter = site ? sql`AND m.site = ${site}` : sql``;
+    const result = await pgNoParallel(sql`
+        SELECT
+            a.codein,
+            COALESCE(a.libelle1, '') AS libelle1,
+            COALESCE(f.nom, af.code) AS fournisseur,
+            m.site,
+            COALESCE(cs.qte::float, 0) AS stock_actuel,
+            MAX(m.datmvt)::text AS derniere_entree
+        FROM mvtart m
+        JOIN articles a ON a.no_id = m.artnoid
+        JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
+        JOIN fouident f ON f.code = af.code
+        LEFT JOIN cube_stock cs ON cs.artnoid = a.no_id AND cs.site = m.site
+        WHERE m.genremvt IN (1, 2)
+          AND m.site IN ('292', '579')
+          AND date_trunc('month', m.datmvt) < date_trunc('month', CURRENT_DATE)
+          ${siteFilter}
+          AND NOT EXISTS (
+              SELECT 1 FROM mvtart mv2
+              WHERE mv2.artnoid = m.artnoid
+                AND mv2.site = m.site
+                AND mv2.genremvt = 3
+          )
+        GROUP BY a.codein, a.libelle1, f.nom, af.code, m.site, cs.qte
+        ORDER BY MAX(m.datmvt) DESC
+    `);
+    return result.rows as PgStockSansVenteRow[];
+}
+
 export async function pgGetStockNegatif(site?: string): Promise<PgStockNegatifRow[]> {
     const siteFilter = site ? sql`AND cs.site = ${site}` : sql``;
     const result = await pgNoParallel(sql`
