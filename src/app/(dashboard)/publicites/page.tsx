@@ -18,14 +18,19 @@ export interface Publicite {
     nb_articles: number;
 }
 
-async function fetchPublicites(year: number): Promise<Publicite[]> {
+async function fetchPublicites(year: number): Promise<{ data: Publicite[]; error?: string }> {
     const dateDebut = `${year}-01-01`;
     const dateFin = `${year}-12-31`;
     const url = `https://api.ffnancy.fr/api/publicites?dateDebut=${dateDebut}&dateFin=${dateFin}&limit=500`;
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) throw new Error(`Erreur API publicités: ${res.status}`);
-    const data = await res.json();
-    return (data.publicites ?? []) as Publicite[];
+    try {
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) return { data: [], error: `Erreur API: ${res.status} ${res.statusText}` };
+        const json = await res.json();
+        return { data: (json.publicites ?? []) as Publicite[] };
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return { data: [], error: `Impossible de joindre l'API: ${msg}` };
+    }
 }
 
 export default async function PublicitesPage(props: {
@@ -35,12 +40,17 @@ export default async function PublicitesPage(props: {
     const currentYear = new Date().getFullYear();
     const year = Number(searchParams.year) || currentYear;
 
-    const publicites = await fetchPublicites(year);
+    const { data: publicites, error } = await fetchPublicites(year);
 
     return (
         <div className="min-h-screen bg-gray-50 p-6">
             <div className="mx-auto max-w-screen-xl">
                 <h1 className="mb-6 text-3xl font-bold text-gray-900">Publicités</h1>
+                {error && (
+                    <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
+                        {error}
+                    </div>
+                )}
                 <PublicitesClient year={year} publicites={publicites} />
             </div>
         </div>
