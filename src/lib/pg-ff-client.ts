@@ -840,6 +840,7 @@ export interface PgStockNegatifRow {
     site: string;
     stockdispo: number;
     dernierevente: string | null;
+    derniereentree: string | null;
 }
 
 /**
@@ -899,7 +900,14 @@ export async function pgGetStockNegatif(site?: string): Promise<PgStockNegatifRo
             COALESCE(f.nom, af.code) AS fournisseur,
             cs.site,
             cs.qte::float AS stockdispo,
-            cs.dernierevente::text
+            cs.dernierevente::text,
+            (
+                SELECT MAX(m.datmvt)::text
+                FROM mvtart m
+                WHERE m.artnoid = cs.artnoid
+                  AND m.site = cs.site
+                  AND m.genremvt IN (1, 2)
+            ) AS derniereentree
         FROM cube_stock cs
         JOIN articles a ON a.no_id = cs.artnoid
         JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1

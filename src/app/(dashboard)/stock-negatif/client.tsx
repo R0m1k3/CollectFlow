@@ -66,15 +66,15 @@ function TabStockNegatif({ rows, magasin }: { rows: PgStockNegatifRow[]; magasin
         const ExcelJS = (await import("exceljs")).default;
         const wb = new ExcelJS.Workbook();
         const ws = wb.addWorksheet("Stock Négatif");
-        ws.addRow(["Code article", "Libellé", "Fournisseur", "Stock négatif"]);
+        ws.addRow(["Code article", "Libellé", "Fournisseur", "Magasin", "Stock négatif", "Dernière vente", "Dernière entrée en stock"]);
         ws.getRow(1).eachCell(cell => {
             cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
             cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
             cell.alignment = { vertical: "middle", horizontal: "center" };
         });
         ws.getRow(1).height = 22;
-        for (const r of sorted) ws.addRow([r.codein, r.libelle1, r.fournisseur, r.stockdispo]);
-        ws.columns = [{ width: 16 }, { width: 40 }, { width: 30 }, { width: 14 }];
+        for (const r of sorted) ws.addRow([r.codein, r.libelle1, r.fournisseur, r.site, r.stockdispo, fmtDate(r.dernierevente), fmtDate(r.derniereentree)]);
+        ws.columns = [{ width: 16 }, { width: 40 }, { width: 30 }, { width: 10 }, { width: 14 }, { width: 16 }, { width: 22 }];
         const buffer = await wb.xlsx.writeBuffer();
         const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
         const url = URL.createObjectURL(blob);
@@ -103,11 +103,12 @@ function TabStockNegatif({ rows, magasin }: { rows: PgStockNegatifRow[]; magasin
                             {th("site", "Magasin")}
                             {th("stockdispo", "Stock")}
                             {th("dernierevente", "Dernière vente")}
+                            {th("derniereentree", "Dernière entrée")}
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                         {sorted.length === 0 && (
-                            <tr><td colSpan={6} className="px-3 py-8 text-center text-gray-400">Aucun article en stock négatif</td></tr>
+                            <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400">Aucun article en stock négatif</td></tr>
                         )}
                         {sorted.map((row, i) => (
                             <tr key={`${row.codein}-${row.site}-${i}`} className="hover:bg-gray-50 transition-colors">
@@ -119,6 +120,7 @@ function TabStockNegatif({ rows, magasin }: { rows: PgStockNegatifRow[]; magasin
                                 </td>
                                 <td className="px-3 py-2 font-semibold text-red-600">{row.stockdispo}</td>
                                 <td className="px-3 py-2 text-gray-600 text-xs">{fmtDate(row.dernierevente)}</td>
+                                <td className="px-3 py-2 text-gray-600 text-xs">{fmtDate(row.derniereentree)}</td>
                             </tr>
                         ))}
                     </tbody>
