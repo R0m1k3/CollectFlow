@@ -244,9 +244,9 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                                 <td className="bg-white px-4 py-2.5 font-mono text-xs text-gray-400 text-center">{row.codein}</td>
                                 <td className="bg-white px-4 py-2.5 text-gray-900 font-medium max-w-[260px] truncate" title={row.libelle.trim()}>{row.libelle.trim()}</td>
                                 <td className="bg-white px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap text-center">{row.fournisseur}</td>
-                                <td className="bg-white px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">
+                                <td className="bg-white px-4 py-2.5 text-xs text-center whitespace-nowrap" title={row.nomenclature_code ? `${row.nomenclature_code} — ${row.nomenclature}` : ""}>
                                     {row.nomenclature_code
-                                        ? <><span className="font-mono font-semibold text-gray-700">{row.nomenclature_code}</span><span className="ml-1.5 text-gray-400">— {row.nomenclature}</span></>
+                                        ? <span className="font-mono font-semibold text-gray-700">{row.nomenclature_code}</span>
                                         : <span className="text-gray-300">—</span>
                                     }
                                 </td>
