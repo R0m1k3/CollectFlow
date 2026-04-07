@@ -5,6 +5,7 @@ export interface HitParadePivotRow {
     codein: string;
     libelle: string;
     fournisseur: string;
+    nomenclature_code: string;
     nomenclature: string;
     qte292: number;
     ca292: number;
@@ -29,6 +30,7 @@ function pivotHitParade(rows: HitParadeRow[]): HitParadePivotRow[] {
                 codein: row.codein,
                 libelle: row.libelle,
                 fournisseur: row.fournisseur,
+                nomenclature_code: row.nomenclature_code,
                 nomenclature: row.nomenclature,
                 qte292: 0, ca292: 0, marge292: 0,
                 qte579: 0, ca579: 0, marge579: 0,

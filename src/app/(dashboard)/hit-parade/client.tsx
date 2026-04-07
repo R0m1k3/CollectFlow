@@ -44,8 +44,10 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
     }, [pivotted]);
 
     const nomenclatures = useMemo(() => {
-        const set = new Set(pivotted.map(r => r.nomenclature));
-        return ["Tous", ...Array.from(set).sort((a, b) => a.localeCompare(b, "fr"))];
+        const map = new Map<string, string>(); // code → libelle
+        for (const r of pivotted) map.set(r.nomenclature_code, r.nomenclature);
+        const entries = Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0], "fr"));
+        return [{ code: "Tous", libelle: "Tous" }, ...entries.map(([code, libelle]) => ({ code, libelle }))];
     }, [pivotted]);
 
     function handleSort(key: SortKey) {
@@ -73,7 +75,7 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
     const filtered = useMemo(() =>
         pivotted.filter(r =>
             (filterFournisseur === "Tous" || r.fournisseur === filterFournisseur) &&
-            (filterNomenclature === "Tous" || r.nomenclature === filterNomenclature)
+            (filterNomenclature === "Tous" || r.nomenclature_code === filterNomenclature)
         ),
         [pivotted, filterFournisseur, filterNomenclature]
     );
@@ -179,7 +181,9 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                         className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-w-[200px]"
                     >
                         {nomenclatures.map(n => (
-                            <option key={n} value={n}>{n}</option>
+                            <option key={n.code} value={n.code}>
+                                {n.code === "Tous" ? "Tous" : `${n.code} — ${n.libelle}`}
+                            </option>
                         ))}
                     </select>
                 </div>
@@ -240,7 +244,12 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                                 <td className="bg-white px-4 py-2.5 font-mono text-xs text-gray-400 text-center">{row.codein}</td>
                                 <td className="bg-white px-4 py-2.5 text-gray-900 font-medium max-w-[260px] truncate" title={row.libelle.trim()}>{row.libelle.trim()}</td>
                                 <td className="bg-white px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap text-center">{row.fournisseur}</td>
-                                <td className="bg-white px-4 py-2.5 text-xs text-gray-500 max-w-[180px] truncate" title={row.nomenclature}>{row.nomenclature}</td>
+                                <td className="bg-white px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">
+                                    {row.nomenclature_code
+                                        ? <><span className="font-mono font-semibold text-gray-700">{row.nomenclature_code}</span><span className="ml-1.5 text-gray-400">— {row.nomenclature}</span></>
+                                        : <span className="text-gray-300">—</span>
+                                    }
+                                </td>
                                 <td className={`border-l-2 border-blue-200 px-4 py-2.5 text-center tabular-nums text-gray-700 ${sortKey === "qte292" ? "bg-blue-100 font-semibold" : "bg-blue-50/60"}`}>
                                     {row.qte292 > 0 ? formatQte(row.qte292) : <span className="text-gray-300">—</span>}
                                 </td>

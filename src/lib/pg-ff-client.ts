@@ -717,6 +717,7 @@ export interface HitParadeRow {
     codein: string;
     libelle: string;
     fournisseur: string;
+    nomenclature_code: string;
     nomenclature: string;
     site: string;
     qte_vendue: number;
@@ -739,6 +740,7 @@ export async function pgGetHitParade(dateDebut: string, dateFin: string): Promis
                 a.codein::text                                                  AS codein,
                 a.libelle1::text                                                AS libelle,
                 COALESCE(fi.nom, af.code, 'Sans fournisseur')::text             AS fournisseur,
+                COALESCE(n.code, '')::text                                      AS nomenclature_code,
                 COALESCE(n.libelle, 'Sans nomenclature')::text                  AS nomenclature,
                 m.site,
                 SUM(ABS(m.qtemvt))::float                                      AS qte_vendue,
@@ -752,7 +754,7 @@ export async function pgGetHitParade(dateDebut: string, dateFin: string): Promis
             WHERE m.datmvt BETWEEN ${dateDebut}::date AND ${dateFin}::date
               AND m.site IN ('292', '579')
               AND m.genremvt = 3
-            GROUP BY a.no_id, a.codein, a.libelle1, fi.nom, af.code, n.libelle, m.site
+            GROUP BY a.no_id, a.codein, a.libelle1, fi.nom, af.code, n.code, n.libelle, m.site
         ),
         stock_agg AS (
             SELECT
@@ -768,6 +770,7 @@ export async function pgGetHitParade(dateDebut: string, dateFin: string): Promis
             v.codein,
             v.libelle,
             v.fournisseur,
+            v.nomenclature_code,
             v.nomenclature,
             v.site,
             v.qte_vendue,
