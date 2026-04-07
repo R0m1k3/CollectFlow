@@ -828,3 +828,41 @@ export async function pgGetStockForCodeins(codeins: string[]): Promise<Map<strin
     }
     return map;
 }
+
+// ---------------------------------------------------------------------------
+// Stock négatif — tous magasins ou par site
+// ---------------------------------------------------------------------------
+
+export interface PgStockNegatifRow {
+    codein: string;
+    libelle1: string;
+    fournisseur: string;
+    site: string;
+    stockdispo: number;
+    dernierevente: string | null;
+}
+
+/**
+ * Retourne tous les articles avec un stock disponible négatif.
+ * Si `site` est fourni, filtre sur ce magasin uniquement.
+ */
+export async function pgGetStockNegatif(site?: string): Promise<PgStockNegatifRow[]> {
+    const siteFilter = site ? sql`AND cs.site = ${site}` : sql``;
+    const result = await pgNoParallel(sql`
+        SELECT
+            a.codein,
+            COALESCE(a.libelle1, '') AS libelle1,
+            COALESCE(f.nom, af.code) AS fournisseur,
+            cs.site,
+            cs.stockdispo::float,
+            cs.dernierevente::text
+        FROM cube_stock cs
+        JOIN articles a ON a.no_id = cs.artnoid
+        JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
+        JOIN fouident f ON f.code = af.code
+        WHERE cs.stockdispo < 0
+        ${siteFilter}
+        ORDER BY cs.stockdispo ASC
+    `);
+    return result.rows as PgStockNegatifRow[];
+}

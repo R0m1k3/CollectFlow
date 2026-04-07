@@ -30,7 +30,8 @@
       "Bash(curl -s \"https://collect.ffnancy.fr/api/diag-mvtart\")",
       "Read(//c/Users/Michael/VSCODE/CollectFlow/**)",
       "Bash(xargs wc:*)",
-      "Bash(ls /c/Users/Michael/VSCODE/CollectFlow/.next/static/chunks/*.css)"
+      "Bash(ls /c/Users/Michael/VSCODE/CollectFlow/.next/static/chunks/*.css)",
+      "Bash(find /c/Users/Michael/VSCODE/CollectFlow/src/app/api -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" \\\\\\) -exec ls -lh {} \\\\;)"
     ]
   }
 }
