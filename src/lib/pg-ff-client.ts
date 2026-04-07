@@ -854,13 +854,13 @@ export async function pgGetStockNegatif(site?: string): Promise<PgStockNegatifRo
             COALESCE(a.libelle1, '') AS libelle1,
             COALESCE(f.nom, af.code) AS fournisseur,
             cs.site,
-            cs.stockdispo::float,
+            cs.qte::float AS stockdispo,
             cs.dernierevente::text
         FROM cube_stock cs
         JOIN articles a ON a.no_id = cs.artnoid
         JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
         JOIN fouident f ON f.code = af.code
-        WHERE cs.stockdispo < 0
+        WHERE cs.qte < 0
           AND cs.site IN ('292', '579')
         ${siteFilter}
         ORDER BY cs.stockdispo ASC
