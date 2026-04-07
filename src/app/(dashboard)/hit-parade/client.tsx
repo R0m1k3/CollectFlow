@@ -242,7 +242,7 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                         {sorted.map((row, idx) => (
                             <tr key={row.codein} className={`border-b border-gray-100 hover:brightness-95 transition-colors`}>
                                 <td className="bg-white px-2 py-2.5 font-mono text-xs text-gray-400 text-center">{row.codein}</td>
-                                <td className="bg-white px-2 py-2.5 text-gray-900 font-medium max-w-[200px] truncate" title={row.libelle.trim()}>{row.libelle.trim()}</td>
+                                <td className="bg-white px-2 py-2.5 text-gray-900 font-medium min-w-[200px]">{row.libelle.trim()}</td>
                                 <td className="bg-white px-2 py-2.5 text-xs text-gray-500 whitespace-nowrap">{row.fournisseur}</td>
                                 <td className="bg-white px-2 py-2.5 text-xs text-center whitespace-nowrap" title={row.nomenclature_code ? `${row.nomenclature_code} — ${row.nomenclature}` : ""}>
                                     {row.nomenclature_code
