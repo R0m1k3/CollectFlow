@@ -29,7 +29,8 @@
       "WebFetch(domain:collect.ffnancy.fr)",
       "Bash(curl -s \"https://collect.ffnancy.fr/api/diag-mvtart\")",
       "Read(//c/Users/Michael/VSCODE/CollectFlow/**)",
-      "Bash(xargs wc:*)"
+      "Bash(xargs wc:*)",
+      "Bash(ls /c/Users/Michael/VSCODE/CollectFlow/.next/static/chunks/*.css)"
     ]
   }
 }
