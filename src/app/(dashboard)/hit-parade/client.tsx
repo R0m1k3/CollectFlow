@@ -32,6 +32,7 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
     const [sortKey, setSortKey] = useState<SortKey>(DEFAULT_SORT);
     const [sortDir, setSortDir] = useState<SortDir>(DEFAULT_DIR);
     const [filterFournisseur, setFilterFournisseur] = useState<string>("Tous");
+    const [filterNomenclature, setFilterNomenclature] = useState<string>("Tous");
 
     // Dates locales pour les inputs (évite rechargement à chaque frappe)
     const [localDebut, setLocalDebut] = useState(dateDebut);
@@ -39,6 +40,11 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
 
     const fournisseurs = useMemo(() => {
         const set = new Set(pivotted.map(r => r.fournisseur));
+        return ["Tous", ...Array.from(set).sort((a, b) => a.localeCompare(b, "fr"))];
+    }, [pivotted]);
+
+    const nomenclatures = useMemo(() => {
+        const set = new Set(pivotted.map(r => r.nomenclature));
         return ["Tous", ...Array.from(set).sort((a, b) => a.localeCompare(b, "fr"))];
     }, [pivotted]);
 
@@ -65,8 +71,11 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
     const isSorted = sortKey !== DEFAULT_SORT || sortDir !== DEFAULT_DIR;
 
     const filtered = useMemo(() =>
-        filterFournisseur === "Tous" ? pivotted : pivotted.filter(r => r.fournisseur === filterFournisseur),
-        [pivotted, filterFournisseur]
+        pivotted.filter(r =>
+            (filterFournisseur === "Tous" || r.fournisseur === filterFournisseur) &&
+            (filterNomenclature === "Tous" || r.nomenclature === filterNomenclature)
+        ),
+        [pivotted, filterFournisseur, filterNomenclature]
     );
 
     const sorted = useMemo(() =>
@@ -161,6 +170,22 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
 
                 <div className="h-8 w-px bg-gray-200 self-center" />
 
+                {/* Filtre nomenclature */}
+                <div className="flex flex-col gap-1">
+                    <label className="text-xs font-semibold text-gray-500">Nomenclature</label>
+                    <select
+                        value={filterNomenclature}
+                        onChange={e => setFilterNomenclature(e.target.value)}
+                        className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-w-[200px]"
+                    >
+                        {nomenclatures.map(n => (
+                            <option key={n} value={n}>{n}</option>
+                        ))}
+                    </select>
+                </div>
+
+                <div className="h-8 w-px bg-gray-200 self-center" />
+
                 <span className="rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-600 self-center">
                     {sorted.length} produits
                 </span>
@@ -183,6 +208,7 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                             <th rowSpan={2} className="w-24 border-b-2 border-gray-200 bg-gray-50 px-4 py-3 text-left text-xs font-semibold text-gray-600 align-bottom">Code</th>
                             <th rowSpan={2} className="border-b-2 border-gray-200 bg-gray-50 px-4 py-3 text-left text-xs font-semibold text-gray-600 align-bottom">Désignation</th>
                             <th rowSpan={2} className="border-b-2 border-gray-200 bg-gray-50 px-4 py-3 text-left text-xs font-semibold text-gray-600 align-bottom">Fournisseur</th>
+                            <th rowSpan={2} className="border-b-2 border-gray-200 bg-gray-50 px-4 py-3 text-left text-xs font-semibold text-gray-600 align-bottom">Nomenclature</th>
                             <th colSpan={4} className="border-b border-l-2 border-blue-200 bg-blue-50 px-4 py-2 text-center text-xs font-bold text-blue-700 tracking-wide">
                                 Frouard / Nancy — 292
                             </th>
@@ -214,6 +240,7 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                                 <td className="bg-white px-4 py-2.5 font-mono text-xs text-gray-400 text-center">{row.codein}</td>
                                 <td className="bg-white px-4 py-2.5 text-gray-900 font-medium max-w-[260px] truncate" title={row.libelle.trim()}>{row.libelle.trim()}</td>
                                 <td className="bg-white px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap text-center">{row.fournisseur}</td>
+                                <td className="bg-white px-4 py-2.5 text-xs text-gray-500 max-w-[180px] truncate" title={row.nomenclature}>{row.nomenclature}</td>
                                 <td className={`border-l-2 border-blue-200 px-4 py-2.5 text-center tabular-nums text-gray-700 ${sortKey === "qte292" ? "bg-blue-100 font-semibold" : "bg-blue-50/60"}`}>
                                     {row.qte292 > 0 ? formatQte(row.qte292) : <span className="text-gray-300">—</span>}
                                 </td>
@@ -255,7 +282,7 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                     </tbody>
                     <tfoot>
                         <tr className="border-t-2 border-gray-300">
-                            <td colSpan={3} className="bg-gray-100 px-4 py-3 text-sm font-bold text-gray-800">
+                            <td colSpan={4} className="bg-gray-100 px-4 py-3 text-sm font-bold text-gray-800">
                                 TOTAL — {sorted.length} articles
                             </td>
                             <td className="border-l-2 border-blue-300 bg-blue-100 px-4 py-3 text-center font-bold tabular-nums text-gray-900">{formatQte(totals.qte292)}</td>
