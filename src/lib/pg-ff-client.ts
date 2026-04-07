@@ -861,6 +861,7 @@ export async function pgGetStockNegatif(site?: string): Promise<PgStockNegatifRo
         JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
         JOIN fouident f ON f.code = af.code
         WHERE cs.stockdispo < 0
+          AND cs.site IN ('292', '579')
         ${siteFilter}
         ORDER BY cs.stockdispo ASC
     `);
