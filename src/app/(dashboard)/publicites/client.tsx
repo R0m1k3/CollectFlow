@@ -44,10 +44,26 @@ export function PublicitesClient({ year, publicites }: Props) {
     const [sortKey, setSortKey] = useState<SortKey>("intitule");
     const [sortDir, setSortDir] = useState<SortDir>("asc");
 
+    const validPublicites = useMemo(() => publicites.filter(p => p.site !== "000"), [publicites]);
+
     const sites = useMemo(() => {
-        const s = new Set(publicites.map(p => p.site).filter(Boolean));
+        const s = new Set(validPublicites.map(p => p.site).filter(Boolean));
         return Array.from(s).sort();
-    }, [publicites]);
+    }, [validPublicites]);
+
+    const SITE_COLORS: Record<string, string> = useMemo(() => {
+        const palette = [
+            "bg-blue-50 text-blue-700",
+            "bg-violet-50 text-violet-700",
+            "bg-emerald-50 text-emerald-700",
+            "bg-rose-50 text-rose-700",
+            "bg-amber-50 text-amber-700",
+            "bg-cyan-50 text-cyan-700",
+            "bg-pink-50 text-pink-700",
+            "bg-indigo-50 text-indigo-700",
+        ];
+        return Object.fromEntries(sites.map((s, i) => [s, palette[i % palette.length]]));
+    }, [sites]);
 
     function handleYearChange(e: React.ChangeEvent<HTMLSelectElement>) {
         router.push(`/publicites?year=${e.target.value}`);
@@ -63,7 +79,7 @@ export function PublicitesClient({ year, publicites }: Props) {
     }
 
     const filtered = useMemo(() => {
-        let rows = filterSite === "all" ? publicites : publicites.filter(p => p.site === filterSite);
+        let rows = filterSite === "all" ? validPublicites : validPublicites.filter(p => p.site === filterSite);
         rows = [...rows].sort((a, b) => {
             let va: string | number;
             let vb: string | number;
@@ -79,7 +95,7 @@ export function PublicitesClient({ year, publicites }: Props) {
             return 0;
         });
         return rows;
-    }, [publicites, filterSite, sortKey, sortDir]);
+    }, [validPublicites, filterSite, sortKey, sortDir]);
 
     function thProps(key: SortKey, className: string) {
         return {
@@ -172,7 +188,7 @@ export function PublicitesClient({ year, publicites }: Props) {
                                     <td className="px-3 py-2.5 font-mono text-xs text-gray-400">{pub.tcr_code}</td>
                                     <td className="px-3 py-2.5 text-gray-900 font-medium">{pub.intitule}</td>
                                     <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">
-                                        <span className="inline-block rounded-md bg-blue-50 px-2 py-0.5 text-blue-700 font-medium">
+                                        <span className={`inline-block rounded-md px-2 py-0.5 font-medium ${SITE_COLORS[pub.site] ?? "bg-gray-100 text-gray-600"}`}>
                                             {pub.site || "—"}
                                         </span>
                                     </td>
