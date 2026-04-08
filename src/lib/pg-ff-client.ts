@@ -919,3 +919,75 @@ export async function pgGetStockNegatif(site?: string): Promise<PgStockNegatifRo
     `);
     return result.rows as PgStockNegatifRow[];
 }
+
+// ---------------------------------------------------------------------------
+// Commandes automatiques — par site + fournisseur avec franco
+// ---------------------------------------------------------------------------
+
+export interface PgCommandeAutoRow {
+    site: string;
+    codefou: string;
+    nomfou: string;
+    franco: number;
+    nb_articles: number;
+    montant_cde: number;
+    franco_atteint: boolean | null;
+    ecart_franco: number;
+}
+
+/**
+ * Retourne la liste des fournisseurs ayant des articles en commande auto,
+ * groupés par site + fournisseur, avec le montant total (pcb × pa),
+ * le franco du fournisseur et l'écart franco.
+ *
+ * Hypothèses sur le schéma FF Nancy :
+ *   - artfou1.cdeauto  : flag commande auto (boolean-like)
+ *   - fouident.franco  : franco de port (montant minimum de commande)
+ *   - cube_pa.pa       : prix d'achat
+ */
+export async function pgGetCommandesAuto(): Promise<PgCommandeAutoRow[]> {
+    try {
+        const result = await pgNoParallel(sql`
+            SELECT
+                cs.site,
+                fi.code                                     AS codefou,
+                COALESCE(fi.nom, af.code)                   AS nomfou,
+                COALESCE(fi.franco::numeric, 0)             AS franco,
+                COUNT(DISTINCT a.codein)                    AS nb_articles,
+                ROUND(SUM(
+                    GREATEST(1, COALESCE(af.pcb, 1))::numeric
+                    * COALESCE(pa.pa, 0)::numeric
+                ), 2)                                       AS montant_cde,
+                CASE
+                    WHEN COALESCE(fi.franco::numeric, 0) = 0 THEN NULL
+                    WHEN SUM(
+                        GREATEST(1, COALESCE(af.pcb, 1))::numeric
+                        * COALESCE(pa.pa, 0)::numeric
+                    ) >= COALESCE(fi.franco::numeric, 0)    THEN true
+                    ELSE false
+                END                                         AS franco_atteint,
+                ROUND(
+                    COALESCE(fi.franco::numeric, 0) - SUM(
+                        GREATEST(1, COALESCE(af.pcb, 1))::numeric
+                        * COALESCE(pa.pa, 0)::numeric
+                    ), 2
+                )                                           AS ecart_franco
+            FROM artfou1 af
+            JOIN articles a  ON a.no_id   = af.art_no_id
+            JOIN fouident fi ON fi.code   = af.code
+            JOIN cube_stock cs ON cs.artnoid = a.no_id
+            LEFT JOIN cube_pa pa ON pa.artnoid = a.no_id
+            WHERE af.cdeauto::text IN ('1', 'true', 't', 'yes', 'y', 'on')
+              AND cs.site IN ('292', '579')
+              AND (af.suspendu IS NULL OR af.suspendu::text NOT IN ('1', 'true', 't', 'yes', 'y', 'on'))
+              AND (a.suspendu  IS NULL OR a.suspendu::text  NOT IN ('1', 'true', 't', 'yes', 'y', 'on'))
+            GROUP BY cs.site, fi.code, fi.nom, af.code, fi.franco
+            ORDER BY cs.site, COALESCE(fi.nom, af.code)
+        `);
+        console.log(`[pg-ff] pgGetCommandesAuto: ${result.rows.length} lignes`);
+        return result.rows as unknown as PgCommandeAutoRow[];
+    } catch (e) {
+        console.error("[pg-ff] pgGetCommandesAuto error:", (e as Error).message?.slice(0, 300));
+        return [];
+    }
+}
