@@ -14,11 +14,39 @@ function fmtDate(raw: string | null) {
     return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
+function getYear(raw: string | null): string {
+    if (!raw) return "";
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return "";
+    return String(d.getFullYear());
+}
+
 function SortIcon<T extends string>({ col, sortKey, sortDir }: { col: T; sortKey: T; sortDir: SortDir }) {
     if (col !== sortKey) return <ChevronsUpDown className="inline w-3 h-3 ml-1 opacity-30" />;
     return sortDir === "asc"
         ? <ChevronUp className="inline w-3 h-3 ml-1" />
         : <ChevronDown className="inline w-3 h-3 ml-1" />;
+}
+
+function FilterSelect({ label, value, onChange, options }: {
+    label: string;
+    value: string;
+    onChange: (v: string) => void;
+    options: string[];
+}) {
+    return (
+        <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-gray-600 whitespace-nowrap">{label}</label>
+            <select
+                value={value}
+                onChange={e => onChange(e.target.value)}
+                className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[150px]"
+            >
+                <option value="">Tous</option>
+                {options.map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+        </div>
+    );
 }
 
 function useSortedRows<T extends Record<string, unknown>>(rows: T[], numericKeys: string[]) {
@@ -50,8 +78,26 @@ function useSortedRows<T extends Record<string, unknown>>(rows: T[], numericKeys
 
 function TabStockNegatif({ rows, magasin }: { rows: PgStockNegatifRow[]; magasin: string }) {
     type SK = keyof PgStockNegatifRow;
+
+    const [filterFournisseur, setFilterFournisseur] = useState("");
+    const [filterAnnee, setFilterAnnee] = useState("");
+
+    const fournisseurs = useMemo(() =>
+        [...new Set(rows.map(r => r.fournisseur).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr")),
+        [rows]
+    );
+    const annees = useMemo(() =>
+        [...new Set(rows.map(r => getYear(r.derniereentree)).filter(Boolean))].sort((a, b) => b.localeCompare(a)),
+        [rows]
+    );
+
+    const filtered = useMemo(() => rows.filter(r =>
+        (!filterFournisseur || r.fournisseur === filterFournisseur) &&
+        (!filterAnnee || getYear(r.derniereentree) === filterAnnee)
+    ), [rows, filterFournisseur, filterAnnee]);
+
     const { sorted, sortKey, sortDir, handleSort } = useSortedRows<PgStockNegatifRow>(
-        rows.length ? rows : [] as PgStockNegatifRow[],
+        filtered,
         ["stockdispo"]
     );
 
@@ -87,11 +133,25 @@ function TabStockNegatif({ rows, magasin }: { rows: PgStockNegatifRow[]; magasin
 
     return (
         <div className="space-y-4">
-            <div className="flex justify-end items-center gap-3">
-                <span className="text-sm text-gray-500">{sorted.length} article{sorted.length !== 1 ? "s" : ""}</span>
-                <button onClick={handleExport} className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 transition-colors">
-                    <Download className="w-4 h-4" />Exporter Excel
-                </button>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                    <FilterSelect label="Fournisseur" value={filterFournisseur} onChange={setFilterFournisseur} options={fournisseurs} />
+                    <FilterSelect label="Année entrée" value={filterAnnee} onChange={setFilterAnnee} options={annees} />
+                    {(filterFournisseur || filterAnnee) && (
+                        <button
+                            onClick={() => { setFilterFournisseur(""); setFilterAnnee(""); }}
+                            className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-medium text-orange-700 hover:bg-orange-100 transition-colors"
+                        >
+                            ✕ Réinitialiser
+                        </button>
+                    )}
+                </div>
+                <div className="flex items-center gap-3">
+                    <span className="text-sm text-gray-500">{sorted.length} article{sorted.length !== 1 ? "s" : ""}</span>
+                    <button onClick={handleExport} className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 transition-colors">
+                        <Download className="w-4 h-4" />Exporter Excel
+                    </button>
+                </div>
             </div>
             <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
                 <table className="min-w-full text-sm">
@@ -136,9 +196,28 @@ function TabStockNegatif({ rows, magasin }: { rows: PgStockNegatifRow[]; magasin
 
 function TabEntreesSansVente({ rows, magasin }: { rows: PgStockSansVenteRow[]; magasin: string }) {
     type SK = keyof PgStockSansVenteRow;
-    const filteredRows = useMemo(() => rows.filter(r => r.stock_actuel !== 0), [rows]);
+
+    const [filterFournisseur, setFilterFournisseur] = useState("");
+    const [filterAnnee, setFilterAnnee] = useState("");
+
+    const baseRows = useMemo(() => rows.filter(r => r.stock_actuel !== 0), [rows]);
+
+    const fournisseurs = useMemo(() =>
+        [...new Set(baseRows.map(r => r.fournisseur).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr")),
+        [baseRows]
+    );
+    const annees = useMemo(() =>
+        [...new Set(baseRows.map(r => getYear(r.derniere_entree)).filter(Boolean))].sort((a, b) => b.localeCompare(a)),
+        [baseRows]
+    );
+
+    const filtered = useMemo(() => baseRows.filter(r =>
+        (!filterFournisseur || r.fournisseur === filterFournisseur) &&
+        (!filterAnnee || getYear(r.derniere_entree) === filterAnnee)
+    ), [baseRows, filterFournisseur, filterAnnee]);
+
     const { sorted, sortKey, sortDir, handleSort } = useSortedRows<PgStockSansVenteRow>(
-        filteredRows,
+        filtered,
         ["stock_actuel"]
     );
 
@@ -174,11 +253,25 @@ function TabEntreesSansVente({ rows, magasin }: { rows: PgStockSansVenteRow[]; m
 
     return (
         <div className="space-y-4">
-            <div className="flex justify-end items-center gap-3">
-                <span className="text-sm text-gray-500">{sorted.length} article{sorted.length !== 1 ? "s" : ""}</span>
-                <button onClick={handleExport} className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 transition-colors">
-                    <Download className="w-4 h-4" />Exporter Excel
-                </button>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                    <FilterSelect label="Fournisseur" value={filterFournisseur} onChange={setFilterFournisseur} options={fournisseurs} />
+                    <FilterSelect label="Année entrée" value={filterAnnee} onChange={setFilterAnnee} options={annees} />
+                    {(filterFournisseur || filterAnnee) && (
+                        <button
+                            onClick={() => { setFilterFournisseur(""); setFilterAnnee(""); }}
+                            className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-medium text-orange-700 hover:bg-orange-100 transition-colors"
+                        >
+                            ✕ Réinitialiser
+                        </button>
+                    )}
+                </div>
+                <div className="flex items-center gap-3">
+                    <span className="text-sm text-gray-500">{sorted.length} article{sorted.length !== 1 ? "s" : ""}</span>
+                    <button onClick={handleExport} className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 transition-colors">
+                        <Download className="w-4 h-4" />Exporter Excel
+                    </button>
+                </div>
             </div>
             <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
                 <table className="min-w-full text-sm">
