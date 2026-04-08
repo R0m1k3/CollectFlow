@@ -1,31 +1,29 @@
-import { NextResponse } from "next/server";
-import { pgGetCommandesAuto } from "@/lib/pg-ff-client";
+import { NextRequest, NextResponse } from "next/server";
+
+const FF_API_BASE = process.env.FF_API_BASE_URL ?? "https://api.ffnancy.fr";
 
 /**
- * GET /api/commandes-auto
+ * GET /api/commandes-auto[?site=292&codefou=N009]
  *
- * Retourne la liste des fournisseurs en commande automatique,
- * groupés par site (292, 579), avec franco et écart franco.
- *
- * Réponse :
- * [
- *   {
- *     site: "292",
- *     codefou: "FOU123",
- *     nomfou: "Nom Fournisseur",
- *     franco: 500,
- *     nb_articles: 12,
- *     montant_cde: 620.50,
- *     franco_atteint: true,
- *     ecart_franco: -120.50
- *   },
- *   ...
- * ]
+ * Proxy vers https://api.ffnancy.fr/api/commandes-auto
+ * Transfère les query params site et codefou si présents.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
     try {
-        const rows = await pgGetCommandesAuto();
-        return NextResponse.json(rows);
+        const { searchParams } = req.nextUrl;
+        const params = new URLSearchParams();
+        if (searchParams.get("site"))    params.set("site",    searchParams.get("site")!);
+        if (searchParams.get("codefou")) params.set("codefou", searchParams.get("codefou")!);
+
+        const qs = params.toString();
+        const url = `${FF_API_BASE}/api/commandes-auto${qs ? `?${qs}` : ""}`;
+
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) {
+            return NextResponse.json({ error: `API upstream HTTP ${res.status}` }, { status: res.status });
+        }
+        const data = await res.json();
+        return NextResponse.json(data);
     } catch (e) {
         console.error("[api/commandes-auto]", e);
         return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

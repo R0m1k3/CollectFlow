@@ -936,56 +936,34 @@ export interface PgCommandeAutoRow {
 }
 
 /**
- * Retourne la liste des fournisseurs ayant des articles en commande auto,
- * groupés par site + fournisseur, avec le montant total (pcb × pa),
- * le franco du fournisseur et l'écart franco.
- *
- * Hypothèses sur le schéma FF Nancy :
- *   - artfou1.cdeauto  : flag commande auto (boolean-like)
- *   - fouident.franco  : franco de port (montant minimum de commande)
- *   - cube_pa.pa       : prix d'achat
+ * Retourne la liste des fournisseurs en commande automatique via l'API Hostinger.
+ * GET https://api.ffnancy.fr/api/commandes-auto
  */
 export async function pgGetCommandesAuto(): Promise<PgCommandeAutoRow[]> {
+    const FF_API_BASE = process.env.FF_API_BASE_URL ?? "https://api.ffnancy.fr";
     try {
-        const result = await pgNoParallel(sql`
-            SELECT
-                cs.site,
-                fi.code                                     AS codefou,
-                COALESCE(fi.nom, af.code)                   AS nomfou,
-                COALESCE(fi.franco::numeric, 0)             AS franco,
-                COUNT(DISTINCT a.codein)                    AS nb_articles,
-                ROUND(SUM(
-                    GREATEST(1, COALESCE(af.pcb, 1))::numeric
-                    * COALESCE(pa.pa, 0)::numeric
-                ), 2)                                       AS montant_cde,
-                CASE
-                    WHEN COALESCE(fi.franco::numeric, 0) = 0 THEN NULL
-                    WHEN SUM(
-                        GREATEST(1, COALESCE(af.pcb, 1))::numeric
-                        * COALESCE(pa.pa, 0)::numeric
-                    ) >= COALESCE(fi.franco::numeric, 0)    THEN true
-                    ELSE false
-                END                                         AS franco_atteint,
-                ROUND(
-                    COALESCE(fi.franco::numeric, 0) - SUM(
-                        GREATEST(1, COALESCE(af.pcb, 1))::numeric
-                        * COALESCE(pa.pa, 0)::numeric
-                    ), 2
-                )                                           AS ecart_franco
-            FROM artfou1 af
-            JOIN articles a  ON a.no_id   = af.art_no_id
-            JOIN fouident fi ON fi.code   = af.code
-            JOIN cube_stock cs ON cs.artnoid = a.no_id
-            LEFT JOIN cube_pa pa ON pa.artnoid = a.no_id
-            WHERE af.cdeauto::text IN ('1', 'true', 't', 'yes', 'y', 'on')
-              AND cs.site IN ('292', '579')
-              AND (af.suspendu IS NULL OR af.suspendu::text NOT IN ('1', 'true', 't', 'yes', 'y', 'on'))
-              AND (a.suspendu  IS NULL OR a.suspendu::text  NOT IN ('1', 'true', 't', 'yes', 'y', 'on'))
-            GROUP BY cs.site, fi.code, fi.nom, af.code, fi.franco
-            ORDER BY cs.site, COALESCE(fi.nom, af.code)
-        `);
-        console.log(`[pg-ff] pgGetCommandesAuto: ${result.rows.length} lignes`);
-        return result.rows as unknown as PgCommandeAutoRow[];
+        const res = await fetch(`${FF_API_BASE}/api/commandes-auto`, { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        // L'API peut retourner directement un tableau ou un objet wrappé
+        const rows: unknown[] = Array.isArray(data)
+            ? data
+            : (data?.data ?? data?.items ?? data?.results ?? []);
+        console.log(`[pg-ff] pgGetCommandesAuto: ${rows.length} lignes (API Hostinger)`);
+        // Normalise chaque ligne vers PgCommandeAutoRow
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (rows as any[]).map((r): PgCommandeAutoRow => ({
+            site:          String(r.site          ?? r.Site         ?? ""),
+            codefou:       String(r.codefou        ?? r.CodeFou      ?? r.code ?? ""),
+            nomfou:        String(r.nomfou         ?? r.NomFou       ?? r.nom  ?? ""),
+            franco:        Number(r.franco         ?? r.Franco       ?? 0),
+            nb_articles:   Number(r.nb_articles    ?? r.nbArticles   ?? r.count ?? 0),
+            montant_cde:   Number(r.montant_cde    ?? r.montantCde   ?? r.montant ?? 0),
+            franco_atteint: r.franco_atteint != null
+                ? Boolean(r.franco_atteint)
+                : null,
+            ecart_franco:  Number(r.ecart_franco   ?? r.ecartFranco  ?? 0),
+        }));
     } catch (e) {
         console.error("[pg-ff] pgGetCommandesAuto error:", (e as Error).message?.slice(0, 300));
         return [];
