@@ -31,7 +31,8 @@
       "Read(//c/Users/Michael/VSCODE/CollectFlow/**)",
       "Bash(xargs wc:*)",
       "Bash(ls /c/Users/Michael/VSCODE/CollectFlow/.next/static/chunks/*.css)",
-      "Bash(find /c/Users/Michael/VSCODE/CollectFlow/src/app/api -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" \\\\\\) -exec ls -lh {} \\\\;)"
+      "Bash(find /c/Users/Michael/VSCODE/CollectFlow/src/app/api -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" \\\\\\) -exec ls -lh {} \\\\;)",
+      "Bash(curl -s \"https://api.ffnancy.fr/api/commandes-auto\")"
     ]
   }
 }

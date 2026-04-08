@@ -946,23 +946,24 @@ export async function pgGetCommandesAuto(): Promise<PgCommandeAutoRow[]> {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         // L'API peut retourner directement un tableau ou un objet wrappé
+        // L'API retourne { count: N, propositions: [...] }
         const rows: unknown[] = Array.isArray(data)
             ? data
-            : (data?.data ?? data?.items ?? data?.results ?? []);
+            : (data?.propositions ?? data?.data ?? data?.items ?? data?.results ?? []);
         console.log(`[pg-ff] pgGetCommandesAuto: ${rows.length} lignes (API Hostinger)`);
-        // Normalise chaque ligne vers PgCommandeAutoRow
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return (rows as any[]).map((r): PgCommandeAutoRow => ({
-            site:          String(r.site          ?? r.Site         ?? ""),
-            codefou:       String(r.codefou        ?? r.CodeFou      ?? r.code ?? ""),
-            nomfou:        String(r.nomfou         ?? r.NomFou       ?? r.nom  ?? ""),
-            franco:        Number(r.franco         ?? r.Franco       ?? 0),
-            nb_articles:   Number(r.nb_articles    ?? r.nbArticles   ?? r.count ?? 0),
-            montant_cde:   Number(r.montant_cde    ?? r.montantCde   ?? r.montant ?? 0),
-            franco_atteint: r.franco_atteint != null
-                ? Boolean(r.franco_atteint)
-                : null,
-            ecart_franco:  Number(r.ecart_franco   ?? r.ecartFranco  ?? 0),
+            site:          String(r.site ?? ""),
+            codefou:       String(r.codefou ?? ""),
+            nomfou:        String(r.nom_fou ?? r.nomfou ?? ""),
+            franco:        Number(r.franco_ht ?? r.franco ?? 0),
+            nb_articles:   Number(r.nb_articles ?? 0),
+            montant_cde:   Number(r.montant_propo_ht ?? r.montant_cde ?? 0),
+            franco_atteint: r.franco_atteint === "OUI" ? true
+                          : r.franco_atteint === "NON" ? false
+                          : r.franco_atteint != null ? Boolean(r.franco_atteint)
+                          : null,
+            ecart_franco:  Number(r.ecart_franco ?? 0),
         }));
     } catch (e) {
         console.error("[pg-ff] pgGetCommandesAuto error:", (e as Error).message?.slice(0, 300));
