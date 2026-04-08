@@ -23,7 +23,7 @@ function SortIcon({ col, sortKey, sortDir }: { col: string; sortKey: string; sor
 }
 
 type SK = keyof PgCommandeAutoRow;
-const NUMERIC: SK[] = ["franco", "nb_articles", "montant_cde", "ecart_franco"];
+const NUMERIC: SK[] = ["franco", "nb_articles", "montant_cde"];
 
 function FrancoCell({ atteint, ecart, franco }: { atteint: boolean | null; ecart: number; franco: number }) {
     if (franco === 0 || atteint === null) {
@@ -128,13 +128,13 @@ function StoreTable({ site, label, rows }: { site: string; label: string; rows: 
                             <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
                                 Statut franco
                             </th>
-                            {th("ecart_franco", "Écart", true)}
+
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                         {sorted.length === 0 && (
                             <tr>
-                                <td colSpan={7} className="px-3 py-8 text-center text-gray-400">
+                                <td colSpan={6} className="px-3 py-8 text-center text-gray-400">
                                     Aucun fournisseur en commande automatique
                                 </td>
                             </tr>
@@ -170,17 +170,6 @@ function StoreTable({ site, label, rows }: { site: string; label: string; rows: 
                                             ecart={Number(row.ecart_franco)}
                                             franco={Number(row.franco)}
                                         />
-                                    </td>
-                                    <td className={[
-                                        "px-3 py-2.5 text-right tabular-nums text-xs font-medium",
-                                        !hasFranco ? "text-gray-400" :
-                                        francoAtteint ? "text-emerald-600" : "text-amber-600",
-                                    ].join(" ")}>
-                                        {hasFranco
-                                            ? (Number(row.ecart_franco) > 0
-                                                ? `−${fmt(Number(row.ecart_franco))}`
-                                                : `+${fmt(Math.abs(Number(row.ecart_franco)))}`)
-                                            : "—"}
                                     </td>
                                 </tr>
                             );
