@@ -759,9 +759,9 @@ export async function pgGetHitParade(dateDebut: string, dateFin: string): Promis
         stock_agg AS (
             SELECT
                 cs.artnoid,
-                SUM(CASE WHEN cs.site = '292' THEN cs.stockdispo ELSE 0 END)::float AS stock292,
-                SUM(CASE WHEN cs.site = '579' THEN cs.stockdispo ELSE 0 END)::float AS stock579,
-                SUM(cs.stockdispo)::float                                            AS stockTotal
+                SUM(CASE WHEN cs.site = '292' THEN cs.qte ELSE 0 END)::float AS stock292,
+                SUM(CASE WHEN cs.site = '579' THEN cs.qte ELSE 0 END)::float AS stock579,
+                SUM(cs.qte)::float                                            AS stockTotal
             FROM cube_stock cs
             WHERE cs.artnoid IN (SELECT DISTINCT art_no_id FROM ventes)
             GROUP BY cs.artnoid
