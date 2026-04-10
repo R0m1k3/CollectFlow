@@ -245,46 +245,61 @@ async function handleGoogleAi(messages: Array<{ role: string; content: string }>
             try {
                 const ai = new GoogleGenAI({ apiKey: config.googleAiKey! });
 
-                // Convert messages to Google format
-                const history = messages.slice(0, -1).map((m) => ({
-                    role: m.role === "assistant" ? "model" : "user",
-                    parts: [{ text: m.content }],
-                }));
-                const lastMessage = messages[messages.length - 1];
+                // Build full contents array for generateContent
+                const contents: Array<{ role: string; parts: Array<{ text: string }> }> = [
+                    ...messages.map((m) => ({
+                        role: m.role === "assistant" ? "model" : "user",
+                        parts: [{ text: m.content }],
+                    })),
+                ];
 
-                const chat = ai.chats.create({
-                    model,
-                    config: { systemInstruction: SYSTEM_PROMPT, tools: googleTools as any },
-                    history,
-                });
-
-                // Agentic loop
-                let currentParts: Array<{ text?: string; functionCall?: { name: string; args: Record<string, unknown> } }> = [{ text: lastMessage.content }];
-
+                // Agentic loop — non-streaming tool phase, streaming final answer
                 for (let round = 0; round < 8; round++) {
-                    const response = await chat.sendMessage({ message: currentParts as any });
-                    const candidate = response.candidates?.[0];
-                    if (!candidate) break;
+                    const response = await ai.models.generateContent({
+                        model,
+                        contents: contents as any,
+                        config: {
+                            systemInstruction: SYSTEM_PROMPT,
+                            tools: googleTools as any,
+                        },
+                    });
 
-                    const fnCalls = candidate.content?.parts?.filter((p: any) => p.functionCall) ?? [];
-                    const textParts = candidate.content?.parts?.filter((p: any) => p.text) ?? [];
+                    const fnCalls = response.functionCalls;
 
-                    if (fnCalls.length === 0) {
-                        // Final answer
-                        const text = textParts.map((p: any) => p.text).join("");
-                        send({ type: "text", content: text });
+                    if (!fnCalls || fnCalls.length === 0) {
+                        // No tool calls — stream the final text
+                        const streamResponse = await ai.models.generateContentStream({
+                            model,
+                            contents: contents as any,
+                            config: {
+                                systemInstruction: SYSTEM_PROMPT,
+                                tools: googleTools as any,
+                                maxOutputTokens: 8192,
+                            },
+                        });
+
+                        for await (const chunk of streamResponse) {
+                            const text = chunk.text;
+                            if (text) send({ type: "text", content: text });
+                        }
                         break;
                     }
 
-                    // Execute tools
-                    const toolResults: Array<{ functionResponse: { name: string; response: { output: string } } }> = [];
-                    for (const part of fnCalls) {
-                        const fn = (part as any).functionCall as { name: string; args: Record<string, unknown> };
-                        send({ type: "tool_start", name: fn.name, args: fn.args });
+                    // Add model response with function calls to history
+                    contents.push({
+                        role: "model",
+                        parts: response.candidates![0].content!.parts as any,
+                    });
+
+                    // Execute tool calls
+                    const toolResultParts: Array<{ functionResponse: { name: string; response: { output: string } } }> = [];
+                    for (const fn of fnCalls) {
+                        const args = (fn.args ?? {}) as Record<string, unknown>;
+                        send({ type: "tool_start", name: fn.name, args });
 
                         let result = "";
                         if (fn.name === "execute_sql") {
-                            result = await executeSql((fn.args as any).query as string);
+                            result = await executeSql(args.query as string);
                         } else if (fn.name === "get_db_schema") {
                             result = DB_SCHEMA;
                         } else {
@@ -292,10 +307,11 @@ async function handleGoogleAi(messages: Array<{ role: string; content: string }>
                         }
 
                         send({ type: "tool_result", name: fn.name, result: result.substring(0, 500) + (result.length > 500 ? "..." : "") });
-                        toolResults.push({ functionResponse: { name: fn.name, response: { output: result } } });
+                        toolResultParts.push({ functionResponse: { name: fn.name!, response: { output: result } } });
                     }
 
-                    currentParts = toolResults as any;
+                    // Add tool results to history
+                    contents.push({ role: "user", parts: toolResultParts as any });
                 }
 
                 send({ type: "usage", prompt_tokens: 0, completion_tokens: 0 });
