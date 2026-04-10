@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Send, Bot, User, Database, Loader2, AlertCircle, ChevronDown, Trash2, DollarSign } from "lucide-react";
 import { cn } from "@/lib/utils";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface ModelInfo {
     id: string;
@@ -102,12 +104,40 @@ function MessageBubble({ msg }: { msg: Message }) {
                 {/* Text bubble */}
                 {msg.content && (
                     <div className={cn(
-                        "rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap break-words",
+                        "rounded-2xl px-4 py-3 text-sm leading-relaxed break-words",
                         isUser
                             ? "bg-[var(--accent)] text-white rounded-tr-md"
                             : "bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-primary)] rounded-tl-md"
                     )}>
-                        {msg.content}
+                        {isUser ? msg.content : (
+                            <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                                    h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
+                                    h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
+                                    h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
+                                    ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-0.5">{children}</ul>,
+                                    ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-0.5">{children}</ol>,
+                                    li: ({ children }) => <li className="ml-2">{children}</li>,
+                                    code: ({ inline, children }: { inline?: boolean; children?: React.ReactNode }) =>
+                                        inline
+                                            ? <code className="px-1 py-0.5 rounded bg-[var(--bg-base)] border border-[var(--border)] font-mono text-xs text-[var(--accent)]">{children}</code>
+                                            : <pre className="my-2 p-3 rounded-lg bg-[var(--bg-base)] border border-[var(--border)] overflow-x-auto"><code className="font-mono text-xs text-[var(--text-primary)] whitespace-pre">{children}</code></pre>,
+                                    strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                                    em: ({ children }) => <em className="italic">{children}</em>,
+                                    blockquote: ({ children }) => <blockquote className="border-l-2 border-[var(--accent)] pl-3 my-2 text-[var(--text-secondary)] italic">{children}</blockquote>,
+                                    table: ({ children }) => <div className="overflow-x-auto my-2"><table className="w-full text-xs border-collapse">{children}</table></div>,
+                                    thead: ({ children }) => <thead className="bg-[var(--bg-base)]">{children}</thead>,
+                                    th: ({ children }) => <th className="border border-[var(--border)] px-2 py-1 text-left font-semibold">{children}</th>,
+                                    td: ({ children }) => <td className="border border-[var(--border)] px-2 py-1">{children}</td>,
+                                    hr: () => <hr className="border-[var(--border)] my-3" />,
+                                    a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-[var(--accent)] underline hover:opacity-80">{children}</a>,
+                                }}
+                            >
+                                {msg.content}
+                            </ReactMarkdown>
+                        )}
                     </div>
                 )}
             </div>
