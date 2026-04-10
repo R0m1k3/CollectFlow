@@ -1,6 +1,20 @@
 import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/db";
+import fs from "fs/promises";
+import path from "path";
+
+async function getOpenRouterKey(): Promise<string | null> {
+    if (process.env.OPENROUTER_API_KEY) return process.env.OPENROUTER_API_KEY;
+    try {
+        const configFile = path.join(process.cwd(), "data", ".db-config.json");
+        const data = await fs.readFile(configFile, "utf-8");
+        const config = JSON.parse(data);
+        return config.openRouterKey ?? null;
+    } catch {
+        return null;
+    }
+}
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
@@ -188,7 +202,7 @@ export async function POST(req: NextRequest) {
 
     const { messages, model } = await req.json();
 
-    const apiKey = process.env.OPENROUTER_API_KEY;
+    const apiKey = await getOpenRouterKey();
     if (!apiKey) {
         return new Response(JSON.stringify({ error: "No OpenRouter API key configured" }), { status: 500 });
     }
