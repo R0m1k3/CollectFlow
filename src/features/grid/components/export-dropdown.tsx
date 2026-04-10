@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Download, FileSpreadsheet, FileText, ChevronDown } from "lucide-react";
+import { Download, FileSpreadsheet, FileText, ChevronDown, Table2 } from "lucide-react";
 import * as ExcelJS from "exceljs";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -10,6 +10,52 @@ import { useGridStore } from "@/features/grid/store/use-grid-store";
 export function ExportDropdown({ nomFournisseur }: { nomFournisseur?: string }) {
     const [isOpen, setIsOpen] = useState(false);
     const { rows, draftChanges } = useGridStore();
+
+    const handleExportAllProducts = async () => {
+        setIsOpen(false);
+        if (rows.length === 0) {
+            alert("Aucune donnée à exporter.");
+            return;
+        }
+
+        const supplier = nomFournisseur || rows[0]?.nomFournisseur || "Fournisseur";
+
+        const payload = {
+            nomFournisseur: supplier,
+            rows: rows.map(r => ({
+                codein: r.codein,
+                libelle1: r.libelle1 || "",
+                code3: r.code3 || "",
+                libelle3: r.libelle3 || "",
+                codeGamme: (draftChanges[r.codein] ?? r.codeGamme) as string | null,
+                totalQuantite: r.totalQuantite,
+                totalCa: r.totalCa,
+                tauxMarge: r.tauxMarge,
+                gammeAvant: r.codeGammeInit ?? null,
+            })),
+        };
+
+        try {
+            const res = await fetch("/api/export/excel", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+
+            if (!res.ok) throw new Error("Erreur lors de l'export");
+
+            const blob = await res.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `Assortiment_Complet_${supplier.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error(error);
+            alert("Une erreur s'est produite lors de l'export Excel.");
+        }
+    };
 
     const handleExportExcel = async () => {
         setIsOpen(false);
@@ -152,6 +198,19 @@ export function ExportDropdown({ nomFournisseur }: { nomFournisseur?: string }) 
                                 <div>
                                     <div className="font-semibold text-[var(--text-primary)]">Gamme A vers Excel</div>
                                     <div className="text-[11px] text-[var(--text-muted)] mt-0.5">Gencode, Réf, Libellé...</div>
+                                </div>
+                            </button>
+
+                            <div className="my-1 h-px bg-[var(--border)] mx-2" />
+
+                            <button
+                                onClick={handleExportAllProducts}
+                                className="w-full flex items-center gap-3 px-3 py-2 text-sm text-left rounded-lg transition-colors hover:bg-white/5"
+                            >
+                                <Table2 className="w-4 h-4 text-blue-400" />
+                                <div>
+                                    <div className="font-semibold text-[var(--text-primary)]">Tous les produits (Excel)</div>
+                                    <div className="text-[11px] text-[var(--text-muted)] mt-0.5">Gamme avant/après, delta, stats 12m</div>
                                 </div>
                             </button>
 
