@@ -23,10 +23,12 @@ export async function GET(req: NextRequest) {
         const data = await res.json();
 
         // Return simplified list sorted by name
-        const models = (data.data as Array<{ id: string; name: string; pricing?: { prompt: string } }>)
+        const models = (data.data as Array<{ id: string; name: string; pricing?: { prompt: string; completion: string } }>)
             .map((m) => ({
                 id: m.id,
                 name: m.name,
+                promptPrice: parseFloat(m.pricing?.prompt ?? "0"),
+                completionPrice: parseFloat(m.pricing?.completion ?? "0"),
                 free: parseFloat(m.pricing?.prompt ?? "1") === 0,
             }))
             .sort((a, b) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutGrid, Camera, FileDown, Settings, Package, BarChart2, TrendingUp, Trophy, Megaphone, PackageMinus, ShoppingCart, LogOut, User as UserIcon, Loader2, ChevronRight, ChevronLeft } from "lucide-react";
+import { LayoutGrid, Camera, FileDown, Settings, Package, BarChart2, TrendingUp, Trophy, Megaphone, PackageMinus, ShoppingCart, LogOut, User as UserIcon, Loader2, ChevronRight, ChevronLeft, MessageSquareCode } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,7 @@ const NAV_ITEMS = [
     { icon: ShoppingCart, label: "Commandes auto", href: "/commandes-auto" },
     { icon: Camera, label: "Snapshots", href: "/snapshots" },
     { icon: FileDown, label: "Exports", href: "/exports", adminOnly: true },
+    { icon: MessageSquareCode, label: "AI Chat Admin", href: "/admin/ai-chat", adminOnly: true },
     { icon: Settings, label: "Paramètres", href: "/settings", adminOnly: true },
 ];
 
