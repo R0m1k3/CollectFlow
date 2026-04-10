@@ -125,7 +125,9 @@ export default function SettingsPage() {
     const [aiProvider, setAiProvider] = useState<"openrouter" | "google">("openrouter");
     const [googleAiKey, setGoogleAiKey] = useState("");
     const [showGoogleKey, setShowGoogleKey] = useState(false);
-    const [googleAiModel, setGoogleAiModel] = useState("gemini-2.5-pro-preview-05-06");
+    const [googleAiModel, setGoogleAiModel] = useState("");
+    const [googleModels, setGoogleModels] = useState<{ id: string; name: string }[]>([]);
+    const [googleModelsStatus, setGoogleModelsStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
 
     const [isMounted, setIsMounted] = useState(false);
 
@@ -138,6 +140,20 @@ export default function SettingsPage() {
         ssl, setSsl,
         getDatabaseUrl
     } = useDbSettingsStore();
+
+    const fetchGoogleModels = useCallback(async (key: string) => {
+        if (!key.trim()) return;
+        setGoogleModelsStatus("loading");
+        try {
+            const res = await fetch("/api/google-ai/models", { headers: { "x-google-ai-key": key } });
+            if (!res.ok) throw new Error();
+            const data = await res.json();
+            setGoogleModels(data.models ?? []);
+            setGoogleModelsStatus("ok");
+        } catch {
+            setGoogleModelsStatus("error");
+        }
+    }, []);
 
     const fetchModels = useCallback(async (key: string) => {
         if (!key.trim()) return;
@@ -178,10 +194,13 @@ export default function SettingsPage() {
                 setSelectedModel(config.openRouterModel);
             }
             if (config.aiProvider) setAiProvider(config.aiProvider);
-            if (config.googleAiKey) setGoogleAiKey(config.googleAiKey);
+            if (config.googleAiKey) {
+                setGoogleAiKey(config.googleAiKey);
+                fetchGoogleModels(config.googleAiKey);
+            }
             if (config.googleAiModel) setGoogleAiModel(config.googleAiModel);
         }
-    }, [fetchModels, setApiKey, setDatabase, setHost, setPassword, setPort, setSelectedModel, setSsl, setUser]);
+    }, [fetchModels, fetchGoogleModels, setApiKey, setDatabase, setHost, setPassword, setPort, setSelectedModel, setSsl, setUser]);
 
     useEffect(() => {
         setIsMounted(true);
@@ -337,34 +356,55 @@ export default function SettingsPage() {
                 {aiProvider === "google" && (
                     <>
                         <Field label="Clé API Google AI Studio" hint="Disponible sur aistudio.google.com/apikey — commence par AIza...">
-                            <div className="relative">
-                                <input
-                                    type={showGoogleKey ? "text" : "password"}
-                                    placeholder="AIzaSy..."
-                                    value={googleAiKey}
-                                    onChange={(e) => setGoogleAiKey(e.target.value)}
-                                    className="apple-input font-mono pr-10"
-                                />
+                            <div className="flex gap-2">
+                                <div className="relative flex-1">
+                                    <input
+                                        type={showGoogleKey ? "text" : "password"}
+                                        placeholder="AIzaSy..."
+                                        value={googleAiKey}
+                                        onChange={(e) => setGoogleAiKey(e.target.value)}
+                                        className="apple-input font-mono pr-10"
+                                    />
+                                    <button
+                                        onClick={() => setShowGoogleKey((v) => !v)}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 transition-opacity"
+                                    >
+                                        {showGoogleKey ? <EyeOff className="w-4 h-4" style={{ color: "var(--text-primary)" }} /> : <Eye className="w-4 h-4" style={{ color: "var(--text-primary)" }} />}
+                                    </button>
+                                </div>
                                 <button
-                                    onClick={() => setShowGoogleKey((v) => !v)}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 transition-opacity"
+                                    onClick={() => fetchGoogleModels(googleAiKey)}
+                                    disabled={!googleAiKey || googleModelsStatus === "loading"}
+                                    className="apple-btn-secondary h-9 px-4 whitespace-nowrap"
                                 >
-                                    {showGoogleKey ? <EyeOff className="w-4 h-4" style={{ color: "var(--text-primary)" }} /> : <Eye className="w-4 h-4" style={{ color: "var(--text-primary)" }} />}
+                                    {googleModelsStatus === "loading" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                                    Charger les modèles
                                 </button>
                             </div>
                         </Field>
-                        <Field label="Modèle Google" hint="ex: gemini-2.5-pro-preview-05-06, gemini-2.0-flash, gemini-1.5-pro">
-                            <select
-                                value={googleAiModel}
-                                onChange={(e) => setGoogleAiModel(e.target.value)}
-                                className="apple-input"
-                            >
-                                <option value="gemini-2.5-pro-preview-05-06">Gemini 2.5 Pro Preview</option>
-                                <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
-                                <option value="gemini-2.0-flash-thinking-exp">Gemini 2.0 Flash Thinking</option>
-                                <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
-                                <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-                            </select>
+                        <Field
+                            label={`Modèle Google${googleModels.length > 0 ? ` (${googleModels.length} disponibles)` : ""}`}
+                            hint={googleModelsStatus === "error" ? "⚠ Erreur — vérifiez votre clé puis rechargez" : googleModelsStatus === "idle" ? "Entrez votre clé et cliquez « Charger les modèles »" : undefined}
+                        >
+                            {googleModels.length > 0 ? (
+                                <select
+                                    value={googleAiModel}
+                                    onChange={(e) => setGoogleAiModel(e.target.value)}
+                                    className="apple-input"
+                                >
+                                    {googleModels.map((m) => (
+                                        <option key={m.id} value={m.id}>{m.name}</option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <input
+                                    type="text"
+                                    value={googleAiModel}
+                                    onChange={(e) => setGoogleAiModel(e.target.value)}
+                                    placeholder="ex: gemini-2.0-flash"
+                                    className="apple-input"
+                                />
+                            )}
                         </Field>
                     </>
                 )}

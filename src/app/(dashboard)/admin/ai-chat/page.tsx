@@ -145,13 +145,6 @@ function MessageBubble({ msg }: { msg: Message }) {
     );
 }
 
-const GOOGLE_MODELS: ModelInfo[] = [
-    { id: "gemini-2.5-pro-preview-05-06", name: "Gemini 2.5 Pro Preview", free: false, promptPrice: 0, completionPrice: 0 },
-    { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", free: false, promptPrice: 0, completionPrice: 0 },
-    { id: "gemini-2.0-flash-thinking-exp", name: "Gemini 2.0 Flash Thinking", free: false, promptPrice: 0, completionPrice: 0 },
-    { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", free: false, promptPrice: 0, completionPrice: 0 },
-    { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash", free: false, promptPrice: 0, completionPrice: 0 },
-];
 
 export default function AdminAiChatPage() {
     const [models, setModels] = useState<ModelInfo[]>([]);
@@ -175,25 +168,24 @@ export default function AdminAiChatPage() {
         setLoadingModels(true);
         fetch("/api/admin/ai-config")
             .then(r => r.json())
-            .then(d => {
+            .then(async d => {
                 const provider: "openrouter" | "google" = d.provider ?? "openrouter";
                 setAiProviderState(provider);
                 if (provider === "google") {
-                    setModels(GOOGLE_MODELS);
+                    const gRes = await fetch("/api/google-ai/models").then(r => r.json()).catch(() => ({ models: [] }));
+                    setModels((gRes.models ?? []).map((m: { id: string; name: string }) => ({
+                        id: m.id, name: m.name, free: false, promptPrice: 0, completionPrice: 0,
+                    })));
                     setSelectedModel(d.googleAiModel ?? "gemini-2.0-flash");
                 } else {
-                    fetch("/api/openrouter/models")
-                        .then(r => r.json())
-                        .then(od => { if (od.models) setModels(od.models); })
-                        .catch(() => { });
+                    const od = await fetch("/api/openrouter/models").then(r => r.json()).catch(() => ({ models: [] }));
+                    if (od.models) setModels(od.models);
                     if (d.openRouterModel) setSelectedModel(d.openRouterModel);
                 }
             })
-            .catch(() => {
-                fetch("/api/openrouter/models")
-                    .then(r => r.json())
-                    .then(od => { if (od.models) setModels(od.models); })
-                    .catch(() => { });
+            .catch(async () => {
+                const od = await fetch("/api/openrouter/models").then(r => r.json()).catch(() => ({ models: [] }));
+                if (od.models) setModels(od.models);
             })
             .finally(() => setLoadingModels(false));
     }, []);
