@@ -6,6 +6,43 @@ import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+// Strip HTML tags and convert common HTML constructs to Markdown equivalents
+function htmlToMarkdown(text: string): string {
+    return text
+        // Block-level → markdown
+        .replace(/<h([1-6])[^>]*>(.*?)<\/h\1>/gis, (_, level, content) => `${"#".repeat(Number(level))} ${content.replace(/<[^>]+>/g, "")}\n`)
+        .replace(/<strong[^>]*>(.*?)<\/strong>/gis, "**$1**")
+        .replace(/<b[^>]*>(.*?)<\/b>/gis, "**$1**")
+        .replace(/<em[^>]*>(.*?)<\/em>/gis, "*$1*")
+        .replace(/<i[^>]*>(.*?)<\/i>/gis, "*$1*")
+        .replace(/<code[^>]*>(.*?)<\/code>/gis, "`$1`")
+        .replace(/<pre[^>]*>(.*?)<\/pre>/gis, (_, c) => "```\n" + c.replace(/<[^>]+>/g, "") + "\n```")
+        .replace(/<li[^>]*>(.*?)<\/li>/gis, "- $1")
+        .replace(/<ul[^>]*>|<\/ul>/gis, "")
+        .replace(/<ol[^>]*>|<\/ol>/gis, "")
+        .replace(/<tr[^>]*>/gis, "")
+        .replace(/<\/tr>/gis, "\n")
+        .replace(/<th[^>]*>(.*?)<\/th>/gis, "| **$1** ")
+        .replace(/<td[^>]*>(.*?)<\/td>/gis, "| $1 ")
+        .replace(/<table[^>]*>|<\/table>|<thead[^>]*>|<\/thead>|<tbody[^>]*>|<\/tbody>/gis, "")
+        .replace(/<br\s*\/?>/gis, "\n")
+        .replace(/<p[^>]*>(.*?)<\/p>/gis, "$1\n\n")
+        .replace(/<div[^>]*>(.*?)<\/div>/gis, "$1\n")
+        .replace(/<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gis, "[$2]($1)")
+        // Strip any remaining tags
+        .replace(/<[^>]+>/g, "")
+        // Decode HTML entities
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&nbsp;/g, " ")
+        // Clean up excessive blank lines
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+}
+
 interface ModelInfo {
     id: string;
     name: string;
@@ -135,7 +172,7 @@ function MessageBubble({ msg }: { msg: Message }) {
                                     a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-[var(--accent)] underline hover:opacity-80">{children}</a>,
                                 }}
                             >
-                                {msg.content}
+                                {htmlToMarkdown(msg.content)}
                             </ReactMarkdown>
                         )}
                     </div>
