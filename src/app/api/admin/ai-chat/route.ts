@@ -3,16 +3,31 @@ import { auth } from "@/lib/auth";
 import { getDb } from "@/db";
 import fs from "fs/promises";
 import path from "path";
+import { GoogleGenAI, Type } from "@google/genai";
 
-async function getOpenRouterKey(): Promise<string | null> {
-    if (process.env.OPENROUTER_API_KEY) return process.env.OPENROUTER_API_KEY;
+interface AiConfig {
+    provider: "openrouter" | "google";
+    openRouterKey?: string;
+    googleAiKey?: string;
+    googleAiModel?: string;
+}
+
+async function getAiConfig(): Promise<AiConfig> {
     try {
         const configFile = path.join(process.cwd(), "data", ".db-config.json");
         const data = await fs.readFile(configFile, "utf-8");
         const config = JSON.parse(data);
-        return config.openRouterKey ?? null;
+        return {
+            provider: config.aiProvider ?? "openrouter",
+            openRouterKey: config.openRouterKey ?? process.env.OPENROUTER_API_KEY,
+            googleAiKey: config.googleAiKey ?? process.env.GOOGLE_AI_KEY,
+            googleAiModel: config.googleAiModel ?? "gemini-2.0-flash",
+        };
     } catch {
-        return null;
+        return {
+            provider: "openrouter",
+            openRouterKey: process.env.OPENROUTER_API_KEY,
+        };
     }
 }
 
@@ -193,6 +208,116 @@ async function callOpenRouter(
     });
 }
 
+// Google AI Studio handler
+async function handleGoogleAi(messages: Array<{ role: string; content: string }>, config: AiConfig): Promise<Response> {
+    if (!config.googleAiKey) {
+        return new Response(JSON.stringify({ error: "No Google AI key configured" }), { status: 500 });
+    }
+
+    const model = config.googleAiModel ?? "gemini-2.0-flash";
+    const encoder = new TextEncoder();
+
+    const googleTools = [{
+        functionDeclarations: [
+            {
+                name: "execute_sql",
+                description: "Execute a READ-ONLY SQL SELECT query on the CollectFlow PostgreSQL database.",
+                parameters: {
+                    type: Type.OBJECT,
+                    properties: { query: { type: Type.STRING, description: "A valid PostgreSQL SELECT query." } },
+                    required: ["query"],
+                },
+            },
+            {
+                name: "get_db_schema",
+                description: "Returns the full database schema with table names, columns, and descriptions.",
+                parameters: { type: Type.OBJECT, properties: {} },
+            },
+        ],
+    }];
+
+    const stream = new ReadableStream({
+        async start(controller) {
+            function send(event: object) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+            }
+
+            try {
+                const ai = new GoogleGenAI({ apiKey: config.googleAiKey! });
+
+                // Convert messages to Google format
+                const history = messages.slice(0, -1).map((m) => ({
+                    role: m.role === "assistant" ? "model" : "user",
+                    parts: [{ text: m.content }],
+                }));
+                const lastMessage = messages[messages.length - 1];
+
+                const chat = ai.chats.create({
+                    model,
+                    config: { systemInstruction: SYSTEM_PROMPT, tools: googleTools as any },
+                    history,
+                });
+
+                // Agentic loop
+                let currentParts: Array<{ text?: string; functionCall?: { name: string; args: Record<string, unknown> } }> = [{ text: lastMessage.content }];
+
+                for (let round = 0; round < 8; round++) {
+                    const response = await chat.sendMessage({ message: currentParts as any });
+                    const candidate = response.candidates?.[0];
+                    if (!candidate) break;
+
+                    const fnCalls = candidate.content?.parts?.filter((p: any) => p.functionCall) ?? [];
+                    const textParts = candidate.content?.parts?.filter((p: any) => p.text) ?? [];
+
+                    if (fnCalls.length === 0) {
+                        // Final answer
+                        const text = textParts.map((p: any) => p.text).join("");
+                        send({ type: "text", content: text });
+                        break;
+                    }
+
+                    // Execute tools
+                    const toolResults: Array<{ functionResponse: { name: string; response: { output: string } } }> = [];
+                    for (const part of fnCalls) {
+                        const fn = (part as any).functionCall as { name: string; args: Record<string, unknown> };
+                        send({ type: "tool_start", name: fn.name, args: fn.args });
+
+                        let result = "";
+                        if (fn.name === "execute_sql") {
+                            result = await executeSql((fn.args as any).query as string);
+                        } else if (fn.name === "get_db_schema") {
+                            result = DB_SCHEMA;
+                        } else {
+                            result = `Outil inconnu: ${fn.name}`;
+                        }
+
+                        send({ type: "tool_result", name: fn.name, result: result.substring(0, 500) + (result.length > 500 ? "..." : "") });
+                        toolResults.push({ functionResponse: { name: fn.name, response: { output: result } } });
+                    }
+
+                    currentParts = toolResults as any;
+                }
+
+                send({ type: "usage", prompt_tokens: 0, completion_tokens: 0 });
+                send({ type: "done" });
+                controller.close();
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : "Erreur inconnue";
+                send({ type: "error", message: msg });
+                controller.close();
+            }
+        },
+    });
+
+    return new Response(stream, {
+        headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+        },
+    });
+}
+
 export async function POST(req: NextRequest) {
     // Auth check
     const session = await auth();
@@ -202,7 +327,13 @@ export async function POST(req: NextRequest) {
 
     const { messages, model } = await req.json();
 
-    const apiKey = await getOpenRouterKey();
+    const aiConfig = await getAiConfig();
+
+    if (aiConfig.provider === "google") {
+        return handleGoogleAi(messages, aiConfig);
+    }
+
+    const apiKey = aiConfig.openRouterKey;
     if (!apiKey) {
         return new Response(JSON.stringify({ error: "No OpenRouter API key configured" }), { status: 500 });
     }

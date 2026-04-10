@@ -121,6 +121,12 @@ export default function SettingsPage() {
     const [selectedModel, setSelectedModel] = useState("google/gemini-2.0-flash-001");
     const [modelsStatus, setModelsStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
 
+    // AI Provider
+    const [aiProvider, setAiProvider] = useState<"openrouter" | "google">("openrouter");
+    const [googleAiKey, setGoogleAiKey] = useState("");
+    const [showGoogleKey, setShowGoogleKey] = useState(false);
+    const [googleAiModel, setGoogleAiModel] = useState("gemini-2.5-pro-preview-05-06");
+
     const [isMounted, setIsMounted] = useState(false);
 
     const {
@@ -171,6 +177,9 @@ export default function SettingsPage() {
             if (config.openRouterModel) {
                 setSelectedModel(config.openRouterModel);
             }
+            if (config.aiProvider) setAiProvider(config.aiProvider);
+            if (config.googleAiKey) setGoogleAiKey(config.googleAiKey);
+            if (config.googleAiModel) setGoogleAiModel(config.googleAiModel);
         }
     }, [fetchModels, setApiKey, setDatabase, setHost, setPassword, setPort, setSelectedModel, setSsl, setUser]);
 
@@ -195,7 +204,7 @@ export default function SettingsPage() {
     const handleSave = async () => {
         setSaveStatus("saving");
         const url = getDatabaseUrl();
-        const res = await saveDatabaseSettings(url, apiKey, selectedModel);
+        const res = await saveDatabaseSettings(url, apiKey, selectedModel, aiProvider, googleAiKey, googleAiModel);
         if (res.success) {
             setSaveStatus("saved");
             setTimeout(() => setSaveStatus("idle"), 2500);
@@ -307,6 +316,65 @@ export default function SettingsPage() {
 
             {/* API FF Nancy */}
             <FfApiStatusSection />
+
+            {/* AI Provider selector */}
+            <Section title="Admin AI Chat — Fournisseur" subtitle="Choisissez le fournisseur IA utilisé dans l'onglet Admin AI Chat">
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => setAiProvider("openrouter")}
+                        className={`flex-1 py-2.5 px-4 rounded-lg border text-[13px] font-medium transition-colors ${aiProvider === "openrouter" ? "border-[var(--accent)] bg-[var(--accent-bg)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"}`}
+                    >
+                        OpenRouter
+                    </button>
+                    <button
+                        onClick={() => setAiProvider("google")}
+                        className={`flex-1 py-2.5 px-4 rounded-lg border text-[13px] font-medium transition-colors ${aiProvider === "google" ? "border-[var(--accent)] bg-[var(--accent-bg)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"}`}
+                    >
+                        Google AI Studio
+                    </button>
+                </div>
+
+                {aiProvider === "google" && (
+                    <>
+                        <Field label="Clé API Google AI Studio" hint="Disponible sur aistudio.google.com/apikey — commence par AIza...">
+                            <div className="relative">
+                                <input
+                                    type={showGoogleKey ? "text" : "password"}
+                                    placeholder="AIzaSy..."
+                                    value={googleAiKey}
+                                    onChange={(e) => setGoogleAiKey(e.target.value)}
+                                    className="apple-input font-mono pr-10"
+                                />
+                                <button
+                                    onClick={() => setShowGoogleKey((v) => !v)}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 transition-opacity"
+                                >
+                                    {showGoogleKey ? <EyeOff className="w-4 h-4" style={{ color: "var(--text-primary)" }} /> : <Eye className="w-4 h-4" style={{ color: "var(--text-primary)" }} />}
+                                </button>
+                            </div>
+                        </Field>
+                        <Field label="Modèle Google" hint="ex: gemini-2.5-pro-preview-05-06, gemini-2.0-flash, gemini-1.5-pro">
+                            <select
+                                value={googleAiModel}
+                                onChange={(e) => setGoogleAiModel(e.target.value)}
+                                className="apple-input"
+                            >
+                                <option value="gemini-2.5-pro-preview-05-06">Gemini 2.5 Pro Preview</option>
+                                <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                                <option value="gemini-2.0-flash-thinking-exp">Gemini 2.0 Flash Thinking</option>
+                                <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                                <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                            </select>
+                        </Field>
+                    </>
+                )}
+
+                {aiProvider === "openrouter" && (
+                    <p className="text-[12px] text-[var(--text-muted)]">
+                        Utilise la clé OpenRouter configurée ci-dessous et le modèle sélectionné.
+                    </p>
+                )}
+            </Section>
 
             {/* OpenRouter */}
             <Section title="IA Copilot — OpenRouter" subtitle="Clé API pour les analyses de gammes par intelligence artificielle">

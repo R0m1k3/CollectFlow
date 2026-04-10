@@ -145,9 +145,18 @@ function MessageBubble({ msg }: { msg: Message }) {
     );
 }
 
+const GOOGLE_MODELS: ModelInfo[] = [
+    { id: "gemini-2.5-pro-preview-05-06", name: "Gemini 2.5 Pro Preview", free: false, promptPrice: 0, completionPrice: 0 },
+    { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", free: false, promptPrice: 0, completionPrice: 0 },
+    { id: "gemini-2.0-flash-thinking-exp", name: "Gemini 2.0 Flash Thinking", free: false, promptPrice: 0, completionPrice: 0 },
+    { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", free: false, promptPrice: 0, completionPrice: 0 },
+    { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash", free: false, promptPrice: 0, completionPrice: 0 },
+];
+
 export default function AdminAiChatPage() {
     const [models, setModels] = useState<ModelInfo[]>([]);
     const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL);
+    const [aiProvider, setAiProviderState] = useState<"openrouter" | "google">("openrouter");
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
@@ -161,15 +170,31 @@ export default function AdminAiChatPage() {
 
     const selectedModelInfo = models.find(m => m.id === selectedModel) ?? null;
 
-    // Fetch models
+    // Fetch config + models
     useEffect(() => {
         setLoadingModels(true);
-        fetch("/api/openrouter/models")
+        fetch("/api/admin/ai-config")
             .then(r => r.json())
             .then(d => {
-                if (d.models) setModels(d.models);
+                const provider: "openrouter" | "google" = d.provider ?? "openrouter";
+                setAiProviderState(provider);
+                if (provider === "google") {
+                    setModels(GOOGLE_MODELS);
+                    setSelectedModel(d.googleAiModel ?? "gemini-2.0-flash");
+                } else {
+                    fetch("/api/openrouter/models")
+                        .then(r => r.json())
+                        .then(od => { if (od.models) setModels(od.models); })
+                        .catch(() => { });
+                    if (d.openRouterModel) setSelectedModel(d.openRouterModel);
+                }
             })
-            .catch(() => { })
+            .catch(() => {
+                fetch("/api/openrouter/models")
+                    .then(r => r.json())
+                    .then(od => { if (od.models) setModels(od.models); })
+                    .catch(() => { });
+            })
             .finally(() => setLoadingModels(false));
     }, []);
 
@@ -335,7 +360,14 @@ export default function AdminAiChatPage() {
             {/* Model selector */}
             <div className="mb-4 shrink-0">
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border)]">
-                    <span className="text-xs font-medium text-[var(--text-muted)] shrink-0">Modèle</span>
+                    <span className={cn(
+                        "text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0",
+                        aiProvider === "google"
+                            ? "bg-blue-500/10 text-blue-500"
+                            : "bg-[var(--accent-bg)] text-[var(--accent)]"
+                    )}>
+                        {aiProvider === "google" ? "Google AI" : "OpenRouter"}
+                    </span>
                     {loadingModels ? (
                         <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
