@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
                 Authorization: `Bearer ${apiKey}`,
                 "Content-Type": "application/json",
             },
-            next: { revalidate: 3600 }, // Cache 1h
+            cache: "no-store",
         });
 
         if (!res.ok) {
