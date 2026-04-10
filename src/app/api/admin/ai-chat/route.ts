@@ -70,74 +70,128 @@ const TOOLS = [
 ];
 
 const DB_SCHEMA = `
-## Tables de la base de données CollectFlow
+# Schéma complet de la base de données CollectFlow (PostgreSQL)
 
-### ventes_produits
-Données de ventes produits (historique 12 mois par magasin)
+## Table : ventes_produits
+Table principale. Contient l'historique des ventes par produit, par magasin, par mois.
+Chaque ligne = 1 produit × 1 magasin × 1 mois.
+
+Colonnes :
 - id (serial PK)
-- codein (varchar) — identifiant produit interne
-- code_fournisseur (varchar) — code fournisseur
-- nom_fournisseur (varchar) — nom du fournisseur
-- libelle1 (varchar) — libellé produit
-- gtin (varchar) — code-barres
-- reference (varchar) — référence
+- codein (varchar) — identifiant produit interne unique FF Nancy
+- code_fournisseur (varchar) — code fournisseur (ex: "FOU001")
+- nom_fournisseur (varchar) — nom complet du fournisseur
+- libelle1 (varchar) — libellé principal du produit
+- gtin (varchar) — code-barres EAN
+- reference (varchar) — référence produit fournisseur
 - colisage (numeric) — quantité par colis
-- code_gamme (varchar) — classification actuelle (A/B/C/D/Z)
-- code_gamme_init (varchar) — classification initiale
-- code3 / libelle3 — sous-catégorie
-- magasin (varchar) — code magasin
-- code_magasin (varchar) — code magasin alternatif
-- annee (smallint), mois (smallint) — période
-- periode (varchar) — ex: "2024-01"
-- quantite (numeric) — quantité vendue
-- montant_mvt (numeric) — CA HT
-- marge_mvt (numeric) — marge HT
-- imported_at, updated_at (timestamp)
+- code_gamme (varchar) — classification actuelle : A, B, C, D, ou Z
+- code_gamme_init (varchar) — classification d'origine à l'import
+- code3 (varchar) — code sous-catégorie produit
+- libelle3 (varchar) — libellé sous-catégorie
+- magasin (varchar) — nom ou code magasin (ex: "Supermarché Est")
+- code_magasin (varchar) — identifiant court magasin (ex: "001")
+- annee (smallint) — année de la période (ex: 2024)
+- mois (smallint) — mois de la période (1-12)
+- periode (varchar) — format "YYYY-MM" (ex: "2024-03")
+- quantite (numeric) — quantité vendue sur la période
+- montant_mvt (numeric) — chiffre d'affaires HT en euros
+- marge_mvt (numeric) — marge brute HT en euros
+- prix_unitaire (numeric) — prix de vente unitaire HT (si disponible)
+- imported_at (timestamp) — date d'import
+- updated_at (timestamp) — dernière mise à jour
 
-### users
-Utilisateurs de l'application
+Requêtes utiles sur ventes_produits :
+- Lister les fournisseurs distincts : SELECT DISTINCT code_fournisseur, nom_fournisseur FROM ventes_produits ORDER BY nom_fournisseur
+- CA total par fournisseur : SELECT nom_fournisseur, SUM(montant_mvt) as ca FROM ventes_produits GROUP BY nom_fournisseur ORDER BY ca DESC
+- Produits par gamme : SELECT code_gamme, COUNT(DISTINCT codein) FROM ventes_produits GROUP BY code_gamme
+- Évolution mensuelle : SELECT periode, SUM(montant_mvt) as ca FROM ventes_produits GROUP BY periode ORDER BY periode
+- Produits d'un fournisseur : SELECT DISTINCT codein, libelle1, code_gamme FROM ventes_produits WHERE code_fournisseur = '...'
+
+## Table : users
+Utilisateurs de l'application CollectFlow.
+
+Colonnes :
 - id (serial PK)
-- username (varchar unique)
-- password_hash (text) — NE PAS EXPOSER
-- role (varchar) — 'admin' ou 'user'
+- username (varchar unique) — identifiant de connexion
+- password_hash (text) — ⛔ NE JAMAIS EXPOSER CE CHAMP
+- role (varchar) — 'admin' (accès total) ou 'user' (accès restreint)
 - created_at (timestamp)
 
-### session_snapshots
-Snapshots de sessions d'arbitrage gamme
+## Table : session_snapshots
+Historique des sessions d'arbitrage de gamme sauvegardées par les utilisateurs.
+Un snapshot = une session de travail où un utilisateur a modifié des classifications gamme.
+
+Colonnes :
 - id (serial PK)
-- user_id (int FK → users)
-- code_fournisseur, nom_fournisseur (varchar)
+- user_id (int FK → users.id)
+- code_fournisseur (varchar)
+- nom_fournisseur (varchar)
 - magasin (varchar)
-- changes (jsonb) — map codein → {before, after}
-- summary_json (jsonb) — statistiques résumées
-- label (text) — nom du snapshot
-- type (varchar) — 'snapshot' ou 'export'
+- changes (jsonb) — objet JSON : { "codein": { "before": "A", "after": "B" }, ... }
+- summary_json (jsonb) — statistiques : { "total": N, "byGamme": {...}, ... }
+- label (text) — nom donné au snapshot par l'utilisateur
+- type (varchar) — 'snapshot' (sauvegarde manuelle) ou 'export' (export Excel/PDF)
 - created_at (timestamp)
 
-### ai_supplier_context
-Règles métier IA par fournisseur
+Requêtes utiles sur session_snapshots :
+- Derniers snapshots : SELECT id, label, nom_fournisseur, magasin, type, created_at FROM session_snapshots ORDER BY created_at DESC LIMIT 20
+- Compter les changements d'un snapshot : SELECT id, label, jsonb_object_keys(changes) FROM session_snapshots
+- Snapshots par utilisateur : SELECT u.username, COUNT(*) FROM session_snapshots s JOIN users u ON u.id = s.user_id GROUP BY u.username
+
+## Table : ai_supplier_context
+Contexte métier personnalisé par fournisseur, saisi par les managers pour guider l'IA d'analyse de gamme.
+
+Colonnes :
 - code_fournisseur (varchar PK)
-- context (text) — règles saisies par le manager
+- context (text) — instructions et règles métier spécifiques au fournisseur
 - updated_at (timestamp)
+
+## Règles métier — Classification gamme (A/B/C/D/Z)
+- **A** : Produit pilier — fort volume, fort CA, indispensable au rayon
+- **B** : Bon produit — bonne rotation, CA correct
+- **C** : Produit de performance — faible rotation mais maintenu pour compléter l'offre
+- **D** : Produit saisonnier ou de niche — présence justifiée par événement ou spécificité
+- **Z** : Produit en sortie de gamme — à déréférencer
+
+## Informations sur l'application CollectFlow
+- Application web Next.js de gestion de gammes produits pour des magasins de distribution alimentaire
+- Les données viennent d'une API externe (FF Nancy) synchronisée chaque nuit
+- Plusieurs magasins peuvent être gérés, chacun a son propre assortiment
+- Les utilisateurs arbitrent manuellement les gammes produit par fournisseur
+- Les sessions sont sauvegardées comme snapshots pour historique et audit
 `;
 
-const SYSTEM_PROMPT = `Tu es un assistant IA administrateur pour l'application CollectFlow, un outil de gestion de gammes produits et d'analyse des ventes pour des magasins de distribution.
+const SYSTEM_PROMPT = `Tu es un assistant IA administrateur expert pour l'application CollectFlow, un outil de gestion de gammes produits et d'analyse des ventes pour des magasins de distribution alimentaire.
 
-Tu as accès à la base de données PostgreSQL de l'application via l'outil \`execute_sql\`. Tu peux aussi consulter le schéma avec \`get_db_schema\`.
+## Outils disponibles
+- \`execute_sql\` : exécute une requête SELECT sur la base PostgreSQL
+- \`get_db_schema\` : retourne le schéma complet de la base de données
 
-**Règles importantes :**
-- N'expose JAMAIS le champ password_hash de la table users
-- Utilise uniquement des SELECT (pas de INSERT, UPDATE, DELETE, DROP, etc.)
-- Limite tes requêtes à 500 lignes maximum par défaut (utilise LIMIT)
-- Si une requête est trop large, agrège les données
+Le schéma complet est déjà inclus dans ton contexte ci-dessous — utilise \`get_db_schema\` uniquement si tu as besoin de détails supplémentaires.
 
-**Contexte métier :**
-- Les gammes A/B/C/D/Z classifient les produits : A=pilier, B=rotation, C=performance, D=saisonnier, Z=sortie
-- Les magasins sont identifiés par leur code (ex: "001", "002")
-- Les fournisseurs ont un code et un nom
-- Les ventes sont enregistrées par mois et par magasin
+## Schéma de la base de données
+${DB_SCHEMA}
 
-Réponds toujours en français, de façon claire et structurée.`;
+## Règles SQL strictes
+- N'utilise JAMAIS INSERT, UPDATE, DELETE, DROP, TRUNCATE, ALTER, CREATE
+- N'expose JAMAIS le champ \`password_hash\` de la table \`users\`
+- Toujours ajouter LIMIT (max 200 lignes par défaut, sauf agrégats)
+- Pour les analyses larges, utilise des agrégats (SUM, COUNT, AVG, GROUP BY)
+- Préfère des requêtes précises et ciblées plutôt que SELECT *
+- Si une question nécessite plusieurs requêtes, enchaîne-les avec plusieurs appels \`execute_sql\`
+
+## Stratégie d'analyse
+1. Commence toujours par explorer les données disponibles si tu ne connais pas les valeurs exactes (codes fournisseurs, codes magasins, périodes disponibles)
+2. Adapte tes requêtes aux données réelles trouvées
+3. Présente les résultats de façon lisible avec des tableaux, listes et titres
+
+## Format de réponse — IMPORTANT
+- Réponds TOUJOURS en **Markdown** : utilise ## titres, **gras**, tableaux \`| col | col |\`, listes \`-\`, blocs de code \`\`\`sql
+- N'utilise JAMAIS de HTML (<div>, <table>, <b>, <br>, etc.)
+- Réponds toujours en français
+- Sois précis, structuré et complet — ne tronque jamais ta réponse
+- Si les données sont nombreuses, résume et mets en avant les points clés`;
 
 async function executeSql(query: string): Promise<string> {
     // Security: only allow SELECT statements
