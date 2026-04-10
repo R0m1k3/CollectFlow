@@ -168,7 +168,7 @@ async function callOpenRouter(
         model,
         messages,
         temperature: 0.3,
-        max_tokens: 4096,
+        max_tokens: 8192,
     };
 
     if (useTools) {
@@ -225,9 +225,10 @@ export async function POST(req: NextRequest) {
                 let currentMessages = [...fullMessages];
                 let totalPromptTokens = 0;
                 let totalCompletionTokens = 0;
+                let directAnswer: string | null = null;
 
                 // Tool-calling loop (non-streaming for tool phase)
-                for (let round = 0; round < 5; round++) {
+                for (let round = 0; round < 8; round++) {
                     const res = await callOpenRouter(currentMessages, model, apiKey, true, false);
 
                     if (!res.ok) {
@@ -253,7 +254,8 @@ export async function POST(req: NextRequest) {
 
                     const toolCalls = assistantMessage.tool_calls;
                     if (!toolCalls || toolCalls.length === 0) {
-                        // No more tool calls — stream final response
+                        // Model gave a direct answer — capture it and skip the extra final call
+                        directAnswer = assistantMessage.content ?? "";
                         break;
                     }
 
@@ -289,7 +291,16 @@ export async function POST(req: NextRequest) {
                     currentMessages.push(...toolResults);
                 }
 
-                // Final streaming response
+                // If model gave a direct answer in the loop, stream it character by character
+                if (directAnswer !== null) {
+                    send({ type: "text", content: directAnswer });
+                    send({ type: "usage", prompt_tokens: totalPromptTokens, completion_tokens: totalCompletionTokens });
+                    send({ type: "done" });
+                    controller.close();
+                    return;
+                }
+
+                // Otherwise make a final streaming call after tool use
                 const finalRes = await callOpenRouter(currentMessages, model, apiKey, false, true);
 
                 if (!finalRes.ok) {
