@@ -1,7 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
+import fs from "fs/promises";
+import path from "path";
+
+async function getSavedOpenRouterKey(): Promise<string | null> {
+    try {
+        const configFile = path.join(process.cwd(), "data", ".db-config.json");
+        const data = await fs.readFile(configFile, "utf-8");
+        const config = JSON.parse(data);
+        return config.openRouterKey ?? null;
+    } catch {
+        return null;
+    }
+}
 
 export async function GET(req: NextRequest) {
-    const apiKey = req.headers.get("x-openrouter-key") || process.env.OPENROUTER_API_KEY;
+    const apiKey = req.headers.get("x-openrouter-key")
+        || process.env.OPENROUTER_API_KEY
+        || await getSavedOpenRouterKey();
 
     if (!apiKey) {
         return NextResponse.json({ error: "No API key provided" }, { status: 401 });
