@@ -253,48 +253,54 @@ async function handleGoogleAi(messages: Array<{ role: string; content: string }>
                     })),
                 ];
 
-                // Agentic loop — non-streaming tool phase, streaming final answer
+                // Agentic loop — streaming throughout
                 for (let round = 0; round < 8; round++) {
-                    const response = await ai.models.generateContent({
+                    const streamResponse = await ai.models.generateContentStream({
                         model,
                         contents: contents as any,
                         config: {
                             systemInstruction: SYSTEM_PROMPT,
                             tools: googleTools as any,
+                            maxOutputTokens: 8192,
                         },
                     });
 
-                    const fnCalls = response.functionCalls;
+                    // Collect stream, forwarding text chunks immediately
+                    let collectedText = "";
+                    const collectedParts: any[] = [];
 
-                    if (!fnCalls || fnCalls.length === 0) {
-                        // No tool calls — stream the final text
-                        const streamResponse = await ai.models.generateContentStream({
-                            model,
-                            contents: contents as any,
-                            config: {
-                                systemInstruction: SYSTEM_PROMPT,
-                                tools: googleTools as any,
-                                maxOutputTokens: 8192,
-                            },
-                        });
-
-                        for await (const chunk of streamResponse) {
-                            const text = chunk.text;
-                            if (text) send({ type: "text", content: text });
+                    for await (const chunk of streamResponse) {
+                        const text = chunk.text;
+                        if (text) {
+                            collectedText += text;
+                            send({ type: "text", content: text });
                         }
+                        // Collect parts for function calls
+                        const parts = chunk.candidates?.[0]?.content?.parts;
+                        if (parts) collectedParts.push(...parts);
+                    }
+
+                    // Check for function calls in collected parts
+                    const fnCallParts = collectedParts.filter((p: any) => p.functionCall);
+
+                    if (fnCallParts.length === 0) {
+                        // Pure text response — done
                         break;
                     }
 
-                    // Add model response with function calls to history
-                    contents.push({
-                        role: "model",
-                        parts: response.candidates![0].content!.parts as any,
-                    });
+                    // Had function calls — add model turn to history
+                    if (collectedText) {
+                        // Mixed text + function calls
+                        contents.push({ role: "model", parts: collectedParts });
+                    } else {
+                        contents.push({ role: "model", parts: fnCallParts });
+                    }
 
                     // Execute tool calls
                     const toolResultParts: Array<{ functionResponse: { name: string; response: { output: string } } }> = [];
-                    for (const fn of fnCalls) {
-                        const args = (fn.args ?? {}) as Record<string, unknown>;
+                    for (const part of fnCallParts) {
+                        const fn = part.functionCall as { name: string; args: Record<string, unknown> };
+                        const args = fn.args ?? {};
                         send({ type: "tool_start", name: fn.name, args });
 
                         let result = "";
@@ -307,10 +313,9 @@ async function handleGoogleAi(messages: Array<{ role: string; content: string }>
                         }
 
                         send({ type: "tool_result", name: fn.name, result: result.substring(0, 500) + (result.length > 500 ? "..." : "") });
-                        toolResultParts.push({ functionResponse: { name: fn.name!, response: { output: result } } });
+                        toolResultParts.push({ functionResponse: { name: fn.name, response: { output: result } } });
                     }
 
-                    // Add tool results to history
                     contents.push({ role: "user", parts: toolResultParts as any });
                 }
 
