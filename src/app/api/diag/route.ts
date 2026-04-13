@@ -209,10 +209,13 @@ export async function GET(req: NextRequest) {
         `);
         // Sample des 3 premières lignes de fouident pour voir toutes les colonnes
         const fouidentSample = await db.execute(sql`SELECT * FROM fouident LIMIT 3`);
+        const foucadSample = await db.execute(sql`SELECT * FROM foucad LIMIT 5`);
         francoDiag = {
             francoColumns: francoColumns.rows,
             fouidentColumns: fouidentSample.rows.length > 0 ? Object.keys(fouidentSample.rows[0] as object) : [],
             fouidentSample: fouidentSample.rows,
+            foucadColumns: foucadSample.rows.length > 0 ? Object.keys(foucadSample.rows[0] as object) : [],
+            foucadSample: foucadSample.rows,
         };
     } catch (e) {
         francoDiag = { error: String(e) };
