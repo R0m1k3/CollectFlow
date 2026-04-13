@@ -26,10 +26,21 @@ type SK = keyof PgCommandeAutoRow;
 const NUMERIC: SK[] = ["franco", "nb_articles", "montant_cde"];
 
 function FrancoCell({ atteint, ecart, franco }: { atteint: boolean | null; ecart: number; franco: number }) {
-    if (franco === 0 || atteint === null) {
+    // franco === 0 : aucune donnée franco disponible
+    // atteint === null ET franco === 0 : pas de franco (N/A ou données manquantes)
+    // atteint === null ET franco > 0 : franco connu mais statut non déterminé → on affiche quand même le montant
+    if (franco === 0) {
         return (
             <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500">
                 <Minus className="w-3 h-3" /> Pas de franco
+            </span>
+        );
+    }
+    if (atteint === null) {
+        // Franco connu mais statut non calculé par l'API
+        return (
+            <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500">
+                <Minus className="w-3 h-3" /> N/A ({fmt(franco)})
             </span>
         );
     }

@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(grep -rn \"franco\" /c/Users/Michael/GIT/Collectflow/CollectFlow/*.md)",
+      "Bash(rtk grep:*)",
+      "Bash(ls \"c:/Users/Michael/GIT/Collectflow/CollectFlow/.env\"*)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(./node_modules/.bin/tsc --noEmit)"
     ]
   }
 }

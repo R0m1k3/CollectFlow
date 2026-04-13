@@ -935,9 +935,31 @@ export interface PgCommandeAutoRow {
     ecart_franco: number;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapCommandeAutoRow(r: any): PgCommandeAutoRow {
+    return {
+        site:          String(r.site ?? ""),
+        codefou:       String(r.codefou ?? ""),
+        nomfou:        String(r.nom_fou ?? r.nomfou ?? ""),
+        franco:        Number(r.franco_ht ?? r.franco ?? 0),
+        nb_articles:   Number(r.nb_articles ?? 0),
+        montant_cde:   Number(r.montant_propo_ht ?? r.montant_cde ?? 0),
+        franco_atteint: r.franco_atteint === "OUI" ? true
+                      : r.franco_atteint === "NON" ? false
+                      : r.franco_atteint === "N/A" ? null
+                      : r.franco_atteint != null ? Boolean(r.franco_atteint)
+                      : null,
+        ecart_franco:  Number(r.ecart_franco ?? 0),
+    };
+}
+
 /**
  * Retourne la liste des fournisseurs en commande automatique via l'API Hostinger.
  * GET https://api.ffnancy.fr/api/commandes-auto
+ *
+ * Pour les fournisseurs dont le franco est absent de la réponse globale (franco_ht null),
+ * on enrichit via le detail endpoint /api/commandes-auto/:codefou?site= qui contient
+ * toujours le résumé franco du fournisseur.
  */
 export async function pgGetCommandesAuto(): Promise<PgCommandeAutoRow[]> {
     const FF_API_BASE = process.env.FF_API_BASE_URL ?? "https://api.ffnancy.fr";
@@ -945,26 +967,71 @@ export async function pgGetCommandesAuto(): Promise<PgCommandeAutoRow[]> {
         const res = await fetch(`${FF_API_BASE}/api/commandes-auto`, { cache: "no-store" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        // L'API peut retourner directement un tableau ou un objet wrappé
-        // L'API retourne { count: N, propositions: [...] }
+        // L'API retourne { count: N, propositions: [...] } ou un tableau direct
         const rows: unknown[] = Array.isArray(data)
             ? data
             : (data?.propositions ?? data?.data ?? data?.items ?? data?.results ?? []);
+
+        // Diagnostic : log les clés du premier row pour détecter les changements de format
+        if (rows.length > 0) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const sample = rows[0] as any;
+            console.log(`[pg-ff] pgGetCommandesAuto sample keys:`, Object.keys(sample));
+            console.log(`[pg-ff] pgGetCommandesAuto sample franco fields: franco_ht=${sample.franco_ht} franco=${sample.franco} franco_atteint=${sample.franco_atteint}`);
+        }
+
         console.log(`[pg-ff] pgGetCommandesAuto: ${rows.length} lignes (API Hostinger)`);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return (rows as any[]).map((r): PgCommandeAutoRow => ({
-            site:          String(r.site ?? ""),
-            codefou:       String(r.codefou ?? ""),
-            nomfou:        String(r.nom_fou ?? r.nomfou ?? ""),
-            franco:        Number(r.franco_ht ?? r.franco ?? 0),
-            nb_articles:   Number(r.nb_articles ?? 0),
-            montant_cde:   Number(r.montant_propo_ht ?? r.montant_cde ?? 0),
-            franco_atteint: r.franco_atteint === "OUI" ? true
-                          : r.franco_atteint === "NON" ? false
-                          : r.franco_atteint != null ? Boolean(r.franco_atteint)
-                          : null,
-            ecart_franco:  Number(r.ecart_franco ?? 0),
-        }));
+        const mapped = (rows as any[]).map(mapCommandeAutoRow);
+
+        // Enrichissement : pour les fournisseurs sans franco dans la réponse globale,
+        // on appelle le detail endpoint qui contient toujours franco_ht dans son résumé.
+        const missingFranco = mapped.filter(r => r.franco === 0 && r.codefou && r.site);
+        if (missingFranco.length > 0) {
+            console.log(`[pg-ff] pgGetCommandesAuto: ${missingFranco.length} lignes sans franco → enrichissement via detail endpoint`);
+            // Regrouper par (codefou, site) pour éviter les doublons
+            const pairs = Array.from(
+                new Map(missingFranco.map(r => [`${r.codefou}|${r.site}`, r])).values()
+            );
+            const details = await Promise.allSettled(
+                pairs.map(r =>
+                    fetch(`${FF_API_BASE}/api/commandes-auto/${encodeURIComponent(r.codefou)}?site=${encodeURIComponent(r.site)}`, { cache: "no-store" })
+                        .then(res2 => res2.ok ? res2.json() : null)
+                        .then(detail => {
+                            if (!detail) return null;
+                            // Le detail endpoint retourne { resume: { franco_ht, ... }, articles: [...] }
+                            // ou directement les champs du résumé
+                            const resume = detail?.resume ?? detail?.summary ?? detail;
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            const francoVal = Number((resume as any)?.franco_ht ?? (resume as any)?.franco ?? 0);
+                            return { codefou: r.codefou, site: r.site, franco: francoVal };
+                        })
+                        .catch(() => null)
+                )
+            );
+
+            // Construire un map (codefou|site) → franco enrichi
+            const francoMap = new Map<string, number>();
+            for (const result of details) {
+                if (result.status === "fulfilled" && result.value && result.value.franco > 0) {
+                    francoMap.set(`${result.value.codefou}|${result.value.site}`, result.value.franco);
+                }
+            }
+            console.log(`[pg-ff] pgGetCommandesAuto: francos enrichis:`, Object.fromEntries(francoMap));
+
+            // Appliquer les francos enrichis
+            return mapped.map(r => {
+                if (r.franco === 0) {
+                    const enrichedFranco = francoMap.get(`${r.codefou}|${r.site}`);
+                    if (enrichedFranco && enrichedFranco > 0) {
+                        return { ...r, franco: enrichedFranco };
+                    }
+                }
+                return r;
+            });
+        }
+
+        return mapped;
     } catch (e) {
         console.error("[pg-ff] pgGetCommandesAuto error:", (e as Error).message?.slice(0, 300));
         return [];
