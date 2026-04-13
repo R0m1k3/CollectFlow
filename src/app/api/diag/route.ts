@@ -245,6 +245,20 @@ export async function GET(req: NextRequest) {
         commandesAutoFrancoAudit = { error: String(e) };
     }
 
+    // Probe des fournisseurs N/A pour trouver où est leur franco
+    const [
+        detailM036_292,
+        detailM030_579,
+        fournisseurM036,
+        fournisseurM030,
+    ] = await Promise.all([
+        probe(`${FF_API_BASE}/api/commandes-auto/M036?site=292`),
+        probe(`${FF_API_BASE}/api/commandes-auto/M030?site=579`),
+        probe(`${FF_API_BASE}/api/fournisseurs/M036`),
+        probe(`${FF_API_BASE}/api/fournisseurs/M030`),
+    ]);
+    const francoNaProbe = { detailM036_292, detailM030_579, fournisseurM036, fournisseurM030 };
+
     // Raw commandes-auto (premier fournisseur) pour voir les champs réels retournés par l'API
     const rawCommandesAuto = await probe(`${FF_API_BASE}/api/commandes-auto`);
 
@@ -271,5 +285,6 @@ export async function GET(req: NextRequest) {
         francoDiag,
         rawCommandesAuto,
         commandesAutoFrancoAudit,
+        francoNaProbe,
     });
 }
