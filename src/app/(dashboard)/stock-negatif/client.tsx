@@ -117,15 +117,15 @@ function TabStockNegatif({ rows, magasin }: { rows: PgStockNegatifRow[]; magasin
         const ExcelJS = (await import("exceljs")).default;
         const wb = new ExcelJS.Workbook();
         const ws = wb.addWorksheet("Stock Négatif");
-        ws.addRow(["Code article", "Libellé", "Fournisseur", "Magasin", "Stock négatif", "Dernière vente", "Dernière entrée en stock"]);
+        ws.addRow(["CODEIN", "GENCODE", "QTE", "CODMV", "Dernière vente", "Dernière entrée"]);
         ws.getRow(1).eachCell(cell => {
             cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
             cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
             cell.alignment = { vertical: "middle", horizontal: "center" };
         });
         ws.getRow(1).height = 22;
-        for (const r of sorted) ws.addRow([r.codein, r.libelle1, r.fournisseur, r.site, r.stockdispo, fmtDate(r.dernierevente), fmtDate(r.derniereentree)]);
-        ws.columns = [{ width: 16 }, { width: 40 }, { width: 30 }, { width: 10 }, { width: 14 }, { width: 16 }, { width: 22 }];
+        for (const r of sorted) ws.addRow([r.codein, "", Math.abs(r.stockdispo), "503", fmtDate(r.dernierevente), fmtDate(r.derniereentree)]);
+        ws.columns = [{ width: 16 }, { width: 16 }, { width: 10 }, { width: 10 }, { width: 16 }, { width: 22 }];
         const buffer = await wb.xlsx.writeBuffer();
         const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
         const url = URL.createObjectURL(blob);
@@ -252,15 +252,15 @@ function TabEntreesSansVente({ rows, magasin }: { rows: PgStockSansVenteRow[]; m
         const ExcelJS = (await import("exceljs")).default;
         const wb = new ExcelJS.Workbook();
         const ws = wb.addWorksheet("Entrées sans vente");
-        ws.addRow(["Code article", "Libellé", "Fournisseur", "Magasin", "Stock actuel", "Dernière entrée"]);
+        ws.addRow(["CODEIN", "GENCODE", "QTE", "CODMV", "Dernière entrée"]);
         ws.getRow(1).eachCell(cell => {
             cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
             cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
             cell.alignment = { vertical: "middle", horizontal: "center" };
         });
         ws.getRow(1).height = 22;
-        for (const r of sorted) ws.addRow([r.codein, r.libelle1, r.fournisseur, r.site, r.stock_actuel, fmtDate(r.derniere_entree)]);
-        ws.columns = [{ width: 16 }, { width: 40 }, { width: 30 }, { width: 10 }, { width: 14 }, { width: 16 }];
+        for (const r of sorted) ws.addRow([r.codein, "", r.stock_actuel, "412", fmtDate(r.derniere_entree)]);
+        ws.columns = [{ width: 16 }, { width: 16 }, { width: 10 }, { width: 10 }, { width: 22 }];
         const buffer = await wb.xlsx.writeBuffer();
         const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
         const url = URL.createObjectURL(blob);
