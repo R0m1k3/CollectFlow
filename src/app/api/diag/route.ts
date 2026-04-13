@@ -195,6 +195,32 @@ export async function GET(req: NextRequest) {
         mvtartDiag = { error: String(e) };
     }
 
+    // Diagnostic franco : colonnes DB avec "franco" + sample fouident + raw commandes-auto
+    let francoDiag: unknown;
+    try {
+        const francoColumns = await db.execute(sql`
+            SELECT table_name, column_name, data_type
+            FROM information_schema.columns
+            WHERE column_name ILIKE '%franco%'
+               OR column_name ILIKE '%min_cmd%'
+               OR column_name ILIKE '%mincde%'
+               OR column_name ILIKE '%min_commande%'
+            ORDER BY table_name, column_name
+        `);
+        // Sample des 3 premières lignes de fouident pour voir toutes les colonnes
+        const fouidentSample = await db.execute(sql`SELECT * FROM fouident LIMIT 3`);
+        francoDiag = {
+            francoColumns: francoColumns.rows,
+            fouidentColumns: fouidentSample.rows.length > 0 ? Object.keys(fouidentSample.rows[0] as object) : [],
+            fouidentSample: fouidentSample.rows,
+        };
+    } catch (e) {
+        francoDiag = { error: String(e) };
+    }
+
+    // Raw commandes-auto (premier fournisseur) pour voir les champs réels retournés par l'API
+    const rawCommandesAuto = await probe(`${FF_API_BASE}/api/commandes-auto`);
+
     return NextResponse.json({
         timestamp: new Date().toISOString(),
         dateRange: { dateDebut, dateFin },
@@ -215,5 +241,7 @@ export async function GET(req: NextRequest) {
         postgresql,
         ventesProduitsDiag,
         mvtartDiag,
+        francoDiag,
+        rawCommandesAuto,
     });
 }
