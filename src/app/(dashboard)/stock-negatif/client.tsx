@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useMemo } from "react";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Download } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Download, Search } from "lucide-react";
 import type { PgStockNegatifRow, PgStockSansVenteRow } from "./page";
 
 type SortDir = "asc" | "desc";
@@ -81,6 +81,7 @@ function TabStockNegatif({ rows, magasin }: { rows: PgStockNegatifRow[]; magasin
 
     const [filterFournisseur, setFilterFournisseur] = useState("");
     const [filterAnnee, setFilterAnnee] = useState("");
+    const [search, setSearch] = useState("");
 
     const fournisseurs = useMemo(() =>
         [...new Set(rows.map(r => r.fournisseur).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr")),
@@ -91,10 +92,14 @@ function TabStockNegatif({ rows, magasin }: { rows: PgStockNegatifRow[]; magasin
         [rows]
     );
 
-    const filtered = useMemo(() => rows.filter(r =>
-        (!filterFournisseur || r.fournisseur === filterFournisseur) &&
-        (!filterAnnee || getYear(r.derniereentree) === filterAnnee)
-    ), [rows, filterFournisseur, filterAnnee]);
+    const filtered = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        return rows.filter(r =>
+            (!filterFournisseur || r.fournisseur === filterFournisseur) &&
+            (!filterAnnee || getYear(r.derniereentree) === filterAnnee) &&
+            (!q || r.codein?.toLowerCase().includes(q) || r.libelle1?.toLowerCase().includes(q))
+        );
+    }, [rows, filterFournisseur, filterAnnee, search]);
 
     const { sorted, sortKey, sortDir, handleSort } = useSortedRows<PgStockNegatifRow>(
         filtered,
@@ -135,11 +140,21 @@ function TabStockNegatif({ rows, magasin }: { rows: PgStockNegatifRow[]; magasin
         <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-3">
+                    <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+                        <input
+                            type="text"
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            placeholder="Code article ou libellé…"
+                            className="rounded-lg border border-gray-200 bg-white pl-8 pr-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[220px]"
+                        />
+                    </div>
                     <FilterSelect label="Fournisseur" value={filterFournisseur} onChange={setFilterFournisseur} options={fournisseurs} />
                     <FilterSelect label="Année entrée" value={filterAnnee} onChange={setFilterAnnee} options={annees} />
-                    {(filterFournisseur || filterAnnee) && (
+                    {(filterFournisseur || filterAnnee || search) && (
                         <button
-                            onClick={() => { setFilterFournisseur(""); setFilterAnnee(""); }}
+                            onClick={() => { setFilterFournisseur(""); setFilterAnnee(""); setSearch(""); }}
                             className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-medium text-orange-700 hover:bg-orange-100 transition-colors"
                         >
                             ✕ Réinitialiser
@@ -199,6 +214,7 @@ function TabEntreesSansVente({ rows, magasin }: { rows: PgStockSansVenteRow[]; m
 
     const [filterFournisseur, setFilterFournisseur] = useState("");
     const [filterAnnee, setFilterAnnee] = useState("");
+    const [search, setSearch] = useState("");
 
     const baseRows = useMemo(() => rows.filter(r => r.stock_actuel !== 0), [rows]);
 
@@ -211,10 +227,14 @@ function TabEntreesSansVente({ rows, magasin }: { rows: PgStockSansVenteRow[]; m
         [baseRows]
     );
 
-    const filtered = useMemo(() => baseRows.filter(r =>
-        (!filterFournisseur || r.fournisseur === filterFournisseur) &&
-        (!filterAnnee || getYear(r.derniere_entree) === filterAnnee)
-    ), [baseRows, filterFournisseur, filterAnnee]);
+    const filtered = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        return baseRows.filter(r =>
+            (!filterFournisseur || r.fournisseur === filterFournisseur) &&
+            (!filterAnnee || getYear(r.derniere_entree) === filterAnnee) &&
+            (!q || r.codein?.toLowerCase().includes(q) || r.libelle1?.toLowerCase().includes(q))
+        );
+    }, [baseRows, filterFournisseur, filterAnnee, search]);
 
     const { sorted, sortKey, sortDir, handleSort } = useSortedRows<PgStockSansVenteRow>(
         filtered,
@@ -255,11 +275,21 @@ function TabEntreesSansVente({ rows, magasin }: { rows: PgStockSansVenteRow[]; m
         <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-3">
+                    <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+                        <input
+                            type="text"
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            placeholder="Code article ou libellé…"
+                            className="rounded-lg border border-gray-200 bg-white pl-8 pr-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[220px]"
+                        />
+                    </div>
                     <FilterSelect label="Fournisseur" value={filterFournisseur} onChange={setFilterFournisseur} options={fournisseurs} />
                     <FilterSelect label="Année entrée" value={filterAnnee} onChange={setFilterAnnee} options={annees} />
-                    {(filterFournisseur || filterAnnee) && (
+                    {(filterFournisseur || filterAnnee || search) && (
                         <button
-                            onClick={() => { setFilterFournisseur(""); setFilterAnnee(""); }}
+                            onClick={() => { setFilterFournisseur(""); setFilterAnnee(""); setSearch(""); }}
                             className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-medium text-orange-700 hover:bg-orange-100 transition-colors"
                         >
                             ✕ Réinitialiser
