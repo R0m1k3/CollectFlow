@@ -41,6 +41,10 @@ export function BulkAiAnalyzer() {
         const { rows } = useGridStore.getState();
         isCancelledRef.current = false;
 
+        // Show immediate visual feedback before any async work
+        setIsAnalyzing(true);
+        setProgress({ current: 0, total: 0, message: "Chargement du contexte...", errors: 0 });
+
         // 1. Fetch AI Context for the Supplier
         let supplierContext = "";
         if (supplierCode) {
@@ -166,7 +170,6 @@ export function BulkAiAnalyzer() {
 
         // 2c. Context profiling en micro-batches asynchrones
         //    Le score est déjà calculé par score-engine.ts (champ row.score sur chaque ProductRow).
-        setIsAnalyzing(true);
         setProgress({ current: 0, total: payloadsWithSales.length, message: "Calcul du contexte...", errors: 0 });
 
         const SCORING_BATCH_SIZE = 25;

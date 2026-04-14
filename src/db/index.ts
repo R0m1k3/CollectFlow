@@ -7,6 +7,11 @@ import path from "path";
 let pool: Pool | null = null;
 let currentDb: NodePgDatabase<typeof schema> | null = null;
 
+export function getPool(): Pool {
+    getDb(); // ensure pool is initialized
+    return pool!;
+}
+
 function maskUrl(url: string | undefined) {
     if (!url) return "undefined";
     return url.replace(/:([^@]+)@/, ":****@");

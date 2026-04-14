@@ -13,7 +13,7 @@ const SITE_LABELS: Record<string, string> = { "292": "Frouard", "579": "Houdemon
 export async function POST(req: NextRequest) {
     const config = await getSavedDatabaseConfig();
     const apiKey = process.env.OPENROUTER_API_KEY || config?.openRouterKey;
-    const model = config?.openRouterModel || "google/gemini-flash-1.5";
+    const model = config?.openRouterModel || "google/gemini-2.0-flash-001";
 
     if (!apiKey) {
         console.error("[AI] OPENROUTER_API_KEY is missing.");
@@ -54,8 +54,22 @@ export async function POST(req: NextRequest) {
             }
         }
 
-        const client = new OpenRouterClient({ apiKey, model });
-        const result = await client.analyzeProduct(enrichedBody);
+        const FALLBACK_MODEL = "google/gemini-2.0-flash-001";
+        let client = new OpenRouterClient({ apiKey, model });
+        let result;
+        try {
+            result = await client.analyzeProduct(enrichedBody);
+        } catch (modelErr) {
+            // If configured model fails (e.g., deprecated), retry with fallback
+            const msg = modelErr instanceof Error ? modelErr.message : "";
+            if (model !== FALLBACK_MODEL && (msg.includes("400") || msg.includes("404") || msg.includes("OpenRouter error"))) {
+                console.warn(`[AI] Model "${model}" failed (${msg}), retrying with fallback ${FALLBACK_MODEL}`);
+                client = new OpenRouterClient({ apiKey, model: FALLBACK_MODEL });
+                result = await client.analyzeProduct(enrichedBody);
+            } else {
+                throw modelErr;
+            }
+        }
 
         return NextResponse.json(result);
     } catch (err) {

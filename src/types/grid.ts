@@ -33,6 +33,9 @@ export interface ProductRow {
     codein: string;
     codeFournisseur: string;
     nomFournisseur: string;
+    /** Dernier fournisseur enregistré pour cet article (artfou1.no_id DESC). Peut différer du fournisseur consulté. */
+    fournisseurPrincipalCode?: string;
+    fournisseurPrincipalNom?: string;
     libelle1: string;
     gtin: string;
     reference: string;

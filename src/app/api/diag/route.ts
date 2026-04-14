@@ -195,6 +195,73 @@ export async function GET(req: NextRequest) {
         mvtartDiag = { error: String(e) };
     }
 
+    // Diagnostic franco : colonnes DB avec "franco" + sample fouident + raw commandes-auto
+    let francoDiag: unknown;
+    try {
+        const francoColumns = await db.execute(sql`
+            SELECT table_name, column_name, data_type
+            FROM information_schema.columns
+            WHERE column_name ILIKE '%franco%'
+               OR column_name ILIKE '%min_cmd%'
+               OR column_name ILIKE '%mincde%'
+               OR column_name ILIKE '%min_commande%'
+            ORDER BY table_name, column_name
+        `);
+        // Sample des 3 premières lignes de fouident pour voir toutes les colonnes
+        const fouidentSample = await db.execute(sql`SELECT * FROM fouident LIMIT 3`);
+        const foucadSample = await db.execute(sql`SELECT * FROM foucad LIMIT 5`);
+        francoDiag = {
+            francoColumns: francoColumns.rows,
+            fouidentColumns: fouidentSample.rows.length > 0 ? Object.keys(fouidentSample.rows[0] as object) : [],
+            fouidentSample: fouidentSample.rows,
+            foucadColumns: foucadSample.rows.length > 0 ? Object.keys(foucadSample.rows[0] as object) : [],
+            foucadSample: foucadSample.rows,
+        };
+    } catch (e) {
+        francoDiag = { error: String(e) };
+    }
+
+    // Raw commandes-auto : récupère toutes les lignes et filtre celles avec franco_ht manquant
+    let commandesAutoFrancoAudit: unknown;
+    try {
+        const caRes = await fetch(`${FF_API_BASE}/api/commandes-auto`, { cache: "no-store" });
+        const caData = await caRes.json();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const caRows: any[] = Array.isArray(caData) ? caData : (caData?.propositions ?? caData?.data ?? []);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const withFranco    = caRows.filter((r: any) => r.franco_ht != null && Number(r.franco_ht) > 0);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const withoutFranco = caRows.filter((r: any) => r.franco_ht == null || Number(r.franco_ht) === 0);
+        commandesAutoFrancoAudit = {
+            total: caRows.length,
+            avecFranco: withFranco.length,
+            sansFranco: withoutFranco.length,
+            lignesSansFranco: withoutFranco.map((r: any) => ({
+                site: r.site, codefou: r.codefou, nom_fou: r.nom_fou,
+                franco_ht: r.franco_ht, franco_atteint: r.franco_atteint,
+            })),
+        };
+    } catch (e) {
+        commandesAutoFrancoAudit = { error: String(e) };
+    }
+
+    // Probe des fournisseurs N/A pour trouver où est leur franco
+    const [
+        detailM036_292,
+        detailM030_579,
+        fournisseurM036,
+        fournisseurM030,
+    ] = await Promise.all([
+        probe(`${FF_API_BASE}/api/commandes-auto/M036?site=292`),
+        probe(`${FF_API_BASE}/api/commandes-auto/M030?site=579`),
+        probe(`${FF_API_BASE}/api/fournisseurs/M036`),
+        probe(`${FF_API_BASE}/api/fournisseurs/M030`),
+    ]);
+    const francoNaProbe = { detailM036_292, detailM030_579, fournisseurM036, fournisseurM030 };
+
+    // Raw commandes-auto (premier fournisseur) pour voir les champs réels retournés par l'API
+    const rawCommandesAuto = await probe(`${FF_API_BASE}/api/commandes-auto`);
+
     return NextResponse.json({
         timestamp: new Date().toISOString(),
         dateRange: { dateDebut, dateFin },
@@ -215,5 +282,9 @@ export async function GET(req: NextRequest) {
         postgresql,
         ventesProduitsDiag,
         mvtartDiag,
+        francoDiag,
+        rawCommandesAuto,
+        commandesAutoFrancoAudit,
+        francoNaProbe,
     });
 }

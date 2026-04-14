@@ -11,6 +11,9 @@ export interface DbConfig {
     url: string;
     openRouterKey?: string;
     openRouterModel?: string;
+    aiProvider?: "openrouter" | "google";
+    googleAiKey?: string;
+    googleAiModel?: string;
 }
 
 export async function testDatabaseConnection(url: string) {
@@ -34,9 +37,16 @@ export async function testDatabaseConnection(url: string) {
     }
 }
 
-export async function saveDatabaseSettings(url: string, openRouterKey?: string, openRouterModel?: string) {
+export async function saveDatabaseSettings(
+    url: string,
+    openRouterKey?: string,
+    openRouterModel?: string,
+    aiProvider?: "openrouter" | "google",
+    googleAiKey?: string,
+    googleAiModel?: string,
+) {
     try {
-        const config: DbConfig = { url, openRouterKey, openRouterModel };
+        const config: DbConfig = { url, openRouterKey, openRouterModel, aiProvider, googleAiKey, googleAiModel };
 
         // S'assurer que le dossier data existe
         await fs.mkdir(DATA_DIR, { recursive: true });

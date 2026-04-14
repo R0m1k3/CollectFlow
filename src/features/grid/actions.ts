@@ -2,8 +2,8 @@
 
 import { getSitesFromApi } from "@/lib/api-ff-client";
 import { pgGetFournisseurs } from "@/lib/pg-ff-client";
-import { getProductRows, type GetProductRowsResult } from "./api/get-product-rows";
-import type { GridFilters } from "@/types/grid";
+import { getProductRows } from "./api/get-product-rows";
+import type { ProductRow, GridFilters } from "@/types/grid";
 
 /**
  * Get the list of all suppliers from PostgreSQL (fouadr1).
@@ -21,21 +21,19 @@ export async function getMagasins() {
 
 /**
  * Nomenclature filter is disabled — code3 is not available from the API.
+ * Returns an empty hierarchy so the sidebar filter is hidden gracefully.
  */
 export async function getAvailableNomenclature() {
     return {};
 }
 
 /**
- * Retourne tous les produits d'un fournisseur.
- * La charge est paginée (renvoie la première page en SSR) pour empêcher le figeage du thread principal UI.
+ * Get product data for a specific supplier and store.
  */
 export async function getGridData(
     codeFournisseur: string,
     magasin: string = "TOTAL",
-    filters?: Partial<GridFilters>,
-    page: number = 0,
-    pageSize: number = 200,
-): Promise<GetProductRowsResult> {
-    return getProductRows({ codeFournisseur, magasin, filters, page, pageSize });
+    filters?: Partial<GridFilters>
+): Promise<ProductRow[]> {
+    return getProductRows({ codeFournisseur, magasin, filters });
 }

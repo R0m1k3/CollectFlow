@@ -42,9 +42,11 @@ export interface PgArticle {
     pcb?: number;
     reference?: string;
     ean13?: string;
-    gtin?: string;          // art_gtin.gtin (préférentiel)
-    pv_central?: number;    // article_infosup.prix_vente_mini
-    pa?: number;            // cube_pa.pa
+    gtin?: string;              // art_gtin.gtin (préférentiel)
+    pv_central?: number;        // article_infosup.prix_vente_mini
+    pa?: number;                // cube_pa.pa
+    codefou_principal?: string; // artfou1.code où preference=1
+    nomfou_principal?: string;  // nom du fournisseur principal
 }
 
 export interface PgMensuelRow {
@@ -117,6 +119,7 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
     // Pas de filtre "actif" : on retourne tous les articles pour ne pas exclure les articles
     // d'une session précédente (snapshot) qui n'ont pas de gamme DB ni de ventes récentes.
     // Le filtrage gamme-Y sans ventes est fait en aval dans getProductRows (Phase 10).
+    // afpref : fournisseur préférentiel (preference=1) de l'article — peut différer du fournisseur consulté.
     const result = await pgNoParallel(sql`
         SELECT DISTINCT ON (a.no_id)
             a.no_id,
@@ -129,15 +132,27 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
             af.ean13,
             COALESCE(ag.gtin, af.ean13) AS gtin,
             ai.prix_vente_mini          AS pv_central,
-            pa.pa
+            pa.pa,
+            last_fournisseur.codefou_dernier AS codefou_principal,
+            last_fournisseur.nomfou_dernier  AS nomfou_principal
         FROM artfou1 af
         JOIN articles a ON a.no_id = af.art_no_id
         LEFT JOIN fouident fi ON fi.code = af.code
         LEFT JOIN article_infosup ai ON ai.artnoid = a.no_id
         LEFT JOIN cube_pa pa ON pa.artnoid = a.no_id
         LEFT JOIN art_gtin ag ON ag.idarticle = a.no_id AND ag.preferentiel = 1
+        LEFT JOIN LATERAL (
+            SELECT af2.code AS codefou_dernier, fi2.nom AS nomfou_dernier
+            FROM artfou1 af2
+            LEFT JOIN fouident fi2 ON fi2.code = af2.code
+            WHERE af2.art_no_id = a.no_id
+            ORDER BY af2.no_id DESC
+            LIMIT 1
+        ) last_fournisseur ON true
         WHERE af.code = ${codefou}
           AND a.codein IS NOT NULL
+          AND (af.suspendu IS NULL OR af.suspendu::text NOT IN ('1', 'true', 't', 'yes', 'y', 'on'))
+          AND (a.suspendu IS NULL OR a.suspendu::text NOT IN ('1', 'true', 't', 'yes', 'y', 'on'))
         ORDER BY a.no_id, af.no_id
     `);
 
@@ -702,34 +717,71 @@ export interface HitParadeRow {
     codein: string;
     libelle: string;
     fournisseur: string;
+    nomenclature_code: string;
+    nomenclature: string;
     site: string;
     qte_vendue: number;
     ca_ttc: number;
     marge: number;
+    stock292: number;
+    stock579: number;
+    stockTotal: number;
 }
 
 /**
- * Retourne les ventes produit sur une période, avec fournisseur, qté, CA TTC et marge par site.
+ * Retourne les ventes produit sur une période, avec fournisseur, qté, CA TTC, marge et stock par site.
+ * Le stock est intégré via un LEFT JOIN — pas de requête séparée, pas de tableau de paramètres.
  */
 export async function pgGetHitParade(dateDebut: string, dateFin: string): Promise<HitParadeRow[]> {
     const result = await pgNoParallel(sql`
+        WITH ventes AS (
+            SELECT
+                a.no_id                                                         AS art_no_id,
+                a.codein::text                                                  AS codein,
+                a.libelle1::text                                                AS libelle,
+                COALESCE(fi.nom, af.code, 'Sans fournisseur')::text             AS fournisseur,
+                COALESCE(n.code, '')::text                                      AS nomenclature_code,
+                COALESCE(n.libelle, 'Sans nomenclature')::text                  AS nomenclature,
+                m.site,
+                SUM(ABS(m.qtemvt))::float                                      AS qte_vendue,
+                ABS(SUM(m.mntmvtttc))::float                                   AS ca_ttc,
+                SUM(m.margemvt)::float                                          AS marge
+            FROM mvtart m
+            JOIN articles a      ON a.no_id        = m.artnoid
+            LEFT JOIN artfou1 af ON af.art_no_id   = a.no_id AND af.preference = 1
+            LEFT JOIN fouident fi ON fi.code        = af.code
+            LEFT JOIN nomenclature n ON n.no_id     = a.nom_no_id
+            WHERE m.datmvt BETWEEN ${dateDebut}::date AND ${dateFin}::date
+              AND m.site IN ('292', '579')
+              AND m.genremvt = 3
+            GROUP BY a.no_id, a.codein, a.libelle1, fi.nom, af.code, n.code, n.libelle, m.site
+        ),
+        stock_agg AS (
+            SELECT
+                cs.artnoid,
+                SUM(CASE WHEN cs.site = '292' THEN cs.qte ELSE 0 END)::float AS stock292,
+                SUM(CASE WHEN cs.site = '579' THEN cs.qte ELSE 0 END)::float AS stock579,
+                SUM(cs.qte)::float                                            AS stockTotal
+            FROM cube_stock cs
+            WHERE cs.artnoid IN (SELECT DISTINCT art_no_id FROM ventes)
+            GROUP BY cs.artnoid
+        )
         SELECT
-            a.codein::text                                              AS codein,
-            a.libelle1::text                                            AS libelle,
-            COALESCE(fi.nom, af.code, 'Sans fournisseur')::text         AS fournisseur,
-            m.site,
-            SUM(ABS(m.qtemvt))::float                                  AS qte_vendue,
-            ABS(SUM(m.mntmvtttc))::float                               AS ca_ttc,
-            SUM(m.margemvt)::float                                      AS marge
-        FROM mvtart m
-        JOIN articles a      ON a.no_id        = m.artnoid
-        LEFT JOIN artfou1 af ON af.art_no_id   = a.no_id AND af.preference = 1
-        LEFT JOIN fouident fi ON fi.code        = af.code
-        WHERE m.datmvt BETWEEN ${dateDebut}::date AND ${dateFin}::date
-          AND m.site IN ('292', '579')
-          AND m.genremvt = 3
-        GROUP BY a.codein, a.libelle1, fi.nom, af.code, m.site
-        ORDER BY ca_ttc DESC
+            v.codein,
+            v.libelle,
+            v.fournisseur,
+            v.nomenclature_code,
+            v.nomenclature,
+            v.site,
+            v.qte_vendue,
+            v.ca_ttc,
+            v.marge,
+            COALESCE(s.stock292, 0)    AS stock292,
+            COALESCE(s.stock579, 0)    AS stock579,
+            COALESCE(s.stockTotal, 0)  AS "stockTotal"
+        FROM ventes v
+        LEFT JOIN stock_agg s ON s.artnoid = v.art_no_id
+        ORDER BY v.ca_ttc DESC
     `);
 
     console.log(`[pg-ff] HitParade: ${result.rows.length} lignes pour ${dateDebut}→${dateFin}`);
@@ -749,26 +801,25 @@ export interface StockBySite {
 /**
  * Retourne le stock actuel (stockdispo) par codein pour une liste de codeins.
  * 1 seule requête bulk — utilisé pour enrichir le Hit Parade.
+ *
+ * On passe les codeins comme une SEULE chaîne CSV ($1) et on utilise
+ * string_to_array côté PG — cela évite l'expansion Drizzle en $1,$2,...$N
+ * qui déclencherait le PG error 54011 (ROW > 1664 entries).
  */
 export async function pgGetStockForCodeins(codeins: string[]): Promise<Map<string, StockBySite>> {
     if (codeins.length === 0) return new Map();
 
-    // Drizzle expands JS arrays into individual $1,$2,... params regardless of syntax,
-    // hitting PostgreSQL's 1664-entry ROW expression limit. Use sql.raw() with an escaped
-    // literal array instead — codeins come from the DB so single-quote escaping is sufficient.
-    const arrayLiteral = codeins.map(c => `'${String(c).replace(/'/g, "''")}'`).join(",");
-    const result = await pgNoParallel(sql`
-        SELECT
-            a.codein,
-            cs.site,
-            cs.stockdispo::float AS stockdispo
-        FROM cube_stock cs
-        JOIN articles a ON a.no_id = cs.artnoid
-        WHERE a.codein = ANY(ARRAY[${sql.raw(arrayLiteral)}])
-    `);
+    const codeinsStr = codeins.join(",");
+    const result = await pgNoParallel(
+        sql`SELECT a.codein, cs.site, cs.stockdispo::float AS stockdispo
+            FROM cube_stock cs
+            JOIN articles a ON a.no_id = cs.artnoid
+            WHERE a.codein = ANY(string_to_array(${codeinsStr}, ','))`
+    );
+    const rows = result.rows as { codein: string; site: string; stockdispo: number }[];
 
     const map = new Map<string, StockBySite>();
-    for (const r of result.rows as Array<{ codein: string; site: string; stockdispo: number }>) {
+    for (const r of rows) {
         if (!map.has(r.codein)) map.set(r.codein, { stock292: 0, stock579: 0, stockTotal: 0 });
         const entry = map.get(r.codein)!;
         if (r.site === "292") entry.stock292 += r.stockdispo;
@@ -776,4 +827,213 @@ export async function pgGetStockForCodeins(codeins: string[]): Promise<Map<strin
         entry.stockTotal += r.stockdispo;
     }
     return map;
+}
+
+// ---------------------------------------------------------------------------
+// Stock négatif — tous magasins ou par site
+// ---------------------------------------------------------------------------
+
+export interface PgStockNegatifRow {
+    codein: string;
+    libelle1: string;
+    fournisseur: string;
+    site: string;
+    stockdispo: number;
+    dernierevente: string | null;
+    derniereentree: string | null;
+}
+
+/**
+ * Retourne tous les articles avec un stock disponible négatif.
+ * Si `site` est fourni, filtre sur ce magasin uniquement.
+ */
+export interface PgStockSansVenteRow {
+    codein: string;
+    libelle1: string;
+    fournisseur: string;
+    site: string;
+    stock_actuel: number;
+    derniere_entree: string | null;
+}
+
+/**
+ * Retourne les articles ayant des entrées en stock (hors mois courant)
+ * mais aucune vente enregistrée sur ce site.
+ */
+export async function pgGetStockSansVente(site?: string): Promise<PgStockSansVenteRow[]> {
+    const siteFilter = site ? sql`AND m.site = ${site}` : sql``;
+    const result = await pgNoParallel(sql`
+        SELECT
+            a.codein,
+            COALESCE(a.libelle1, '') AS libelle1,
+            COALESCE(f.nom, af.code) AS fournisseur,
+            m.site,
+            COALESCE(cs.qte::float, 0) AS stock_actuel,
+            MAX(m.datmvt)::text AS derniere_entree
+        FROM mvtart m
+        JOIN articles a ON a.no_id = m.artnoid
+        JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
+        JOIN fouident f ON f.code = af.code
+        LEFT JOIN cube_stock cs ON cs.artnoid = a.no_id AND cs.site = m.site
+        WHERE m.genremvt IN (1, 2)
+          AND m.site IN ('292', '579')
+          AND date_trunc('month', m.datmvt) < date_trunc('month', CURRENT_DATE)
+          ${siteFilter}
+          AND NOT EXISTS (
+              SELECT 1 FROM mvtart mv2
+              WHERE mv2.artnoid = m.artnoid
+                AND mv2.site = m.site
+                AND mv2.genremvt = 3
+          )
+        GROUP BY a.codein, a.libelle1, f.nom, af.code, m.site, cs.qte
+        ORDER BY MAX(m.datmvt) DESC
+    `);
+    return result.rows as PgStockSansVenteRow[];
+}
+
+export async function pgGetStockNegatif(site?: string): Promise<PgStockNegatifRow[]> {
+    const siteFilter = site ? sql`AND cs.site = ${site}` : sql``;
+    const result = await pgNoParallel(sql`
+        SELECT
+            a.codein,
+            COALESCE(a.libelle1, '') AS libelle1,
+            COALESCE(f.nom, af.code) AS fournisseur,
+            cs.site,
+            cs.qte::float AS stockdispo,
+            cs.dernierevente::text,
+            (
+                SELECT MAX(m.datmvt)::text
+                FROM mvtart m
+                WHERE m.artnoid = cs.artnoid
+                  AND m.site = cs.site
+                  AND m.genremvt IN (1, 2)
+            ) AS derniereentree
+        FROM cube_stock cs
+        JOIN articles a ON a.no_id = cs.artnoid
+        JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
+        JOIN fouident f ON f.code = af.code
+        WHERE cs.qte < 0
+          AND cs.site IN ('292', '579')
+        ${siteFilter}
+        ORDER BY cs.stockdispo ASC
+    `);
+    return result.rows as PgStockNegatifRow[];
+}
+
+// ---------------------------------------------------------------------------
+// Commandes automatiques — par site + fournisseur avec franco
+// ---------------------------------------------------------------------------
+
+export interface PgCommandeAutoRow {
+    site: string;
+    codefou: string;
+    nomfou: string;
+    franco: number;
+    nb_articles: number;
+    montant_cde: number;
+    franco_atteint: boolean | null;
+    ecart_franco: number;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapCommandeAutoRow(r: any): PgCommandeAutoRow {
+    return {
+        site:          String(r.site ?? ""),
+        codefou:       String(r.codefou ?? ""),
+        nomfou:        String(r.nom_fou ?? r.nomfou ?? ""),
+        franco:        Number(r.franco_ht ?? r.franco ?? 0),
+        nb_articles:   Number(r.nb_articles ?? 0),
+        montant_cde:   Number(r.montant_propo_ht ?? r.montant_cde ?? 0),
+        franco_atteint: r.franco_atteint === "OUI" ? true
+                      : r.franco_atteint === "NON" ? false
+                      : r.franco_atteint === "N/A" ? null
+                      : r.franco_atteint != null ? Boolean(r.franco_atteint)
+                      : null,
+        ecart_franco:  Number(r.ecart_franco ?? 0),
+    };
+}
+
+/**
+ * Retourne la liste des fournisseurs en commande automatique via l'API Hostinger.
+ * GET https://api.ffnancy.fr/api/commandes-auto
+ *
+ * Pour les fournisseurs dont le franco est absent de la réponse globale (franco_ht null),
+ * on enrichit via le detail endpoint /api/commandes-auto/:codefou?site= qui contient
+ * toujours le résumé franco du fournisseur.
+ */
+export async function pgGetCommandesAuto(): Promise<PgCommandeAutoRow[]> {
+    const FF_API_BASE = process.env.FF_API_BASE_URL ?? "https://api.ffnancy.fr";
+    try {
+        const res = await fetch(`${FF_API_BASE}/api/commandes-auto`, { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        // L'API retourne { count: N, propositions: [...] } ou un tableau direct
+        const rows: unknown[] = Array.isArray(data)
+            ? data
+            : (data?.propositions ?? data?.data ?? data?.items ?? data?.results ?? []);
+
+        // Diagnostic : log les clés du premier row pour détecter les changements de format
+        if (rows.length > 0) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const sample = rows[0] as any;
+            console.log(`[pg-ff] pgGetCommandesAuto sample keys:`, Object.keys(sample));
+            console.log(`[pg-ff] pgGetCommandesAuto sample franco fields: franco_ht=${sample.franco_ht} franco=${sample.franco} franco_atteint=${sample.franco_atteint}`);
+        }
+
+        console.log(`[pg-ff] pgGetCommandesAuto: ${rows.length} lignes (API Hostinger)`);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const mapped = (rows as any[]).map(mapCommandeAutoRow);
+
+        // Enrichissement : pour les fournisseurs sans franco dans la réponse globale,
+        // on appelle le detail endpoint qui contient toujours franco_ht dans son résumé.
+        const missingFranco = mapped.filter(r => r.franco === 0 && r.codefou && r.site);
+        if (missingFranco.length > 0) {
+            console.log(`[pg-ff] pgGetCommandesAuto: ${missingFranco.length} lignes sans franco → enrichissement via detail endpoint`);
+            // Regrouper par (codefou, site) pour éviter les doublons
+            const pairs = Array.from(
+                new Map(missingFranco.map(r => [`${r.codefou}|${r.site}`, r])).values()
+            );
+            const details = await Promise.allSettled(
+                pairs.map(r =>
+                    fetch(`${FF_API_BASE}/api/commandes-auto/${encodeURIComponent(r.codefou)}?site=${encodeURIComponent(r.site)}`, { cache: "no-store" })
+                        .then(res2 => res2.ok ? res2.json() : null)
+                        .then(detail => {
+                            if (!detail) return null;
+                            // Le detail endpoint retourne { resume: { franco_ht, ... }, articles: [...] }
+                            // ou directement les champs du résumé
+                            const resume = detail?.resume ?? detail?.summary ?? detail;
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            const francoVal = Number((resume as any)?.franco_ht ?? (resume as any)?.franco ?? 0);
+                            return { codefou: r.codefou, site: r.site, franco: francoVal };
+                        })
+                        .catch(() => null)
+                )
+            );
+
+            // Construire un map (codefou|site) → franco enrichi
+            const francoMap = new Map<string, number>();
+            for (const result of details) {
+                if (result.status === "fulfilled" && result.value && result.value.franco > 0) {
+                    francoMap.set(`${result.value.codefou}|${result.value.site}`, result.value.franco);
+                }
+            }
+            console.log(`[pg-ff] pgGetCommandesAuto: francos enrichis:`, Object.fromEntries(francoMap));
+
+            // Appliquer les francos enrichis
+            return mapped.map(r => {
+                if (r.franco === 0) {
+                    const enrichedFranco = francoMap.get(`${r.codefou}|${r.site}`);
+                    if (enrichedFranco && enrichedFranco > 0) {
+                        return { ...r, franco: enrichedFranco };
+                    }
+                }
+                return r;
+            });
+        }
+
+        return mapped;
+    } catch (e) {
+        console.error("[pg-ff] pgGetCommandesAuto error:", (e as Error).message?.slice(0, 300));
+        return [];
+    }
 }

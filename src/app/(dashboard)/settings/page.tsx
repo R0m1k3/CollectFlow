@@ -118,8 +118,16 @@ export default function SettingsPage() {
     const [dbError, setDbError] = useState<string | null>(null);
     const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
     const [models, setModels] = useState<OpenRouterModel[]>([]);
-    const [selectedModel, setSelectedModel] = useState("google/gemini-flash-1.5");
+    const [selectedModel, setSelectedModel] = useState("google/gemini-2.0-flash-001");
     const [modelsStatus, setModelsStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
+
+    // AI Provider
+    const [aiProvider, setAiProvider] = useState<"openrouter" | "google">("openrouter");
+    const [googleAiKey, setGoogleAiKey] = useState("");
+    const [showGoogleKey, setShowGoogleKey] = useState(false);
+    const [googleAiModel, setGoogleAiModel] = useState("");
+    const [googleModels, setGoogleModels] = useState<{ id: string; name: string }[]>([]);
+    const [googleModelsStatus, setGoogleModelsStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
 
     const [isMounted, setIsMounted] = useState(false);
 
@@ -132,6 +140,20 @@ export default function SettingsPage() {
         ssl, setSsl,
         getDatabaseUrl
     } = useDbSettingsStore();
+
+    const fetchGoogleModels = useCallback(async (key: string) => {
+        if (!key.trim()) return;
+        setGoogleModelsStatus("loading");
+        try {
+            const res = await fetch("/api/google-ai/models", { headers: { "x-google-ai-key": key } });
+            if (!res.ok) throw new Error();
+            const data = await res.json();
+            setGoogleModels(data.models ?? []);
+            setGoogleModelsStatus("ok");
+        } catch {
+            setGoogleModelsStatus("error");
+        }
+    }, []);
 
     const fetchModels = useCallback(async (key: string) => {
         if (!key.trim()) return;
@@ -171,8 +193,14 @@ export default function SettingsPage() {
             if (config.openRouterModel) {
                 setSelectedModel(config.openRouterModel);
             }
+            if (config.aiProvider) setAiProvider(config.aiProvider);
+            if (config.googleAiKey) {
+                setGoogleAiKey(config.googleAiKey);
+                fetchGoogleModels(config.googleAiKey);
+            }
+            if (config.googleAiModel) setGoogleAiModel(config.googleAiModel);
         }
-    }, [fetchModels, setApiKey, setDatabase, setHost, setPassword, setPort, setSelectedModel, setSsl, setUser]);
+    }, [fetchModels, fetchGoogleModels, setApiKey, setDatabase, setHost, setPassword, setPort, setSelectedModel, setSsl, setUser]);
 
     useEffect(() => {
         setIsMounted(true);
@@ -195,7 +223,7 @@ export default function SettingsPage() {
     const handleSave = async () => {
         setSaveStatus("saving");
         const url = getDatabaseUrl();
-        const res = await saveDatabaseSettings(url, apiKey, selectedModel);
+        const res = await saveDatabaseSettings(url, apiKey, selectedModel, aiProvider, googleAiKey, googleAiModel);
         if (res.success) {
             setSaveStatus("saved");
             setTimeout(() => setSaveStatus("idle"), 2500);
@@ -308,6 +336,86 @@ export default function SettingsPage() {
             {/* API FF Nancy */}
             <FfApiStatusSection />
 
+            {/* AI Provider selector */}
+            <Section title="Admin AI Chat — Fournisseur" subtitle="Choisissez le fournisseur IA utilisé dans l'onglet Admin AI Chat">
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => setAiProvider("openrouter")}
+                        className={`flex-1 py-2.5 px-4 rounded-lg border text-[13px] font-medium transition-colors ${aiProvider === "openrouter" ? "border-[var(--accent)] bg-[var(--accent-bg)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"}`}
+                    >
+                        OpenRouter
+                    </button>
+                    <button
+                        onClick={() => setAiProvider("google")}
+                        className={`flex-1 py-2.5 px-4 rounded-lg border text-[13px] font-medium transition-colors ${aiProvider === "google" ? "border-[var(--accent)] bg-[var(--accent-bg)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"}`}
+                    >
+                        Google AI Studio
+                    </button>
+                </div>
+
+                {aiProvider === "google" && (
+                    <>
+                        <Field label="Clé API Google AI Studio" hint="Disponible sur aistudio.google.com/apikey — commence par AIza...">
+                            <div className="flex gap-2">
+                                <div className="relative flex-1">
+                                    <input
+                                        type={showGoogleKey ? "text" : "password"}
+                                        placeholder="AIzaSy..."
+                                        value={googleAiKey}
+                                        onChange={(e) => setGoogleAiKey(e.target.value)}
+                                        className="apple-input font-mono pr-10"
+                                    />
+                                    <button
+                                        onClick={() => setShowGoogleKey((v) => !v)}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 transition-opacity"
+                                    >
+                                        {showGoogleKey ? <EyeOff className="w-4 h-4" style={{ color: "var(--text-primary)" }} /> : <Eye className="w-4 h-4" style={{ color: "var(--text-primary)" }} />}
+                                    </button>
+                                </div>
+                                <button
+                                    onClick={() => fetchGoogleModels(googleAiKey)}
+                                    disabled={!googleAiKey || googleModelsStatus === "loading"}
+                                    className="apple-btn-secondary h-9 px-4 whitespace-nowrap"
+                                >
+                                    {googleModelsStatus === "loading" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                                    Charger les modèles
+                                </button>
+                            </div>
+                        </Field>
+                        <Field
+                            label={`Modèle Google${googleModels.length > 0 ? ` (${googleModels.length} disponibles)` : ""}`}
+                            hint={googleModelsStatus === "error" ? "⚠ Erreur — vérifiez votre clé puis rechargez" : googleModelsStatus === "idle" ? "Entrez votre clé et cliquez « Charger les modèles »" : undefined}
+                        >
+                            {googleModels.length > 0 ? (
+                                <select
+                                    value={googleAiModel}
+                                    onChange={(e) => setGoogleAiModel(e.target.value)}
+                                    className="apple-input"
+                                >
+                                    {googleModels.map((m) => (
+                                        <option key={m.id} value={m.id}>{m.name}</option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <input
+                                    type="text"
+                                    value={googleAiModel}
+                                    onChange={(e) => setGoogleAiModel(e.target.value)}
+                                    placeholder="ex: gemini-2.0-flash"
+                                    className="apple-input"
+                                />
+                            )}
+                        </Field>
+                    </>
+                )}
+
+                {aiProvider === "openrouter" && (
+                    <p className="text-[12px] text-[var(--text-muted)]">
+                        Utilise la clé OpenRouter configurée ci-dessous et le modèle sélectionné.
+                    </p>
+                )}
+            </Section>
+
             {/* OpenRouter */}
             <Section title="IA Copilot — OpenRouter" subtitle="Clé API pour les analyses de gammes par intelligence artificielle">
                 <Field label="Clé API" hint="Disponible sur openrouter.ai/keys — commence par sk-or-...">
@@ -342,21 +450,27 @@ export default function SettingsPage() {
                     label={`Modèle IA${models.length > 0 ? ` (${models.length} disponibles)` : ""}`}
                     hint={modelsStatus === "error" ? "⚠ Erreur — vérifiez votre clé puis rechargez" : modelsStatus === "idle" ? "Entrez votre clé et cliquez « Charger les modèles »" : undefined}
                 >
-                    <select
-                        value={selectedModel}
-                        onChange={(e) => setSelectedModel(e.target.value)}
-                        disabled={models.length === 0}
-                        className="apple-input"
-                    >
-                        {models.length === 0
-                            ? <option>— Modèles non chargés —</option>
-                            : models.map((m) => (
+                    {models.length > 0 ? (
+                        <select
+                            value={selectedModel}
+                            onChange={(e) => setSelectedModel(e.target.value)}
+                            className="apple-input"
+                        >
+                            {models.map((m) => (
                                 <option key={m.id} value={m.id}>
                                     {m.free ? "🆓 " : ""}{m.name}
                                 </option>
-                            ))
-                        }
-                    </select>
+                            ))}
+                        </select>
+                    ) : (
+                        <input
+                            type="text"
+                            value={selectedModel}
+                            onChange={(e) => setSelectedModel(e.target.value)}
+                            placeholder="ex: google/gemini-2.0-flash-001"
+                            className="apple-input"
+                        />
+                    )}
                 </Field>
             </Section>
 
