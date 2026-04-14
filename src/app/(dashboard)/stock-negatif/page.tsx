@@ -1,7 +1,7 @@
-import { pgGetStockNegatif, PgStockNegatifRow, pgGetStockSansVente, PgStockSansVenteRow } from "@/lib/pg-ff-client";
+import { pgGetStockNegatif, PgStockNegatifRow, pgGetStockSansVente, PgStockSansVenteRow, pgGetSansVente6Mois, PgSansVente6MoisRow } from "@/lib/pg-ff-client";
 import { GestionStockClient } from "./client";
 
-export type { PgStockNegatifRow, PgStockSansVenteRow };
+export type { PgStockNegatifRow, PgStockSansVenteRow, PgSansVente6MoisRow };
 
 const SITES = [
     { code: "292", label: "292 — Frouard / Nancy" },
@@ -15,9 +15,10 @@ export default async function GestionStockPage(props: {
     const magasin = (searchParams.magasin as string) || "";
     const tab = (searchParams.tab as string) || "negatif";
 
-    const [rowsNegatif, rowsSansVente] = await Promise.all([
+    const [rowsNegatif, rowsSansVente, rowsSansVente6Mois] = await Promise.all([
         pgGetStockNegatif(magasin || undefined),
         pgGetStockSansVente(magasin || undefined),
+        pgGetSansVente6Mois(magasin || undefined),
     ]);
 
     return (
@@ -27,6 +28,7 @@ export default async function GestionStockPage(props: {
                 <GestionStockClient
                     rowsNegatif={rowsNegatif}
                     rowsSansVente={rowsSansVente}
+                    rowsSansVente6Mois={rowsSansVente6Mois}
                     magasin={magasin}
                     tab={tab}
                     sites={SITES}

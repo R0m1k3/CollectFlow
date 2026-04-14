@@ -921,6 +921,54 @@ export async function pgGetStockNegatif(site?: string): Promise<PgStockNegatifRo
 }
 
 // ---------------------------------------------------------------------------
+// Stock sans vente depuis 6 mois
+// ---------------------------------------------------------------------------
+
+export interface PgSansVente6MoisRow {
+    codein: string;
+    libelle1: string;
+    fournisseur: string;
+    site: string;
+    stock_actuel: number;
+    derniere_vente: string | null;
+    jours_sans_vente: number | null;
+}
+
+/**
+ * Retourne les articles ayant du stock disponible (qte > 0)
+ * mais dont la dernière vente remonte à plus de 6 mois (ou n'ont jamais été vendus).
+ */
+export async function pgGetSansVente6Mois(site?: string): Promise<PgSansVente6MoisRow[]> {
+    const siteFilter = site ? sql`AND cs.site = ${site}` : sql``;
+    const result = await pgNoParallel(sql`
+        SELECT
+            a.codein,
+            COALESCE(a.libelle1, '') AS libelle1,
+            COALESCE(f.nom, af.code) AS fournisseur,
+            cs.site,
+            cs.qte::float AS stock_actuel,
+            cs.dernierevente::text AS derniere_vente,
+            CASE
+                WHEN cs.dernierevente IS NULL THEN NULL
+                ELSE (CURRENT_DATE - cs.dernierevente::date)
+            END AS jours_sans_vente
+        FROM cube_stock cs
+        JOIN articles a ON a.no_id = cs.artnoid
+        JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
+        JOIN fouident f ON f.code = af.code
+        WHERE cs.site IN ('292', '579')
+          AND cs.qte > 0
+          AND (
+              cs.dernierevente IS NULL
+              OR cs.dernierevente < CURRENT_DATE - INTERVAL '6 months'
+          )
+          ${siteFilter}
+        ORDER BY cs.dernierevente ASC NULLS FIRST
+    `);
+    return result.rows as PgSansVente6MoisRow[];
+}
+
+// ---------------------------------------------------------------------------
 // Commandes automatiques — par site + fournisseur avec franco
 // ---------------------------------------------------------------------------
 

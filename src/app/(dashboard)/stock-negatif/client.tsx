@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useMemo } from "react";
 import { ChevronUp, ChevronDown, ChevronsUpDown, Download, Search } from "lucide-react";
-import type { PgStockNegatifRow, PgStockSansVenteRow } from "./page";
+import type { PgStockNegatifRow, PgStockSansVenteRow, PgSansVente6MoisRow } from "./page";
 
 type SortDir = "asc" | "desc";
 
@@ -339,12 +339,142 @@ function TabEntreesSansVente({ rows, magasin }: { rows: PgStockSansVenteRow[]; m
 }
 
 // ---------------------------------------------------------------------------
+// Onglet 3 — Sans vente depuis 6 mois
+// ---------------------------------------------------------------------------
+
+function TabSansVente6Mois({ rows, magasin }: { rows: PgSansVente6MoisRow[]; magasin: string }) {
+    type SK = keyof PgSansVente6MoisRow;
+
+    const [filterFournisseur, setFilterFournisseur] = useState("");
+    const [search, setSearch] = useState("");
+
+    const fournisseurs = useMemo(() =>
+        [...new Set(rows.map(r => r.fournisseur).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr")),
+        [rows]
+    );
+
+    const filtered = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        return rows.filter(r =>
+            (!filterFournisseur || r.fournisseur === filterFournisseur) &&
+            (!q || r.codein?.toLowerCase().includes(q) || r.libelle1?.toLowerCase().includes(q))
+        );
+    }, [rows, filterFournisseur, search]);
+
+    const { sorted, sortKey, sortDir, handleSort } = useSortedRows<PgSansVente6MoisRow & Record<string, unknown>>(
+        filtered as (PgSansVente6MoisRow & Record<string, unknown>)[],
+        ["stock_actuel", "jours_sans_vente"]
+    );
+
+    const th = (key: SK, label: string) => (
+        <th className="cursor-pointer select-none whitespace-nowrap px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide hover:text-gray-900"
+            onClick={() => handleSort(key as string & keyof (PgSansVente6MoisRow & Record<string, unknown>))}>
+            {label}<SortIcon col={key as string} sortKey={sortKey as string} sortDir={sortDir} />
+        </th>
+    );
+
+    async function handleExport() {
+        const ExcelJS = (await import("exceljs")).default;
+        const wb = new ExcelJS.Workbook();
+        const ws = wb.addWorksheet("Sans vente 6 mois");
+        ws.addRow(["CODEIN", "Libellé", "Fournisseur", "Magasin", "Stock actuel", "Dernière vente", "Jours sans vente"]);
+        ws.getRow(1).eachCell(cell => {
+            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
+            cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
+            cell.alignment = { vertical: "middle", horizontal: "center" };
+        });
+        ws.getRow(1).height = 22;
+        for (const r of sorted) ws.addRow([r.codein, r.libelle1, r.fournisseur, r.site, r.stock_actuel, fmtDate(r.derniere_vente), r.jours_sans_vente ?? "—"]);
+        ws.columns = [{ width: 16 }, { width: 30 }, { width: 24 }, { width: 10 }, { width: 12 }, { width: 18 }, { width: 16 }];
+        const buffer = await wb.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `Sans_Vente_6Mois_${magasin || "Tous"}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    return (
+        <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                    <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+                        <input
+                            type="text"
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            placeholder="Code article ou libellé…"
+                            className="rounded-lg border border-gray-200 bg-white pl-8 pr-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[220px]"
+                        />
+                    </div>
+                    <FilterSelect label="Fournisseur" value={filterFournisseur} onChange={setFilterFournisseur} options={fournisseurs} />
+                    {(filterFournisseur || search) && (
+                        <button
+                            onClick={() => { setFilterFournisseur(""); setSearch(""); }}
+                            className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-medium text-orange-700 hover:bg-orange-100 transition-colors"
+                        >
+                            ✕ Réinitialiser
+                        </button>
+                    )}
+                </div>
+                <div className="flex items-center gap-3">
+                    <span className="text-sm text-gray-500">{sorted.length} article{sorted.length !== 1 ? "s" : ""}</span>
+                    <button onClick={handleExport} className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 transition-colors">
+                        <Download className="w-4 h-4" />Exporter Excel
+                    </button>
+                </div>
+            </div>
+            <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+                <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                            {th("codein", "Code article")}
+                            {th("libelle1", "Libellé")}
+                            {th("fournisseur", "Fournisseur")}
+                            {th("site", "Magasin")}
+                            {th("stock_actuel", "Stock actuel")}
+                            {th("derniere_vente", "Dernière vente")}
+                            {th("jours_sans_vente", "Jours sans vente")}
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                        {sorted.length === 0 && (
+                            <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400">Aucun article trouvé</td></tr>
+                        )}
+                        {sorted.map((row, i) => (
+                            <tr key={`${row.codein}-${row.site}-${i}`} className="hover:bg-gray-50 transition-colors">
+                                <td className="px-3 py-2 font-mono text-xs text-gray-700">{row.codein}</td>
+                                <td className="px-3 py-2 text-gray-900">{row.libelle1}</td>
+                                <td className="px-3 py-2 text-gray-700">{row.fournisseur}</td>
+                                <td className="px-3 py-2">
+                                    <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">{row.site}</span>
+                                </td>
+                                <td className="px-3 py-2 font-semibold text-amber-600">{row.stock_actuel}</td>
+                                <td className="px-3 py-2 text-gray-600 text-xs">{fmtDate(row.derniere_vente)}</td>
+                                <td className="px-3 py-2 text-right tabular-nums font-medium"
+                                    style={{ color: row.jours_sans_vente && row.jours_sans_vente > 365 ? "#ef4444" : "#6b7280" }}>
+                                    {row.jours_sans_vente != null ? row.jours_sans_vente.toLocaleString("fr-FR") : "—"}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Composant principal avec onglets
 // ---------------------------------------------------------------------------
 
 const TABS = [
     { key: "negatif", label: "Stock négatif" },
     { key: "sans-vente", label: "Entrées sans vente" },
+    { key: "sans-vente-6mois", label: "Sans vente 6 mois" },
 ] as const;
 
 type TabKey = typeof TABS[number]["key"];
@@ -352,12 +482,13 @@ type TabKey = typeof TABS[number]["key"];
 interface Props {
     rowsNegatif: PgStockNegatifRow[];
     rowsSansVente: PgStockSansVenteRow[];
+    rowsSansVente6Mois: PgSansVente6MoisRow[];
     magasin: string;
     tab: string;
     sites: { code: string; label: string }[];
 }
 
-export function GestionStockClient({ rowsNegatif, rowsSansVente, magasin, tab, sites }: Props) {
+export function GestionStockClient({ rowsNegatif, rowsSansVente, rowsSansVente6Mois, magasin, tab, sites }: Props) {
     const router = useRouter();
     const activeTab: TabKey = (TABS.some(t => t.key === tab) ? tab : "negatif") as TabKey;
 
@@ -414,7 +545,11 @@ export function GestionStockClient({ rowsNegatif, rowsSansVente, magasin, tab, s
                                 "ml-2 rounded-full px-2 py-0.5 text-xs font-semibold",
                                 activeTab === t.key ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500",
                             ].join(" ")}>
-                                {t.key === "negatif" ? rowsNegatif.length : rowsSansVente.filter(r => r.stock_actuel !== 0).length}
+                                {t.key === "negatif"
+                                ? rowsNegatif.length
+                                : t.key === "sans-vente"
+                                    ? rowsSansVente.filter(r => r.stock_actuel !== 0).length
+                                    : rowsSansVente6Mois.length}
                             </span>
                         </button>
                     ))}
@@ -424,6 +559,7 @@ export function GestionStockClient({ rowsNegatif, rowsSansVente, magasin, tab, s
             {/* Tab content */}
             {activeTab === "negatif" && <TabStockNegatif rows={rowsNegatif} magasin={magasin} />}
             {activeTab === "sans-vente" && <TabEntreesSansVente rows={rowsSansVente} magasin={magasin} />}
+            {activeTab === "sans-vente-6mois" && <TabSansVente6Mois rows={rowsSansVente6Mois} magasin={magasin} />}
         </div>
     );
 }
