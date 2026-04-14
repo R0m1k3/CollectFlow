@@ -377,15 +377,15 @@ function TabSansVente6Mois({ rows, magasin }: { rows: PgSansVente6MoisRow[]; mag
         const ExcelJS = (await import("exceljs")).default;
         const wb = new ExcelJS.Workbook();
         const ws = wb.addWorksheet("Sans vente 6 mois");
-        ws.addRow(["CODEIN", "Libellé", "Fournisseur", "Magasin", "Stock actuel", "Dernière vente", "Jours sans vente", "Dernière entrée"]);
+        ws.addRow(["CODEIN", "GENCODE", "QTE", "CODMV", "Dernière entrée"]);
         ws.getRow(1).eachCell(cell => {
             cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
             cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
             cell.alignment = { vertical: "middle", horizontal: "center" };
         });
         ws.getRow(1).height = 22;
-        for (const r of sorted) ws.addRow([r.codein, r.libelle1, r.fournisseur, r.site, r.stock_actuel, fmtDate(r.derniere_vente), r.jours_sans_vente ?? "—", fmtDate(r.derniere_entree)]);
-        ws.columns = [{ width: 16 }, { width: 30 }, { width: 24 }, { width: 10 }, { width: 12 }, { width: 18 }, { width: 16 }, { width: 18 }];
+        for (const r of sorted) ws.addRow([r.codein, "", r.stock_actuel, "412", fmtDate(r.derniere_entree)]);
+        ws.columns = [{ width: 16 }, { width: 16 }, { width: 10 }, { width: 10 }, { width: 22 }];
         const buffer = await wb.xlsx.writeBuffer();
         const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
         const url = URL.createObjectURL(blob);
