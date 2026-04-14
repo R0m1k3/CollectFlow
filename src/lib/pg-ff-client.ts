@@ -931,12 +931,14 @@ export interface PgSansVente6MoisRow {
     site: string;
     stock_actuel: number;
     derniere_vente: string | null;
+    derniere_entree: string | null;
     jours_sans_vente: number | null;
 }
 
 /**
  * Retourne les articles ayant du stock disponible (qte > 0)
- * mais dont la dernière vente remonte à plus de 6 mois (ou n'ont jamais été vendus).
+ * dont la dernière vente remonte à plus de 6 mois (ou jamais vendus)
+ * ET dont la dernière entrée en stock remonte aussi à plus de 6 mois.
  */
 export async function pgGetSansVente6Mois(site?: string): Promise<PgSansVente6MoisRow[]> {
     const siteFilter = site ? sql`AND cs.site = ${site}` : sql``;
@@ -951,7 +953,14 @@ export async function pgGetSansVente6Mois(site?: string): Promise<PgSansVente6Mo
             CASE
                 WHEN cs.dernierevente IS NULL THEN NULL
                 ELSE (CURRENT_DATE - cs.dernierevente::date)
-            END AS jours_sans_vente
+            END AS jours_sans_vente,
+            (
+                SELECT MAX(m.datmvt)::text
+                FROM mvtart m
+                WHERE m.artnoid = cs.artnoid
+                  AND m.site = cs.site
+                  AND m.genremvt IN (1, 2)
+            ) AS derniere_entree
         FROM cube_stock cs
         JOIN articles a ON a.no_id = cs.artnoid
         JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
@@ -961,6 +970,13 @@ export async function pgGetSansVente6Mois(site?: string): Promise<PgSansVente6Mo
           AND (
               cs.dernierevente IS NULL
               OR cs.dernierevente < CURRENT_DATE - INTERVAL '6 months'
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM mvtart m2
+              WHERE m2.artnoid = cs.artnoid
+                AND m2.site = cs.site
+                AND m2.genremvt IN (1, 2)
+                AND m2.datmvt >= CURRENT_DATE - INTERVAL '6 months'
           )
           ${siteFilter}
         ORDER BY cs.dernierevente ASC NULLS FIRST

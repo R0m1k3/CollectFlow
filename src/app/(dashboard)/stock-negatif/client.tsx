@@ -377,15 +377,15 @@ function TabSansVente6Mois({ rows, magasin }: { rows: PgSansVente6MoisRow[]; mag
         const ExcelJS = (await import("exceljs")).default;
         const wb = new ExcelJS.Workbook();
         const ws = wb.addWorksheet("Sans vente 6 mois");
-        ws.addRow(["CODEIN", "Libellé", "Fournisseur", "Magasin", "Stock actuel", "Dernière vente", "Jours sans vente"]);
+        ws.addRow(["CODEIN", "Libellé", "Fournisseur", "Magasin", "Stock actuel", "Dernière vente", "Jours sans vente", "Dernière entrée"]);
         ws.getRow(1).eachCell(cell => {
             cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
             cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
             cell.alignment = { vertical: "middle", horizontal: "center" };
         });
         ws.getRow(1).height = 22;
-        for (const r of sorted) ws.addRow([r.codein, r.libelle1, r.fournisseur, r.site, r.stock_actuel, fmtDate(r.derniere_vente), r.jours_sans_vente ?? "—"]);
-        ws.columns = [{ width: 16 }, { width: 30 }, { width: 24 }, { width: 10 }, { width: 12 }, { width: 18 }, { width: 16 }];
+        for (const r of sorted) ws.addRow([r.codein, r.libelle1, r.fournisseur, r.site, r.stock_actuel, fmtDate(r.derniere_vente), r.jours_sans_vente ?? "—", fmtDate(r.derniere_entree)]);
+        ws.columns = [{ width: 16 }, { width: 30 }, { width: 24 }, { width: 10 }, { width: 12 }, { width: 18 }, { width: 16 }, { width: 18 }];
         const buffer = await wb.xlsx.writeBuffer();
         const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
         const url = URL.createObjectURL(blob);
@@ -438,11 +438,12 @@ function TabSansVente6Mois({ rows, magasin }: { rows: PgSansVente6MoisRow[]; mag
                             {th("stock_actuel", "Stock actuel")}
                             {th("derniere_vente", "Dernière vente")}
                             {th("jours_sans_vente", "Jours sans vente")}
+                            {th("derniere_entree", "Dernière entrée")}
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                         {sorted.length === 0 && (
-                            <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400">Aucun article trouvé</td></tr>
+                            <tr><td colSpan={8} className="px-3 py-8 text-center text-gray-400">Aucun article trouvé</td></tr>
                         )}
                         {sorted.map((row, i) => (
                             <tr key={`${row.codein}-${row.site}-${i}`} className="hover:bg-gray-50 transition-colors">
@@ -458,6 +459,7 @@ function TabSansVente6Mois({ rows, magasin }: { rows: PgSansVente6MoisRow[]; mag
                                     style={{ color: row.jours_sans_vente && row.jours_sans_vente > 365 ? "#ef4444" : "#6b7280" }}>
                                     {row.jours_sans_vente != null ? row.jours_sans_vente.toLocaleString("fr-FR") : "—"}
                                 </td>
+                                <td className="px-3 py-2 text-gray-600 text-xs">{fmtDate(row.derniere_entree)}</td>
                             </tr>
                         ))}
                     </tbody>
