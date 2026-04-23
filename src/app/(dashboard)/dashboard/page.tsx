@@ -496,6 +496,36 @@ function Top10Table({ title, items, sortKey, accent }: {
                                 </span>
                             </div>
 
+                            {/* ── Tertiary row: fournisseur + stock ── */}
+                            <div style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "0.5rem",
+                                paddingLeft: "1.9rem",
+                            }}>
+                                <span style={{
+                                    fontSize: "0.65rem",
+                                    color: "var(--text-muted)",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                    flex: 1,
+                                    minWidth: 0,
+                                }}>
+                                    {item.fournisseur}
+                                </span>
+                                <span style={{
+                                    fontSize: "0.65rem",
+                                    fontWeight: 600,
+                                    color: item.stock <= 0 ? "#ef4444" : item.stock < 10 ? "#f59e0b" : "var(--text-muted)",
+                                    fontVariantNumeric: "tabular-nums" as const,
+                                    fontFamily: "ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
+                                    flexShrink: 0,
+                                }}>
+                                    Stk {fmtQte(item.stock)}
+                                </span>
+                            </div>
+
                             {/* ── Secondary info row ── */}
                             <div style={{
                                 display: "flex",

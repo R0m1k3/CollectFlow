@@ -496,6 +496,8 @@ export interface DashboardTopItem {
     ca: number;
     qte: number;
     marge: number;
+    stock: number;
+    fournisseur: string;
 }
 
 export interface DashboardSiteTop10 {
@@ -592,24 +594,53 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
     });
 
     // Top 10 par magasin : grouper les items par site, trier, garder top 10
-    const buildTop10 = (items: ApiPerfTopItem[], sortKey: "ca" | "qte" | "marge"): DashboardTopItem[] =>
-        items
-            .map(i => ({
-                codein: i.codein,
-                libelle1: i.libelle1,
-                ca: Number(i.ca_ttc) || 0,
-                qte: Number(i.qte_vendue) || 0,
-                marge: Number(i.marge) || 0,
-            }))
-            .sort((a, b) => b[sortKey] - a[sortKey])
-            .slice(0, 10);
-
     const allItems = [
         ...(apiResult.top10_ca ?? []),
         ...(apiResult.top10_qte ?? []),
         ...(apiResult.top10_marge ?? []),
     ];
+    const allCodeins = [...new Set(allItems.map(i => i.codein).filter(Boolean))];
+
+    // Enrichissement : stock et fournisseur via PostgreSQL
+    const [stockMap, fouResult] = await Promise.all([
+        pgGetStockForCodeins(allCodeins),
+        pgNoParallel(sql`
+            SELECT
+                a.codein,
+                COALESCE(fi.nom, af.code, 'Sans fournisseur')::text AS fournisseur
+            FROM articles a
+            LEFT JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
+            LEFT JOIN fouident fi ON fi.code = af.code
+            WHERE a.codein = ANY(string_to_array(${allCodeins.join(",")}, ','))
+        `),
+    ]);
+
+    const fouMap = new Map<string, string>();
+    for (const row of fouResult.rows as unknown as { codein: string; fournisseur: string }[]) {
+        if (row.codein) fouMap.set(row.codein, row.fournisseur);
+    }
+
     const siteSet = [...new Set(allItems.map(i => i.site).filter(Boolean))].sort();
+
+    const buildTop10 = (items: ApiPerfTopItem[], sortKey: "ca" | "qte" | "marge"): DashboardTopItem[] =>
+        items
+            .map(i => {
+                const stockEntry = stockMap.get(i.codein);
+                const stock = i.site === "292" ? (stockEntry?.stock292 ?? 0)
+                    : i.site === "579" ? (stockEntry?.stock579 ?? 0)
+                        : (stockEntry?.stockTotal ?? 0);
+                return {
+                    codein: i.codein,
+                    libelle1: i.libelle1,
+                    ca: Number(i.ca_ttc) || 0,
+                    qte: Number(i.qte_vendue) || 0,
+                    marge: Number(i.marge) || 0,
+                    stock,
+                    fournisseur: fouMap.get(i.codein) ?? "—",
+                };
+            })
+            .sort((a, b) => b[sortKey] - a[sortKey])
+            .slice(0, 10);
 
     const top10BySite: DashboardSiteTop10[] = siteSet.map(site => {
         const byS = (arr: ApiPerfTopItem[]) => arr.filter(i => i.site === site);
