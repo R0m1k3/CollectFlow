@@ -616,15 +616,18 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                     FROM articles a
                     LEFT JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
                     LEFT JOIN fouident fi ON fi.code = af.code
-                    WHERE a.codein::text = ANY(string_to_array(${allCodeins.join(",")}, ','))
+                    WHERE a.codein IN (${sql.join(allCodeins.map(c => sql`${c}`), sql`, `)})
                 `),
             ]);
             stockMap = sm;
             for (const row of fouResult.rows as unknown as { codein: string; fournisseur: string }[]) {
                 if (row.codein) fouMap.set(row.codein, row.fournisseur);
             }
-        } catch (enrichErr) {
+        } catch (enrichErr: any) {
             console.warn("[Dashboard] DB enrichment unavailable, continuing with API data only:", enrichErr);
+            try {
+                require('fs').writeFileSync('c:/GIT/CollectFlow/scripts/db-error.log', enrichErr.stack || enrichErr.message || String(enrichErr));
+            } catch (e) {}
         }
     }
 
@@ -848,12 +851,11 @@ export interface StockBySite {
 export async function pgGetStockForCodeins(codeins: string[]): Promise<Map<string, StockBySite>> {
     if (codeins.length === 0) return new Map();
 
-    const codeinsStr = codeins.join(",");
     const result = await pgNoParallel(
-        sql`SELECT a.codein::text AS codein, cs.site, COALESCE(cs.qte, 0)::float AS stockdispo
+        sql`SELECT a.codein AS codein, cs.site, COALESCE(cs.qte, 0)::float AS stockdispo
             FROM cube_stock cs
             JOIN articles a ON a.no_id = cs.artnoid
-            WHERE a.codein::text = ANY(string_to_array(${codeinsStr}, ','))`
+            WHERE a.codein IN (${sql.join(codeins.map(c => sql`${c}`), sql`, `)})`
     );
     const rows = result.rows as { codein: string; site: string; stockdispo: number }[];
 
