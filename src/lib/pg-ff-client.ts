@@ -611,12 +611,12 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 pgGetStockForCodeins(allCodeins),
                 pgNoParallel(sql`
                     SELECT
-                        a.codein::text AS codein,
+                        TRIM(a.codein::text) AS codein,
                         COALESCE(fi.nom, af.code, 'Sans fournisseur')::text AS fournisseur
                     FROM articles a
                     LEFT JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
                     LEFT JOIN fouident fi ON fi.code = af.code
-                    WHERE a.codein IN (${sql.join(allCodeins.map(c => sql`${c}`), sql`, `)})
+                    WHERE TRIM(a.codein::text) IN (${sql.join(allCodeins.map(c => sql`${c}`), sql`, `)})
                 `),
             ]);
             stockMap = sm;
@@ -852,10 +852,10 @@ export async function pgGetStockForCodeins(codeins: string[]): Promise<Map<strin
     if (codeins.length === 0) return new Map();
 
     const result = await pgNoParallel(
-        sql`SELECT a.codein AS codein, cs.site, COALESCE(cs.qte, 0)::float AS stockdispo
+        sql`SELECT TRIM(a.codein::text) AS codein, cs.site, COALESCE(cs.qte, 0)::float AS stockdispo
             FROM cube_stock cs
             JOIN articles a ON a.no_id = cs.artnoid
-            WHERE a.codein IN (${sql.join(codeins.map(c => sql`${c}`), sql`, `)})`
+            WHERE TRIM(a.codein::text) IN (${sql.join(codeins.map(c => sql`${c}`), sql`, `)})`
     );
     const rows = result.rows as { codein: string; site: string; stockdispo: number }[];
 
