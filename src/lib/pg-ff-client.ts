@@ -612,29 +612,53 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
     // s'affiche même si la DB n'est pas configurée).
     let stockMap = new Map<string, { stock292: number; stock579: number; stockTotal: number }>();
     let fouMap = new Map<string, string>();
+    const FF_API_BASE = process.env.FF_API_BASE_URL ?? "https://api.ffnancy.fr";
+
     if (allCodeins.length > 0) {
         try {
-            const [sm, fouResult] = await Promise.all([
-                pgGetStockForCodeins(allCodeins),
-                pgNoParallel(sql`
-                    SELECT
-                        TRIM(a.codein::text) AS codein,
-                        COALESCE(fi.nom, af.code, 'Sans fournisseur')::text AS fournisseur
-                    FROM articles a
-                    LEFT JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
-                    LEFT JOIN fouident fi ON fi.code = af.code
-                    WHERE TRIM(a.codein::text) IN (${sql.join(allCodeins.map(c => sql`${c}`), sql`, `)})
-                `),
-            ]);
-            stockMap = sm;
-            for (const row of fouResult.rows as unknown as { codein: string; fournisseur: string }[]) {
-                if (row.codein) fouMap.set(row.codein, row.fournisseur);
+            // Batch the API requests to avoid overwhelming the server (e.g., batch of 5)
+            for (let i = 0; i < allCodeins.length; i += 5) {
+                const batch = allCodeins.slice(i, i + 5);
+                await Promise.all(batch.map(async (codein) => {
+                    try {
+                        // 1. Fetch article search by codein
+                        const artRes = await fetch(`${FF_API_BASE}/api/articles?codein=${encodeURIComponent(codein)}`);
+                        if (!artRes.ok) return;
+                        const artData = await artRes.json();
+                        if (!artData.articles || artData.articles.length === 0) return;
+                        
+                        const article = artData.articles[0];
+                        const noId = article.no_id;
+                        const fou = article.nom_fou_principal || article.codefou_principal || 'Sans fournisseur';
+                        fouMap.set(codein, fou);
+
+                        // 2. Fetch stock via referentiel using no_id
+                        if (noId) {
+                            const refRes = await fetch(`${FF_API_BASE}/api/articles/${encodeURIComponent(noId)}/referentiel`);
+                            if (!refRes.ok) return;
+                            const refData = await refRes.json();
+                            
+                            let s292 = 0;
+                            let s579 = 0;
+                            let sTot = 0;
+                            
+                            if (refData.stock && Array.isArray(refData.stock)) {
+                                for (const s of refData.stock) {
+                                    const qte = Number(s.qte) || 0;
+                                    if (s.site === '292') s292 += qte;
+                                    else if (s.site === '579') s579 += qte;
+                                    sTot += qte;
+                                }
+                            }
+                            stockMap.set(codein, { stock292: s292, stock579: s579, stockTotal: sTot });
+                        }
+                    } catch (err) {
+                        console.error(`[Dashboard API enrichment] Error for codein ${codein}:`, err);
+                    }
+                }));
             }
         } catch (enrichErr: any) {
-            console.warn("[Dashboard] DB enrichment unavailable, continuing with API data only:", enrichErr);
-            try {
-                require('fs').writeFileSync('c:/GIT/CollectFlow/scripts/db-error.log', enrichErr.stack || enrichErr.message || String(enrichErr));
-            } catch (e) {}
+            console.warn("[Dashboard] API enrichment unavailable:", enrichErr);
         }
     }
 
