@@ -5,7 +5,12 @@
       "Bash(rtk tsc:*)",
       "Bash(rtk grep:*)",
       "Bash(node_modules/.bin/tsc --noEmit)",
-      "Bash(./node_modules/.bin/tsc --noEmit)"
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(grep -v \"^$\")",
+      "Bash(rtk git *)",
+      "Bash(rtk npx *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }

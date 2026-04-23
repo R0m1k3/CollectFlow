@@ -605,25 +605,27 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
     // s'affiche même si la DB n'est pas configurée).
     let stockMap = new Map<string, { stock292: number; stock579: number; stockTotal: number }>();
     let fouMap = new Map<string, string>();
-    try {
-        const [sm, fouResult] = await Promise.all([
-            pgGetStockForCodeins(allCodeins),
-            pgNoParallel(sql`
-                SELECT
-                    a.codein,
-                    COALESCE(fi.nom, af.code, 'Sans fournisseur')::text AS fournisseur
-                FROM articles a
-                LEFT JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
-                LEFT JOIN fouident fi ON fi.code = af.code
-                WHERE a.codein = ANY(string_to_array(${allCodeins.join(",")}, ','))
-            `),
-        ]);
-        stockMap = sm;
-        for (const row of fouResult.rows as unknown as { codein: string; fournisseur: string }[]) {
-            if (row.codein) fouMap.set(row.codein, row.fournisseur);
+    if (allCodeins.length > 0) {
+        try {
+            const [sm, fouResult] = await Promise.all([
+                pgGetStockForCodeins(allCodeins),
+                pgNoParallel(sql`
+                    SELECT
+                        a.codein::text AS codein,
+                        COALESCE(fi.nom, af.code, 'Sans fournisseur')::text AS fournisseur
+                    FROM articles a
+                    LEFT JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
+                    LEFT JOIN fouident fi ON fi.code = af.code
+                    WHERE a.codein::text = ANY(string_to_array(${allCodeins.join(",")}, ','))
+                `),
+            ]);
+            stockMap = sm;
+            for (const row of fouResult.rows as unknown as { codein: string; fournisseur: string }[]) {
+                if (row.codein) fouMap.set(row.codein, row.fournisseur);
+            }
+        } catch (enrichErr) {
+            console.warn("[Dashboard] DB enrichment unavailable, continuing with API data only:", enrichErr);
         }
-    } catch (enrichErr) {
-        console.warn("[Dashboard] DB enrichment unavailable, continuing with API data only:", enrichErr);
     }
 
     const siteSet = [...new Set(allItems.map(i => i.site).filter(Boolean))].sort();
@@ -848,10 +850,10 @@ export async function pgGetStockForCodeins(codeins: string[]): Promise<Map<strin
 
     const codeinsStr = codeins.join(",");
     const result = await pgNoParallel(
-        sql`SELECT a.codein, cs.site, cs.stockdispo::float AS stockdispo
+        sql`SELECT a.codein::text AS codein, cs.site, COALESCE(cs.qte, 0)::float AS stockdispo
             FROM cube_stock cs
             JOIN articles a ON a.no_id = cs.artnoid
-            WHERE a.codein = ANY(string_to_array(${codeinsStr}, ','))`
+            WHERE a.codein::text = ANY(string_to_array(${codeinsStr}, ','))`
     );
     const rows = result.rows as { codein: string; site: string; stockdispo: number }[];
 
