@@ -614,7 +614,7 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 const batch = allCodeins.slice(i, i + 5);
                 await Promise.all(batch.map(async (codein) => {
                     try {
-                        // 1. Fetch article search by codein
+                        // 1. Fetch article search by codein to get no_id
                         const artRes = await fetch(`${FF_API_BASE}/api/articles?codein=${encodeURIComponent(codein)}`);
                         if (!artRes.ok) return;
                         const artData = await artRes.json();
@@ -622,15 +622,32 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                         
                         const article = artData.articles[0];
                         const noId = article.no_id;
-                        const fou = article.nom_fou_principal || article.codefou_principal || 'Sans fournisseur';
-                        fouMap.set(codein, fou);
 
-                        // 2. Fetch stock via referentiel using no_id
+                        // 2. Fetch referentiel using no_id — provides stock + real supplier (preference=1)
                         if (noId) {
                             const refRes = await fetch(`${FF_API_BASE}/api/articles/${encodeURIComponent(noId)}/referentiel`);
-                            if (!refRes.ok) return;
+                            if (!refRes.ok) {
+                                // Fallback: use nom_fou_principal from article list
+                                fouMap.set(codein, article.nom_fou_principal || article.codefou_principal || 'Sans fournisseur');
+                                return;
+                            }
                             const refData = await refRes.json();
+
+                            // --- Supplier: pick fournisseur with preference=1 (true main supplier, not depot) ---
+                            let fou = article.nom_fou_principal || article.codefou_principal || 'Sans fournisseur';
+                            if (refData.fournisseurs && Array.isArray(refData.fournisseurs)) {
+                                // preference=1 means the main declared supplier
+                                const mainFou = (refData.fournisseurs as { codefou: string; nom_fou: string | null; preference: number }[])
+                                    .find(f => f.preference === 1);
+                                if (mainFou?.nom_fou) {
+                                    fou = mainFou.nom_fou;
+                                } else if (mainFou?.codefou) {
+                                    fou = mainFou.codefou;
+                                }
+                            }
+                            fouMap.set(codein, fou);
                             
+                            // --- Stock: sum qte per site ---
                             let s292 = 0;
                             let s579 = 0;
                             let sTot = 0;
@@ -644,6 +661,9 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                                 }
                             }
                             stockMap.set(codein, { stock292: s292, stock579: s579, stockTotal: sTot });
+                        } else {
+                            // no_id missing: fallback supplier from article list
+                            fouMap.set(codein, article.nom_fou_principal || article.codefou_principal || 'Sans fournisseur');
                         }
                     } catch (err) {
                         console.error(`[Dashboard API enrichment] Error for codein ${codein}:`, err);
