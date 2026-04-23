@@ -633,7 +633,9 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                             }
                             const refData = await refRes.json();
 
-                            // --- Supplier: exclude known depot platform codes, pick best real supplier ---
+                            // --- Supplier: pick the last fournisseur who entered stock ---
+                            // Business rule: attribute the article to the most recently active supplier
+                            // = non-depot fournisseur with suspendu=null (currently active delivery relationship)
                             type FouEntry = { codefou: string; nom_fou: string | null; preference: number | null; suspendu: string | null };
                             let fou = '—';
 
@@ -642,30 +644,27 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
 
                             if (refData.fournisseurs && Array.isArray(refData.fournisseurs)) {
                                 const fous = refData.fournisseurs as FouEntry[];
-
                                 const pickLabel = (f: FouEntry): string => f.nom_fou?.trim() || f.codefou.trim();
 
-                                // Epoch sentinel 1901 = never actually suspended in this system
-                                const isActive = (f: FouEntry): boolean =>
+                                // Truly active = suspendu is null or the 1901 epoch sentinel (never suspended)
+                                const isTrulyActive = (f: FouEntry): boolean =>
                                     !f.suspendu || f.suspendu.startsWith('1901');
 
-                                // Filter out known depot platform codes only (not all D* codes — DART FRANCE etc. are real suppliers)
+                                // Non-depot fournisseurs only (exclude known platform/depot codes)
                                 const realFous = fous.filter(f => !DEPOT_CODES.has(f.codefou.trim()));
 
                                 if (realFous.length > 0) {
-                                    // Priority 1: preference=1 AND active
-                                    const p1Active = realFous.find(f => f.preference === 1 && isActive(f));
-                                    // Priority 2: preference=1 (even if suspended — at least declared as main)
-                                    const p1Any = realFous.find(f => f.preference === 1);
-                                    // Priority 3: any active non-depot supplier
-                                    const anyActive = realFous.find(f => isActive(f));
-                                    // Priority 4: first non-depot (last resort)
+                                    // Priority 1: currently active (suspendu=null) non-depot — most likely to have made last reception
+                                    const activeNow = realFous.find(f => isTrulyActive(f));
+                                    // Priority 2: preference=1 (declared main supplier, even if suspended)
+                                    const p1 = realFous.find(f => f.preference === 1);
+                                    // Priority 3: first non-depot available (last resort)
                                     const first = realFous[0];
 
-                                    const best = p1Active ?? p1Any ?? anyActive ?? first;
+                                    const best = activeNow ?? p1 ?? first;
                                     fou = pickLabel(best);
                                 } else {
-                                    // Only depot codes found — this article is sourced through the depot platform
+                                    // Only depot codes found → article sourced exclusively through depot
                                     fou = 'Dépôt';
                                 }
                             }
