@@ -550,13 +550,6 @@ interface ApiPerfDashboard {
  * N-1 : même jour de semaine (52 semaines = 364 jours avant hier).
  */
 export async function pgGetDashboardData(): Promise<DashboardData> {
-    try {
-        const sampleResult = await pgNoParallel(sql`SELECT codein, no_id FROM articles LIMIT 5`);
-        require('fs').writeFileSync('c:/GIT/CollectFlow/scripts/db-sample.json', JSON.stringify(sampleResult.rows, null, 2));
-    } catch (e: any) {
-        require('fs').writeFileSync('c:/GIT/CollectFlow/scripts/db-sample.json', JSON.stringify({error: e.message}));
-    }
-
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const dateHier = yesterday.toISOString().split("T")[0];
