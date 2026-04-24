@@ -604,9 +604,9 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
     const allCodeins = [...new Set(allItems.map(i => i.codein).filter(Boolean))];
 
     // Fournisseur réel : un seul appel sur les mouvements du jour (codefou_reel / nom_fournisseur_reel).
-    // Enrichissement : fournisseur réel via /dernier-fournisseur + stock via /referentiel.
-    // Les deux appels sont faits en parallèle par article pour minimiser la latence.
-    const fouBySite = new Map<string, Map<string, string>>(); // codein → site → nom_fournisseur
+    // Enrichissement : fournisseur réel via /dernier-fournisseur (primaire) + /referentiel (stock + fallback fournisseur).
+    // Les deux appels sont faits en parallèle par article.
+    const fouMap = new Map<string, string>(); // codein → nom_fournisseur résolu
     const stockMap = new Map<string, { stock292: number; stock579: number; stockTotal: number }>();
     const FF_API_BASE = process.env.FF_API_BASE_URL ?? "https://api.ffnancy.fr";
 
@@ -629,6 +629,8 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                             fetch(`${FF_API_BASE}/api/articles/${encodeURIComponent(noId)}/dernier-fournisseur`),
                         ]);
 
+                        // Stock (toujours depuis referentiel)
+                        let refFournisseurFallback = "";
                         if (refRes.ok) {
                             const refData = await refRes.json();
                             let s292 = 0, s579 = 0, sTot = 0;
@@ -641,17 +643,35 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                                 }
                             }
                             stockMap.set(codein, { stock292: s292, stock579: s579, stockTotal: sTot });
+
+                            // Fallback fournisseur (pas d'entrée en stock) :
+                            // - 1 seul fournisseur → on l'utilise directement
+                            // - plusieurs → celui avec preference = 1
+                            if (Array.isArray(refData.fournisseurs) && refData.fournisseurs.length > 0) {
+                                type RefFou = { codefou: string; nom_fou: string | null; preference: number | null };
+                                const fous = refData.fournisseurs as RefFou[];
+                                const pick = fous.length === 1
+                                    ? fous[0]
+                                    : (fous.find(f => f.preference === 1) ?? fous[0]);
+                                refFournisseurFallback = pick.nom_fou?.trim() || pick.codefou?.trim() || "";
+                            }
                         }
 
+                        // Fournisseur réel : /dernier-fournisseur (dernière entrée en stock par site)
+                        // Fallback : premier non-dépôt du référentiel
                         if (dernierRes.ok) {
                             const dernierData = await dernierRes.json();
-                            const siteMap = new Map<string, string>();
-                            for (const entry of dernierData.fournisseurs_par_site ?? []) {
-                                if (entry.site && entry.nom_fournisseur) {
-                                    siteMap.set(String(entry.site), String(entry.nom_fournisseur));
-                                }
+                            const entries: Array<{ site: string; nom_fournisseur: string }> =
+                                dernierData.fournisseurs_par_site ?? [];
+                            // Prendre le fournisseur du premier site disponible
+                            const first = entries.find(e => e.nom_fournisseur);
+                            if (first) {
+                                fouMap.set(codein, String(first.nom_fournisseur).trim());
+                            } else if (refFournisseurFallback) {
+                                fouMap.set(codein, refFournisseurFallback);
                             }
-                            if (siteMap.size > 0) fouBySite.set(codein, siteMap);
+                        } else if (refFournisseurFallback) {
+                            fouMap.set(codein, refFournisseurFallback);
                         }
                     } catch (err) {
                         console.error(`[Dashboard enrichment] Error for codein ${codein}:`, err);
@@ -672,8 +692,7 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 const stock = i.site === "292" ? (stockEntry?.stock292 ?? 0)
                     : i.site === "579" ? (stockEntry?.stock579 ?? 0)
                         : (stockEntry?.stockTotal ?? 0);
-                const siteMap = fouBySite.get(i.codein);
-                const fournisseur = siteMap?.get(i.site) ?? siteMap?.values().next().value ?? "—";
+                const fournisseur = fouMap.get(i.codein) ?? "—";
                 return {
                     codein: i.codein,
                     libelle1: i.libelle1,
