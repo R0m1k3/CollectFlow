@@ -9,7 +9,6 @@
 
 import { db } from "@/db";
 import { sql, type SQL } from "drizzle-orm";
-import { getMouvementsForDate } from "@/lib/api-ff-client";
 
 // Cache module-level pour éviter les requêtes information_schema répétées
 let _nomenclatureParentCol: string | null | undefined = undefined; // undefined = pas encore chargé
@@ -605,23 +604,11 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
     const allCodeins = [...new Set(allItems.map(i => i.codein).filter(Boolean))];
 
     // Fournisseur réel : un seul appel sur les mouvements du jour (codefou_reel / nom_fournisseur_reel).
-    // Stock : enrichissement via /referentiel par article (toujours nécessaire).
-    let fouMap = new Map<string, string>();
-    let stockMap = new Map<string, { stock292: number; stock579: number; stockTotal: number }>();
+    // Enrichissement : fournisseur réel via /dernier-fournisseur + stock via /referentiel.
+    // Les deux appels sont faits en parallèle par article pour minimiser la latence.
+    const fouBySite = new Map<string, Map<string, string>>(); // codein → site → nom_fournisseur
+    const stockMap = new Map<string, { stock292: number; stock579: number; stockTotal: number }>();
     const FF_API_BASE = process.env.FF_API_BASE_URL ?? "https://api.ffnancy.fr";
-
-    const [mouvements] = await Promise.allSettled([
-        getMouvementsForDate(dateHier, dateHier),
-    ]);
-    if (mouvements.status === "fulfilled") {
-        for (const m of mouvements.value) {
-            if (!fouMap.has(m.codein) && (m.nom_fournisseur_reel || m.codefou_reel)) {
-                fouMap.set(m.codein, m.nom_fournisseur_reel?.trim() || m.codefou_reel!.trim());
-            }
-        }
-    } else {
-        console.warn("[Dashboard] getMouvementsForDate failed:", mouvements.reason);
-    }
 
     if (allCodeins.length > 0) {
         try {
@@ -637,27 +624,42 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                         const noId = artData.articles[0].no_id;
                         if (!noId) return;
 
-                        const refRes = await fetch(`${FF_API_BASE}/api/articles/${encodeURIComponent(noId)}/referentiel`);
-                        if (!refRes.ok) return;
-                        const refData = await refRes.json();
+                        const [refRes, dernierRes] = await Promise.all([
+                            fetch(`${FF_API_BASE}/api/articles/${encodeURIComponent(noId)}/referentiel`),
+                            fetch(`${FF_API_BASE}/api/articles/${encodeURIComponent(noId)}/dernier-fournisseur`),
+                        ]);
 
-                        let s292 = 0, s579 = 0, sTot = 0;
-                        if (Array.isArray(refData.stock)) {
-                            for (const s of refData.stock) {
-                                const qte = Number(s.qte) || 0;
-                                if (s.site === '292') s292 += qte;
-                                else if (s.site === '579') s579 += qte;
-                                sTot += qte;
+                        if (refRes.ok) {
+                            const refData = await refRes.json();
+                            let s292 = 0, s579 = 0, sTot = 0;
+                            if (Array.isArray(refData.stock)) {
+                                for (const s of refData.stock) {
+                                    const qte = Number(s.qte) || 0;
+                                    if (s.site === '292') s292 += qte;
+                                    else if (s.site === '579') s579 += qte;
+                                    sTot += qte;
+                                }
                             }
+                            stockMap.set(codein, { stock292: s292, stock579: s579, stockTotal: sTot });
                         }
-                        stockMap.set(codein, { stock292: s292, stock579: s579, stockTotal: sTot });
+
+                        if (dernierRes.ok) {
+                            const dernierData = await dernierRes.json();
+                            const siteMap = new Map<string, string>();
+                            for (const entry of dernierData.fournisseurs_par_site ?? []) {
+                                if (entry.site && entry.nom_fournisseur) {
+                                    siteMap.set(String(entry.site), String(entry.nom_fournisseur));
+                                }
+                            }
+                            if (siteMap.size > 0) fouBySite.set(codein, siteMap);
+                        }
                     } catch (err) {
-                        console.error(`[Dashboard stock enrichment] Error for codein ${codein}:`, err);
+                        console.error(`[Dashboard enrichment] Error for codein ${codein}:`, err);
                     }
                 }));
             }
         } catch (enrichErr: unknown) {
-            console.warn("[Dashboard] Stock enrichment unavailable:", enrichErr);
+            console.warn("[Dashboard] Enrichment unavailable:", enrichErr);
         }
     }
 
@@ -670,7 +672,8 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 const stock = i.site === "292" ? (stockEntry?.stock292 ?? 0)
                     : i.site === "579" ? (stockEntry?.stock579 ?? 0)
                         : (stockEntry?.stockTotal ?? 0);
-                const fournisseur = fouMap.get(i.codein) || "—";
+                const siteMap = fouBySite.get(i.codein);
+                const fournisseur = siteMap?.get(i.site) ?? siteMap?.values().next().value ?? "—";
                 return {
                     codein: i.codein,
                     libelle1: i.libelle1,
