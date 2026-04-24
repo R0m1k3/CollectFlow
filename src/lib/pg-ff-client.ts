@@ -1157,11 +1157,12 @@ export async function pgGetCommandesAuto(): Promise<PgCommandeAutoRow[]> {
                         .then(res2 => res2.ok ? res2.json() : null)
                         .then(detail => {
                             if (!detail) return null;
-                            // Le detail endpoint retourne { resume: { franco_ht, ... }, articles: [...] }
+                            // Le detail endpoint retourne { resume: [...] } (tableau) ou { resume: {} }
                             // ou directement les champs du résumé
-                            const resume = detail?.resume ?? detail?.summary ?? detail;
+                            const resumeRaw = detail?.resume ?? detail?.summary ?? detail;
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            const francoVal = Number((resume as any)?.franco_ht ?? (resume as any)?.franco ?? 0);
+                            const resumeItem: any = Array.isArray(resumeRaw) ? resumeRaw[0] : resumeRaw;
+                            const francoVal = Number(resumeItem?.franco_ht ?? resumeItem?.franco ?? 0);
                             return { codefou: r.codefou, site: r.site, franco: francoVal };
                         })
                         .catch(() => null)
