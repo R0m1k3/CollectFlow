@@ -293,6 +293,35 @@ export async function getMouvementsByFournisseur(
     })).filter(m => m.codein && m.datemvt);
 }
 
+/**
+ * Retourne les mouvements pour une plage de dates (sans filtre fournisseur).
+ * Utilisé pour extraire codefou_reel / nom_fournisseur_reel par codein.
+ */
+export async function getMouvementsForDate(
+    dateDebut: string,
+    dateFin: string
+): Promise<FfMouvement[]> {
+    const raw = await fetchAllPages<unknown>(
+        (page) =>
+            `${FF_API_BASE}/api/mouvements/articles?dateDebut=${dateDebut}&dateFin=${dateFin}&page=${page}&limit=1000`,
+        extractList,
+        1000
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return raw.map((r: any): FfMouvement => ({
+        codein:   r.codein    ?? r.Codein   ?? r.code_article   ?? "",
+        genremvt: Number(r.genremvt  ?? r.GenreMvt  ?? r.genre_mvt ?? r.type ?? 0),
+        datemvt:  r.datmvt    ?? r.datemvt  ?? r.DateMvt  ?? r.date_mvt ?? r.date ?? "",
+        qte:      Number(r.qtemvt    ?? r.qte        ?? r.Qte      ?? r.quantite ?? 0),
+        montant:  Number(r.mntmvtht  ?? r.montant    ?? r.Montant  ?? r.montant_mvt ?? r.ca ?? 0),
+        marge:    Number(r.margemvt  ?? r.marge      ?? r.Marge    ?? r.marge_mvt ?? 0),
+        qtestock: Number(r.qtestock  ?? r.QteStock   ?? r.qte_stock ?? r.stock ?? 0),
+        site:     r.site      ?? r.Site     ?? r.magasin         ?? r.code_magasin ?? r.codesite ?? "",
+        codefou_reel:         r.codefou_reel         ?? undefined,
+        nom_fournisseur_reel: r.nom_fournisseur_reel ?? undefined,
+    })).filter(m => m.codein && m.datemvt);
+}
+
 // ---------------------------------------------------------------------------
 // Mensuel — stock fin de mois + ventes + réceptions par article et par site
 // GET /api/articles/:no_id/mensuel?dateDebut=&dateFin=

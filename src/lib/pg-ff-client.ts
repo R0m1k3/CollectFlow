@@ -9,6 +9,7 @@
 
 import { db } from "@/db";
 import { sql, type SQL } from "drizzle-orm";
+import { getMouvementsForDate } from "@/lib/api-ff-client";
 
 // Cache module-level pour éviter les requêtes information_schema répétées
 let _nomenclatureParentCol: string | null | undefined = undefined; // undefined = pas encore chargé
@@ -603,10 +604,24 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
     ];
     const allCodeins = [...new Set(allItems.map(i => i.codein).filter(Boolean))];
 
-    // Enrichissement stock uniquement — le fournisseur réel vient maintenant directement
-    // des champs codefou_reel / nom_fournisseur_reel retournés par l'API mouvements.
+    // Fournisseur réel : un seul appel sur les mouvements du jour (codefou_reel / nom_fournisseur_reel).
+    // Stock : enrichissement via /referentiel par article (toujours nécessaire).
+    let fouMap = new Map<string, string>();
     let stockMap = new Map<string, { stock292: number; stock579: number; stockTotal: number }>();
     const FF_API_BASE = process.env.FF_API_BASE_URL ?? "https://api.ffnancy.fr";
+
+    const [mouvements] = await Promise.allSettled([
+        getMouvementsForDate(dateHier, dateHier),
+    ]);
+    if (mouvements.status === "fulfilled") {
+        for (const m of mouvements.value) {
+            if (!fouMap.has(m.codein) && (m.nom_fournisseur_reel || m.codefou_reel)) {
+                fouMap.set(m.codein, m.nom_fournisseur_reel?.trim() || m.codefou_reel!.trim());
+            }
+        }
+    } else {
+        console.warn("[Dashboard] getMouvementsForDate failed:", mouvements.reason);
+    }
 
     if (allCodeins.length > 0) {
         try {
@@ -655,9 +670,7 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 const stock = i.site === "292" ? (stockEntry?.stock292 ?? 0)
                     : i.site === "579" ? (stockEntry?.stock579 ?? 0)
                         : (stockEntry?.stockTotal ?? 0);
-                const fournisseur = i.nom_fournisseur_reel?.trim()
-                    || i.codefou_reel?.trim()
-                    || "—";
+                const fournisseur = fouMap.get(i.codein) || "—";
                 return {
                     codein: i.codein,
                     libelle1: i.libelle1,

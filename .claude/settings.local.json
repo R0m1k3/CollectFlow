@@ -10,7 +10,10 @@
       "Bash(rtk git *)",
       "Bash(rtk npx *)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); items=d.get\\('top10_ca',[]\\); print\\('top10_ca fields on first item:', list\\(items[0].keys\\(\\)\\) if items else 'EMPTY'\\); print\\('first item:', json.dumps\\(items[0], ensure_ascii=False, indent=2\\) if items else 'EMPTY'\\)\")",
+      "Bash(node -e \"let d=''; process.stdin.on\\('data',c=>d+=c\\); process.stdin.on\\('end',\\(\\)=>{ const j=JSON.parse\\(d\\); const items=j.top10_ca||[]; if\\(items.length\\) { console.log\\('KEYS:', Object.keys\\(items[0]\\).join\\(', '\\)\\); console.log\\('FIRST:', JSON.stringify\\(items[0], null, 2\\)\\); } else console.log\\('EMPTY'\\); }\\)\")",
+      "Bash(node -e \"let d=''; process.stdin.on\\('data',c=>d+=c\\); process.stdin.on\\('end',\\(\\)=>{ const j=JSON.parse\\(d\\); const items=Array.isArray\\(j\\)?j:\\(j.data||j.items||j.mouvements||j.list||[]\\); if\\(items.length\\) { console.log\\('KEYS:', Object.keys\\(items[0]\\).join\\(', '\\)\\); console.log\\('FIRST:', JSON.stringify\\(items[0], null, 2\\)\\); } else { console.log\\('STRUCTURE:', Object.keys\\(j\\)\\); console.log\\('RAW:', JSON.stringify\\(j\\).slice\\(0,500\\)\\); } }\\)\")"
     ]
   }
 }
