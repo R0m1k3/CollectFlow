@@ -1143,48 +1143,59 @@ export async function pgGetCommandesAuto(): Promise<PgCommandeAutoRow[]> {
         const mapped = (rows as any[]).map(mapCommandeAutoRow);
 
         // Enrichissement : pour les fournisseurs sans franco dans la réponse globale,
-        // on appelle le detail endpoint qui contient toujours franco_ht dans son résumé.
-        const missingFranco = mapped.filter(r => r.franco === 0 && r.codefou && r.site);
+        // on appelle GET /api/commandes-auto/{codefou} (sans filtre site — franco est une
+        // propriété du fournisseur, pas du site) et on lit resume[0].franco_ht.
+        const missingFranco = mapped.filter(r => r.franco === 0 && r.codefou);
         if (missingFranco.length > 0) {
-            console.log(`[pg-ff] pgGetCommandesAuto: ${missingFranco.length} lignes sans franco → enrichissement via detail endpoint`);
-            // Regrouper par (codefou, site) pour éviter les doublons
-            const pairs = Array.from(
-                new Map(missingFranco.map(r => [`${r.codefou}|${r.site}`, r])).values()
-            );
+            console.log(`[pg-ff] pgGetCommandesAuto: ${missingFranco.length} lignes sans franco → enrichissement`);
+            // Dédupliquer par codefou (franco identique quel que soit le site)
+            const uniqueCodeFous = [...new Set(missingFranco.map(r => r.codefou))];
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const extractFranco = (detail: any): number => {
+                if (!detail || detail.error) return 0;
+                const resumeRaw = detail?.resume ?? detail?.summary ?? detail;
+                const resumeItem = Array.isArray(resumeRaw) ? resumeRaw[0] : resumeRaw;
+                return Number(resumeItem?.franco_ht ?? resumeItem?.franco ?? 0);
+            };
+
             const details = await Promise.allSettled(
-                pairs.map(r =>
-                    fetch(`${FF_API_BASE}/api/commandes-auto/${encodeURIComponent(r.codefou)}?site=${encodeURIComponent(r.site)}`, { cache: "no-store" })
-                        .then(res2 => res2.ok ? res2.json() : null)
-                        .then(detail => {
-                            if (!detail) return null;
-                            // Le detail endpoint retourne { resume: [...] } (tableau) ou { resume: {} }
-                            // ou directement les champs du résumé
-                            const resumeRaw = detail?.resume ?? detail?.summary ?? detail;
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            const resumeItem: any = Array.isArray(resumeRaw) ? resumeRaw[0] : resumeRaw;
-                            const francoVal = Number(resumeItem?.franco_ht ?? resumeItem?.franco ?? 0);
-                            return { codefou: r.codefou, site: r.site, franco: francoVal };
-                        })
-                        .catch(() => null)
-                )
+                uniqueCodeFous.map(async codefou => {
+                    // 1. Essai sans filtre site
+                    try {
+                        const res2 = await fetch(`${FF_API_BASE}/api/commandes-auto/${encodeURIComponent(codefou)}`, { cache: "no-store" });
+                        if (res2.ok) {
+                            const detail = await res2.json();
+                            const f = extractFranco(detail);
+                            if (f > 0) return { codefou, franco: f };
+                        }
+                    } catch { /* ignore */ }
+                    // 2. Fallback site=000
+                    try {
+                        const res3 = await fetch(`${FF_API_BASE}/api/commandes-auto/${encodeURIComponent(codefou)}?site=000`, { cache: "no-store" });
+                        if (res3.ok) {
+                            const detail = await res3.json();
+                            const f = extractFranco(detail);
+                            if (f > 0) return { codefou, franco: f };
+                        }
+                    } catch { /* ignore */ }
+                    return { codefou, franco: 0 };
+                })
             );
 
-            // Construire un map (codefou|site) → franco enrichi
+            // Map codefou → franco enrichi
             const francoMap = new Map<string, number>();
             for (const result of details) {
-                if (result.status === "fulfilled" && result.value && result.value.franco > 0) {
-                    francoMap.set(`${result.value.codefou}|${result.value.site}`, result.value.franco);
+                if (result.status === "fulfilled" && result.value.franco > 0) {
+                    francoMap.set(result.value.codefou, result.value.franco);
                 }
             }
             console.log(`[pg-ff] pgGetCommandesAuto: francos enrichis:`, Object.fromEntries(francoMap));
 
-            // Appliquer les francos enrichis
             return mapped.map(r => {
                 if (r.franco === 0) {
-                    const enrichedFranco = francoMap.get(`${r.codefou}|${r.site}`);
-                    if (enrichedFranco && enrichedFranco > 0) {
-                        return { ...r, franco: enrichedFranco };
-                    }
+                    const enriched = francoMap.get(r.codefou);
+                    if (enriched && enriched > 0) return { ...r, franco: enriched };
                 }
                 return r;
             });
