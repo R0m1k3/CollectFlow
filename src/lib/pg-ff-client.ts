@@ -530,6 +530,8 @@ interface ApiPerfTopItem {
     codein: string;
     libelle1: string;
     site: string;
+    codefou_reel?: string;
+    nom_fournisseur_reel?: string;
     ca_ttc: number;
     qte_vendue: number;
     marge: number;
@@ -601,100 +603,46 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
     ];
     const allCodeins = [...new Set(allItems.map(i => i.codein).filter(Boolean))];
 
-    // Enrichissement : stock et fournisseur via PostgreSQL (optionnel — le dashboard
-    // s'affiche même si la DB n'est pas configurée).
+    // Enrichissement stock uniquement — le fournisseur réel vient maintenant directement
+    // des champs codefou_reel / nom_fournisseur_reel retournés par l'API mouvements.
     let stockMap = new Map<string, { stock292: number; stock579: number; stockTotal: number }>();
-    let fouMap = new Map<string, string>();
     const FF_API_BASE = process.env.FF_API_BASE_URL ?? "https://api.ffnancy.fr";
 
     if (allCodeins.length > 0) {
         try {
-            // Batch the API requests to avoid overwhelming the server (e.g., batch of 5)
             for (let i = 0; i < allCodeins.length; i += 5) {
                 const batch = allCodeins.slice(i, i + 5);
                 await Promise.all(batch.map(async (codein) => {
                     try {
-                        // 1. Fetch article search by codein to get no_id
                         const artRes = await fetch(`${FF_API_BASE}/api/articles?codein=${encodeURIComponent(codein)}`);
                         if (!artRes.ok) return;
                         const artData = await artRes.json();
                         if (!artData.articles || artData.articles.length === 0) return;
-                        
-                        const article = artData.articles[0];
-                        const noId = article.no_id;
 
-                        // 2. Fetch referentiel using no_id — provides stock + real supplier (preference=1)
-                        if (noId) {
-                            const refRes = await fetch(`${FF_API_BASE}/api/articles/${encodeURIComponent(noId)}/referentiel`);
-                            if (!refRes.ok) {
-                                // Fallback: use nom_fou_principal from article list
-                                fouMap.set(codein, article.nom_fou_principal || article.codefou_principal || 'Sans fournisseur');
-                                return;
+                        const noId = artData.articles[0].no_id;
+                        if (!noId) return;
+
+                        const refRes = await fetch(`${FF_API_BASE}/api/articles/${encodeURIComponent(noId)}/referentiel`);
+                        if (!refRes.ok) return;
+                        const refData = await refRes.json();
+
+                        let s292 = 0, s579 = 0, sTot = 0;
+                        if (Array.isArray(refData.stock)) {
+                            for (const s of refData.stock) {
+                                const qte = Number(s.qte) || 0;
+                                if (s.site === '292') s292 += qte;
+                                else if (s.site === '579') s579 += qte;
+                                sTot += qte;
                             }
-                            const refData = await refRes.json();
-
-                            // --- Supplier: pick the last fournisseur who entered stock ---
-                            // Business rule: attribute the article to the most recently active supplier
-                            // = non-depot fournisseur with suspendu=null (currently active delivery relationship)
-                            type FouEntry = { codefou: string; nom_fou: string | null; preference: number | null; suspendu: string | null };
-                            let fou = '—';
-
-                            // Known depot/platform codes that are NOT real commercial suppliers
-                            const DEPOT_CODES = new Set(['D005', 'B0071', 'D005 ', 'B0071 ']);
-
-                            if (refData.fournisseurs && Array.isArray(refData.fournisseurs)) {
-                                const fous = refData.fournisseurs as FouEntry[];
-                                const pickLabel = (f: FouEntry): string => f.nom_fou?.trim() || f.codefou.trim();
-
-                                // Truly active = suspendu is null or the 1901 epoch sentinel (never suspended)
-                                const isTrulyActive = (f: FouEntry): boolean =>
-                                    !f.suspendu || f.suspendu.startsWith('1901');
-
-                                // Non-depot fournisseurs only (exclude known platform/depot codes)
-                                const realFous = fous.filter(f => !DEPOT_CODES.has(f.codefou.trim()));
-
-                                if (realFous.length > 0) {
-                                    // Priority 1: currently active (suspendu=null) non-depot — most likely to have made last reception
-                                    const activeNow = realFous.find(f => isTrulyActive(f));
-                                    // Priority 2: preference=1 (declared main supplier, even if suspended)
-                                    const p1 = realFous.find(f => f.preference === 1);
-                                    // Priority 3: first non-depot available (last resort)
-                                    const first = realFous[0];
-
-                                    const best = activeNow ?? p1 ?? first;
-                                    fou = pickLabel(best);
-                                } else {
-                                    // Only depot codes found → article sourced exclusively through depot
-                                    fou = 'Dépôt';
-                                }
-                            }
-                            fouMap.set(codein, fou);
-                            
-                            // --- Stock: sum qte per site ---
-                            let s292 = 0;
-                            let s579 = 0;
-                            let sTot = 0;
-                            
-                            if (refData.stock && Array.isArray(refData.stock)) {
-                                for (const s of refData.stock) {
-                                    const qte = Number(s.qte) || 0;
-                                    if (s.site === '292') s292 += qte;
-                                    else if (s.site === '579') s579 += qte;
-                                    sTot += qte;
-                                }
-                            }
-                            stockMap.set(codein, { stock292: s292, stock579: s579, stockTotal: sTot });
-                        } else {
-                            // no_id missing: fallback supplier from article list
-                            fouMap.set(codein, article.nom_fou_principal || article.codefou_principal || 'Sans fournisseur');
                         }
+                        stockMap.set(codein, { stock292: s292, stock579: s579, stockTotal: sTot });
                     } catch (err) {
-                        console.error(`[Dashboard API enrichment] Error for codein ${codein}:`, err);
+                        console.error(`[Dashboard stock enrichment] Error for codein ${codein}:`, err);
                     }
                 }));
             }
-        } catch (enrichErr: any) {
-            console.warn("[Dashboard] API enrichment unavailable:", enrichErr);
+        } catch (enrichErr: unknown) {
+            console.warn("[Dashboard] Stock enrichment unavailable:", enrichErr);
         }
     }
 
@@ -707,6 +655,9 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                 const stock = i.site === "292" ? (stockEntry?.stock292 ?? 0)
                     : i.site === "579" ? (stockEntry?.stock579 ?? 0)
                         : (stockEntry?.stockTotal ?? 0);
+                const fournisseur = i.nom_fournisseur_reel?.trim()
+                    || i.codefou_reel?.trim()
+                    || "—";
                 return {
                     codein: i.codein,
                     libelle1: i.libelle1,
@@ -714,7 +665,7 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                     qte: Number(i.qte_vendue) || 0,
                     marge: Number(i.marge) || 0,
                     stock,
-                    fournisseur: fouMap.get(i.codein) ?? "—",
+                    fournisseur,
                 };
             })
             .sort((a, b) => b[sortKey] - a[sortKey])

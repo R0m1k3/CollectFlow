@@ -43,6 +43,8 @@ export interface FfMouvement {
     marge?: number;       // marge (si disponible)
     qtestock: number;     // stock APRÈS ce mouvement — clé pour stock12m
     site: string;         // code magasin / site
+    codefou_reel?: string;       // code fournisseur réel (dernière entrée avant cette vente, ou code de l'entrée)
+    nom_fournisseur_reel?: string; // nom résolu du fournisseur réel
 }
 
 export interface FfStock {
@@ -286,6 +288,8 @@ export async function getMouvementsByFournisseur(
         marge:    Number(r.margemvt  ?? r.marge      ?? r.Marge    ?? r.marge_mvt ?? 0),
         qtestock: Number(r.qtestock  ?? r.QteStock   ?? r.qte_stock ?? r.stock ?? 0),
         site:     r.site      ?? r.Site     ?? r.magasin         ?? r.code_magasin ?? r.codesite ?? "",
+        codefou_reel:         r.codefou_reel         ?? undefined,
+        nom_fournisseur_reel: r.nom_fournisseur_reel ?? undefined,
     })).filter(m => m.codein && m.datemvt);
 }
 
