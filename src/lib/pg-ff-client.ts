@@ -10,6 +10,9 @@
 import { db } from "@/db";
 import { sql, type SQL } from "drizzle-orm";
 
+const FF_API_BASE = process.env.FF_API_BASE_URL ?? "https://api.ffnancy.fr";
+
+
 // Cache module-level pour éviter les requêtes information_schema répétées
 let _nomenclatureParentCol: string | null | undefined = undefined; // undefined = pas encore chargé
 
@@ -561,7 +564,8 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
     n1Date.setDate(n1Date.getDate() - 364);
     const dateN1Param = n1Date.toISOString().split("T")[0];
 
-    const apiBase = "https://api.ffnancy.fr/api/performance";
+    const apiBase = `${FF_API_BASE}/api/performance`;
+
 
     // Deux appels parallèles : données hier + données même jour N-1
     const [apiResult, apiN1Result] = await Promise.all([
@@ -608,7 +612,7 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
     // Les deux appels sont faits en parallèle par article.
     const fouMap = new Map<string, string>(); // codein → nom_fournisseur résolu
     const stockMap = new Map<string, { stock292: number; stock579: number; stockTotal: number }>();
-    const FF_API_BASE = process.env.FF_API_BASE_URL ?? "https://api.ffnancy.fr";
+
 
     if (allCodeins.length > 0) {
         try {
@@ -1120,7 +1124,7 @@ function mapCommandeAutoRow(r: any): PgCommandeAutoRow {
  * toujours le résumé franco du fournisseur.
  */
 export async function pgGetCommandesAuto(): Promise<PgCommandeAutoRow[]> {
-    const FF_API_BASE = process.env.FF_API_BASE_URL ?? "https://api.ffnancy.fr";
+
     try {
         const res = await fetch(`${FF_API_BASE}/api/commandes-auto`, { cache: "no-store" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);

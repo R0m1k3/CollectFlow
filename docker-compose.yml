@@ -12,6 +12,8 @@ services:
       - AUTH_TRUST_HOST=true
       - AUTH_SECRET=my-super-secret-key-that-should-be-changed-in-production
       - DATABASE_URL=postgres://postgres:MOT_DE_PASSE_ICI@postgresbase:5432/collectflow
+      - FF_API_BASE_URL=https://api.ffnancy.fr
+
       # Mais comme CollectFlow permet de le configurer depuis l'interface (settings), ce n'est pas strictement obligatoire au lancement.
     volumes:
       - collectflow-data:/app/data
