@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useMemo } from "react";
+import * as XLSX from "xlsx";
 import type { HitParadePivotRow } from "./page";
 
 type SortKey = "caTotal" | "ca292" | "ca579" | "qteTotal" | "qte292" | "qte579" | "stockTotal" | "stock292" | "stock579";
@@ -71,6 +72,48 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
     }
 
     const isSorted = sortKey !== DEFAULT_SORT || sortDir !== DEFAULT_DIR;
+
+    function exportToExcel() {
+        const headers = [
+            "Code", "Désignation", "Fournisseur", "Nomenclature",
+            "Qté Nancy", "CA TTC Nancy", "% Marge Nancy", "Stock Nancy",
+            "Qté Houdemont", "CA TTC Houdemont", "% Marge Houdemont", "Stock Houdemont",
+            "Qté Total", "CA TTC Total", "% Marge Total", "Stock Total",
+        ];
+
+        const pct = (ca: number, marge: number) => ca === 0 ? 0 : Math.round((marge / ca) * 1000) / 10;
+
+        const dataRows = sorted.map(r => [
+            r.codein,
+            r.libelle.trim(),
+            r.fournisseur,
+            r.nomenclature_code ? `${r.nomenclature_code} — ${r.nomenclature}` : "",
+            r.qte292, r.ca292, pct(r.ca292, r.marge292), r.stock292,
+            r.qte579, r.ca579, pct(r.ca579, r.marge579), r.stock579,
+            r.qteTotal, r.caTotal, pct(r.caTotal, r.margeTotal), r.stockTotal,
+        ]);
+
+        const totalRow = [
+            `TOTAL — ${sorted.length} articles`, "", "", "",
+            totals.qte292, totals.ca292, pct(totals.ca292, totals.marge292), totals.stock292,
+            totals.qte579, totals.ca579, pct(totals.ca579, totals.marge579), totals.stock579,
+            totals.qteTotal, totals.caTotal, pct(totals.caTotal, totals.margeTotal), totals.stockTotal,
+        ];
+
+        const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows, totalRow]);
+
+        // Largeurs de colonnes
+        ws["!cols"] = [
+            { wch: 12 }, { wch: 40 }, { wch: 25 }, { wch: 30 },
+            { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 10 },
+            { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 10 },
+            { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 10 },
+        ];
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Hit Parade");
+        XLSX.writeFile(wb, `hit-parade_${dateDebut}_${dateFin}.xlsx`);
+    }
 
     const filtered = useMemo(() =>
         pivotted.filter(r =>
@@ -202,6 +245,16 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                         <span>✕</span> Annuler le tri
                     </button>
                 )}
+
+                <button
+                    onClick={exportToExcel}
+                    className="ml-auto flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 transition-colors self-center"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                    Exporter Excel
+                </button>
             </div>
 
             {/* Tableau */}
