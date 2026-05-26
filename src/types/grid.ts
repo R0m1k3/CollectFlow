@@ -61,6 +61,8 @@ export interface ProductRow {
     stock12mByStore?: Record<string, Record<string, number>>;
     /** Per-store reception breakdown (site → YYYYMM → qté reçue) */
     receptions12mByStore?: Record<string, Record<string, number>>;
+    /** Per-store last delivery/reception date (site → ISO date string) */
+    derniereLivraisonByStore?: Record<string, string>;
     /** Per-store CA totals */
     caByStore?: Record<string, number>;
     /** Per-store quantity totals */

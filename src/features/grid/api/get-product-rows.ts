@@ -303,6 +303,14 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
             const dernLiv = sitesStock.reduce<string>((best, r) =>
                 r.dernierereception && r.dernierereception > best ? r.dernierereception : best, "");
             if (dernLiv) product.derniereLivraison = dernLiv;
+
+            // Map store-specific delivery dates
+            product.derniereLivraisonByStore = {};
+            for (const r of sitesStock) {
+                if (r.site && r.dernierereception) {
+                    product.derniereLivraisonByStore[r.site] = r.dernierereception;
+                }
+            }
         }
 
         // ─── Phase 8 : Ranking réseau ────────────────────────────────────────

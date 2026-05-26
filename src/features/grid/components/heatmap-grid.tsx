@@ -48,6 +48,11 @@ function formatMonthLabel(key: string): string {
     return `${names[m - 1]} ${key.slice(2, 4)}`;
 }
 
+function formatDate(iso?: string): string {
+    if (!iso) return "—";
+    return new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
 /**
  * Returns premium styling and color for stores based on the store name's hash.
  * This guarantees a consistent color for a given store, regardless of its position in the list.
@@ -458,10 +463,17 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
                         <div className="flex gap-1.5 shrink-0">
                             {r.workingStores.map((magasin) => {
                                 const config = getStoreConfig(magasin);
+                                const lastLivDate = r.derniereLivraisonByStore?.[magasin];
+                                const storeName = SITE_LABELS[magasin]?.nom ?? magasin;
+                                const tooltipTitle = `Magasin : ${storeName}\n${
+                                    lastLivDate
+                                        ? `Dernière entrée en stock : ${formatDate(lastLivDate)}`
+                                        : "Aucune entrée enregistrée"
+                                }`;
                                 return (
                                     <div
                                         key={magasin}
-                                        title={`Travaillé par : ${SITE_LABELS[magasin]?.nom ?? magasin}`}
+                                        title={tooltipTitle}
                                         className="px-1.5 py-0.5 rounded-md flex items-center gap-1 text-[10px] font-black border shadow-sm transition-transform hover:scale-110"
                                         style={{
                                             background: config.bg,
