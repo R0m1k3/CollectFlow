@@ -1,24 +1,19 @@
-# Plan - Commit et Push des optimisations de performances de la grille
+# Plan - Implémentation de l'overlay de chargement premium (Glassmorphism)
 
 ## Contexte
-L'utilisateur a demandé de commiter et pusher de nouvelles modifications locales. L'analyse révèle des optimisations de performances clés apportées au store Zustand de la grille :
-1. Indexation rapide des lignes de produits par `codein` dans `rowsByCodein` pour accélérer la mise à jour des brouillons de O(N) à O(1).
-2. Debouncing du calcul des résumés (`computeSummary`) afin d'alléger le thread principal lors des imports en streaming ou des modifications de masse.
+L'utilisateur souhaite ajouter un indicateur visuel de chargement lors du chargement de la grille. L'option retenue est un overlay de démarrage en verre dépoli (glassmorphism) semi-bloquant. Cet overlay affiche la progression du streaming en temps réel et propose un bouton pour ignorer l'overlay et explorer directement les premières données déjà chargées.
 
 ## Focus Actuel
-Validation finale et dépôt propre.
+Validation finale et publication Git (commit et push).
 
 ## Master Plan
-- [x] Analyser l'état de Git et identifier les nouveaux fichiers modifiés (Fait: 5 fichiers)
-- [x] Vérifier la compilation globale du projet avec `rtk tsc` (Fait)
-- [x] Ajouter les fichiers à l'index Git (`rtk git add`) (Fait)
-- [x] Créer le commit avec un message décrivant les optimisations de performance (`rtk git commit`) (Fait: "perf(grid): optimize state store with O(1) row indexing and debounced summary calculations")
-- [x] Envoyer le commit vers le dépôt distant (`rtk git push`) (Fait)
-- [x] Valider le statut Git final (Fait)
+- [x] Définir le concept de design avec l'utilisateur (Fait: Option A sélectionnée)
+- [x] Modifier `src/features/grid/components/grid-client.tsx` (Fait)
+- [x] Vérifier la compilation globale avec `rtk tsc` (Fait: aucune erreur)
+- [ ] Valider l'esthétique et le comportement en simulant le chargement
+- [ ] Mettre à jour Git (commit et push)
 
 ## Progress Log
-- **2026-05-26 13:53** : Analyse des nouvelles modifications. Découverte des optimisations majeures sur `use-grid-store.ts` (indexation O(1) et debouncing des calculs de résumé).
-- **2026-05-26 13:54** : Vérification de la compilation TypeScript via `rtk tsc` (aucune erreur liée à nos changements).
-- **2026-05-26 13:55** : Indexation des fichiers modifiés et de `task.md` via `rtk git add .`.
-- **2026-05-26 13:56** : Création du commit décrivant l'indexation de O(N) à O(1) et le debouncing.
-- **2026-05-26 13:57** : Push des modifications sur `origin/main` effectué avec succès.
+- **2026-05-26 13:58** : Choix du design validé par l'utilisateur (Option A : Overlay de démarrage en glassmorphism avec option d'exploration). Initialisation du plan dans `task.md`.
+- **2026-05-26 14:00** : Intégration de l'overlay de chargement premium en verre dépoli (glassmorphism) semi-bloquant avec indicateur dynamique et bouton d'exploration.
+- **2026-05-26 14:01** : Vérification de la compilation avec `rtk tsc` réussie.

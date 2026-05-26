@@ -49,6 +49,7 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
     const [rowsLoaded, setRowsLoaded] = useState(0);
     const [totalRows, setTotalRows] = useState<number | null>(null);
     const [loadError, setLoadError] = useState<string | null>(null);
+    const [showStartOverlay, setShowStartOverlay] = useState(false);
 
     const noSalesCount = useMemo(() => countNoSalesIn6Months(rows), [rows]);
 
@@ -99,6 +100,7 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
         setTotalRows(null);
         setLoadError(null);
         setIsLoadingRows(true);
+        setShowStartOverlay(true);
 
         async function loadRows() {
             try {
@@ -292,6 +294,75 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
             {activeTab === "grid" && (
                 <div className="print:hidden">
                     <FloatingSummaryBar />
+                </div>
+            )}
+
+            {/* Overlay de démarrage premium (Glassmorphism semi-bloquant) */}
+            {showStartOverlay && isLoadingRows && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 backdrop-blur-md bg-slate-950/30 dark:bg-black/40 animate-fade-in">
+                    <div 
+                        className="w-full max-w-md rounded-2xl border p-6 shadow-2xl flex flex-col items-center text-center space-y-5 transition-transform duration-300 transform scale-100"
+                        style={{
+                            background: "rgba(255, 255, 255, 0.75)",
+                            borderColor: "var(--border)",
+                            backdropFilter: "blur(20px)",
+                            boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)"
+                        }}
+                    >
+                        {/* Header avec logo ou icône animée */}
+                        <div className="relative flex items-center justify-center w-16 h-16 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                            <Loader2 className="w-8 h-8 animate-spin" />
+                            <div className="absolute inset-0 rounded-full border border-emerald-500/20 animate-ping duration-1000" />
+                        </div>
+
+                        {/* Titre et descriptions */}
+                        <div className="space-y-1">
+                            <h3 className="text-lg font-bold tracking-tight text-emerald-800 dark:text-emerald-400">
+                                Flux d'Assortiment en cours
+                            </h3>
+                            <p className="text-xs text-muted-foreground max-w-[280px] mx-auto animate-pulse" style={{ color: "var(--text-muted)" }}>
+                                Chargement progressif et en temps réel des données pour <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>{nomFournisseur}</span>.
+                            </p>
+                        </div>
+
+                        {/* Barre de progression dynamique */}
+                        <div className="w-full space-y-2">
+                            <div className="flex justify-between text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
+                                <span>Progression</span>
+                                <span>
+                                    {totalRows 
+                                        ? `${Math.round((rowsLoaded / totalRows) * 100)}%` 
+                                        : `${rowsLoaded.toLocaleString("fr-FR")} réfs`}
+                                </span>
+                            </div>
+                            <div className="w-full h-2 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-800" style={{ border: "1px solid var(--border)" }}>
+                                <div 
+                                    className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-300 ease-out rounded-full"
+                                    style={{
+                                        width: totalRows ? `${(rowsLoaded / totalRows) * 100}%` : "40%",
+                                    }}
+                                />
+                            </div>
+                            <p className="text-[11px] font-medium animate-pulse" style={{ color: "var(--text-muted)" }}>
+                                {totalRows 
+                                    ? `${rowsLoaded.toLocaleString("fr-FR")} sur ${totalRows.toLocaleString("fr-FR")} références chargées`
+                                    : `${rowsLoaded.toLocaleString("fr-FR")} références récupérées...`}
+                            </p>
+                        </div>
+
+                        {/* Boutons d'action */}
+                        <div className="w-full pt-2 flex flex-col gap-2">
+                            <button
+                                onClick={() => setShowStartOverlay(false)}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 active:scale-95 hover:shadow-lg hover:shadow-emerald-500/20 transition-all duration-200"
+                            >
+                                Explorer les premières données
+                            </button>
+                            <p className="text-[10px] text-muted italic" style={{ color: "var(--text-muted)" }}>
+                                Le chargement continuera en arrière-plan sans bloquer votre navigation.
+                            </p>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
