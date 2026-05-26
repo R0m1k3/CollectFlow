@@ -18,7 +18,7 @@ interface BulkActionToolbarProps {
 }
 
 export function BulkActionToolbar({ selectedCodeins, onClearSelection }: BulkActionToolbarProps) {
-    const { batchSetDraftGamme } = useGridStore();
+    const batchSetDraftGamme = useGridStore((s) => s.batchSetDraftGamme);
 
     if (selectedCodeins.length === 0) return null;
 

@@ -1,4 +1,4 @@
-import { getFournisseurs, getGridData, getMagasins } from "@/features/grid/actions";
+import { getFournisseurs, getMagasins } from "@/features/grid/actions";
 import { GridClient } from "@/features/grid/components/grid-client";
 import { SupplierSelectionLanding } from "@/features/grid/components/supplier-selection-landing";
 
@@ -33,20 +33,16 @@ export default async function GridPage({ searchParams }: GridPageProps) {
         return <SupplierSelectionLanding fournisseurs={fournisseurs} />;
     }
 
-    // 3. Load real product data for the selected supplier
-    console.log(`\n>>> [GridPage] Fetching data for: ${codeFournisseur}, shop: ${magasin}`);
-    const rows = await getGridData(codeFournisseur, magasin, filters);
-    console.log(`>>> [GridPage] Received ${rows.length} rows from getGridData`);
     const selectedFournisseur = fournisseurs.find((f: { code: string; nom: string }) => f.code === codeFournisseur);
 
     return (
         <GridClient
-            initialRows={rows}
             codeFournisseur={codeFournisseur}
             nomFournisseur={selectedFournisseur?.nom || "Fournisseur inconnu"}
             fournisseurs={fournisseurs}
             magasins={magasins}
             magasin={magasin}
+            filters={filters}
         />
     );
 }

@@ -29,8 +29,12 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 
 export function FloatingSummaryBar() {
     const { data: session } = useSession();
-    const isAdmin = (session?.user as any)?.role === "admin";
-    const { summary, resetDrafts, rows, filters, draftChanges } = useGridStore();
+    const isAdmin = (session?.user as { role?: string } | undefined)?.role === "admin";
+    const summary = useGridStore((s) => s.summary);
+    const resetDrafts = useGridStore((s) => s.resetDrafts);
+    const rows = useGridStore((s) => s.rows);
+    const filters = useGridStore((s) => s.filters);
+    const draftChanges = useGridStore((s) => s.draftChanges);
     const { resetInsights } = useAiCopilotStore();
     const [isPending, startTransition] = useTransition();
     const [isSavingSnapshot, setIsSavingSnapshot] = useState(false);

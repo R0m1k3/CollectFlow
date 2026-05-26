@@ -1,19 +1,9 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { Search, X, ChevronDown, RotateCw } from "lucide-react";
+import { Search, X, RotateCw } from "lucide-react";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
-import { GammeCode } from "@/types/grid";
 import { cn } from "@/lib/utils";
-
-const GAMME_FILTERS: { label: string; value: GammeCode | null }[] = [
-    { label: "Tous", value: null },
-    { label: "A", value: "A" },
-    { label: "B", value: "B" },
-    { label: "C", value: "C" },
-    { label: "Y", value: "Y" },
-    { label: "Z", value: "Z" },
-];
 
 import { SupplierCombobox } from "./supplier-combobox";
 import { StoreCombobox } from "./store-combobox";
@@ -26,10 +16,27 @@ interface GridFilterBarProps {
 }
 
 export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
-    const { filters, setFilter, rows, draftChanges } = useGridStore();
+    const filters = useGridStore((s) => s.filters);
+    const setFilter = useGridStore((s) => s.setFilter);
+    const rows = useGridStore((s) => s.rows);
+    const draftChanges = useGridStore((s) => s.draftChanges);
     const router = useRouter();
     const searchParams = useSearchParams();
     const [isRefreshing, setIsRefreshing] = React.useState(false);
+    const [searchValue, setSearchValue] = React.useState(filters.search);
+
+    React.useEffect(() => {
+        setSearchValue(filters.search);
+    }, [filters.search]);
+
+    React.useEffect(() => {
+        const handle = window.setTimeout(() => {
+            if (searchValue !== filters.search) {
+                setFilter("search", searchValue);
+            }
+        }, 250);
+        return () => window.clearTimeout(handle);
+    }, [searchValue, filters.search, setFilter]);
 
     // Options nomenclature (famille) construites depuis les rows chargées
     const code3Options = useMemo(() => {
@@ -85,7 +92,8 @@ export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
         router.push(`/grid?${params.toString()}`);
     };
 
-    const { setActiveMagasin, activeMagasin } = useGridStore();
+    const setActiveMagasin = useGridStore((s) => s.setActiveMagasin);
+    const activeMagasin = useGridStore((s) => s.activeMagasin);
 
     const handleStoreSelect = (code: string) => {
         setActiveMagasin(code);
@@ -96,7 +104,9 @@ export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
 
     const handleRefresh = () => {
         setIsRefreshing(true);
-        router.refresh();
+        const params = new URLSearchParams(searchParams.toString());
+        params.set("_refresh", Date.now().toString());
+        router.replace(`/grid?${params.toString()}`, { scroll: false });
         // Visual feedback delay
         setTimeout(() => setIsRefreshing(false), 800);
     };
@@ -142,14 +152,14 @@ export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
                 <input
                     type="search"
                     placeholder="Rechercher (code, désignation...)"
-                    value={filters.search}
-                    onChange={(e) => setFilter("search", e.target.value)}
+                    value={searchValue}
+                    onChange={(e) => setSearchValue(e.target.value)}
                     className="apple-input w-72 pr-8"
                     style={{ paddingLeft: "32px" }}
                 />
-                {filters.search && (
+                {searchValue && (
                     <button
-                        onClick={() => setFilter("search", "")}
+                        onClick={() => setSearchValue("")}
                         className="absolute right-2 top-1/2 -translate-y-1/2"
                     >
                         <X className="h-3.5 w-3.5 hover:opacity-100 opacity-60 transition-opacity" style={{ color: "var(--text-secondary)" }} />

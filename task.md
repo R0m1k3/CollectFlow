@@ -1,21 +1,18 @@
-# Master Plan - Résolution Dashboard 502
+# Plan - Commit et Push des modifications locales
 
 ## Contexte
-Le dashboard affiche une erreur 502 Bad Gateway. L'API `api.ffnancy.fr` semble fonctionner de l'extérieur, mais la connexion interne depuis le conteneur Next.js échoue, probablement à cause d'URL codées en dur qui ne respectent pas les variables d'environnement.
+L'utilisateur a demandé de commiter et pusher ses modifications locales actuelles. L'analyse montre qu'il s'agit d'une implémentation majeure du chargement en streaming pour la grille de produits (11 fichiers modifiés et 2 fichiers non suivis).
 
 ## Focus Actuel
-Harmonisation des URL API dans le code source pour utiliser `FF_API_BASE_URL`.
+Validation de la compilation, staging des fichiers, création du commit et push vers le dépôt distant.
 
 ## Master Plan
-- [x] Analyser tous les appels API dans `pg-ff-client.ts` et `api-ff-client.ts`
-- [x] Centraliser la constante `FF_API_BASE` dans `pg-ff-client.ts`
-- [x] Remplacer les URL codées en dur par `${FF_API_BASE}`
-- [x] Vérifier la configuration Docker et les variables d'environnement
-
-- [x] Tester via `/api/diag` (Implémentation validée)
-
+- [x] Analyser l'état actuel de Git et identifier les fichiers modifiés/ajoutés (Fait)
+- [ ] Vérifier la compilation globale avec `rtk tsc` pour s'assurer que tout est propre
+- [ ] Ajouter les fichiers à l'index Git (`rtk git add`)
+- [ ] Créer le commit avec un message descriptif et professionnel (`rtk git commit`)
+- [ ] Envoyer les modifications sur la branche distante (`rtk git push`)
+- [ ] Valider le statut Git final
 
 ## Progress Log
-- Analyse initiale terminée : identification d'une URL codée en dur à la ligne 564 de `pg-ff-client.ts`.
-- Harmonisation effectuée dans `pg-ff-client.ts`.
-- Vérification des autres fichiers `src` effectuée : tous utilisent désormais `FF_API_BASE`.
+- **2026-05-26 13:31** : Analyse initiale des modifications. Identification de l'implémentation de la grille en streaming (`src/features/grid` et `/api/grid`). Initialisation du plan de commit et push.

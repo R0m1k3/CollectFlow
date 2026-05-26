@@ -5,6 +5,7 @@ import { sessionSnapshots } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { invalidateGridRowsCache } from "./get-product-rows";
 
 const SaveDraftsSchema = z.object({
     codeFournisseur: z.string(),
@@ -68,6 +69,8 @@ export async function saveDraftChanges(
             summaryJson: null,
             type: "snapshot",
         });
+
+        invalidateGridRowsCache(codeFournisseur);
 
         return { success: true, saved: changes.length };
     } catch (err) {

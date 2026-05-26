@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { HeatmapGrid } from "@/features/grid/components/heatmap-grid";
 import { FloatingSummaryBar } from "@/features/grid/components/floating-summary-bar";
 import { BulkActionToolbar } from "@/features/grid/components/bulk-action-toolbar";
@@ -14,20 +14,26 @@ import { CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import { useSession } from "next-auth/react";
 
 import { useSearchParams } from "next/navigation";
-import { computeProductScores } from "@/lib/score-engine";
+import type { GridFilters } from "@/types/grid";
 
 interface GridClientProps {
-    initialRows: ProductRow[];
     codeFournisseur: string;
     nomFournisseur: string;
     fournisseurs: { code: string; nom: string }[];
     magasins: { code: string; nom: string }[];
     magasin: string;
+    filters: Pick<GridFilters, "code1" | "code2" | "code3">;
 }
 
-export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fournisseurs, magasins, magasin }: GridClientProps) {
+type GridRowsStreamMessage =
+    | { type: "start"; loaded: number; total: null }
+    | { type: "chunk"; rows: ProductRow[]; loaded: number; total: number }
+    | { type: "done"; loaded: number; total: number }
+    | { type: "error"; error: string };
+
+export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, magasins, magasin, filters }: GridClientProps) {
     const { data: session } = useSession();
-    const isAdmin = (session?.user as any)?.role === "admin";
+    const isAdmin = (session?.user as { role?: string } | undefined)?.role === "admin";
     const setRows = useGridStore((s) => s.setRows);
     const rows = useGridStore((s) => s.rows);
     const setActiveGridQuery = useGridStore((s) => s.setActiveGridQuery);
@@ -39,10 +45,14 @@ export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fourn
     const [isPending, startTransition] = useTransition();
     const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle");
     const [activeTab, setActiveTab] = useState<"grid" | "no-sales">("grid");
+    const [isLoadingRows, setIsLoadingRows] = useState(false);
+    const [rowsLoaded, setRowsLoaded] = useState(0);
+    const [totalRows, setTotalRows] = useState<number | null>(null);
+    const [loadError, setLoadError] = useState<string | null>(null);
 
     const noSalesCount = useMemo(() => countNoSalesIn6Months(rows), [rows]);
 
-    const visibleCodeins = initialRows.map(r => r.codein);
+    const visibleCodeins = useMemo(() => rows.map(r => r.codein), [rows]);
     const { save, hasDrafts, count } = useSaveDrafts(magasin, visibleCodeins);
 
     const [isMounted, setIsMounted] = useState(false);
@@ -68,9 +78,81 @@ export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fourn
             setFilter("code3", null);
             prevFournisseurRef.current = codeFournisseur;
         }
-        const scoredRows = computeProductScores([...initialRows]);
-        setRows(scoredRows);
-    }, [codeFournisseur, initialRows, setRows, setFilter, isMounted]);
+    }, [codeFournisseur, setFilter, isMounted]);
+
+    const refreshToken = searchParams.get("_refresh");
+    useEffect(() => {
+        if (!isMounted) return;
+
+        const controller = new AbortController();
+        const params = new URLSearchParams();
+        params.set("fournisseur", codeFournisseur);
+        params.set("magasin", magasin || "TOTAL");
+        if (filters.code1) params.set("code1", filters.code1);
+        if (filters.code2) params.set("code2", filters.code2);
+        if (filters.code3) params.set("code3", filters.code3);
+        if (refreshToken) params.set("refresh", "1");
+
+        let accumulatedRows: ProductRow[] = [];
+        setRows([]);
+        setRowsLoaded(0);
+        setTotalRows(null);
+        setLoadError(null);
+        setIsLoadingRows(true);
+
+        async function loadRows() {
+            try {
+                const response = await fetch(`/api/grid/rows?${params.toString()}`, {
+                    signal: controller.signal,
+                    cache: "no-store",
+                });
+                if (!response.ok || !response.body) {
+                    throw new Error(`Chargement impossible (${response.status})`);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split("\n");
+                    buffer = lines.pop() ?? "";
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        const message = JSON.parse(line) as GridRowsStreamMessage;
+                        if (message.type === "chunk") {
+                            accumulatedRows = accumulatedRows.concat(message.rows);
+                            setRows(accumulatedRows);
+                            setRowsLoaded(message.loaded);
+                            setTotalRows(message.total);
+                        } else if (message.type === "done") {
+                            setRowsLoaded(message.loaded);
+                            setTotalRows(message.total);
+                        } else if (message.type === "error") {
+                            throw new Error(message.error);
+                        }
+                    }
+                }
+            } catch (error) {
+                if (!controller.signal.aborted) {
+                    setLoadError(error instanceof Error ? error.message : "Erreur de chargement");
+                }
+            } finally {
+                if (!controller.signal.aborted) {
+                    setIsLoadingRows(false);
+                }
+            }
+        }
+
+        loadRows();
+
+        return () => controller.abort();
+    }, [codeFournisseur, magasin, filters.code1, filters.code2, filters.code3, refreshToken, setRows, isMounted]);
 
     // Synchroniser le magasin actif depuis la prop URL (changement de magasin sans rechargement)
     useEffect(() => {
@@ -101,10 +183,23 @@ export function GridClient({ initialRows, codeFournisseur, nomFournisseur, fourn
                     <p className="text-[13px] mt-0.5" style={{ color: "var(--text-secondary)" }}>
                         <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{nomFournisseur}</span>
                         {" "}• <span className="font-medium" style={{ color: "var(--text-muted)" }}>{activeStoreNom}</span>
-                        {" "}• {initialRows.length} références
+                        {" "}• {totalRows?.toLocaleString("fr-FR") ?? rows.length.toLocaleString("fr-FR")} références
                     </p>
                 </div>
                 <div className="flex items-center gap-3">
+                    {(isLoadingRows || loadError) && (
+                        <div
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold"
+                            style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: loadError ? "var(--accent-error)" : "var(--text-secondary)" }}
+                        >
+                            {isLoadingRows && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                            {loadError
+                                ? loadError
+                                : totalRows
+                                    ? `${rowsLoaded.toLocaleString("fr-FR")} / ${totalRows.toLocaleString("fr-FR")}`
+                                    : "Chargement produits..."}
+                        </div>
+                    )}
                     <div id="grid-toolbar-actions"></div>
                     {isAdmin && <ExportDropdown nomFournisseur={nomFournisseur} />}
                     {isAdmin && hasDrafts && (

@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import type { ProductRow } from "@/types/grid";
 import { PackageX } from "lucide-react";
@@ -49,6 +50,7 @@ const GAMME_COLORS: Record<string, string> = {
 
 export function NoSalesTab() {
     const rows = useGridStore(s => s.rows);
+    const scrollRef = useRef<HTMLDivElement>(null);
 
     const filtered = useMemo(() => {
         const result = getNoSalesIn6Months(rows);
@@ -60,6 +62,14 @@ export function NoSalesTab() {
             return (b.stockActuel ?? 0) - (a.stockActuel ?? 0);
         });
     }, [rows]);
+
+    // eslint-disable-next-line react-hooks/incompatible-library
+    const rowVirtualizer = useVirtualizer({
+        count: filtered.length,
+        getScrollElement: () => scrollRef.current,
+        estimateSize: () => 36,
+        overscan: 12,
+    });
 
     if (rows.length === 0) {
         return (
@@ -95,64 +105,68 @@ export function NoSalesTab() {
             </div>
 
             {/* Tableau */}
-            <div className="flex-1 min-h-0 overflow-auto rounded-xl" style={{ border: "1px solid var(--border)" }}>
-                <table className="w-full text-[12px] border-collapse">
-                    <thead className="sticky top-0 z-10" style={{ background: "var(--bg-elevated)" }}>
-                        <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                            {["Code", "Libellé", "Réf.", "Gamme", "Dernière vente", "Jours", "Stock", "CA 12m", "Score"].map(col => (
-                                <th key={col}
-                                    className="px-3 py-2 text-left font-semibold whitespace-nowrap"
-                                    style={{ color: "var(--text-muted)" }}
-                                >
-                                    {col}
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {filtered.map((row, i) => {
+            <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto rounded-xl" style={{ border: "1px solid var(--border)" }}>
+                <div className="min-w-[900px] text-[12px]">
+                    <div className="sticky top-0 z-10 grid grid-cols-[90px_minmax(220px,1fr)_120px_76px_130px_70px_90px_110px_70px]"
+                        style={{ background: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}
+                    >
+                        {["Code", "Libellé", "Réf.", "Gamme", "Dernière vente", "Jours", "Stock", "CA 12m", "Score"].map(col => (
+                            <div key={col}
+                                className="px-3 py-2 text-left font-semibold whitespace-nowrap"
+                                style={{ color: "var(--text-muted)" }}
+                            >
+                                {col}
+                            </div>
+                        ))}
+                    </div>
+                    <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
+                        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                            const row = filtered[virtualRow.index];
+                            const i = virtualRow.index;
                             const days = daysSince(row.derniereVente);
                             const gamme = row.codeGamme?.trim().toUpperCase() ?? "—";
                             const gammeClass = GAMME_COLORS[gamme] ?? "bg-zinc-500/15 text-zinc-600";
                             return (
-                                <tr
+                                <div
                                     key={row.codein}
-                                    className="transition-colors hover:bg-white/5"
+                                    className="absolute left-0 right-0 grid grid-cols-[90px_minmax(220px,1fr)_120px_76px_130px_70px_90px_110px_70px] items-center transition-colors hover:bg-white/5"
                                     style={{
+                                        height: `${virtualRow.size}px`,
+                                        transform: `translateY(${virtualRow.start}px)`,
                                         borderBottom: i < filtered.length - 1 ? "1px solid var(--border)" : undefined,
                                         background: i % 2 === 0 ? "transparent" : "var(--bg-subtle, rgba(0,0,0,0.02))",
                                     }}
                                 >
-                                    <td className="px-3 py-1.5 font-mono" style={{ color: "var(--text-muted)" }}>{row.codein}</td>
-                                    <td className="px-3 py-1.5 max-w-[220px] truncate" style={{ color: "var(--text-primary)" }} title={row.libelle1}>{row.libelle1}</td>
-                                    <td className="px-3 py-1.5 font-mono text-[11px]" style={{ color: "var(--text-muted)" }}>{row.reference || "—"}</td>
-                                    <td className="px-3 py-1.5">
+                                    <div className="px-3 py-1.5 font-mono" style={{ color: "var(--text-muted)" }}>{row.codein}</div>
+                                    <div className="px-3 py-1.5 truncate" style={{ color: "var(--text-primary)" }} title={row.libelle1}>{row.libelle1}</div>
+                                    <div className="px-3 py-1.5 font-mono text-[11px]" style={{ color: "var(--text-muted)" }}>{row.reference || "—"}</div>
+                                    <div className="px-3 py-1.5">
                                         <span className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-bold ${gammeClass}`}>
                                             {gamme}
                                         </span>
-                                    </td>
-                                    <td className="px-3 py-1.5 whitespace-nowrap" style={{ color: row.derniereVente ? "var(--text-secondary)" : "var(--text-muted)" }}>
+                                    </div>
+                                    <div className="px-3 py-1.5 whitespace-nowrap" style={{ color: row.derniereVente ? "var(--text-secondary)" : "var(--text-muted)" }}>
                                         {formatDate(row.derniereVente)}
-                                    </td>
-                                    <td className="px-3 py-1.5 text-right font-medium tabular-nums"
+                                    </div>
+                                    <div className="px-3 py-1.5 text-right font-medium tabular-nums"
                                         style={{ color: days && days > 365 ? "var(--color-red, #ef4444)" : "var(--text-secondary)" }}>
                                         {days != null ? days.toLocaleString("fr-FR") : "—"}
-                                    </td>
-                                    <td className="px-3 py-1.5 text-right tabular-nums" style={{ color: "var(--text-secondary)" }}>
+                                    </div>
+                                    <div className="px-3 py-1.5 text-right tabular-nums" style={{ color: "var(--text-secondary)" }}>
                                         {row.stockActuel != null ? row.stockActuel.toLocaleString("fr-FR") : "—"}
-                                    </td>
-                                    <td className="px-3 py-1.5 text-right tabular-nums" style={{ color: "var(--text-secondary)" }}>
+                                    </div>
+                                    <div className="px-3 py-1.5 text-right tabular-nums" style={{ color: "var(--text-secondary)" }}>
                                         {row.totalCa > 0 ? formatCa(row.totalCa) : "—"}
-                                    </td>
-                                    <td className="px-3 py-1.5 text-right tabular-nums font-semibold"
+                                    </div>
+                                    <div className="px-3 py-1.5 text-right tabular-nums font-semibold"
                                         style={{ color: row.score >= 50 ? "var(--color-amber, #f59e0b)" : "var(--text-muted)" }}>
                                         {row.score > 0 ? row.score : "—"}
-                                    </td>
-                                </tr>
+                                    </div>
+                                </div>
                             );
                         })}
-                    </tbody>
-                </table>
+                    </div>
+                </div>
             </div>
         </div>
     );

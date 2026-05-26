@@ -10,7 +10,11 @@ import { GammeCode } from "@/types/grid";
  * Filters changes to only include those in the provided codeins list (e.g. current supplier).
  */
 export function useSaveDrafts(magasin: string, filterCodeins?: string[]) {
-    const { draftChanges, rows, resetDrafts, clearDrafts, applyDraftsToRows } = useGridStore();
+    const draftChanges = useGridStore((s) => s.draftChanges);
+    const rows = useGridStore((s) => s.rows);
+    const resetDrafts = useGridStore((s) => s.resetDrafts);
+    const clearDrafts = useGridStore((s) => s.clearDrafts);
+    const applyDraftsToRows = useGridStore((s) => s.applyDraftsToRows);
 
     // Only consider changes that are in the filter list (if provided)
     const activeDrafts = filterCodeins
@@ -49,7 +53,7 @@ export function useSaveDrafts(magasin: string, filterCodeins?: string[]) {
             }
         }
         return result;
-    }, [activeDrafts, rows, magasin, resetDrafts, clearDrafts, filterCodeins]);
+    }, [activeDrafts, rows, magasin, resetDrafts, clearDrafts, applyDraftsToRows, filterCodeins]);
 
     return { save, hasDrafts: count > 0, count };
 }

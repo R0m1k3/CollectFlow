@@ -1,8 +1,8 @@
-"use server";
+import "server-only";
 
 import type { ProductRow, GammeCode, GridFilters } from "@/types/grid";
 import { computeProductScores } from "@/lib/score-engine";
-import { buildLast12MonthsRange } from "@/lib/api-ff-client";
+import { buildLast12MonthsRange, getMensuelByArticles } from "@/lib/api-ff-client";
 import {
     pgGetArticlesByFournisseur,
     pgGetMensuelByFournisseur,
@@ -21,9 +21,57 @@ interface GetProductRowsInput {
     codeFournisseur: string;
     magasin?: string;
     filters?: Partial<GridFilters>;
+    forceRefresh?: boolean;
+}
+
+const GRID_ROWS_CACHE_TTL_MS = 10 * 60 * 1000;
+const gridRowsCache = new Map<string, { rows: ProductRow[]; createdAt: number }>();
+const gridRowsPending = new Map<string, Promise<ProductRow[]>>();
+
+function gridRowsCacheKey(input: GetProductRowsInput): string {
+    return `${input.codeFournisseur}:${input.magasin ?? "TOTAL"}`;
+}
+
+export function invalidateGridRowsCache(codeFournisseur?: string) {
+    if (codeFournisseur) {
+        for (const key of gridRowsCache.keys()) {
+            if (key.startsWith(`${codeFournisseur}:`)) gridRowsCache.delete(key);
+        }
+        for (const key of gridRowsPending.keys()) {
+            if (key.startsWith(`${codeFournisseur}:`)) gridRowsPending.delete(key);
+        }
+        return;
+    }
+    gridRowsCache.clear();
+    gridRowsPending.clear();
 }
 
 export async function getProductRows(input: GetProductRowsInput): Promise<ProductRow[]> {
+    const cacheKey = gridRowsCacheKey(input);
+    const cached = gridRowsCache.get(cacheKey);
+    if (!input.forceRefresh && cached && Date.now() - cached.createdAt < GRID_ROWS_CACHE_TTL_MS) {
+        return cached.rows;
+    }
+
+    const pending = gridRowsPending.get(cacheKey);
+    if (!input.forceRefresh && pending) {
+        return pending;
+    }
+
+    const promise = buildProductRows(input).then((rows) => {
+        gridRowsCache.set(cacheKey, { rows, createdAt: Date.now() });
+        gridRowsPending.delete(cacheKey);
+        return rows;
+    }).catch((error) => {
+        gridRowsPending.delete(cacheKey);
+        throw error;
+    });
+
+    gridRowsPending.set(cacheKey, promise);
+    return promise;
+}
+
+async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[]> {
     const { codeFournisseur, magasin = "TOTAL" } = input;
     console.log(`\n>>> [getProductRows] supplier: ${codeFournisseur}, magasin: ${magasin}`);
 
@@ -295,6 +343,7 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
         // ─── Phase 10 : Filtrer gamme Y sans ventes + compute scores ─────────
         const allRows = Array.from(productMap.values());
         const rows = allRows.filter(p => p.codeGamme !== "Y" || p.totalQuantite > 0);
+        await reconcileSelectedStoreFromMensuelApi(rows, magasin, dateDebut, dateFin, sortedPeriods);
         const excludedY = allRows.length - rows.length;
         console.log(`[getProductRows] ${rows.length} produits (${excludedY} gamme Y sans ventes exclus), ${mensuelByCodein.size} avec ventes`);
 
@@ -303,5 +352,110 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
     } catch (error) {
         console.error(`[getProductRows] Error for ${codeFournisseur}:`, error);
         return [];
+    }
+}
+
+async function reconcileSelectedStoreFromMensuelApi(
+    rows: ProductRow[],
+    magasin: string,
+    dateDebut: string,
+    dateFin: string,
+    sortedPeriods: string[]
+) {
+    if (magasin === "TOTAL") return;
+
+    const candidates = rows.filter((row) => {
+        if (!row.noid) return false;
+        const storeQty = row.quantiteByStore?.[magasin] ?? 0;
+        return storeQty === 0;
+    });
+
+    if (candidates.length === 0) return;
+
+    try {
+        const mensuelMap = await getMensuelByArticles(
+            candidates.map((row) => ({
+                codein: row.codein,
+                libelle1: row.libelle1,
+                codefou: row.codeFournisseur,
+                noid: row.noid,
+            })),
+            dateDebut,
+            dateFin,
+            25
+        );
+
+        let fixedRows = 0;
+        for (const row of candidates) {
+            const entries = (mensuelMap.get(row.codein) ?? []).filter((entry) => entry.site === magasin);
+            if (entries.length === 0) continue;
+
+            const byPeriod = new Map<string, { qty: number; ca: number; marge: number; stock: number; receptions: number }>();
+            for (const entry of entries) {
+                const period = entry.mois.replace("-", "");
+                if (!sortedPeriods.includes(period)) continue;
+                const qty = Math.abs(Number(entry.ventes?.qte_vendue ?? 0) || 0);
+                const ca = Math.abs(Number(entry.ventes?.ca_ht ?? 0) || 0);
+                const marge = Number(entry.ventes?.marge ?? 0) || 0;
+                const stock = Number(entry.stock_fin_mois ?? 0) || 0;
+                const receptions = Number(entry.receptions?.qte_recue ?? 0) || 0;
+                byPeriod.set(period, { qty, ca, marge, stock, receptions });
+            }
+
+            const apiQty = [...byPeriod.values()].reduce((sum, value) => sum + value.qty, 0);
+            if (apiQty === 0) continue;
+
+            row.sales12mByStore ??= {};
+            row.stock12mByStore ??= {};
+            row.receptions12mByStore ??= {};
+            row.caByStore ??= {};
+            row.quantiteByStore ??= {};
+            row.margeByStore ??= {};
+            row.sales12mByStore[magasin] ??= {};
+            row.stock12mByStore[magasin] ??= {};
+            row.receptions12mByStore[magasin] ??= {};
+
+            let storeQty = 0;
+            let storeCa = 0;
+            let storeMarge = 0;
+            let lastStock = 0;
+
+            for (const period of sortedPeriods) {
+                const value = byPeriod.get(period);
+                const currentQty = row.sales12mByStore[magasin][period] ?? 0;
+                const nextQty = value?.qty ?? 0;
+                const deltaQty = nextQty - currentQty;
+
+                row.sales12mByStore[magasin][period] = nextQty;
+                row.receptions12mByStore[magasin][period] = value?.receptions ?? 0;
+                if (value) lastStock = value.stock;
+                row.stock12mByStore[magasin][period] = lastStock;
+
+                row.sales12m[period] = (row.sales12m[period] ?? 0) + deltaQty;
+                storeQty += nextQty;
+                storeCa += value?.ca ?? 0;
+                storeMarge += value?.marge ?? 0;
+            }
+
+            const deltaTotalQty = storeQty - (row.quantiteByStore[magasin] ?? 0);
+            const deltaTotalCa = storeCa - (row.caByStore[magasin] ?? 0);
+            const deltaTotalMarge = storeMarge - (row.margeByStore[magasin] ?? 0);
+
+            row.quantiteByStore[magasin] = storeQty;
+            row.caByStore[magasin] = storeCa;
+            row.margeByStore[magasin] = storeMarge;
+            row.totalQuantite += deltaTotalQty;
+            row.totalCa += deltaTotalCa;
+            row.totalMarge += deltaTotalMarge;
+            row.tauxMarge = row.totalCa > 0 ? (row.totalMarge / row.totalCa) * 100 : 0;
+            if (!row.workingStores.includes(magasin)) row.workingStores.push(magasin);
+            fixedRows++;
+        }
+
+        if (fixedRows > 0) {
+            console.log(`[getProductRows] ${fixedRows} produits corrigés via API mensuelle pour magasin ${magasin}`);
+        }
+    } catch (error) {
+        console.error("[getProductRows] Mensuel API reconciliation error:", error);
     }
 }

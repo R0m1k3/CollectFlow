@@ -134,7 +134,7 @@ const GammeCell = React.memo(({ row, isAdmin }: { row: ProductRow; isAdmin?: boo
 });
 GammeCell.displayName = "GammeCell";
 
-import { Row } from "@tanstack/react-table";
+import { Cell, Column, Row } from "@tanstack/react-table";
 import { VirtualItem } from "@tanstack/react-virtual";
 
 // 2. Composant isolé pour la Ligne Virtuelle 
@@ -170,7 +170,7 @@ const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnVisi
                 borderLeft: isSelected ? "3px solid var(--accent)" : "3px solid transparent",
             }}
         >
-            {row.getVisibleCells().map((cell: any) => {
+            {row.getVisibleCells().map((cell: Cell<ProductRow, unknown>) => {
                 const isFlexible = cell.column.id === "libelle1" || cell.column.id === "ai" || cell.column.id === "libelle3";
                 const isCenter = cell.column.id === "totalQuantite" || cell.column.id === "totalCa" || cell.column.id === "totalMarge" || cell.column.id.startsWith("month_") || cell.column.id === "gammeInitial" || cell.column.id === "score" || cell.column.id === "gamme";
                 const size = cell.column.getSize();
@@ -269,7 +269,11 @@ function CellDetailModal({ d, activeMagasin, onClose }: { d: CellDetailData; act
 
 export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
     // L'abonnement doit être minimal ici ! PAS de draftChanges ni de setDraftGamme.
-    const { rows, filters, displayDensity, draftChanges, activeMagasin } = useGridStore();
+    const rows = useGridStore((s) => s.rows);
+    const filters = useGridStore((s) => s.filters);
+    const displayDensity = useGridStore((s) => s.displayDensity);
+    const draftChanges = useGridStore((s) => s.draftChanges);
+    const activeMagasin = useGridStore((s) => s.activeMagasin);
 
     // Filtre client-side par code3 (famille) et codeGamme
     const filteredData = useMemo(() => {
@@ -288,7 +292,10 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
 
     const [sorting, setSorting] = useState<SortingState>([]);
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-    const { columnVisibility, setColumnVisibility, columnSizing, setColumnSizing } = useGridStore();
+    const columnVisibility = useGridStore((s) => s.columnVisibility);
+    const setColumnVisibility = useGridStore((s) => s.setColumnVisibility);
+    const columnSizing = useGridStore((s) => s.columnSizing);
+    const setColumnSizing = useGridStore((s) => s.setColumnSizing);
     const [isMounted, setIsMounted] = useState(false);
     const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
 
@@ -669,7 +676,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
                 </div>
             ),
         },
-    ], [MONTHS_12, activeMagasin]); // activeMagasin déclenche re-render des cellules mensuelles et totaux
+    ], [MONTHS_12, activeMagasin, isAdmin]); // activeMagasin déclenche re-render des cellules mensuelles et totaux
 
     const table = useReactTable({
         data: filteredData,
@@ -737,8 +744,8 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
                     <DropdownMenuContent align="end" className="w-[220px] max-h-[50vh] overflow-y-auto z-50">
                         {table
                             .getAllLeafColumns()
-                            .filter((column: any) => column.getCanHide())
-                            .map((column: any) => {
+                            .filter((column: Column<ProductRow, unknown>) => column.getCanHide())
+                            .map((column: Column<ProductRow, unknown>) => {
                                 return (
                                     <DropdownMenuCheckboxItem
                                         key={column.id}
