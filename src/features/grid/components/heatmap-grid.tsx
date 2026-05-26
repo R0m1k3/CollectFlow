@@ -86,6 +86,8 @@ interface HeatmapGridProps {
     isAdmin?: boolean;
 }
 
+const EMPTY_DRAFT_CHANGES: Record<string, GammeCode> = {};
+
 // =========================================================================
 // OPTIMISATION PERFORMANCES (React.memo + Zustand Selectors granulaires)
 // =========================================================================
@@ -272,7 +274,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
     const rows = useGridStore((s) => s.rows);
     const filters = useGridStore((s) => s.filters);
     const displayDensity = useGridStore((s) => s.displayDensity);
-    const draftChanges = useGridStore((s) => s.draftChanges);
+    const draftChanges = useGridStore((s) => s.filters.codeGamme ? s.draftChanges : EMPTY_DRAFT_CHANGES);
     const activeMagasin = useGridStore((s) => s.activeMagasin);
 
     // Filtre client-side par code3 (famille) et codeGamme
@@ -707,7 +709,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
         count: tableRows.length,
         getScrollElement: () => tableContainerRef.current,
         estimateSize: () => rowHeight,
-        overscan: 20,
+        overscan: 8,
     });
 
     const visibleColumns = table.getVisibleLeafColumns();
@@ -769,7 +771,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
 
             <div
                 ref={tableContainerRef}
-                className="h-full w-full overflow-auto rounded-[12px] scroll-smooth relative"
+                className="h-full w-full overflow-auto rounded-[12px] relative"
                 style={{
                     background: "var(--bg-surface)",
                     border: "1px solid var(--border)",
@@ -835,7 +837,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
                             const isSelected = row.getIsSelected();
 
                             return (
-                                <div key={row.id} ref={rowVirtualizer.measureElement} style={{ position: 'absolute', top: 0, left: 0, width: '100%' }}>
+                                <div key={row.id} style={{ position: 'absolute', top: 0, left: 0, width: '100%' }}>
                                     <GridRow
                                         virtualRow={virtualRow}
                                         row={row}

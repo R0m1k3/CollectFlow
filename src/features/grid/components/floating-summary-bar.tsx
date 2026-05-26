@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { BulkAiAnalyzer } from "./bulk-ai-analyzer";
 import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
 import { Loader2, CheckCircle, AlertCircle, RotateCcw, Camera, ChevronDown } from "lucide-react";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { saveSnapshot } from "@/features/snapshots/api/save-snapshot";
 import { SuccessModal } from "@/components/shared/success-modal";
 import {
@@ -45,7 +45,7 @@ export function FloatingSummaryBar() {
         message: ""
     });
 
-    const visibleCodeins = rows.map(r => r.codein);
+    const visibleCodeins = useMemo(() => rows.map(r => r.codein), [rows]);
     const { save, hasDrafts, count } = useSaveDrafts(filters.magasin || "TOTAL", visibleCodeins);
 
     const handleSave = () => {

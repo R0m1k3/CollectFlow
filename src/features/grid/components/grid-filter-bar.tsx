@@ -15,11 +15,13 @@ interface GridFilterBarProps {
     magasins: { code: string; nom: string }[];
 }
 
+const EMPTY_DRAFT_CHANGES: Record<string, string> = {};
+
 export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
     const filters = useGridStore((s) => s.filters);
     const setFilter = useGridStore((s) => s.setFilter);
     const rows = useGridStore((s) => s.rows);
-    const draftChanges = useGridStore((s) => s.draftChanges);
+    const draftChanges = useGridStore((s) => s.filters.codeGamme ? s.draftChanges : EMPTY_DRAFT_CHANGES);
     const router = useRouter();
     const searchParams = useSearchParams();
     const [isRefreshing, setIsRefreshing] = React.useState(false);

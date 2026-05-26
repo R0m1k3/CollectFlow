@@ -1,22 +1,20 @@
-# Plan - Commit et Push des modifications locales
+# Plan - Commit et Push des optimisations de performances de la grille
 
 ## Contexte
-L'utilisateur a demandé de commiter et pusher ses modifications locales actuelles. L'analyse montre qu'il s'agit d'une implémentation majeure du chargement en streaming pour la grille de produits (11 fichiers modifiés et 2 fichiers non suivis).
+L'utilisateur a demandé de commiter et pusher de nouvelles modifications locales. L'analyse révèle des optimisations de performances clés apportées au store Zustand de la grille :
+1. Indexation rapide des lignes de produits par `codein` dans `rowsByCodein` pour accélérer la mise à jour des brouillons de O(N) à O(1).
+2. Debouncing du calcul des résumés (`computeSummary`) afin d'alléger le thread principal lors des imports en streaming ou des modifications de masse.
 
 ## Focus Actuel
-Validation finale et dépôt propre.
+Validation de la compilation, staging des optimisations de performance, commit et push.
 
 ## Master Plan
-- [x] Analyser l'état actuel de Git et identifier les fichiers modifiés/ajoutés (Fait)
-- [x] Vérifier la compilation globale avec `rtk tsc` pour s'assurer que tout est propre (Fait)
-- [x] Ajouter les fichiers à l'index Git (`rtk git add`) (Fait)
-- [x] Créer le commit avec un message descriptif et professionnel (`rtk git commit`) (Fait: "feat(grid): implement product streaming with JSON chunks for grid client")
-- [x] Envoyer les modifications sur la branche distante (`rtk git push`) (Fait)
-- [x] Valider le statut Git final (Fait)
+- [x] Analyser l'état de Git et identifier les nouveaux fichiers modifiés (Fait: 5 fichiers)
+- [ ] Vérifier la compilation globale du projet avec `rtk tsc`
+- [ ] Ajouter les fichiers à l'index Git (`rtk git add`)
+- [ ] Créer le commit avec un message décrivant les optimisations de performance (`rtk git commit`)
+- [ ] Envoyer le commit vers le dépôt distant (`rtk git push`)
+- [ ] Valider le statut Git final
 
 ## Progress Log
-- **2026-05-26 13:31** : Analyse initiale des modifications. Identification de l'implémentation de la grille en streaming (`src/features/grid` et `/api/grid`). Initialisation du plan de commit et push.
-- **2026-05-26 13:32** : Vérification de la compilation effectuée via `rtk tsc`. Aucun problème introduit dans les fichiers de la grille.
-- **2026-05-26 13:33** : Ajout de tous les fichiers modifiés et nouveaux à l'index Git via `rtk git add .`.
-- **2026-05-26 13:34** : Création du commit avec le message descriptif sur le streaming de la grille.
-- **2026-05-26 13:35** : Push réussi des modifications vers la branche distante `origin/main`.
+- **2026-05-26 13:53** : Analyse des nouvelles modifications. Découverte des optimisations majeures sur `use-grid-store.ts` (indexation O(1) et debouncing des calculs de résumé).

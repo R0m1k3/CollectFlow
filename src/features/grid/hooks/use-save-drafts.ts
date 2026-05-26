@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { saveDraftChanges } from "@/features/grid/api/save-draft-changes";
 import { GammeCode } from "@/types/grid";
@@ -17,9 +17,16 @@ export function useSaveDrafts(magasin: string, filterCodeins?: string[]) {
     const applyDraftsToRows = useGridStore((s) => s.applyDraftsToRows);
 
     // Only consider changes that are in the filter list (if provided)
-    const activeDrafts = filterCodeins
-        ? Object.fromEntries(Object.entries(draftChanges).filter(([codein]) => filterCodeins.includes(codein)))
-        : draftChanges;
+    const filterCodeinSet = useMemo(
+        () => filterCodeins ? new Set(filterCodeins) : null,
+        [filterCodeins]
+    );
+    const activeDrafts = useMemo(
+        () => filterCodeinSet
+            ? Object.fromEntries(Object.entries(draftChanges).filter(([codein]) => filterCodeinSet.has(codein)))
+            : draftChanges,
+        [draftChanges, filterCodeinSet]
+    );
 
     const count = Object.keys(activeDrafts).length;
 

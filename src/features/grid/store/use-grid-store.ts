@@ -7,6 +7,8 @@ import type { GammeCode, GridFilters, GridSummary, ProductRow } from "@/types/gr
 interface GridState {
     /** Source data from server */
     rows: ProductRow[];
+    /** Fast lookup by codein; not persisted */
+    rowsByCodein: Record<string, ProductRow>;
     /** Draft edits: codein → new GammeCode */
     draftChanges: Record<string, GammeCode>;
     filters: GridFilters;
@@ -40,6 +42,14 @@ interface GridState {
     setColumnSizing: (updater: Record<string, number> | ((old: Record<string, number>) => Record<string, number>)) => void;
 }
 
+let summaryTimer: ReturnType<typeof setTimeout> | null = null;
+
+function indexRows(rows: ProductRow[]): Record<string, ProductRow> {
+    const indexed: Record<string, ProductRow> = {};
+    for (const row of rows) indexed[row.codein] = row;
+    return indexed;
+}
+
 function computeSummary(rows: ProductRow[], drafts: Record<string, GammeCode>, magasin = "TOTAL"): GridSummary {
     const active = rows.filter((r) => {
         const g = drafts[r.codein] ?? r.codeGamme;
@@ -64,6 +74,7 @@ export const useGridStore = create<GridState>()(
     persist(
         (set, get) => ({
             rows: [],
+            rowsByCodein: {},
             activeMagasin: "TOTAL",
             draftChanges: {},
             filters: {
@@ -89,17 +100,26 @@ export const useGridStore = create<GridState>()(
             columnSizing: {},
 
             setActiveMagasin: (code) => {
-                const { rows, draftChanges } = get();
-                set({ activeMagasin: code, summary: computeSummary(rows, draftChanges, code) });
+                set({ activeMagasin: code });
+                if (summaryTimer) clearTimeout(summaryTimer);
+                summaryTimer = setTimeout(() => {
+                    const state = get();
+                    set({ summary: computeSummary(state.rows, state.draftChanges, state.activeMagasin) });
+                }, 80);
             },
 
             setRows: (rows) => {
-                set({ rows, summary: computeSummary(rows, get().draftChanges, get().activeMagasin) });
+                set({ rows, rowsByCodein: indexRows(rows) });
+                if (summaryTimer) clearTimeout(summaryTimer);
+                summaryTimer = setTimeout(() => {
+                    const state = get();
+                    set({ summary: computeSummary(state.rows, state.draftChanges, state.activeMagasin) });
+                }, 120);
             },
 
             setDraftGamme: (codein, gamme) => {
-                const { rows, draftChanges: oldDrafts } = get();
-                const originalRow = rows.find(r => r.codein === codein);
+                const { rowsByCodein, draftChanges: oldDrafts } = get();
+                const originalRow = rowsByCodein[codein];
                 const originalGamme = originalRow?.codeGamme;
 
                 const draftChanges = { ...oldDrafts };
@@ -112,16 +132,31 @@ export const useGridStore = create<GridState>()(
                     draftChanges[codein] = gamme;
                 }
 
-                set({ draftChanges, summary: computeSummary(rows, draftChanges, get().activeMagasin) });
+                set({ draftChanges });
+                if (summaryTimer) clearTimeout(summaryTimer);
+                summaryTimer = setTimeout(() => {
+                    const state = get();
+                    set({ summary: computeSummary(state.rows, state.draftChanges, state.activeMagasin) });
+                }, 80);
             },
 
             resetDrafts: () => {
-                set({ draftChanges: {}, summary: computeSummary(get().rows, {}, get().activeMagasin) });
+                set({ draftChanges: {} });
+                if (summaryTimer) clearTimeout(summaryTimer);
+                summaryTimer = setTimeout(() => {
+                    const state = get();
+                    set({ summary: computeSummary(state.rows, {}, state.activeMagasin) });
+                }, 80);
             },
             clearDrafts: (codeins) => {
                 const draftChanges = { ...get().draftChanges };
                 codeins.forEach((id) => delete draftChanges[id]);
-                set({ draftChanges, summary: computeSummary(get().rows, draftChanges, get().activeMagasin) });
+                set({ draftChanges });
+                if (summaryTimer) clearTimeout(summaryTimer);
+                summaryTimer = setTimeout(() => {
+                    const state = get();
+                    set({ summary: computeSummary(state.rows, state.draftChanges, state.activeMagasin) });
+                }, 80);
             },
             /** Apply saved drafts onto row.codeGamme so isModified works after clearing drafts */
             applyDraftsToRows: (draftsToApply: Record<string, GammeCode>) => {
@@ -132,7 +167,7 @@ export const useGridStore = create<GridState>()(
                     }
                     return r;
                 });
-                set({ rows });
+                set({ rows, rowsByCodein: indexRows(rows), summary: computeSummary(rows, get().draftChanges, get().activeMagasin) });
             },
             setFilter: (key, value) => {
                 set((state) => ({ ...state, filters: { ...state.filters, [key]: value } }));
@@ -144,11 +179,11 @@ export const useGridStore = create<GridState>()(
             },
 
             batchSetDraftGamme: (newChanges) => {
-                const { rows, draftChanges: oldDrafts } = get();
+                const { rows, rowsByCodein, draftChanges: oldDrafts } = get();
                 const updatedDrafts = { ...oldDrafts };
 
                 Object.entries(newChanges).forEach(([codein, gamme]) => {
-                    const originalRow = rows.find(r => r.codein === codein);
+                    const originalRow = rowsByCodein[codein];
                     const originalGamme = originalRow?.codeGamme;
 
                     if (gamme === originalGamme) {
@@ -158,7 +193,12 @@ export const useGridStore = create<GridState>()(
                     }
                 });
 
-                set({ draftChanges: updatedDrafts, summary: computeSummary(rows, updatedDrafts, get().activeMagasin) });
+                set({ draftChanges: updatedDrafts });
+                if (summaryTimer) clearTimeout(summaryTimer);
+                summaryTimer = setTimeout(() => {
+                    const state = get();
+                    set({ summary: computeSummary(rows, state.draftChanges, state.activeMagasin) });
+                }, 80);
             },
 
             setColumnVisibility: (updater) => {
