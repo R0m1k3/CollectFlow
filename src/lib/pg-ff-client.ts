@@ -1211,3 +1211,50 @@ export async function pgGetCommandesAuto(): Promise<PgCommandeAutoRow[]> {
         return [];
     }
 }
+
+// ---------------------------------------------------------------------------
+// 12. Dernière réception par fournisseur ET par site (cadencier)
+// ---------------------------------------------------------------------------
+
+/**
+ * Retourne la date de la dernière réception (entrée de marchandise) par
+ * fournisseur et par site, pour piloter le cadencier de commande.
+ *
+ * Source : mvtart (genremvt IN (1, 2) = réceptions, voir pgGetMensuelByFournisseur).
+ * La réception est rattachée à l'article ; on l'attribue au fournisseur
+ * principal de l'article (artfou1.preference = 1), comme partout ailleurs.
+ *
+ * Clé de la Map : `${codefou}|${site}`. Map vide en cas d'erreur
+ * (l'UI affichera alors « échéance inconnue »).
+ */
+export async function pgGetDerniereReceptionParFournisseur(): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    try {
+        const result = await pgNoParallel(sql`
+            SELECT
+                af.code        AS codefou,
+                m.site         AS site,
+                MAX(m.datmvt)  AS derniere
+            FROM mvtart m
+            JOIN articles a ON a.no_id = m.artnoid
+            JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
+            WHERE m.genremvt IN (1, 2)
+              AND m.site IN ('292', '579')
+              AND m.datmvt IS NOT NULL
+            GROUP BY af.code, m.site
+        `);
+
+        for (const row of result.rows as { codefou: string; site: string; derniere: string | Date }[]) {
+            if (!row.codefou || !row.derniere) continue;
+            const iso = row.derniere instanceof Date
+                ? row.derniere.toISOString()
+                : new Date(row.derniere).toISOString();
+            map.set(`${String(row.codefou).trim()}|${String(row.site ?? "").trim()}`, iso);
+        }
+        console.log(`[pg-ff] pgGetDerniereReceptionParFournisseur: ${map.size} entrées (mvtart)`);
+        return map;
+    } catch (e) {
+        console.error("[pg-ff] pgGetDerniereReceptionParFournisseur error:", (e as Error).message?.slice(0, 250));
+        return map;
+    }
+}
