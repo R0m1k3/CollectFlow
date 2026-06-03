@@ -4,6 +4,9 @@ import { CommandesAutoTabs } from "./tabs";
 
 export type { PgCommandeAutoRow };
 
+// Données live (DB + API FF Nancy) : rendu à la requête, jamais prérendu au build.
+export const dynamic = "force-dynamic";
+
 export default async function CommandesAutoPage() {
     const [rows, cadences, fournisseurs] = await Promise.all([
         pgGetCommandesAuto(),
