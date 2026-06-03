@@ -45,10 +45,17 @@ export async function getFournisseursPourCadence(): Promise<{ code: string; nom:
  * de la dernière réception (FF Nancy).
  */
 export async function listCadences(): Promise<CadenceView[]> {
-    const [rows, receptions] = await Promise.all([
-        db.select().from(commandeCadences),
-        pgGetDerniereReceptionParFournisseur(),
-    ]);
+    let rows: typeof commandeCadences.$inferSelect[] = [];
+    let receptions = new Map<string, string>();
+    try {
+        [rows, receptions] = await Promise.all([
+            db.select().from(commandeCadences),
+            pgGetDerniereReceptionParFournisseur(),
+        ]);
+    } catch (e) {
+        console.error("[cadence] listCadences error:", (e as Error).message);
+        return [];
+    }
 
     const now = Date.now();
 

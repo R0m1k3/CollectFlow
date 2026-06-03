@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/* Police de l'app : Inter (chargée via <link> dans le layout, fallback système).
+   Définie ici pour que l'utilitaire `font-sans` et var(--font-sans) la prennent
+   sans recourir à next/font/google (pas de fetch réseau au build). */
+@theme {
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+
 /* ═══════════════════════════════════════════
    CollectFlow — Apple-inspired Design System
    ═══════════════════════════════════════════ */
