@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, numeric, smallint, timestamp, uniqueIndex, index, text, jsonb, integer } from "drizzle-orm/pg-core";
+import { pgTable, serial, varchar, numeric, smallint, timestamp, uniqueIndex, index, text, jsonb, integer, boolean } from "drizzle-orm/pg-core";
 
 export const ventesProduits = pgTable("ventes_produits", {
   id: serial("id").primaryKey(),
@@ -75,6 +75,33 @@ export const sessionSnapshots = pgTable("session_snapshots", {
   /** snapshot vs export */
   type: varchar("type", { length: 20 }).default("snapshot"),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+/**
+ * Cadencier / alertes de commande par fournisseur ET par magasin.
+ * Un fournisseur peut être cadencé indépendamment sur chaque site (292/579)
+ * avec un intervalle propre (toutes les X semaines). L'échéance est calculée
+ * à partir de la dernière commande réelle (FF Nancy) + intervalle.
+ */
+export const commandeCadences = pgTable("commande_cadences", {
+  id: serial("id").primaryKey(),
+  /** Code fournisseur (fouident.code) */
+  codeFournisseur: varchar("code_fournisseur", { length: 20 }).notNull(),
+  /** Nom fournisseur dénormalisé pour l'affichage */
+  nomFournisseur: varchar("nom_fournisseur", { length: 255 }),
+  /** Site / magasin : "292" | "579" */
+  site: varchar("site", { length: 20 }).notNull(),
+  /** Fréquence de commande, en semaines */
+  intervalleSemaines: integer("intervalle_semaines").notNull(),
+  /** Cadence active ou non */
+  actif: boolean("actif").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => {
+  return [
+    uniqueIndex("uq_cadence_fou_site").on(table.codeFournisseur, table.site),
+    index("idx_cadence_site").on(table.site),
+  ];
 });
 
 /** AI Context rules per supplier (Epic: AI Context) */

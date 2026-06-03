@@ -74,6 +74,28 @@ async function main() {
         `);
         console.log("[DB Init] Table users is verified/created.");
 
+        await tempPool.query(`
+            CREATE TABLE IF NOT EXISTS "commande_cadences" (
+                "id" serial PRIMARY KEY NOT NULL,
+                "code_fournisseur" varchar(20) NOT NULL,
+                "nom_fournisseur" varchar(255),
+                "site" varchar(20) NOT NULL,
+                "intervalle_semaines" integer NOT NULL,
+                "actif" boolean NOT NULL DEFAULT true,
+                "created_at" timestamp DEFAULT now(),
+                "updated_at" timestamp DEFAULT now()
+            );
+        `);
+        await tempPool.query(`
+            CREATE UNIQUE INDEX IF NOT EXISTS "uq_cadence_fou_site"
+                ON "commande_cadences" ("code_fournisseur", "site");
+        `);
+        await tempPool.query(`
+            CREATE INDEX IF NOT EXISTS "idx_cadence_site"
+                ON "commande_cadences" ("site");
+        `);
+        console.log("[DB Init] Table commande_cadences is verified/created.");
+
         await tempPool.end();
         console.log("[DB Init] Initialization successful. Exiting.");
         process.exit(0);
