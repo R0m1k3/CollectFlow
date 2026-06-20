@@ -32,6 +32,10 @@ ENV NODE_ENV=production
 # Next.js telemetry is disabled
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Chromium pour l'extraction Qlik via Playwright (ws in-page) + dépendances headless
+RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont
+ENV PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium-browser
+
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
@@ -45,6 +49,9 @@ RUN chown nextjs:nodejs .next data
 # https://nextjs.org/docs/advanced-features/output-file-tracing
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# playwright-core n'est pas toujours tracé par le standalone — on le copie explicitement
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules/playwright-core ./node_modules/playwright-core
 
 # Grant write access to /app for settings persistence
 RUN chown -R nextjs:nodejs /app

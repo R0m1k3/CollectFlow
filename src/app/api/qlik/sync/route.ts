@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { fetchNetworkMetrics } from "@/lib/qlik-client";
+import { fetchNetworkMetricsPlaywright } from "@/lib/qlik-playwright";
 import { upsertNetworkMetrics } from "@/lib/qlik-network-cache";
 import { pgGetArticlesByFournisseur } from "@/lib/pg-ff-client";
 
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
             });
         }
 
-        const metrics = await fetchNetworkMetrics(codes);
+        const metrics = await fetchNetworkMetricsPlaywright(codes);
         const count = await upsertNetworkMetrics([...metrics.values()]);
         return NextResponse.json({
             success: true,
