@@ -1,8 +1,7 @@
 import { useGridStore } from "@/features/grid/store/use-grid-store";
-import { useAiCopilotStore } from "@/features/ai-copilot/store/use-ai-copilot-store";
 import { useSession } from "next-auth/react";
 
-import { BulkAiAnalyzer } from "./bulk-ai-analyzer";
+import { SyncQlikButton } from "./sync-qlik-button";
 import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
 import { Loader2, CheckCircle, AlertCircle, RotateCcw, Camera, ChevronDown } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
@@ -35,7 +34,6 @@ export function FloatingSummaryBar() {
     const rows = useGridStore((s) => s.rows);
     const filters = useGridStore((s) => s.filters);
     const draftChanges = useGridStore((s) => s.draftChanges);
-    const { resetInsights } = useAiCopilotStore();
     const [isPending, startTransition] = useTransition();
     const [isSavingSnapshot, setIsSavingSnapshot] = useState(false);
     const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle");
@@ -48,6 +46,15 @@ export function FloatingSummaryBar() {
     const visibleCodeins = useMemo(() => rows.map(r => r.codein), [rows]);
     const { save, hasDrafts, count } = useSaveDrafts(filters.magasin || "TOTAL", visibleCodeins);
 
+    const supplierCode = filters.codeFournisseur || rows[0]?.codeFournisseur;
+    const lastQlikUpdate = useMemo(() => {
+        let max: string | null = null;
+        for (const r of rows) {
+            if (r.networkFetchedAt && (!max || r.networkFetchedAt > max)) max = r.networkFetchedAt;
+        }
+        return max;
+    }, [rows]);
+
     const handleSave = () => {
         startTransition(async () => {
             const result = await save();
@@ -57,9 +64,8 @@ export function FloatingSummaryBar() {
     };
 
     const handleReset = () => {
-        if (window.confirm("Es-tu sûr de vouloir annuler tous les changements non enregistrés (gammes et analyses IA) ?")) {
+        if (window.confirm("Es-tu sûr de vouloir annuler tous les changements non enregistrés (gammes) ?")) {
             resetDrafts();
-            resetInsights();
         }
     };
 
@@ -182,7 +188,7 @@ export function FloatingSummaryBar() {
             </div>
 
             <div className="flex space-x-3 items-center">
-                {isAdmin && <BulkAiAnalyzer />}
+                {isAdmin && <SyncQlikButton codeFournisseur={supplierCode} lastUpdate={lastQlikUpdate} />}
 
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>

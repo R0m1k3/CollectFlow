@@ -39,6 +39,8 @@ async function pgNoParallel(query: SQL): Promise<{ rows: unknown[] }> {
 export interface PgArticle {
     no_id: number;
     codein: string;
+    /** Code centrale = articles.artcentrale (format 10000XXXXXX) — clé jointure Qlik "Article Code". Vide pour les articles non référencés centralement. */
+    codeCentrale?: string;
     codefou: string;
     nomfou?: string;
     libelle1?: string;
@@ -72,15 +74,6 @@ export interface PgStockRow {
     prmp: number;
     dernierevente?: string;
     dernierereception?: string;
-}
-
-export interface PgRankingRow {
-    codein: string;
-    site: string;
-    ranking_ca?: number;
-    ranking_qte?: number;
-    ranking_mag_ca?: number;
-    ranking_mag_qte?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,6 +120,7 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
         SELECT DISTINCT ON (a.no_id)
             a.no_id,
             a.codein,
+            a.artcentrale               AS "codeCentrale",
             af.code                     AS codefou,
             fi.nom                      AS nomfou,
             a.libelle1,
@@ -376,79 +370,6 @@ export async function pgGetStockByFournisseur(codefou: string): Promise<Map<stri
         map.get(row.codein)!.push(row);
     }
     return map;
-}
-
-// ---------------------------------------------------------------------------
-// 5. Ranking réseau
-// ---------------------------------------------------------------------------
-
-/**
- * Retourne le classement réseau pour chaque article du fournisseur.
- * 1 requête SQL — remplace getRankingByArticles() (N appels HTTP per-article,
- * capés à 500 par l'API).
- */
-export async function pgGetRankingByFournisseur(codefou: string): Promise<{
-    rankings: Map<string, PgRankingRow>;
-    totalRankedProducts: number;
-}> {
-    // D'abord, découvrir quels sites existent dans la table ranking (réseau vs magasin)
-    const [rankResult, totalResult, sitesSample] = await Promise.all([
-        pgNoParallel(sql`
-            SELECT DISTINCT ON (a.codein)
-                a.codein,
-                r.site,
-                r.ranking_ca,
-                r.ranking_qte,
-                r.ranking_mag_ca,
-                r.ranking_mag_qte
-            FROM ranking r
-            JOIN art_gtin ag
-                ON ag.gtin = r.gencod
-            JOIN articles a
-                ON a.no_id = ag.idarticle
-            JOIN artfou1 af
-                ON af.art_no_id = a.no_id AND af.code = ${codefou}
-            ORDER BY a.codein,
-                CASE
-                    WHEN r.site IN ('000', 'ALL', 'TOTAL', 'NET', 'RES') THEN 0
-                    ELSE 1
-                END,
-                r.site
-        `),
-        pgNoParallel(sql`
-            SELECT COUNT(DISTINCT gencod)::int AS total FROM ranking
-        `),
-        pgNoParallel(sql`
-            SELECT DISTINCT site FROM ranking ORDER BY site LIMIT 10
-        `),
-    ]);
-
-    // Log sites disponibles pour diagnostic ranking
-    const sitesDispos = (sitesSample.rows as { site: string }[]).map(r => r.site);
-    console.log(`[pg-ff] Ranking sites disponibles:`, sitesDispos.join(", "));
-
-    const rankings = new Map<string, PgRankingRow>();
-    for (const row of rankResult.rows as unknown as PgRankingRow[]) {
-        if (row.codein) rankings.set(row.codein, row);
-    }
-
-    // Log doublons de rank pour diagnostic
-    const rankCount = new Map<number, number>();
-    for (const r of rankings.values()) {
-        if (r.ranking_ca) {
-            const v = Number(r.ranking_ca);
-            rankCount.set(v, (rankCount.get(v) ?? 0) + 1);
-        }
-    }
-    const dupes = [...rankCount.entries()].filter(([, c]) => c > 1).slice(0, 5);
-    if (dupes.length > 0) {
-        console.log(`[pg-ff] Ranking doublons détectés (rank → nb articles):`, dupes.map(([r, c]) => `rank${r}×${c}`).join(", "));
-    }
-
-    const totalRankedProducts = Number((totalResult.rows[0] as unknown as { total: number })?.total ?? 0);
-    console.log(`[pg-ff] Ranking: ${rankings.size} articles classés, réseau total: ${totalRankedProducts}`);
-
-    return { rankings, totalRankedProducts };
 }
 
 // ---------------------------------------------------------------------------

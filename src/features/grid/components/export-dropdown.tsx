@@ -118,7 +118,7 @@ export function ExportDropdown({ nomFournisseur }: { nomFournisseur?: string }) 
         doc.text(`Export généré le : ${new Date().toLocaleDateString("fr-FR")}`, 14, 30);
 
         const head = [
-            ["Gencode", "Code In", "Réf.", "Libellé", "Score", "Vol.", "CA", "Marge", "Gamme"]
+            ["Gencode", "Code In", "Réf.", "Libellé", "Mag. Rés.", "Vol.", "CA", "Marge", "Gamme"]
         ];
 
         const body = rows.map(r => {
@@ -128,7 +128,7 @@ export function ExportDropdown({ nomFournisseur }: { nomFournisseur?: string }) 
                 r.codein,
                 r.reference || "-",
                 r.libelle1 ? r.libelle1.substring(0, 60) + (r.libelle1.length > 60 ? "..." : "") : "",
-                r.score.toString(),
+                r.nbMagasinsReseau != null ? r.nbMagasinsReseau.toString() : "-",
                 Math.round(r.totalQuantite).toLocaleString("fr-FR"),
                 `${Math.round(r.totalCa).toLocaleString("fr-FR")} €`,
                 `${Math.round(r.totalMarge).toLocaleString("fr-FR")} €\n(${r.tauxMarge.toFixed(1)}%)`,

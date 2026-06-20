@@ -73,8 +73,6 @@ export interface ProductRow {
     totalCa: number;
     totalMarge: number;
     tauxMarge: number;
-    /** Score de performance hybride (0-100) */
-    score: number;
     workingStores: string[];
     /** Rotation normalisée : unités vendues / magasin / mois */
     unitsPerStorePerMonth?: number;
@@ -86,7 +84,6 @@ export interface ProductRow {
     isLastProduct?: boolean;
     /** Top 30% CA du lot fournisseur */
     isTop30Supplier?: boolean;
-    aiRecommendation?: string | null;
     /** SQL Server internal ID — nécessaire pour /api/articles/:noid/mensuel */
     noid?: number;
     /** Données stock & approvisionnement (API FF Nancy) */
@@ -110,14 +107,16 @@ export interface ProductRow {
     shareQty?: number;
     /** Référentiels globaux */
     totalFournisseurCa?: number;
-    /** Ranking réseau (classement global) */
-    rankingCa?: number;
-    rankingQte?: number;
-    /** Ranking magasin */
-    rankingMagCa?: number;
-    rankingMagQte?: number;
-    /** Nombre total de produits classés dans le réseau (produits avec ventes sur la période) */
-    totalRankedProducts?: number;
+    /** Code centrale (clé jointure Qlik, format 10000XXXXXX) */
+    codeCentrale?: string;
+    /** Données réseau Qlik (~270 magasins) */
+    caReseau?: number;
+    qteReseau?: number;
+    nbMagasinsReseau?: number;
+    /** Taux de présence réseau = nbMagasinsReseau / 270 */
+    tauxPresenceReseau?: number;
+    /** Fraîcheur des données réseau (ISO) */
+    networkFetchedAt?: string;
 }
 
 /** Summary bar totals for the currently visible/filtered rows */

@@ -26,7 +26,6 @@ import { GammeSelect } from "@/features/grid/components/gamme-select";
 import { HeatmapCell } from "@/features/grid/components/heatmap-cell";
 import type { ProductRow, GammeCode } from "@/types/grid";
 import { cn } from "@/lib/utils";
-import { AiInsightBlock } from "@/features/ai-copilot/components/ai-insight-block";
 
 function getLast12Months(): string[] {
     const months: string[] = [];
@@ -178,8 +177,8 @@ const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnVisi
             }}
         >
             {row.getVisibleCells().map((cell: Cell<ProductRow, unknown>) => {
-                const isFlexible = cell.column.id === "libelle1" || cell.column.id === "ai" || cell.column.id === "libelle3";
-                const isCenter = cell.column.id === "totalQuantite" || cell.column.id === "totalCa" || cell.column.id === "totalMarge" || cell.column.id.startsWith("month_") || cell.column.id === "gammeInitial" || cell.column.id === "score" || cell.column.id === "gamme";
+                const isFlexible = cell.column.id === "libelle1" || cell.column.id === "libelle3";
+                const isCenter = cell.column.id === "totalQuantite" || cell.column.id === "totalCa" || cell.column.id === "totalMarge" || cell.column.id.startsWith("month_") || cell.column.id === "gammeInitial" || cell.column.id === "caReseau" || cell.column.id === "qteReseau" || cell.column.id === "nbMagasinsReseau" || cell.column.id === "tauxPresenceReseau" || cell.column.id === "gamme";
                 const size = cell.column.getSize();
                 return (
                     <td
@@ -507,67 +506,56 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
             },
         },
         {
-            accessorKey: "score",
-            header: "Score",
-            size: 60,
+            accessorKey: "caReseau",
+            header: () => <div className="text-center w-full">CA<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
+            size: 90,
             cell: ({ getValue }) => {
-                const val = getValue<number>();
-                const color = val >= 80 ? "text-emerald-500" : val >= 50 ? "text-amber-500" : "text-rose-500";
+                const val = getValue<number | undefined>();
+                return (
+                    <div className="text-center tabular-nums text-[12px] font-bold text-emerald-600 dark:text-emerald-400">
+                        {val != null ? val.toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }) : "-"}
+                    </div>
+                );
+            },
+        },
+        {
+            accessorKey: "qteReseau",
+            header: () => <div className="text-center w-full">Qté<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
+            size: 80,
+            cell: ({ getValue }) => {
+                const val = getValue<number | undefined>();
+                return (
+                    <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
+                        {val != null ? Math.round(val).toLocaleString("fr-FR") : "-"}
+                    </div>
+                );
+            },
+        },
+        {
+            accessorKey: "nbMagasinsReseau",
+            header: () => <div className="text-center w-full">Magasins<br/><span className="text-[9px] opacity-60">/ 270</span></div>,
+            size: 80,
+            cell: ({ getValue }) => {
+                const val = getValue<number | undefined>();
+                return (
+                    <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
+                        {val != null ? val : "-"}
+                    </div>
+                );
+            },
+        },
+        {
+            accessorKey: "tauxPresenceReseau",
+            header: () => <div className="text-center w-full">% Prés.<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
+            size: 70,
+            cell: ({ getValue }) => {
+                const val = getValue<number | undefined>();
+                if (val == null) return <div className="text-center text-[12px]" style={{ color: "var(--text-secondary)" }}>-</div>;
+                const pct = Math.round(val * 100);
+                const color = pct >= 66 ? "text-emerald-500" : pct >= 33 ? "text-amber-500" : "text-rose-500";
                 return (
                     <div className={cn("text-center font-black text-[13px] tabular-nums", color)}>
-                        {val}
-                    </div>
-                );
-            },
-        },
-        {
-            accessorKey: "rankingCa",
-            header: () => <div className="text-center w-full">Rk CA<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
-            size: 70,
-            cell: ({ getValue }) => {
-                const val = getValue<number | undefined>();
-                return (
-                    <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
-                        {val != null ? val : "-"}
-                    </div>
-                );
-            },
-        },
-        {
-            accessorKey: "rankingQte",
-            header: () => <div className="text-center w-full">Rk Qté<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
-            size: 70,
-            cell: ({ getValue }) => {
-                const val = getValue<number | undefined>();
-                return (
-                    <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
-                        {val != null ? val : "-"}
-                    </div>
-                );
-            },
-        },
-        {
-            accessorKey: "rankingMagCa",
-            header: () => <div className="text-center w-full">Rk CA<br/><span className="text-[9px] opacity-60">Mag.</span></div>,
-            size: 70,
-            cell: ({ getValue }) => {
-                const val = getValue<number | undefined>();
-                return (
-                    <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
-                        {val != null ? val : "-"}
-                    </div>
-                );
-            },
-        },
-        {
-            accessorKey: "rankingMagQte",
-            header: () => <div className="text-center w-full">Rk Qté<br/><span className="text-[9px] opacity-60">Mag.</span></div>,
-            size: 70,
-            cell: ({ getValue }) => {
-                const val = getValue<number | undefined>();
-                return (
-                    <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
-                        {val != null ? val : "-"}
+                        {pct}%
                     </div>
                 );
             },
@@ -679,17 +667,6 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
             size: 110,
             cell: ({ row }) => <GammeCell row={row.original} isAdmin={isAdmin} />,
         },
-        {
-            id: "ai",
-            header: () => <div className="print:hidden">Recommandation IA</div>,
-            size: 230,
-            enableSorting: false,
-            cell: ({ row }) => (
-                <div className="print:hidden w-full h-full">
-                    <AiInsightBlock row={row.original} />
-                </div>
-            ),
-        },
     ], [MONTHS_12, activeMagasin, isAdmin]); // activeMagasin déclenche re-render des cellules mensuelles et totaux
 
     const table = useReactTable({
@@ -800,8 +777,8 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
                         {table.getHeaderGroups().map((headerGroup) => (
                             <tr key={headerGroup.id} className="flex w-full">
                                 {headerGroup.headers.map((header) => {
-                                    const isFlexible = header.column.id === "libelle1" || header.column.id === "ai" || header.column.id === "libelle3";
-                                    const isCenter = header.column.id === "totalQuantite" || header.column.id === "totalCa" || header.column.id === "totalMarge" || header.column.id.startsWith("month_") || header.column.id === "gammeInitial" || header.column.id === "score" || header.column.id === "gamme";
+                                    const isFlexible = header.column.id === "libelle1" || header.column.id === "libelle3";
+                                    const isCenter = header.column.id === "totalQuantite" || header.column.id === "totalCa" || header.column.id === "totalMarge" || header.column.id.startsWith("month_") || header.column.id === "gammeInitial" || header.column.id === "caReseau" || header.column.id === "qteReseau" || header.column.id === "nbMagasinsReseau" || header.column.id === "tauxPresenceReseau" || header.column.id === "gamme";
                                     const size = header.getSize();
                                     return (
                                         <th
