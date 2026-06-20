@@ -168,7 +168,13 @@ function openEngine(appGuid: string, sess: QlikSession, cfg: QlikConfig): Promis
     const url = `wss://${cfg.host}/app/${encodeURIComponent(appGuid)}?Xrfkey=${sess.xrfkey}`;
     return new Promise((resolve, reject) => {
         const ws = new WebSocket(url, {
-            headers: { Cookie: sess.cookie, "X-Qlik-Xrfkey": sess.xrfkey },
+            headers: {
+                Cookie: sess.cookie,
+                "X-Qlik-Xrfkey": sess.xrfkey,
+                // Le proxy Qlik valide l'Origin des websockets (whitelist) — un navigateur l'envoie toujours.
+                Origin: `https://${cfg.host}`,
+                "User-Agent": "Mozilla/5.0",
+            },
             rejectUnauthorized: !cfg.tlsInsecure,
             handshakeTimeout: cfg.timeoutMs,
         });
@@ -188,7 +194,14 @@ function openEngine(appGuid: string, sess: QlikSession, cfg: QlikConfig): Promis
                 else p.resolve(msg.result as Record<string, unknown>);
             }
         });
-        ws.on("unexpected-response", (_req, res) => { clearTimeout(timer); reject(new Error(`[qlik] ws HTTP ${res.statusCode}`)); });
+        ws.on("unexpected-response", (_req, res) => {
+            clearTimeout(timer);
+            let body = "";
+            res.on("data", (d: Buffer) => (body += d.toString()));
+            res.on("end", () => reject(new Error(
+                `[qlik] ws HTTP ${res.statusCode} server=${res.headers["server"]} wwwauth=${res.headers["www-authenticate"]} body=${body.slice(0, 160)}`,
+            )));
+        });
         ws.on("error", (e: Error) => { clearTimeout(timer); reject(e); });
         ws.on("close", () => { for (const p of pending.values()) p.reject(new Error("[qlik] ws ferme")); pending.clear(); });
 
