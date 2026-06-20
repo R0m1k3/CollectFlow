@@ -110,7 +110,7 @@ export function NoSalesTab() {
                     <div className="sticky top-0 z-10 grid grid-cols-[90px_minmax(220px,1fr)_120px_76px_130px_70px_90px_110px_70px]"
                         style={{ background: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}
                     >
-                        {["Code", "Libellé", "Réf.", "Gamme", "Dernière vente", "Jours", "Stock", "CA 12m", "Score"].map(col => (
+                        {["Code", "Libellé", "Réf.", "Gamme", "Dernière vente", "Jours", "Stock", "CA 12m", "Mag."].map(col => (
                             <div key={col}
                                 className="px-3 py-2 text-left font-semibold whitespace-nowrap"
                                 style={{ color: "var(--text-muted)" }}
@@ -159,8 +159,8 @@ export function NoSalesTab() {
                                         {row.totalCa > 0 ? formatCa(row.totalCa) : "—"}
                                     </div>
                                     <div className="px-3 py-1.5 text-right tabular-nums font-semibold"
-                                        style={{ color: row.score >= 50 ? "var(--color-amber, #f59e0b)" : "var(--text-muted)" }}>
-                                        {row.score > 0 ? row.score : "—"}
+                                        style={{ color: "var(--text-secondary)" }}>
+                                        {row.nbMagasinsReseau != null ? row.nbMagasinsReseau : "—"}
                                     </div>
                                 </div>
                             );

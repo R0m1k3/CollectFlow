@@ -104,6 +104,25 @@ export const commandeCadences = pgTable("commande_cadences", {
   ];
 });
 
+/**
+ * Cache des métriques réseau Qlik Sense (~270 magasins La Foir'Fouille).
+ * Clé = code centrale (format 10000XXXXXX). Rafraîchi par /api/qlik/sync.
+ */
+export const qlikNetworkMetrics = pgTable("qlik_network_metrics", {
+  /** Code centrale article (clé jointure Qlik ↔ FF) */
+  codeCentrale: varchar("code_centrale", { length: 20 }).primaryKey(),
+  /** CA réseau total du produit */
+  caReseau: numeric("ca_reseau", { precision: 16, scale: 2 }),
+  /** Quantité vendue réseau */
+  qteReseau: numeric("qte_reseau", { precision: 14, scale: 2 }),
+  /** Nombre de magasins travaillant le produit (sur ~270) */
+  nbMagasinsReseau: integer("nb_magasins_reseau"),
+  /** Période couverte (libre, ex "12m" ou "2025") */
+  periode: varchar("periode", { length: 20 }),
+  /** Dernière synchro depuis Qlik */
+  fetchedAt: timestamp("fetched_at").defaultNow(),
+});
+
 /** AI Context rules per supplier (Epic: AI Context) */
 export const aiSupplierContext = pgTable("ai_supplier_context", {
   /** Supplier code serving as the primary key */

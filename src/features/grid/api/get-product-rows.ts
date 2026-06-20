@@ -1,7 +1,6 @@
 import "server-only";
 
 import type { ProductRow, GammeCode, GridFilters } from "@/types/grid";
-import { computeProductScores } from "@/lib/score-engine";
 import { buildLast12MonthsRange, getMensuelByArticles } from "@/lib/api-ff-client";
 import {
     pgGetArticlesByFournisseur,
@@ -9,13 +8,15 @@ import {
     pgGetGammesByFournisseur,
     pgGetNomenclatureByFournisseur,
     pgGetStockByFournisseur,
-    pgGetRankingByFournisseur,
     pgGetCommandesByFournisseur,
     type PgStockRow,
 } from "@/lib/pg-ff-client";
 import { db } from "@/db";
 import { sessionSnapshots } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
+import { getNetworkMetricsByCodeCentrale } from "@/lib/qlik-network-cache";
+
+const NB_MAGASINS_RESEAU = 270;
 
 interface GetProductRowsInput {
     codeFournisseur: string;
@@ -86,7 +87,6 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
             gammeMap,
             nomMap,
             stockMap,
-            rankingResult,
             commandesMap,
         ] = await Promise.all([
             pgGetArticlesByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetArticlesByFournisseur ERROR:", e); return []; }),
@@ -94,12 +94,10 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
             pgGetGammesByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetGammesByFournisseur ERROR:", e); return new Map<string, string>(); }),
             pgGetNomenclatureByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetNomenclatureByFournisseur ERROR:", e); return new Map(); }),
             pgGetStockByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetStockByFournisseur ERROR:", e); return new Map<string, PgStockRow[]>(); }),
-            pgGetRankingByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetRankingByFournisseur ERROR:", e); return { rankings: new Map(), totalRankedProducts: 0 }; }),
             pgGetCommandesByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetCommandesByFournisseur ERROR:", e); return new Map<string, number>(); }),
         ]);
 
-        const { rankings: rankingMap, totalRankedProducts } = rankingResult;
-        console.log(`[getProductRows] ${articles.length} articles, ${mensuelRows.length} mensuel rows, ${gammeMap.size} gammes, ${rankingMap.size} rankings`);
+        console.log(`[getProductRows] ${articles.length} articles, ${mensuelRows.length} mensuel rows, ${gammeMap.size} gammes`);
 
         // ─── Phase 2 : Fenêtre temporelle 12 mois complets ───────────────────
         const now = new Date();
@@ -123,6 +121,7 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
                 libelle1: art.libelle1 ?? "",
                 gtin: art.gtin ?? "",
                 reference: art.reference ?? "",
+                codeCentrale: art.codeCentrale ? String(art.codeCentrale).trim() : undefined,
                 code1: "", libelleNiveau1: "",
                 code2: "", libelleNiveau2: "",
                 code3: "", libelle3: "",
@@ -136,9 +135,7 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
                 totalCa: 0,
                 totalMarge: 0,
                 tauxMarge: 0,
-                score: 0,
                 workingStores: [],
-                aiRecommendation: null,
                 noid: art.no_id ? Number(art.no_id) : undefined,
                 pcb: art.pcb ? Number(art.pcb) : undefined,
                 prixVente: art.pv_central ? Number(art.pv_central) : undefined,
@@ -313,16 +310,8 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
             }
         }
 
-        // ─── Phase 8 : Ranking réseau ────────────────────────────────────────
-        for (const [codein, ranking] of rankingMap.entries()) {
-            const product = productMap.get(codein);
-            if (!product) continue;
-            product.rankingCa           = ranking.ranking_ca    ? Number(ranking.ranking_ca)    : undefined;
-            product.rankingQte          = ranking.ranking_qte   ? Number(ranking.ranking_qte)   : undefined;
-            product.rankingMagCa        = ranking.ranking_mag_ca  ? Number(ranking.ranking_mag_ca)  : undefined;
-            product.rankingMagQte       = ranking.ranking_mag_qte ? Number(ranking.ranking_mag_qte) : undefined;
-            product.totalRankedProducts = totalRankedProducts;
-        }
+        // ─── Phase 8 : Données réseau Qlik (CA / Qté / nb magasins par code centrale) ──
+        await enrichWithNetworkMetrics(productMap);
 
         // ─── Phase 9 : Restaurer gammes depuis dernier snapshot ──────────────
         try {
@@ -348,14 +337,14 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
             console.error("[getProductRows] Snapshot restore error:", snapErr);
         }
 
-        // ─── Phase 10 : Filtrer gamme Y sans ventes + compute scores ─────────
+        // ─── Phase 10 : Filtrer gamme Y sans ventes ──────────────────────────
         const allRows = Array.from(productMap.values());
         const rows = allRows.filter(p => p.codeGamme !== "Y" || p.totalQuantite > 0);
         await reconcileSelectedStoreFromMensuelApi(rows, magasin, dateDebut, dateFin, sortedPeriods);
         const excludedY = allRows.length - rows.length;
         console.log(`[getProductRows] ${rows.length} produits (${excludedY} gamme Y sans ventes exclus), ${mensuelByCodein.size} avec ventes`);
 
-        return computeProductScores(rows);
+        return rows;
 
     } catch (error) {
         console.error(`[getProductRows] Error for ${codeFournisseur}:`, error);
@@ -465,5 +454,38 @@ async function reconcileSelectedStoreFromMensuelApi(
         }
     } catch (error) {
         console.error("[getProductRows] Mensuel API reconciliation error:", error);
+    }
+}
+
+/**
+ * Enrichit les produits avec les metriques reseau Qlik (cache qlik_network_metrics),
+ * jointes par code centrale. Degradation propre si la sync Qlik n'a jamais tourne
+ * ou si le code centrale n'est pas encore disponible.
+ */
+async function enrichWithNetworkMetrics(productMap: Map<string, ProductRow>): Promise<void> {
+    try {
+        const byCodeCentrale = new Map<string, ProductRow[]>();
+        for (const product of productMap.values()) {
+            const cc = product.codeCentrale;
+            if (!cc) continue;
+            if (!byCodeCentrale.has(cc)) byCodeCentrale.set(cc, []);
+            byCodeCentrale.get(cc)!.push(product);
+        }
+        if (byCodeCentrale.size === 0) return;
+
+        const metrics = await getNetworkMetricsByCodeCentrale([...byCodeCentrale.keys()]);
+        for (const [cc, products] of byCodeCentrale.entries()) {
+            const m = metrics.get(cc);
+            if (!m) continue;
+            for (const product of products) {
+                product.caReseau = m.caReseau;
+                product.qteReseau = m.qteReseau;
+                product.nbMagasinsReseau = m.nbMagasinsReseau;
+                product.tauxPresenceReseau = m.nbMagasinsReseau / NB_MAGASINS_RESEAU;
+                product.networkFetchedAt = m.fetchedAt ?? undefined;
+            }
+        }
+    } catch (error) {
+        console.error("[getProductRows] enrichWithNetworkMetrics error:", error);
     }
 }

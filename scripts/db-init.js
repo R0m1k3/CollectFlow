@@ -96,6 +96,18 @@ async function main() {
         `);
         console.log("[DB Init] Table commande_cadences is verified/created.");
 
+        await tempPool.query(`
+            CREATE TABLE IF NOT EXISTS "qlik_network_metrics" (
+                "code_centrale" varchar(20) PRIMARY KEY NOT NULL,
+                "ca_reseau" numeric(16, 2),
+                "qte_reseau" numeric(14, 2),
+                "nb_magasins_reseau" integer,
+                "periode" varchar(20),
+                "fetched_at" timestamp DEFAULT now()
+            );
+        `);
+        console.log("[DB Init] Table qlik_network_metrics is verified/created.");
+
         await tempPool.end();
         console.log("[DB Init] Initialization successful. Exiting.");
         process.exit(0);
