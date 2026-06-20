@@ -5,7 +5,7 @@ import { Save, Eye, EyeOff, CheckCircle, AlertCircle, Loader2, RefreshCw, Sun, M
 import { useTheme } from "next-themes";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { useDbSettingsStore } from "@/features/settings/store/use-db-settings-store";
-import { testDatabaseConnection, saveDatabaseSettings, getSavedDatabaseConfig } from "@/features/settings/actions";
+import { testDatabaseConnection, saveDatabaseSettings, getSavedDatabaseConfig, saveQlikSettings, testQlikConnection } from "@/features/settings/actions";
 import { useEffect } from "react";
 import { UserManagement } from "@/features/admin/components/user-management";
 
@@ -102,6 +102,82 @@ function FfApiStatusSection() {
                     )}
                 </div>
             )}
+        </Section>
+    );
+}
+
+function QlikSettingsSection() {
+    const [host, setHost] = useState("");
+    const [user, setUser] = useState("");
+    const [password, setPassword] = useState("");
+    const [showPwd, setShowPwd] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [testing, setTesting] = useState(false);
+    const [status, setStatus] = useState<{ type: "ok" | "err"; msg: string } | null>(null);
+
+    useEffect(() => {
+        getSavedDatabaseConfig().then((c) => {
+            if (!c) return;
+            setHost(c.qlikHost ?? "");
+            setUser(c.qlikUser ?? "");
+            setPassword(c.qlikPassword ?? "");
+        });
+    }, []);
+
+    const handleSave = async () => {
+        setSaving(true);
+        setStatus(null);
+        const res = await saveQlikSettings(host.trim(), user.trim(), password);
+        setSaving(false);
+        setStatus(res.success ? { type: "ok", msg: "Réglages Qlik enregistrés" } : { type: "err", msg: res.error || "Erreur" });
+    };
+
+    const handleTest = async () => {
+        setTesting(true);
+        setStatus(null);
+        const res = await testQlikConnection(host.trim(), user.trim(), password);
+        setTesting(false);
+        setStatus(res.success ? { type: "ok", msg: "Connexion Qlik OK" } : { type: "err", msg: res.error || "Échec connexion" });
+    };
+
+    return (
+        <Section title="Qlik Sense — Données réseau" subtitle="Identifiants pour la synchro des données réseau (~270 magasins). Auth NTLM ; laisser l'hôte vide pour le défaut.">
+            <Field label="Hôte" hint="Défaut : reporting-magasins.lafoirfouille.fr (laisser vide pour ce défaut)">
+                <input type="text" placeholder="reporting-magasins.lafoirfouille.fr" value={host}
+                    onChange={(e) => setHost(e.target.value)} className="apple-input font-mono" />
+            </Field>
+            <Field label="Utilisateur" hint="Ex : FFSCH (sans domaine)">
+                <input type="text" placeholder="FFSCH" value={user}
+                    onChange={(e) => setUser(e.target.value)} className="apple-input font-mono" />
+            </Field>
+            <Field label="Mot de passe">
+                <div className="relative">
+                    <input type={showPwd ? "text" : "password"} placeholder="••••••••" value={password}
+                        onChange={(e) => setPassword(e.target.value)} className="apple-input font-mono pr-10" />
+                    <button type="button" onClick={() => setShowPwd((v) => !v)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
+                        {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                </div>
+            </Field>
+            {status && (
+                <div className={`flex items-center gap-1.5 text-[12px] ${status.type === "ok" ? "text-emerald-600" : "text-rose-600"}`}>
+                    {status.type === "ok" ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                    {status.msg}
+                </div>
+            )}
+            <div className="flex gap-2">
+                <button onClick={handleSave} disabled={saving}
+                    className="btn-action btn-action-primary flex items-center gap-1.5 disabled:opacity-60">
+                    {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                    Enregistrer
+                </button>
+                <button onClick={handleTest} disabled={testing || !user || !password}
+                    className="btn-action btn-action-secondary flex items-center gap-1.5 disabled:opacity-60">
+                    {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                    Tester
+                </button>
+            </div>
         </Section>
     );
 }
@@ -335,6 +411,8 @@ export default function SettingsPage() {
 
             {/* API FF Nancy */}
             <FfApiStatusSection />
+
+            <QlikSettingsSection />
 
             {/* AI Provider selector */}
             <Section title="Admin AI Chat — Fournisseur" subtitle="Choisissez le fournisseur IA utilisé dans l'onglet Admin AI Chat">

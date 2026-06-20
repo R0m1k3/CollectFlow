@@ -14,6 +14,20 @@ export interface DbConfig {
     aiProvider?: "openrouter" | "google";
     googleAiKey?: string;
     googleAiModel?: string;
+    /** Qlik Sense — données réseau */
+    qlikHost?: string;
+    qlikUser?: string;
+    qlikPassword?: string;
+}
+
+/** Lit la config existante (ou {} si absente). */
+async function readConfig(): Promise<Partial<DbConfig>> {
+    try {
+        const data = await fs.readFile(CONFIG_FILE, "utf-8");
+        return JSON.parse(data);
+    } catch {
+        return {};
+    }
 }
 
 export async function testDatabaseConnection(url: string) {
@@ -46,7 +60,9 @@ export async function saveDatabaseSettings(
     googleAiModel?: string,
 ) {
     try {
-        const config: DbConfig = { url, openRouterKey, openRouterModel, aiProvider, googleAiKey, googleAiModel };
+        // Merge avec l'existant pour préserver les autres réglages (ex: Qlik)
+        const existing = await readConfig();
+        const config: DbConfig = { ...existing, url, openRouterKey, openRouterModel, aiProvider, googleAiKey, googleAiModel };
 
         // S'assurer que le dossier data existe
         await fs.mkdir(DATA_DIR, { recursive: true });
@@ -64,6 +80,34 @@ export async function saveDatabaseSettings(
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.error("Failed to save database configuration:", errorMessage);
         return { success: false, error: errorMessage };
+    }
+}
+
+export async function saveQlikSettings(qlikHost: string, qlikUser: string, qlikPassword: string) {
+    try {
+        const existing = await readConfig();
+        const config = { ...existing, qlikHost, qlikUser, qlikPassword } as DbConfig;
+        await fs.mkdir(DATA_DIR, { recursive: true });
+        await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2));
+        console.log("[Settings] Qlik configuration saved.");
+        return { success: true };
+    } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.error("[Settings] Failed to save Qlik config:", msg);
+        return { success: false, error: msg };
+    }
+}
+
+export async function testQlikConnection(qlikHost: string, qlikUser: string, qlikPassword: string) {
+    try {
+        const { getQlikConfig, qlikNtlmSession } = await import("@/lib/qlik-client");
+        const cfg = { ...getQlikConfig(), user: qlikUser, password: qlikPassword };
+        if (qlikHost) cfg.host = qlikHost;
+        await qlikNtlmSession(cfg);
+        return { success: true };
+    } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        return { success: false, error: msg };
     }
 }
 

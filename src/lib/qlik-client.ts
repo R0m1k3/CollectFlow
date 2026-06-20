@@ -19,6 +19,19 @@
 import httpntlm from "httpntlm";
 import { WebSocket } from "ws";
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+/** Lit les réglages Qlik depuis data/.db-config.json (configurés dans Paramètres). */
+function readQlikFileConfig(): { qlikHost?: string; qlikUser?: string; qlikPassword?: string } {
+    try {
+        const raw = readFileSync(join(process.cwd(), "data", ".db-config.json"), "utf-8");
+        const c = JSON.parse(raw);
+        return { qlikHost: c.qlikHost, qlikUser: c.qlikUser, qlikPassword: c.qlikPassword };
+    } catch {
+        return {};
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Config (env) — defauts issus de la discovery
@@ -40,10 +53,12 @@ export interface QlikConfig {
 }
 
 export function getQlikConfig(): QlikConfig {
+    // Priorité : réglages UI (data/.db-config.json) > env > défaut
+    const f = readQlikFileConfig();
     return {
-        host: process.env.QLIK_HOST ?? "reporting-magasins.lafoirfouille.fr",
-        user: process.env.QLIK_USER ?? "FFSCH",
-        password: process.env.QLIK_PWD ?? "",
+        host: f.qlikHost || process.env.QLIK_HOST || "reporting-magasins.lafoirfouille.fr",
+        user: f.qlikUser || process.env.QLIK_USER || "FFSCH",
+        password: f.qlikPassword || process.env.QLIK_PWD || "",
         domain: process.env.QLIK_DOMAIN ?? "",
         workstation: process.env.QLIK_WORKSTATION ?? "",
         appNetwork: process.env.QLIK_APP_NETWORK ?? "9872ee6e-d64a-4b43-984a-076bf1f7f647",
