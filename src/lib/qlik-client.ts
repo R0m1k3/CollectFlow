@@ -62,10 +62,11 @@ export function getQlikConfig(): QlikConfig {
         domain: process.env.QLIK_DOMAIN ?? "",
         workstation: process.env.QLIK_WORKSTATION ?? "",
         appNetwork: process.env.QLIK_APP_NETWORK ?? "9872ee6e-d64a-4b43-984a-076bf1f7f647",
-        dimCodeArticleId: process.env.QLIK_DIM_CODE_ARTICLE_ID ?? "fcd239e5-288b-4830-a047-0e3d7665d971",
-        measCaId: process.env.QLIK_MEAS_CA_ID ?? "43a76088-86fa-402e-a80e-0efd7701b3e1",
-        measQteId: process.env.QLIK_MEAS_QTE_ID ?? "7b40caf1-be4b-4811-8d45-50acde33e715",
-        measNbMagId: process.env.QLIK_MEAS_NBMAG_ID ?? "8b63fae5-db2f-4e4c-8618-f3e9d60b6b3b",
+        // qIds engine (master items de l'app "Magasins Vision Consolidée")
+        dimCodeArticleId: process.env.QLIK_DIM_CODE_ARTICLE_ID ?? "yesCP",
+        measCaId: process.env.QLIK_MEAS_CA_ID ?? "JhqJ",
+        measQteId: process.env.QLIK_MEAS_QTE_ID ?? "41516861-5997-4635-8187-3643a2bde422",
+        measNbMagId: process.env.QLIK_MEAS_NBMAG_ID ?? "yNBLjc",
         tlsInsecure: (process.env.QLIK_TLS_INSECURE ?? "true") === "true",
         timeoutMs: Number(process.env.QLIK_TIMEOUT_MS ?? "60000"),
     };
