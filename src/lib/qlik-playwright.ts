@@ -1,18 +1,18 @@
 /**
  * CollectFlow — Extraction Qlik via Playwright (Chromium headless).
  *
- * Le proxy Qlik refuse un websocket "raw" côté serveur (403), mais l'accepte
- * depuis une vraie session navigateur. On ouvre donc l'app dans Chromium
- * (auth NTLM via httpCredentials, comme l'agent hermes), puis on extrait
- * l'hypercube via un websocket Engine **in-page** (même origine = accepté).
+ * Le proxy Qlik refuse un websocket "raw" (403) ET un ws in-page avec xrfkey
+ * arbitraire. On réutilise donc la **session de la page** via la Capability API
+ * Qlik (`require(['js/qlik'])` → `qlik.openApp` → `createCube`), qui gère le ws
+ * et le xrfkey en interne avec la session authentifiée du navigateur.
  *
- * Efficacité : on applique une sélection sur le champ "Article Code" = codes
- * du fournisseur → l'hypercube ne renvoie que ces lignes (pull minimal).
+ * Auth : cookie X-Qlik-Session injecté (obtenu via le flux ticket NTLM côté Node,
+ * fiable) + httpCredentials en secours.
  */
 
 import "server-only";
 import { chromium, type Browser } from "playwright-core";
-import { getQlikConfig, type QlikConfig, type NetworkMetric } from "@/lib/qlik-client";
+import { getQlikConfig, qlikNtlmSession, type QlikConfig, type NetworkMetric } from "@/lib/qlik-client";
 
 let browserPromise: Promise<Browser> | null = null;
 
@@ -29,77 +29,12 @@ async function getBrowser(): Promise<Browser> {
     return browserPromise;
 }
 
-interface InPageParams {
-    app: string; dim: string; mca: string; mqte: string; mnb: string;
-    codes: string[]; xrf: string;
-}
-interface InPageResult { ok: boolean; rows?: Array<Array<string | number>>; size?: number; error?: string; }
-
-/** Code exécuté DANS la page (contexte navigateur) — ws Engine in-page. */
-function inPageExtract(p: InPageParams): Promise<InPageResult> {
-    // @ts-expect-error exécuté dans le navigateur
-    return (async () => {
-        const ws = new WebSocket(`wss://${location.host}/app/${p.app}?Xrfkey=${p.xrf}`);
-        let id = 0;
-        const pend = new Map<number, { res: (v: any) => void; rej: (e: any) => void }>();
-        const rpc = (method: string, params: any, handle = -1) => new Promise<any>((res, rej) => {
-            const i = ++id; pend.set(i, { res, rej });
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: i, handle, method, params }));
-        });
-        const ready = new Promise<void>((res, rej) => {
-            ws.onmessage = (ev: MessageEvent) => {
-                const m = JSON.parse(ev.data as string);
-                if (m.method === "OnConnected") return res();
-                if (m.id && pend.has(m.id)) { const x = pend.get(m.id)!; pend.delete(m.id); m.error ? x.rej(new Error(JSON.stringify(m.error))) : x.res(m.result); }
-            };
-            ws.onerror = () => rej(new Error("ws error (403 proxy ?)"));
-            setTimeout(() => rej(new Error("ws timeout")), 30000);
-        });
-        try {
-            await ready;
-            const open = await rpc("OpenDoc", { qDocName: p.app });
-            const doc = open.qReturn.qHandle;
-
-            // Sélection des codes du fournisseur sur le champ derrière "Article Code" (efficacité)
-            if (p.codes.length) {
-                try {
-                    const gd = await rpc("GetDimension", { qId: p.dim }, doc);
-                    const dh = gd.qReturn.qHandle;
-                    const dl = await rpc("GetLayout", {}, dh);
-                    const field = dl.qLayout?.qDim?.qFieldDefs?.[0];
-                    if (field) {
-                        const gf = await rpc("GetField", { qFieldName: field }, doc);
-                        const fh = gf.qReturn.qHandle;
-                        await rpc("SelectValues", { qFieldValues: p.codes.map((c) => ({ qText: c })), qToggleMode: false, qSoftLock: true }, fh);
-                    }
-                } catch { /* sélection best-effort */ }
-            }
-
-            const obj = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "cf-network" }, qHyperCubeDef: {
-                qDimensions: [{ qLibraryId: p.dim, qNullSuppression: true }],
-                qMeasures: [{ qLibraryId: p.mca }, { qLibraryId: p.mqte }, { qLibraryId: p.mnb }],
-                qInitialDataFetch: [], qSuppressMissing: true,
-            } } }, doc);
-            const oh = obj.qReturn.qHandle;
-            const layout = await rpc("GetLayout", {}, oh);
-            const size = layout.qLayout.qHyperCube.qSize.qcy as number;
-
-            const out: Array<Array<string | number>> = [];
-            const PAGE = 2500;
-            for (let top = 0; top < size; top += PAGE) {
-                const d = await rpc("GetHyperCubeData", { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: 4, qHeight: PAGE }] }, oh);
-                const matrix = d.qDataPages?.[0]?.qMatrix ?? [];
-                if (!matrix.length) break;
-                for (const r of matrix) out.push([String(r[0].qText ?? ""), Number(r[1].qNum) || 0, Number(r[2].qNum) || 0, Number(r[3].qNum) || 0]);
-                if (matrix.length < PAGE) break;
-            }
-            ws.close();
-            return { ok: true, rows: out, size };
-        } catch (e: any) {
-            try { ws.close(); } catch {}
-            return { ok: false, error: String(e?.message || e) };
-        }
-    })();
+interface InPageResult {
+    ok: boolean;
+    rows?: Array<Array<string | number>>;
+    size?: number;
+    error?: string;
+    diag?: Record<string, unknown>;
 }
 
 export async function fetchNetworkMetricsPlaywright(
@@ -109,23 +44,79 @@ export async function fetchNetworkMetricsPlaywright(
     if (!cfg.appNetwork) throw new Error("[qlik-pw] QLIK_APP_NETWORK manquant");
     if (!cfg.user || !cfg.password) throw new Error("[qlik-pw] identifiants Qlik manquants");
 
-    const xrf = Array.from({ length: 16 }, () => "abcdefghijklmnopqrstuvwxyz0123456789"[Math.floor(Math.random() * 36)]).join("");
+    // 1. Session Qlik fiable (flux ticket NTLM côté Node) → cookie
+    const sess = await qlikNtlmSession(cfg);
+    const [cookieName, ...rest] = sess.cookie.split("=");
+    const cookieValue = rest.join("=");
+
     const browser = await getBrowser();
     const ctx = await browser.newContext({
         httpCredentials: { username: cfg.user, password: cfg.password, origin: `https://${cfg.host}` },
         ignoreHTTPSErrors: true,
     });
+    await ctx.addCookies([{ name: cookieName, value: cookieValue, domain: cfg.host, path: "/", secure: true }]);
+
     try {
         const page = await ctx.newPage();
         await page.goto(`https://${cfg.host}/sense/app/${cfg.appNetwork}`, { waitUntil: "domcontentloaded", timeout: cfg.timeoutMs })
-            .catch(() => { /* la page peut ne pas finir de charger, le ws in-page suffit */ });
+            .catch(() => { /* le client Qlik se charge ensuite */ });
+        // Laisse le client Qlik (RequireJS) se charger
+        await page.waitForFunction(() => typeof (window as { require?: unknown }).require === "function", { timeout: cfg.timeoutMs })
+            .catch(() => { /* diagnostiqué plus bas */ });
 
-        const result = (await page.evaluate(inPageExtract as never, {
-            app: cfg.appNetwork, dim: cfg.dimCodeArticleId, mca: cfg.measCaId, mqte: cfg.measQteId, mnb: cfg.measNbMagId,
-            codes: codeCentraux ?? [], xrf,
-        })) as InPageResult;
+        const result = (await page.evaluate(
+            ({ app, dim, mca, mqte, mnb, codes }: { app: string; dim: string; mca: string; mqte: string; mnb: string; codes: string[] }) =>
+                new Promise<InPageResult>((resolve) => {
+                    const w = window as unknown as {
+                        require?: (deps: string[], cb: (q: unknown) => void) => void;
+                        __BOOTSTRAP__?: { xrfkey?: string; config?: { websocketUrl?: string } };
+                        location: Location;
+                    };
+                    const diag: Record<string, unknown> = {
+                        href: w.location.href,
+                        hasRequire: typeof w.require === "function",
+                        bootstrapXrf: w.__BOOTSTRAP__?.xrfkey,
+                        wsUrl: w.__BOOTSTRAP__?.config?.websocketUrl,
+                        winKeys: Object.keys(window).filter((k) => /qlik|require|bootstrap|enigma/i.test(k)),
+                    };
+                    const fail = (error: string) => resolve({ ok: false, error, diag });
+                    if (typeof w.require !== "function") return fail("require indisponible (page non authentifiée ?)");
 
-        if (!result.ok) throw new Error(`[qlik-pw] extraction: ${result.error}`);
+                    w.require(["js/qlik"], (qlikRaw: unknown) => {
+                        try {
+                            const qlik = qlikRaw as {
+                                openApp: (id: string, cfg?: unknown) => {
+                                    createCube: (def: unknown, cb: (reply: { qHyperCube?: { qSize?: { qcy?: number }; qDataPages?: Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }> } }) => void) => void;
+                                    field: (name: string) => { selectValues: (vals: Array<{ qText: string }>, toggle: boolean, soft: boolean) => void };
+                                };
+                            };
+                            const appHandle = qlik.openApp(app);
+                            // Sélection des codes du fournisseur (efficacité) — best-effort
+                            if (codes.length) {
+                                try { appHandle.field("Article Code").selectValues(codes.map((c) => ({ qText: c })), false, true); } catch { /* noop */ }
+                            }
+                            appHandle.createCube({
+                                qDimensions: [{ qLibraryId: dim, qType: "dimension" }],
+                                qMeasures: [{ qLibraryId: mca }, { qLibraryId: mqte }, { qLibraryId: mnb }],
+                                qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 4, qHeight: 5000 }],
+                                qSuppressMissing: true,
+                            }, (reply) => {
+                                try {
+                                    const hc = reply.qHyperCube;
+                                    const matrix = hc?.qDataPages?.[0]?.qMatrix ?? [];
+                                    const rows = matrix.map((r) => [String(r[0]?.qText ?? ""), Number(r[1]?.qNum) || 0, Number(r[2]?.qNum) || 0, Number(r[3]?.qNum) || 0]);
+                                    resolve({ ok: true, rows, size: hc?.qSize?.qcy, diag });
+                                } catch (e) { fail("createCube reply: " + String((e as Error)?.message || e)); }
+                            });
+                        } catch (e) { fail("openApp/createCube: " + String((e as Error)?.message || e)); }
+                    });
+                    setTimeout(() => fail("timeout extraction"), 45000);
+                }),
+            { app: cfg.appNetwork, dim: cfg.dimCodeArticleId, mca: cfg.measCaId, mqte: cfg.measQteId, mnb: cfg.measNbMagId, codes: codeCentraux ?? [] },
+        )) as InPageResult;
+
+        console.log(`[qlik-pw] diag: ${JSON.stringify(result.diag)}`);
+        if (!result.ok) throw new Error(`[qlik-pw] ${result.error} | diag=${JSON.stringify(result.diag)}`);
 
         const wanted = codeCentraux ? new Set(codeCentraux) : null;
         const out = new Map<string, NetworkMetric>();
