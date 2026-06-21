@@ -30,6 +30,27 @@ type GridRowsStreamMessage =
     | { type: "done"; loaded: number; total: number }
     | { type: "error"; error: string };
 
+/** Petite pastille métrique (libellé + valeur) — densité pro, thème Slate/teal. */
+function MetricPill({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
+    return (
+        <div
+            className="flex flex-col items-start px-2.5 py-1 rounded-lg shrink-0"
+            style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
+        >
+            <span className="text-[8.5px] font-semibold uppercase tracking-wider leading-none mb-1" style={{ color: "var(--text-muted)" }}>
+                {label}
+            </span>
+            <span
+                className="text-[12px] font-bold leading-none tabular-nums max-w-[160px] truncate"
+                style={{ color: accent ? "var(--accent)" : "var(--text-primary)" }}
+                title={value}
+            >
+                {value}
+            </span>
+        </div>
+    );
+}
+
 export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, magasins, magasin, filters }: GridClientProps) {
     const { data: session } = useSession();
     const isAdmin = (session?.user as { role?: string } | undefined)?.role === "admin";
@@ -174,28 +195,42 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
 
     return (
         <div className="flex flex-col h-full space-y-3 min-h-0 pb-12">
-            {/* Header */}
-            <div className="flex items-end justify-between shrink-0">
-                <div>
-                    <h1 className="text-2xl font-bold tracking-tight">Révision d&apos;Assortiment</h1>
-                    <p className="text-[13px] mt-0.5" style={{ color: "var(--text-secondary)" }}>
-                        <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{nomFournisseur}</span>
-                        {" "}• <span className="font-medium" style={{ color: "var(--text-muted)" }}>{activeStoreNom}</span>
-                        {" "}• {totalRows?.toLocaleString("fr-FR") ?? rows.length.toLocaleString("fr-FR")} références
-                    </p>
+            {/* Header — chrome raffiné (eyebrow teal + fournisseur héro + pastilles métriques) */}
+            <header className="shrink-0 flex items-center justify-between gap-4 pb-2.5" style={{ borderBottom: "1px solid var(--border)" }}>
+                <div className="flex items-center gap-3.5 min-w-0">
+                    <div
+                        className="h-10 w-[3px] rounded-full shrink-0"
+                        style={{ background: "linear-gradient(to bottom, var(--accent), var(--accent-success))" }}
+                    />
+                    <div className="min-w-0">
+                        <div className="text-[10px] font-bold uppercase tracking-[0.18em] leading-none mb-1.5" style={{ color: "var(--accent)" }}>
+                            Révision d&apos;assortiment
+                        </div>
+                        <h1 className="text-[19px] font-bold tracking-tight truncate leading-none" style={{ color: "var(--text-primary)" }}>
+                            {nomFournisseur}
+                        </h1>
+                    </div>
+                    <div className="hidden md:flex items-center gap-2 ml-1 pl-3 shrink-0" style={{ borderLeft: "1px solid var(--border)" }}>
+                        <MetricPill label="Magasin" value={activeStoreNom} />
+                        <MetricPill label="Références" value={(totalRows ?? rows.length).toLocaleString("fr-FR")} accent />
+                    </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2.5 shrink-0">
                     {(isLoadingRows || loadError) && (
                         <div
-                            className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold"
-                            style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: loadError ? "var(--accent-error)" : "var(--text-secondary)" }}
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold tabular-nums"
+                            style={{
+                                background: loadError ? "var(--accent-error-bg)" : "var(--accent-bg)",
+                                border: `1px solid ${loadError ? "var(--accent-error)" : "var(--accent-border)"}`,
+                                color: loadError ? "var(--accent-error)" : "var(--accent)",
+                            }}
                         >
                             {isLoadingRows && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                             {loadError
                                 ? loadError
                                 : totalRows
                                     ? `${rowsLoaded.toLocaleString("fr-FR")} / ${totalRows.toLocaleString("fr-FR")}`
-                                    : "Chargement produits..."}
+                                    : "Chargement…"}
                         </div>
                     )}
                     <div id="grid-toolbar-actions"></div>
@@ -204,7 +239,11 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
                         <button
                             onClick={handleSave}
                             disabled={isPending}
-                            className="flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-semibold rounded-lg disabled:opacity-60 transition-colors"
+                            className="flex items-center gap-2 px-4 h-9 text-white text-[13px] font-semibold rounded-xl disabled:opacity-60 transition-all hover:brightness-110 active:scale-[0.97]"
+                            style={{
+                                background: "linear-gradient(180deg, var(--brand-solid), var(--brand-hover))",
+                                boxShadow: "0 4px 12px rgba(16,185,129,0.25), inset 0 1px 1px rgba(255,255,255,0.2)",
+                            }}
                         >
                             {isPending ? (
                                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -214,7 +253,7 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
                                 <AlertCircle className="w-4 h-4" />
                             ) : null}
                             {isPending
-                                ? "Sauvegarde..."
+                                ? "Sauvegarde…"
                                 : saveStatus === "success"
                                     ? "Sauvegardé !"
                                     : saveStatus === "error"
@@ -223,7 +262,7 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
                         </button>
                     )}
                 </div>
-            </div>
+            </header>
 
             {/* Filters */}
             <div className="shrink-0 print:hidden">

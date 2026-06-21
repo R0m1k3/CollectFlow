@@ -805,11 +805,11 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
 
             <div
                 ref={tableContainerRef}
-                className="h-full w-full overflow-auto rounded-[12px] relative"
+                className="h-full w-full overflow-auto rounded-[14px] relative"
                 style={{
                     background: "var(--bg-surface)",
                     border: "1px solid var(--border)",
-                    boxShadow: "var(--shadow-sm)"
+                    boxShadow: "var(--shadow-md)"
                 }}
             >
                 <table className="text-sm block" style={{ width: "100%", minWidth: totalWidth }}>
