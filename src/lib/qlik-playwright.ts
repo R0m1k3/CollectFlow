@@ -7,8 +7,9 @@
  * client Qlik utilise pour SON websocket, puis on ouvre notre propre websocket
  * Engine **in-page** avec ce token (le proxy l'accepte).
  *
- * Efficacité : sélection des codes du fournisseur sur le champ "Article Code"
- * (l'app contient ~1,2M codes) → l'hypercube ne renvoie que ces lignes.
+ * Efficacité : on filtre d'abord Date par mois (~30 jours), puis on sélectionne
+ * tous les Article Code possibles pour ce mois. Le filtrage fournisseur se fait
+ * ensuite côté Node, ce qui évite les gros SelectValues Article Code + 365 jours.
  */
 
 import "server-only";
@@ -24,7 +25,6 @@ async function getBrowser(): Promise<Browser> {
         browserPromise = chromium.launch({
             headless: true,
             executablePath: execPath || undefined,
-            channel: execPath ? undefined : "chrome",
             args: ["--no-sandbox", "--disable-dev-shm-usage", "--ignore-certificate-errors"],
         }).catch((e) => { browserPromise = null; throw e; });
     }
@@ -190,11 +190,13 @@ export async function fetchNetworkMetricsPlaywright(
                                 const got = await fetchCubeForSelection(oh, out);
                                 console.log("extraction sans date — " + got + " ligne(s), cumul=" + out.length);
                             } else {
-                                // Itération par mois : pour chaque mois, SelectValues Date (~30 serials) +
-                                // SelectValues Article Code (tous les codes d'un coup) → cube mensuel léger.
+                                // Itération par mois : pour chaque mois, SelectValues Date (~30 serials) puis
+                                // SelectAll Article Code. On lit le mois complet, puis on filtre côté Node sur
+                                // `codeCentraux`. C'est plus stable que SelectValues(419 codes) + 365 jours :
+                                // chaque cube reste borné à ~30 jours × articles actifs du mois.
                                 // Clear Date + Clear Article Code avant le mois suivant.
                                 const total = monthlyPayload.length;
-                                console.log("itération par mois — " + total + " mois, " + codes.length + " codes");
+                                console.log("itération par mois — " + total + " mois, SelectAll Article Code, filtre Node sur " + codes.length + " codes");
                                 for (let mi = 0; mi < total; mi++) {
                                     const m = monthlyPayload[mi];
                                     const prefix = "[qlik-pw] mois " + (mi + 1) + "/" + total + " " + m.label + " (" + m.dateDebut + "→" + m.dateFin + ", " + m.serials.length + "j)";
@@ -206,14 +208,11 @@ export async function fetchNetworkMetricsPlaywright(
                                             qSoftLock: true,
                                         }, dfh);
                                         console.log(prefix + " — SelectValues Date " + m.serials.length + " serials → " + JSON.stringify(dsel.qReturn));
-                                        // 2) Sélection Article Code (tous les codes d'un coup).
-                                        if (codes.length && fh !== -1) {
-                                            const csel = await rpc("SelectValues", {
-                                                qFieldValues: codes.map((c) => ({ qText: c })),
-                                                qToggleMode: false,
-                                                qSoftLock: true,
-                                            }, fh);
-                                            console.log(prefix + " — SelectValues Article Code " + codes.length + " codes → " + JSON.stringify(csel.qReturn));
+                                        // 2) Sélection Article Code : tous les articles possibles pour ce mois.
+                                        // Le filtrage sur les codes demandés se fait ensuite côté Node.
+                                        if (fh !== -1) {
+                                            const csel = await rpc("SelectAll", { qSoftLock: true }, fh);
+                                            console.log(prefix + " — SelectAll Article Code → " + JSON.stringify(csel.qReturn));
                                         }
                                         // 3) Lecture du cube mensuel.
                                         const got = await fetchCubeForSelection(oh, out);
