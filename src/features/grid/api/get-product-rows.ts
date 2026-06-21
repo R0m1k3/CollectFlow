@@ -474,8 +474,8 @@ async function enrichWithNetworkMetrics(productMap: Map<string, ProductRow>): Pr
         if (byCodeCentrale.size === 0) return;
 
         const metrics = await getNetworkMetricsByCodeCentrale([...byCodeCentrale.keys()]);
-        const firstMatch = [...byCodeCentrale.keys()].find((cc) => metrics.has(cc));
-        console.log(`[getProductRows] réseau: ${byCodeCentrale.size} codes centraux → ${metrics.size} matchés en cache. Sample:`, firstMatch ? JSON.stringify(metrics.get(firstMatch)) : "aucun match");
+        const sampleKey = [...byCodeCentrale.keys()].find((cc) => (metrics.get(cc)?.caReseau ?? 0) > 0) ?? [...byCodeCentrale.keys()].find((cc) => metrics.has(cc));
+        console.log(`[getProductRows] réseau: ${byCodeCentrale.size} codes centraux → ${metrics.size} matchés en cache. Sample:`, sampleKey ? JSON.stringify(metrics.get(sampleKey)) : "aucun match");
         for (const [cc, products] of byCodeCentrale.entries()) {
             const m = metrics.get(cc);
             if (!m) continue;
