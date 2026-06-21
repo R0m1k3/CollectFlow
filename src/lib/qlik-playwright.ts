@@ -110,9 +110,22 @@ export async function fetchNetworkMetricsPlaywright(
                                 const sel = await rpc("SelectValues", { qFieldValues: codes.map((c) => ({ qText: c })), qToggleMode: false, qSoftLock: true }, fh);
                                 console.log("SelectValues " + codes.length + " codes → " + JSON.stringify(sel.qReturn));
                             }
+                            // Résoudre les master measures par TITRE (le qLibraryId fiable = qInfo.qId, ≠ GUID QRS).
+                            const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+                            const ml = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "MeasureList" }, qMeasureListDef: { qType: "measure", qData: { title: "/qMetaDef/title" } } } }, doc);
+                            const mll = await rpc("GetLayout", {}, (ml.qReturn as { qHandle: number }).qHandle);
+                            const items = (((mll.qLayout as { qMeasureList?: { qItems?: Array<{ qInfo: { qId: string }; qMeta?: { title?: string }; qData?: { title?: string } }> } }).qMeasureList?.qItems) ?? []);
+                            const byTitle = new Map<string, string>();
+                            for (const it of items) { const t = it.qMeta?.title ?? it.qData?.title ?? ""; if (t) byTitle.set(norm(t), it.qInfo.qId); }
+                            const pickMeasure = (title: string, fallback: string) => byTitle.get(norm(title)) ?? fallback;
+                            const rCamag = pickMeasure("CA par Magasin N", mcamag);
+                            const rCouv = pickMeasure("Couverture de stock Quantité N", mcouv);
+                            const rMarge = pickMeasure("Marge % N", mmarge);
+                            const rRupt = pickMeasure("Stock Rupture % N", mrupt);
+                            console.log("measures résolues par titre: " + JSON.stringify({ rCamag, rCouv, rMarge, rRupt }) + " (sur " + items.length + " mesures)");
                             const obj = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "cf-net" }, qHyperCubeDef: {
                                 qDimensions: [{ qLibraryId: dim }],
-                                qMeasures: [{ qLibraryId: mca }, { qLibraryId: mqte }, { qLibraryId: mnb }, { qLibraryId: mcamag }, { qLibraryId: mcouv }, { qLibraryId: mmarge }, { qLibraryId: mrupt }],
+                                qMeasures: [{ qLibraryId: mca }, { qLibraryId: mqte }, { qLibraryId: mnb }, { qLibraryId: rCamag }, { qLibraryId: rCouv }, { qLibraryId: rMarge }, { qLibraryId: rRupt }],
                                 qInitialDataFetch: [],
                             } } }, doc);
                             const oh = (obj.qReturn as { qHandle: number }).qHandle;
