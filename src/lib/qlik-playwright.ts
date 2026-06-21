@@ -8,8 +8,8 @@
  * Engine **in-page** avec ce token (le proxy l'accepte).
  *
  * Efficacité : on filtre d'abord Date par mois (~30 jours), puis on sélectionne
- * tous les Article Code possibles pour ce mois. Le filtrage fournisseur se fait
- * ensuite côté Node, ce qui évite les gros SelectValues Article Code + 365 jours.
+ * les Article Code demandés par petits lots. Chaque cube reste borné à
+ * ~30 jours × batch d'articles, sans lire tout le catalogue Qlik.
  */
 
 import "server-only";
@@ -190,13 +190,19 @@ export async function fetchNetworkMetricsPlaywright(
                                 const got = await fetchCubeForSelection(oh, out);
                                 console.log("extraction sans date — " + got + " ligne(s), cumul=" + out.length);
                             } else {
-                                // Itération par mois : pour chaque mois, SelectValues Date (~30 serials) puis
-                                // SelectAll Article Code. On lit le mois complet, puis on filtre côté Node sur
-                                // `codeCentraux`. C'est plus stable que SelectValues(419 codes) + 365 jours :
-                                // chaque cube reste borné à ~30 jours × articles actifs du mois.
-                                // Clear Date + Clear Article Code avant le mois suivant.
+                                // Itération par mois × lots de codes : pour chaque mois, SelectValues Date
+                                // (~30 serials), puis SelectValues Article Code par petits lots. Le cube
+                                // reste borné à ~30 jours × 50 codes, sans lire tout le catalogue Qlik.
                                 const total = monthlyPayload.length;
-                                console.log("itération par mois — " + total + " mois, SelectAll Article Code, filtre Node sur " + codes.length + " codes");
+                                const ARTICLE_BATCH = 50;
+                                const codeBatches: string[][] = [];
+                                if (codes.length) {
+                                    for (let i = 0; i < codes.length; i += ARTICLE_BATCH) codeBatches.push(codes.slice(i, i + ARTICLE_BATCH));
+                                } else {
+                                    // Comportement historique si aucun code n'est fourni : lire le mois complet.
+                                    codeBatches.push([]);
+                                }
+                                console.log("itération par mois — " + total + " mois × " + codeBatches.length + " lot(s) de ≤" + ARTICLE_BATCH + " codes");
                                 for (let mi = 0; mi < total; mi++) {
                                     const m = monthlyPayload[mi];
                                     const prefix = "[qlik-pw] mois " + (mi + 1) + "/" + total + " " + m.label + " (" + m.dateDebut + "→" + m.dateFin + ", " + m.serials.length + "j)";
@@ -208,21 +214,35 @@ export async function fetchNetworkMetricsPlaywright(
                                             qSoftLock: true,
                                         }, dfh);
                                         console.log(prefix + " — SelectValues Date " + m.serials.length + " serials → " + JSON.stringify(dsel.qReturn));
-                                        // 2) Sélection Article Code : tous les articles possibles pour ce mois.
-                                        // Le filtrage sur les codes demandés se fait ensuite côté Node.
-                                        if (fh !== -1) {
-                                            const csel = await rpc("SelectAll", { qSoftLock: true }, fh);
-                                            console.log(prefix + " — SelectAll Article Code → " + JSON.stringify(csel.qReturn));
+
+                                        // 2) Sélection Article Code par lots contrôlés.
+                                        for (let bi = 0; bi < codeBatches.length; bi++) {
+                                            const batch = codeBatches[bi];
+                                            const batchPrefix = prefix + " — lot " + (bi + 1) + "/" + codeBatches.length + " (" + batch.length + " codes)";
+                                            try {
+                                                if (fh !== -1) {
+                                                    await rpc("Clear", {}, fh);
+                                                    const csel = await rpc("SelectValues", {
+                                                        qFieldValues: batch.map((c) => ({ qText: c })),
+                                                        qToggleMode: false,
+                                                        qSoftLock: true,
+                                                    }, fh);
+                                                    console.log(batchPrefix + " — SelectValues Article Code → " + JSON.stringify(csel.qReturn));
+                                                }
+                                                const got = await fetchCubeForSelection(oh, out);
+                                                console.log(batchPrefix + " — " + got + " ligne(s), cumul=" + out.length);
+                                            } catch (batchErr) {
+                                                const msg = String((batchErr as Error)?.message || batchErr);
+                                                console.error(batchPrefix + " — ABORT — " + msg);
+                                                throw new Error(batchPrefix + " — " + msg);
+                                            }
                                         }
-                                        // 3) Lecture du cube mensuel.
-                                        const got = await fetchCubeForSelection(oh, out);
-                                        console.log(prefix + " — " + got + " ligne(s), cumul=" + out.length);
                                     } catch (monthErr) {
                                         const msg = String((monthErr as Error)?.message || monthErr);
                                         console.error(prefix + " — ABORT — " + msg);
                                         throw new Error(prefix + " — " + msg);
                                     }
-                                    // 4) Clear Date + Clear Article Code avant le mois suivant (soulage l'Engine).
+                                    // 3) Clear Date + Article Code avant le mois suivant (soulage l'Engine).
                                     if (mi < total - 1) {
                                         try {
                                             await rpc("Clear", {}, dfh);
