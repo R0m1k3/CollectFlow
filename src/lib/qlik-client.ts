@@ -21,6 +21,7 @@ import { WebSocket } from "ws";
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { buildGridNetworkQlikDateFilter, chunkSerials, type QlikDateFilter } from "@/lib/qlik-date-range";
 
 /** Lit les réglages Qlik depuis data/.db-config.json (configurés dans Paramètres). */
 function readQlikFileConfig(): { qlikHost?: string; qlikUser?: string; qlikPassword?: string } {
@@ -254,6 +255,7 @@ type Matrix = Array<Array<{ qText?: string; qNum?: number }>>;
 export async function fetchNetworkMetrics(
     codeCentraux?: string[],
     cfg = getQlikConfig(),
+    dateFilter: QlikDateFilter | null = buildGridNetworkQlikDateFilter(),
 ): Promise<Map<string, NetworkMetric>> {
     if (!cfg.appNetwork) throw new Error("[qlik] QLIK_APP_NETWORK manquant");
     const wanted = codeCentraux ? new Set(codeCentraux) : null;
@@ -264,6 +266,38 @@ export async function fetchNetworkMetrics(
     try {
         const openRes = await conn.rpc("OpenDoc", { qDocName: cfg.appNetwork });
         const docHandle = (((openRes.qReturn as Record<string, unknown>) ?? {}).qHandle as number) ?? 1;
+
+        // Sélection du champ `Date` sur la fenêtre 12 mois complets glissants
+        // (alignement avec la timeline de la grille). Équivalent à un set
+        // analysis `{<Date={">=…<=…"}>}` appliqué aux master measures.
+        let dateFieldHandle: number | null = null;
+        if (dateFilter) {
+            const gf = await conn.rpc("GetField", { qFieldName: "Date" }, docHandle);
+            dateFieldHandle = (((gf.qReturn as Record<string, unknown>) ?? {}).qHandle as number);
+            if (typeof dateFieldHandle !== "number") {
+                console.warn(`[qlik] champ Date introuvable, extraction sans filtre date`);
+                dateFilter = null;
+                dateFieldHandle = null;
+            } else {
+                const batches = chunkSerials(dateFilter.dailySerials, 500);
+                for (let i = 0; i < batches.length; i++) {
+                    const batch = batches[i];
+                    const sel = await conn.rpc(
+                        "SelectValues",
+                        {
+                            qFieldValues: batch.map((s) => ({ qNum: s, qText: String(s) })),
+                            qToggleMode: false,
+                            qSoftLock: true,
+                        },
+                        dateFieldHandle,
+                    );
+                    console.log(`[qlik] date filter lot ${i + 1}/${batches.length} (${batch.length} serials) — ${dateFilter.label}`);
+                    // Si SelectValues renvoie une erreur qError, on continue quand même :
+                    // l'absence de champ Date typé numérique lèverait une erreur Engine explicite.
+                    void sel;
+                }
+            }
+        }
 
         const pageHeight = 1400; // 6 colonnes * 1400 = 8400 cellules max
         const createRes = await conn.rpc("CreateSessionObject", { qProp: hyperCubeDef(cfg, pageHeight) }, docHandle);
@@ -291,6 +325,7 @@ export async function fetchNetworkMetrics(
                     nbMagasinsReseau: Number(row[3]?.qNum ?? 0) || 0,
                     caParMagasinReseau: Number(row[4]?.qNum ?? 0) || 0,
                     margePctReseau: Number(row[5]?.qNum ?? 0) || 0,
+                    periode: dateFilter?.label,
                 });
             }
             if (matrix.length < pageHeight) break;

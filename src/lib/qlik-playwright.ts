@@ -14,6 +14,7 @@
 import "server-only";
 import { chromium, type Browser } from "playwright-core";
 import { getQlikConfig, qlikNtlmSession, type QlikConfig, type NetworkMetric } from "@/lib/qlik-client";
+import { buildGridNetworkQlikDateFilter, chunkSerials, type QlikDateFilter } from "@/lib/qlik-date-range";
 
 let browserPromise: Promise<Browser> | null = null;
 
@@ -35,11 +36,15 @@ interface InPageResult { ok: boolean; rows?: Array<Array<string | number>>; size
 export async function fetchNetworkMetricsPlaywright(
     codeCentraux?: string[],
     cfg: QlikConfig = getQlikConfig(),
+    dateFilter: QlikDateFilter | null = buildGridNetworkQlikDateFilter(),
 ): Promise<Map<string, NetworkMetric>> {
     if (!cfg.appNetwork) throw new Error("[qlik-pw] QLIK_APP_NETWORK manquant");
     if (!cfg.user || !cfg.password) throw new Error("[qlik-pw] identifiants Qlik manquants");
 
     console.log(`[qlik-pw] host=${cfg.host} app=${cfg.appNetwork} — ${(codeCentraux ?? []).length} codes à sélectionner`);
+    if (dateFilter) {
+        console.log(`[qlik-pw] filtre Date=${dateFilter.label} (${dateFilter.dateDebut} → ${dateFilter.dateFin}, ${dateFilter.setAnalysis})`);
+    }
     const sess = await qlikNtlmSession(cfg);
     console.log(`[qlik-pw] session NTLM OK, cookie=${sess.cookie.split("=")[0]}=…`);
     const [cookieName, ...rest] = sess.cookie.split("=");
@@ -75,7 +80,7 @@ export async function fetchNetworkMetricsPlaywright(
         console.log(`[qlik-pw] csrf-token capturé, ouverture du websocket Engine in-page…`);
 
         const result = (await page.evaluate(
-            ({ app, dim, mca, mqte, mnb, mcamag, mmarge, codes, token }: { app: string; dim: string; mca: string; mqte: string; mnb: string; mcamag: string; mmarge: string; codes: string[]; token: string }) =>
+            ({ app, dim, mca, mqte, mnb, mcamag, mmarge, codes, token, dateBatches, dateLabel }: { app: string; dim: string; mca: string; mqte: string; mnb: string; mcamag: string; mmarge: string; codes: string[]; token: string; dateBatches: number[][]; dateLabel: string | null }) =>
                 new Promise<InPageResult>((resolve) => {
                     const loc = (window as unknown as { location: Location }).location;
                     const url = `wss://${loc.host}/app/${app}?reloadUri=${encodeURIComponent(loc.href)}&qlik-csrf-token=${token}`;
@@ -103,6 +108,28 @@ export async function fetchNetworkMetricsPlaywright(
                             const open = await rpc("OpenDoc", { qDocName: app });
                             const doc = (open.qReturn as { qHandle: number }).qHandle;
                             console.log("OpenDoc OK handle=" + doc);
+
+                            // Aligne Qlik sur la timeline grille : 12 mois complets glissants,
+                            // hors mois courant. La sélection du champ Date est héritée par les
+                            // master measures du cube, sans dupliquer leurs expressions.
+                            if (dateBatches.length) {
+                                try {
+                                    const df = await rpc("GetField", { qFieldName: "Date" }, doc);
+                                    const dfh = (df.qReturn as { qHandle: number }).qHandle;
+                                    for (let i = 0; i < dateBatches.length; i++) {
+                                        const batch = dateBatches[i];
+                                        await rpc(
+                                            "SelectValues",
+                                            { qFieldValues: batch.map((s) => ({ qNum: s, qText: String(s) })), qToggleMode: false, qSoftLock: true },
+                                            dfh,
+                                        );
+                                        console.log("filtre Date " + (i + 1) + "/" + dateBatches.length + " — " + batch.length + " jours — " + dateLabel);
+                                    }
+                                } catch (e) {
+                                    console.log("filtre Date ignoré: " + String((e as Error)?.message || e));
+                                }
+                            }
+
                             // Handle du champ de sélection (réutilisé pour chaque lot).
                             let fh = -1;
                             if (codes.length) {
@@ -156,7 +183,19 @@ export async function fetchNetworkMetricsPlaywright(
                         } catch (e) { try { ws.close(); } catch { /* noop */ } fail(String((e as Error)?.message || e)); }
                     })();
                 }),
-            { app: cfg.appNetwork, dim: cfg.dimCodeArticleId, mca: cfg.measCaId, mqte: cfg.measQteId, mnb: cfg.measNbMagId, mcamag: cfg.measCaMagId, mmarge: cfg.measMargePctId, codes: codeCentraux ?? [], token: csrfToken },
+            {
+                app: cfg.appNetwork,
+                dim: cfg.dimCodeArticleId,
+                mca: cfg.measCaId,
+                mqte: cfg.measQteId,
+                mnb: cfg.measNbMagId,
+                mcamag: cfg.measCaMagId,
+                mmarge: cfg.measMargePctId,
+                codes: codeCentraux ?? [],
+                token: csrfToken,
+                dateBatches: dateFilter ? chunkSerials(dateFilter.dailySerials, 500) : [],
+                dateLabel: dateFilter?.label ?? null,
+            },
         )) as InPageResult;
 
         if (!result.ok) throw new Error(`[qlik-pw] ${result.error}`);
@@ -167,7 +206,7 @@ export async function fetchNetworkMetricsPlaywright(
             const code = String(r[0]).trim();
             if (!code || code === "-") continue;
             if (wanted && !wanted.has(code)) continue;
-            out.set(code, { codeCentrale: code, caReseau: Number(r[1]) || 0, qteReseau: Number(r[2]) || 0, nbMagasinsReseau: Number(r[3]) || 0, caParMagasinReseau: Number(r[4]) || 0, margePctReseau: Number(r[5]) || 0 });
+            out.set(code, { codeCentrale: code, caReseau: Number(r[1]) || 0, qteReseau: Number(r[2]) || 0, nbMagasinsReseau: Number(r[3]) || 0, caParMagasinReseau: Number(r[4]) || 0, margePctReseau: Number(r[5]) || 0, periode: dateFilter?.label });
         }
         console.log(`[qlik-pw] ${out.size} produits réseau (cube ${result.size})`);
         // Échantillon brut pour vérifier que les 4 nouvelles mesures (cols 4-7) renvoient des valeurs

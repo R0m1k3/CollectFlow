@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { fetchNetworkMetricsPlaywright } from "@/lib/qlik-playwright";
 import { upsertNetworkMetrics } from "@/lib/qlik-network-cache";
 import { pgGetArticlesByFournisseur } from "@/lib/pg-ff-client";
+import { buildGridNetworkQlikDateFilter } from "@/lib/qlik-date-range";
 
 // Synchro potentiellement longue (extraction hypercube paginee).
 export const maxDuration = 300;
@@ -45,8 +46,9 @@ export async function POST(req: NextRequest) {
             });
         }
 
-        console.log(`[api/qlik/sync] → lancement extraction Qlik pour ${codes.length} codes…`);
-        const metrics = await fetchNetworkMetricsPlaywright(codes);
+        const dateFilter = buildGridNetworkQlikDateFilter();
+        console.log(`[api/qlik/sync] → lancement extraction Qlik pour ${codes.length} codes — période ${dateFilter.label} (${dateFilter.dateDebut} → ${dateFilter.dateFin})…`);
+        const metrics = await fetchNetworkMetricsPlaywright(codes, undefined, dateFilter);
         console.log(`[api/qlik/sync] ← Qlik a renvoyé ${metrics.size} produits réseau`);
         const count = await upsertNetworkMetrics([...metrics.values()]);
         console.log(`[api/qlik/sync] ${count} lignes upsert dans le cache`);
@@ -56,6 +58,9 @@ export async function POST(req: NextRequest) {
             requested: codes.length,
             fetched: metrics.size,
             upserted: count,
+            periode: dateFilter.label,
+            dateDebut: dateFilter.dateDebut,
+            dateFin: dateFilter.dateFin,
             fetchedAt: new Date().toISOString(),
         });
     } catch (e) {
