@@ -155,27 +155,49 @@ export async function fetchNetworkMetricsPlaywright(
                             const oh = (obj.qReturn as { qHandle: number }).qHandle;
                             const out: Array<Array<string | number>> = [];
                             const PAGE = 1400;
-                            // Lots de sélection : une grande sélection (>~1500 codes) fait calculer le cube
-                            // sur trop de lignes d'un coup → l'Engine annule (code 15 "Request aborted").
-                            // On sélectionne par paquets et on accumule.
-                            const BATCH = 1200;
+                            // Lots de sélection : avec le filtre Date actif (~365 jours), même ~400 codes
+                            // forcés d'un coup déclenchent un recalcul de cube trop lourd → l'Engine
+                            // annule (code 15 "Request aborted"). On extrait par petits lots, on vide la
+                            // sélection "Article Code" entre chaque lot (le filtre Date est conservé car
+                            // posé indépendamment), et on accumule les lignes côté client.
+                            const BATCH = 100;
                             const batches: Array<string[] | null> = codes.length
                                 ? Array.from({ length: Math.ceil(codes.length / BATCH) }, (_, i) => codes.slice(i * BATCH, i * BATCH + BATCH))
                                 : [null];
+                            console.log("codes=" + codes.length + " → " + batches.length + " lot(s) de ≤ " + BATCH);
                             for (let b = 0; b < batches.length; b++) {
                                 const batch = batches[b];
-                                if (batch) {
-                                    const sel = await rpc("SelectValues", { qFieldValues: batch.map((c) => ({ qText: c })), qToggleMode: false, qSoftLock: true }, fh);
-                                    console.log("lot " + (b + 1) + "/" + batches.length + " — SelectValues " + batch.length + " codes → " + JSON.stringify(sel.qReturn));
+                                const sample = batch ? batch.slice(0, 3).join(",") + (batch.length > 3 ? ",…" : "") : "∅";
+                                try {
+                                    if (batch && fh !== -1) {
+                                        const sel = await rpc("SelectValues", { qFieldValues: batch.map((c) => ({ qText: c })), qToggleMode: false, qSoftLock: true }, fh);
+                                        console.log("lot " + (b + 1) + "/" + batches.length + " — SelectValues " + batch.length + " codes [" + sample + "] → " + JSON.stringify(sel.qReturn));
+                                    }
+                                    const layout = await rpc("GetLayout", {}, oh);
+                                    const size = ((layout.qLayout as { qHyperCube: { qSize: { qcy: number } } }).qHyperCube).qSize.qcy;
+                                    let got = 0;
+                                    for (let top = 0; top < size; top += PAGE) {
+                                        const d = await rpc("GetHyperCubeData", { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: 6, qHeight: PAGE }] }, oh);
+                                        const matrix = (d.qDataPages as Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }>)?.[0]?.qMatrix ?? [];
+                                        if (!matrix.length) break;
+                                        for (const r of matrix) out.push([String(r[0]?.qText ?? ""), Number(r[1]?.qNum) || 0, Number(r[2]?.qNum) || 0, Number(r[3]?.qNum) || 0, Number(r[4]?.qNum) || 0, Number(r[5]?.qNum) || 0]);
+                                        got += matrix.length;
+                                        if (matrix.length < PAGE) break;
+                                    }
+                                    console.log("lot " + (b + 1) + "/" + batches.length + " — " + got + " ligne(s) (cube qcy=" + size + "), cumul=" + out.length);
+                                } catch (batchErr) {
+                                    const msg = String((batchErr as Error)?.message || batchErr);
+                                    console.error("[qlik-pw] lot " + (b + 1) + "/" + batches.length + " abort [" + sample + "] — " + msg);
+                                    throw new Error("[qlik-pw] abort lot " + (b + 1) + "/" + batches.length + " (" + (batch?.length ?? 0) + " codes) — " + msg);
                                 }
-                                const layout = await rpc("GetLayout", {}, oh);
-                                const size = ((layout.qLayout as { qHyperCube: { qSize: { qcy: number } } }).qHyperCube).qSize.qcy;
-                                for (let top = 0; top < size; top += PAGE) {
-                                    const d = await rpc("GetHyperCubeData", { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: 6, qHeight: PAGE }] }, oh);
-                                    const matrix = (d.qDataPages as Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }>)?.[0]?.qMatrix ?? [];
-                                    if (!matrix.length) break;
-                                    for (const r of matrix) out.push([String(r[0]?.qText ?? ""), Number(r[1]?.qNum) || 0, Number(r[2]?.qNum) || 0, Number(r[3]?.qNum) || 0, Number(r[4]?.qNum) || 0, Number(r[5]?.qNum) || 0]);
-                                    if (matrix.length < PAGE) break;
+                                // Vide la sélection Article Code avant le lot suivant : le filtre Date
+                                // reste posé sur l'app, on évite l'accumulation côté Engine.
+                                if (batch && fh !== -1 && b < batches.length - 1) {
+                                    try {
+                                        await rpc("Clear", {}, fh);
+                                    } catch (clearErr) {
+                                        console.log("[qlik-pw] Clear Article Code ignoré: " + String((clearErr as Error)?.message || clearErr));
+                                    }
                                 }
                             }
                             ws.close();
