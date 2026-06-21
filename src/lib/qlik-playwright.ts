@@ -112,20 +112,30 @@ export async function fetchNetworkMetricsPlaywright(
                             }
                             // Résoudre les master measures par TITRE (le qLibraryId fiable = qInfo.qId, ≠ GUID QRS).
                             const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
-                            const ml = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "MeasureList" }, qMeasureListDef: { qType: "measure", qData: { title: "/qMetaDef/title", expr: "/qMeasure/qDef/qDef" } } } }, doc);
+                            const ml = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "MeasureList" }, qMeasureListDef: { qType: "measure", qData: { title: "/qMetaDef/title" } } } }, doc);
                             const mll = await rpc("GetLayout", {}, (ml.qReturn as { qHandle: number }).qHandle);
-                            const items = (((mll.qLayout as { qMeasureList?: { qItems?: Array<{ qInfo: { qId: string }; qMeta?: { title?: string }; qData?: { title?: string; expr?: string } }> } }).qMeasureList?.qItems) ?? []);
+                            const items = (((mll.qLayout as { qMeasureList?: { qItems?: Array<{ qInfo: { qId: string }; qMeta?: { title?: string }; qData?: { title?: string } }> } }).qMeasureList?.qItems) ?? []);
                             const byTitle = new Map<string, string>();
-                            const exprById = new Map<string, string>();
-                            for (const it of items) { const t = it.qMeta?.title ?? it.qData?.title ?? ""; if (t) byTitle.set(norm(t), it.qInfo.qId); exprById.set(it.qInfo.qId, it.qData?.expr ?? ""); }
+                            for (const it of items) { const t = it.qMeta?.title ?? it.qData?.title ?? ""; if (t) byTitle.set(norm(t), it.qInfo.qId); }
                             const pickMeasure = (title: string, fallback: string) => byTitle.get(norm(title)) ?? fallback;
                             const rCamag = pickMeasure("CA par Magasin N", mcamag);
                             const rCouv = pickMeasure("Couverture de stock Quantité N", mcouv);
                             const rMarge = pickMeasure("Marge % N", mmarge);
                             const rRupt = pickMeasure("Stock Rupture % N", mrupt);
                             console.log("measures résolues par titre: " + JSON.stringify({ rCamag, rCouv, rMarge, rRupt }) + " (sur " + items.length + " mesures)");
-                            console.log("expr rupture (" + rRupt + "): " + (exprById.get(rRupt) ?? "n/a"));
-                            console.log("expr couverture (" + rCouv + "): " + (exprById.get(rCouv) ?? "n/a"));
+                            // Lit l'expression réelle d'une master measure (GetMeasure → GetProperties).
+                            const measExpr = async (qId: string): Promise<string> => {
+                                try {
+                                    const gm = await rpc("GetMeasure", { qId }, doc);
+                                    const h = (gm.qReturn as { qHandle: number }).qHandle;
+                                    const p = await rpc("GetProperties", {}, h);
+                                    const def = (p.qProp as { qMeasure?: { qDef?: { qDef?: string; qLabel?: string } } })?.qMeasure?.qDef;
+                                    return def?.qDef ?? def?.qLabel ?? JSON.stringify(def ?? "n/a");
+                                } catch (e) { return "err:" + String((e as Error)?.message || e); }
+                            };
+                            console.log("expr rupture (" + rRupt + "): " + await measExpr(rRupt));
+                            console.log("expr couverture (" + rCouv + "): " + await measExpr(rCouv));
+                            console.log("expr camag (" + rCamag + "): " + await measExpr(rCamag));
                             const obj = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "cf-net" }, qHyperCubeDef: {
                                 qDimensions: [{ qLibraryId: dim }],
                                 qMeasures: [{ qLibraryId: mca }, { qLibraryId: mqte }, { qLibraryId: mnb }, { qLibraryId: rCamag }, { qLibraryId: rCouv }, { qLibraryId: rMarge }, { qLibraryId: rRupt }],
