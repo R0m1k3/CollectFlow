@@ -51,7 +51,6 @@ export interface QlikConfig {
     measCaMagId: string;      // master measure "CA par Magasin N"
     measCouvQteId: string;    // master measure "Couverture de stock Quantite N"
     measMargePctId: string;   // master measure "Marge % N"
-    measRuptPctId: string;    // master measure "Stock Rupture % N"
     tlsInsecure: boolean;
     timeoutMs: number;
 }
@@ -76,7 +75,6 @@ export function getQlikConfig(): QlikConfig {
         measCaMagId: process.env.QLIK_MEAS_CAMAG_ID ?? "16778c00-a4e0-41c7-ab1c-179810d78172",
         measCouvQteId: process.env.QLIK_MEAS_COUVQTE_ID ?? "dbdf957d-a380-495f-bdc4-3f7b6688f3b5",
         measMargePctId: process.env.QLIK_MEAS_MARGEPCT_ID ?? "ea1e8feb-49ba-4eb3-8db6-72dcfb4c1222",
-        measRuptPctId: process.env.QLIK_MEAS_RUPTPCT_ID ?? "a60a5c1a-5966-484c-9771-dbe55bd83a3c",
         tlsInsecure: (process.env.QLIK_TLS_INSECURE ?? "true") === "true",
         timeoutMs: Number(process.env.QLIK_TIMEOUT_MS ?? "60000"),
     };
@@ -93,8 +91,6 @@ export interface NetworkMetric {
     couvertureStockReseau: number;
     /** Taux de marge réseau (ratio brut Qlik, ex 0.32 = 32%) */
     margePctReseau: number;
-    /** Taux de rupture réseau (ratio brut Qlik, ex 0.05 = 5%) */
-    rupturePctReseau: number;
     periode?: string;
 }
 
@@ -250,9 +246,8 @@ function hyperCubeDef(cfg: QlikConfig, height: number) {
                 { qLibraryId: cfg.measCaMagId },
                 { qLibraryId: cfg.measCouvQteId },
                 { qLibraryId: cfg.measMargePctId },
-                { qLibraryId: cfg.measRuptPctId },
             ],
-            qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 8, qHeight: height }],
+            qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 7, qHeight: height }],
             qSuppressZero: false,
             qSuppressMissing: true,
         },
@@ -275,7 +270,7 @@ export async function fetchNetworkMetrics(
         const openRes = await conn.rpc("OpenDoc", { qDocName: cfg.appNetwork });
         const docHandle = (((openRes.qReturn as Record<string, unknown>) ?? {}).qHandle as number) ?? 1;
 
-        const pageHeight = 1250; // 8 colonnes * 1250 = 10000 cellules max
+        const pageHeight = 1400; // 7 colonnes * 1400 = 9800 cellules max
         const createRes = await conn.rpc("CreateSessionObject", { qProp: hyperCubeDef(cfg, pageHeight) }, docHandle);
         const objHandle = (((createRes.qReturn as Record<string, unknown>) ?? {}).qHandle as number);
 
@@ -283,7 +278,7 @@ export async function fetchNetworkMetrics(
         for (;;) {
             const dataRes = await conn.rpc(
                 "GetHyperCubeData",
-                { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: 8, qHeight: pageHeight }] },
+                { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: 7, qHeight: pageHeight }] },
                 objHandle,
             );
             const pages = (dataRes.qDataPages as Array<{ qMatrix?: Matrix }>) ?? [];
@@ -302,7 +297,6 @@ export async function fetchNetworkMetrics(
                     caParMagasinReseau: Number(row[4]?.qNum ?? 0) || 0,
                     couvertureStockReseau: Number(row[5]?.qNum ?? 0) || 0,
                     margePctReseau: Number(row[6]?.qNum ?? 0) || 0,
-                    rupturePctReseau: Number(row[7]?.qNum ?? 0) || 0,
                 });
             }
             if (matrix.length < pageHeight) break;

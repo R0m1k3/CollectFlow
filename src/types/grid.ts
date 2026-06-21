@@ -119,8 +119,6 @@ export interface ProductRow {
     couvertureStockReseau?: number;
     /** Taux de marge réseau (ratio brut Qlik, ex 0.32 = 32%) */
     margePctReseau?: number;
-    /** Taux de rupture réseau (ratio brut Qlik, ex 0.05 = 5%) */
-    rupturePctReseau?: number;
     /** Taux de présence réseau = nbMagasinsReseau / 270 */
     tauxPresenceReseau?: number;
     /** Fraîcheur des données réseau (ISO) */

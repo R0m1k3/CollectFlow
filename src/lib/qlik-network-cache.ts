@@ -18,7 +18,6 @@ export interface NetworkMetricCached {
     caParMagasinReseau: number;
     couvertureStockReseau: number;
     margePctReseau: number;
-    rupturePctReseau: number;
     fetchedAt: string | null;
 }
 
@@ -43,7 +42,6 @@ export async function getNetworkMetricsByCodeCentrale(
             caParMagasinReseau: Number(r.caParMagasinReseau ?? 0) || 0,
             couvertureStockReseau: Number(r.couvertureStockReseau ?? 0) || 0,
             margePctReseau: Number(r.margePctReseau ?? 0) || 0,
-            rupturePctReseau: Number(r.rupturePctReseau ?? 0) || 0,
             fetchedAt: r.fetchedAt ? new Date(r.fetchedAt).toISOString() : null,
         });
     }
@@ -62,7 +60,6 @@ export async function upsertNetworkMetrics(metrics: NetworkMetric[]): Promise<nu
         caParMagasinReseau: String(m.caParMagasinReseau),
         couvertureStockReseau: String(m.couvertureStockReseau),
         margePctReseau: String(m.margePctReseau),
-        rupturePctReseau: String(m.rupturePctReseau),
         periode: m.periode ?? null,
         fetchedAt: now,
     }));
@@ -84,7 +81,6 @@ export async function upsertNetworkMetrics(metrics: NetworkMetric[]): Promise<nu
                     caParMagasinReseau: sql`excluded.ca_par_magasin_reseau`,
                     couvertureStockReseau: sql`excluded.couverture_stock_reseau`,
                     margePctReseau: sql`excluded.marge_pct_reseau`,
-                    rupturePctReseau: sql`excluded.rupture_pct_reseau`,
                     periode: sql`excluded.periode`,
                     fetchedAt: sql`excluded.fetched_at`,
                 },

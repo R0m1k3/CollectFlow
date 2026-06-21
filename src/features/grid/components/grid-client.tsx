@@ -6,7 +6,6 @@ import { FloatingSummaryBar } from "@/features/grid/components/floating-summary-
 import { BulkActionToolbar } from "@/features/grid/components/bulk-action-toolbar";
 import { GridFilterBar } from "@/features/grid/components/grid-filter-bar";
 import { ExportDropdown } from "@/features/grid/components/export-dropdown";
-import { NoSalesTab, countNoSalesIn6Months } from "@/features/grid/components/no-sales-tab";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
 import type { ProductRow } from "@/types/grid";
@@ -44,14 +43,11 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
     const [selectedCodeins, setSelectedCodeins] = useState<string[]>([]);
     const [isPending, startTransition] = useTransition();
     const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle");
-    const [activeTab, setActiveTab] = useState<"grid" | "no-sales">("grid");
     const [isLoadingRows, setIsLoadingRows] = useState(false);
     const [rowsLoaded, setRowsLoaded] = useState(0);
     const [totalRows, setTotalRows] = useState<number | null>(null);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [showStartOverlay, setShowStartOverlay] = useState(false);
-
-    const noSalesCount = useMemo(() => countNoSalesIn6Months(rows), [rows]);
 
     const visibleCodeins = useMemo(() => rows.map(r => r.codein), [rows]);
     const { save, hasDrafts, count } = useSaveDrafts(magasin, visibleCodeins);
@@ -234,68 +230,26 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
                 <GridFilterBar fournisseurs={fournisseurs} magasins={magasins} />
             </div>
 
-            {/* Tab switcher */}
-            <div className="shrink-0 flex gap-0 print:hidden" style={{ borderBottom: "1px solid var(--border)" }}>
-                {(["grid", "no-sales"] as const).map(tab => {
-                    const isActive = activeTab === tab;
-                    return (
-                        <button
-                            key={tab}
-                            onClick={() => setActiveTab(tab)}
-                            className="flex items-center gap-1.5 px-4 py-2 text-[13px] font-medium transition-colors"
-                            style={{
-                                color: isActive ? "var(--text-primary)" : "var(--text-muted)",
-                                borderBottom: isActive ? "2px solid var(--accent)" : "2px solid transparent",
-                                marginBottom: "-1px",
-                            }}
-                        >
-                            {tab === "grid" ? "Assortiment" : "Sans vente 6 mois"}
-                            {tab === "no-sales" && noSalesCount > 0 && (
-                                <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold"
-                                    style={{
-                                        background: isActive ? "var(--accent)" : "var(--bg-elevated)",
-                                        color: isActive ? "white" : "var(--text-secondary)",
-                                        border: "1px solid var(--border)",
-                                    }}
-                                >
-                                    {noSalesCount}
-                                </span>
-                            )}
-                        </button>
-                    );
-                })}
+            {/* Bulk toolbar (contextual) */}
+            <div className="shrink-0 print:hidden">
+                <BulkActionToolbar
+                    selectedCodeins={selectedCodeins}
+                    onClearSelection={() => setSelectedCodeins([])}
+                />
             </div>
 
-            {/* Bulk toolbar (contextual) — uniquement sur l'onglet grille */}
-            {activeTab === "grid" && (
-                <div className="shrink-0 print:hidden">
-                    <BulkActionToolbar
-                        selectedCodeins={selectedCodeins}
-                        onClearSelection={() => setSelectedCodeins([])}
-                    />
-                </div>
-            )}
-
             {/* Main content */}
-            {activeTab === "grid" ? (
-                <div className="flex-1 min-h-0 min-w-0">
-                    <HeatmapGrid
-                        onSelectionChange={setSelectedCodeins}
-                        isAdmin={isAdmin}
-                    />
-                </div>
-            ) : (
-                <div className="flex-1 min-h-0 min-w-0 flex flex-col">
-                    <NoSalesTab />
-                </div>
-            )}
+            <div className="flex-1 min-h-0 min-w-0">
+                <HeatmapGrid
+                    onSelectionChange={setSelectedCodeins}
+                    isAdmin={isAdmin}
+                />
+            </div>
 
-            {/* Summary bar — uniquement sur l'onglet grille */}
-            {activeTab === "grid" && (
-                <div className="print:hidden">
-                    <FloatingSummaryBar />
-                </div>
-            )}
+            {/* Summary bar */}
+            <div className="print:hidden">
+                <FloatingSummaryBar />
+            </div>
 
             {/* Overlay de démarrage premium (Glassmorphism semi-bloquant) */}
             {showStartOverlay && isLoadingRows && (

@@ -123,8 +123,6 @@ export const qlikNetworkMetrics = pgTable("qlik_network_metrics", {
   couvertureStockReseau: numeric("couverture_stock_reseau", { precision: 12, scale: 3 }),
   /** Taux de marge réseau (ratio brut Qlik) */
   margePctReseau: numeric("marge_pct_reseau", { precision: 8, scale: 4 }),
-  /** Taux de rupture réseau (ratio brut Qlik) */
-  rupturePctReseau: numeric("rupture_pct_reseau", { precision: 8, scale: 4 }),
   /** Période couverte (libre, ex "12m" ou "2025") */
   periode: varchar("periode", { length: 20 }),
   /** Dernière synchro depuis Qlik */

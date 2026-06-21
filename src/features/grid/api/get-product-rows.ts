@@ -486,7 +486,6 @@ async function enrichWithNetworkMetrics(productMap: Map<string, ProductRow>): Pr
                 product.caParMagasinReseau = m.caParMagasinReseau;
                 product.couvertureStockReseau = m.couvertureStockReseau;
                 product.margePctReseau = m.margePctReseau;
-                product.rupturePctReseau = m.rupturePctReseau;
                 product.tauxPresenceReseau = m.nbMagasinsReseau / NB_MAGASINS_RESEAU;
                 product.networkFetchedAt = m.fetchedAt ?? undefined;
             }
