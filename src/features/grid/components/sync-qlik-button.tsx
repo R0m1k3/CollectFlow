@@ -58,12 +58,18 @@ export function SyncQlikButton({ codeFournisseur, lastUpdate }: SyncQlikButtonPr
     };
 
     return (
-        <div className="flex flex-col items-end">
+        <div className="flex items-center gap-2">
+            <span
+                className="text-[10px] leading-tight text-right whitespace-nowrap hidden lg:block"
+                style={{ color: status === "error" ? "var(--accent-error)" : "var(--text-muted)" }}
+            >
+                {status === "error" ? message : `MAJ Qlik · ${formatDate(lastUpdate)}`}
+            </span>
             <button
                 onClick={handleSync}
                 disabled={status === "loading"}
                 className="btn-action btn-action-secondary flex items-center gap-1.5 disabled:opacity-60"
-                title={message || "Synchroniser les données réseau Qlik pour ce fournisseur"}
+                title={message || `Synchroniser les données réseau Qlik · MAJ ${formatDate(lastUpdate)}`}
             >
                 {status === "loading" ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -76,9 +82,6 @@ export function SyncQlikButton({ codeFournisseur, lastUpdate }: SyncQlikButtonPr
                 )}
                 Sync Qlik
             </button>
-            <span className="text-[10px] text-slate-500 mt-0.5">
-                {status === "error" ? message : `MAJ Qlik : ${formatDate(lastUpdate)}`}
-            </span>
         </div>
     );
 }
