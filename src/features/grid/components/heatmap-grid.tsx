@@ -178,7 +178,7 @@ const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnVisi
         >
             {row.getVisibleCells().map((cell: Cell<ProductRow, unknown>) => {
                 const isFlexible = cell.column.id === "libelle1" || cell.column.id === "libelle3";
-                const isCenter = cell.column.id === "totalQuantite" || cell.column.id === "totalCa" || cell.column.id === "totalMarge" || cell.column.id.startsWith("month_") || cell.column.id === "gammeInitial" || cell.column.id === "caReseau" || cell.column.id === "qteReseau" || cell.column.id === "nbMagasinsReseau" || cell.column.id === "tauxPresenceReseau" || cell.column.id === "gamme";
+                const isCenter = cell.column.id === "totalQuantite" || cell.column.id === "totalCa" || cell.column.id === "totalMarge" || cell.column.id.startsWith("month_") || cell.column.id === "gammeInitial" || cell.column.id === "caReseau" || cell.column.id === "qteReseau" || cell.column.id === "nbMagasinsReseau" || cell.column.id === "caParMagasinReseau" || cell.column.id === "couvertureStockReseau" || cell.column.id === "margePctReseau" || cell.column.id === "rupturePctReseau" || cell.column.id === "tauxPresenceReseau" || cell.column.id === "gamme";
                 const size = cell.column.getSize();
                 return (
                     <td
@@ -560,6 +560,68 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
                 );
             },
         },
+        {
+            accessorKey: "caParMagasinReseau",
+            header: () => <div className="text-center w-full">CA / Mag<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
+            size: 85,
+            cell: ({ getValue }) => {
+                const val = getValue<number | undefined>();
+                return (
+                    <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
+                        {val != null ? val.toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }) : "-"}
+                    </div>
+                );
+            },
+        },
+        {
+            accessorKey: "couvertureStockReseau",
+            header: () => <div className="text-center w-full">Couv.<br/><span className="text-[9px] opacity-60">Stock</span></div>,
+            size: 70,
+            cell: ({ getValue }) => {
+                const val = getValue<number | undefined>();
+                if (val == null) return <div className="text-center text-[12px]" style={{ color: "var(--text-secondary)" }}>-</div>;
+                // Couverture basse = rotation rapide = bon signal d'achat
+                const color = val <= 2 ? "text-emerald-500" : val <= 4 ? "text-amber-500" : "text-rose-500";
+                return (
+                    <div className={cn("text-center font-bold text-[12px] tabular-nums", color)}>
+                        {val.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}
+                    </div>
+                );
+            },
+        },
+        {
+            accessorKey: "margePctReseau",
+            header: () => <div className="text-center w-full">Marge %<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
+            size: 75,
+            cell: ({ getValue }) => {
+                const val = getValue<number | undefined>();
+                if (val == null) return <div className="text-center text-[12px]" style={{ color: "var(--text-secondary)" }}>-</div>;
+                const pct = Math.abs(val) <= 1 ? val * 100 : val;
+                const color = pct >= 30 ? "text-emerald-500" : pct >= 15 ? "text-amber-500" : "text-rose-500";
+                return (
+                    <div className={cn("text-center font-bold text-[12px] tabular-nums", color)}>
+                        {pct.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}%
+                    </div>
+                );
+            },
+        },
+        {
+            accessorKey: "rupturePctReseau",
+            header: () => <div className="text-center w-full">Rupt. %<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
+            size: 75,
+            cell: ({ getValue }) => {
+                const val = getValue<number | undefined>();
+                if (val == null) return <div className="text-center text-[12px]" style={{ color: "var(--text-secondary)" }}>-</div>;
+                const pct = Math.abs(val) <= 1 ? val * 100 : val;
+                // Rupture haute = demande non servie = signal, mais aussi tension stock
+                const color = pct >= 15 ? "text-rose-500" : pct >= 5 ? "text-amber-500" : "text-emerald-500";
+                return (
+                    <div className={cn("text-center font-bold text-[12px] tabular-nums", color)}>
+                        {pct.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}%
+                    </div>
+                );
+            },
+        },
         ...MONTHS_12.map((monthKey) => ({
             id: `month_${monthKey}`,
             header: () => <div className="text-center w-full">{formatMonthLabel(monthKey)}</div>,
@@ -778,7 +840,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
                             <tr key={headerGroup.id} className="flex w-full">
                                 {headerGroup.headers.map((header) => {
                                     const isFlexible = header.column.id === "libelle1" || header.column.id === "libelle3";
-                                    const isCenter = header.column.id === "totalQuantite" || header.column.id === "totalCa" || header.column.id === "totalMarge" || header.column.id.startsWith("month_") || header.column.id === "gammeInitial" || header.column.id === "caReseau" || header.column.id === "qteReseau" || header.column.id === "nbMagasinsReseau" || header.column.id === "tauxPresenceReseau" || header.column.id === "gamme";
+                                    const isCenter = header.column.id === "totalQuantite" || header.column.id === "totalCa" || header.column.id === "totalMarge" || header.column.id.startsWith("month_") || header.column.id === "gammeInitial" || header.column.id === "caReseau" || header.column.id === "qteReseau" || header.column.id === "nbMagasinsReseau" || header.column.id === "caParMagasinReseau" || header.column.id === "couvertureStockReseau" || header.column.id === "margePctReseau" || header.column.id === "rupturePctReseau" || header.column.id === "tauxPresenceReseau" || header.column.id === "gamme";
                                     const size = header.getSize();
                                     return (
                                         <th

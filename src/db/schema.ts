@@ -117,6 +117,14 @@ export const qlikNetworkMetrics = pgTable("qlik_network_metrics", {
   qteReseau: numeric("qte_reseau", { precision: 14, scale: 2 }),
   /** Nombre de magasins travaillant le produit (sur ~270) */
   nbMagasinsReseau: integer("nb_magasins_reseau"),
+  /** CA moyen par magasin (productivité normalisée présence) */
+  caParMagasinReseau: numeric("ca_par_magasin_reseau", { precision: 16, scale: 2 }),
+  /** Couverture de stock en quantité (rotation) */
+  couvertureStockReseau: numeric("couverture_stock_reseau", { precision: 12, scale: 3 }),
+  /** Taux de marge réseau (ratio brut Qlik) */
+  margePctReseau: numeric("marge_pct_reseau", { precision: 8, scale: 4 }),
+  /** Taux de rupture réseau (ratio brut Qlik) */
+  rupturePctReseau: numeric("rupture_pct_reseau", { precision: 8, scale: 4 }),
   /** Période couverte (libre, ex "12m" ou "2025") */
   periode: varchar("periode", { length: 20 }),
   /** Dernière synchro depuis Qlik */

@@ -15,6 +15,10 @@ export interface NetworkMetricCached {
     caReseau: number;
     qteReseau: number;
     nbMagasinsReseau: number;
+    caParMagasinReseau: number;
+    couvertureStockReseau: number;
+    margePctReseau: number;
+    rupturePctReseau: number;
     fetchedAt: string | null;
 }
 
@@ -36,6 +40,10 @@ export async function getNetworkMetricsByCodeCentrale(
             caReseau: Number(r.caReseau ?? 0) || 0,
             qteReseau: Number(r.qteReseau ?? 0) || 0,
             nbMagasinsReseau: Number(r.nbMagasinsReseau ?? 0) || 0,
+            caParMagasinReseau: Number(r.caParMagasinReseau ?? 0) || 0,
+            couvertureStockReseau: Number(r.couvertureStockReseau ?? 0) || 0,
+            margePctReseau: Number(r.margePctReseau ?? 0) || 0,
+            rupturePctReseau: Number(r.rupturePctReseau ?? 0) || 0,
             fetchedAt: r.fetchedAt ? new Date(r.fetchedAt).toISOString() : null,
         });
     }
@@ -51,6 +59,10 @@ export async function upsertNetworkMetrics(metrics: NetworkMetric[]): Promise<nu
         caReseau: String(m.caReseau),
         qteReseau: String(m.qteReseau),
         nbMagasinsReseau: m.nbMagasinsReseau,
+        caParMagasinReseau: String(m.caParMagasinReseau),
+        couvertureStockReseau: String(m.couvertureStockReseau),
+        margePctReseau: String(m.margePctReseau),
+        rupturePctReseau: String(m.rupturePctReseau),
         periode: m.periode ?? null,
         fetchedAt: now,
     }));
@@ -69,6 +81,10 @@ export async function upsertNetworkMetrics(metrics: NetworkMetric[]): Promise<nu
                     caReseau: sql`excluded.ca_reseau`,
                     qteReseau: sql`excluded.qte_reseau`,
                     nbMagasinsReseau: sql`excluded.nb_magasins_reseau`,
+                    caParMagasinReseau: sql`excluded.ca_par_magasin_reseau`,
+                    couvertureStockReseau: sql`excluded.couverture_stock_reseau`,
+                    margePctReseau: sql`excluded.marge_pct_reseau`,
+                    rupturePctReseau: sql`excluded.rupture_pct_reseau`,
                     periode: sql`excluded.periode`,
                     fetchedAt: sql`excluded.fetched_at`,
                 },

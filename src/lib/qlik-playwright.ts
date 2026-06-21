@@ -75,7 +75,7 @@ export async function fetchNetworkMetricsPlaywright(
         console.log(`[qlik-pw] csrf-token capturé, ouverture du websocket Engine in-page…`);
 
         const result = (await page.evaluate(
-            ({ app, dim, mca, mqte, mnb, codes, token }: { app: string; dim: string; mca: string; mqte: string; mnb: string; codes: string[]; token: string }) =>
+            ({ app, dim, mca, mqte, mnb, mcamag, mcouv, mmarge, mrupt, codes, token }: { app: string; dim: string; mca: string; mqte: string; mnb: string; mcamag: string; mcouv: string; mmarge: string; mrupt: string; codes: string[]; token: string }) =>
                 new Promise<InPageResult>((resolve) => {
                     const loc = (window as unknown as { location: Location }).location;
                     const url = `wss://${loc.host}/app/${app}?reloadUri=${encodeURIComponent(loc.href)}&qlik-csrf-token=${token}`;
@@ -112,7 +112,7 @@ export async function fetchNetworkMetricsPlaywright(
                             }
                             const obj = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "cf-net" }, qHyperCubeDef: {
                                 qDimensions: [{ qLibraryId: dim }],
-                                qMeasures: [{ qLibraryId: mca }, { qLibraryId: mqte }, { qLibraryId: mnb }],
+                                qMeasures: [{ qLibraryId: mca }, { qLibraryId: mqte }, { qLibraryId: mnb }, { qLibraryId: mcamag }, { qLibraryId: mcouv }, { qLibraryId: mmarge }, { qLibraryId: mrupt }],
                                 qInitialDataFetch: [],
                             } } }, doc);
                             const oh = (obj.qReturn as { qHandle: number }).qHandle;
@@ -120,12 +120,12 @@ export async function fetchNetworkMetricsPlaywright(
                             const size = ((layout.qLayout as { qHyperCube: { qSize: { qcy: number } } }).qHyperCube).qSize.qcy;
                             console.log("cube qSize.qcy=" + size + " lignes");
                             const out: Array<Array<string | number>> = [];
-                            const PAGE = 2500;
+                            const PAGE = 1250;
                             for (let top = 0; top < size; top += PAGE) {
-                                const d = await rpc("GetHyperCubeData", { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: 4, qHeight: PAGE }] }, oh);
+                                const d = await rpc("GetHyperCubeData", { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: 8, qHeight: PAGE }] }, oh);
                                 const matrix = (d.qDataPages as Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }>)?.[0]?.qMatrix ?? [];
                                 if (!matrix.length) break;
-                                for (const r of matrix) out.push([String(r[0]?.qText ?? ""), Number(r[1]?.qNum) || 0, Number(r[2]?.qNum) || 0, Number(r[3]?.qNum) || 0]);
+                                for (const r of matrix) out.push([String(r[0]?.qText ?? ""), Number(r[1]?.qNum) || 0, Number(r[2]?.qNum) || 0, Number(r[3]?.qNum) || 0, Number(r[4]?.qNum) || 0, Number(r[5]?.qNum) || 0, Number(r[6]?.qNum) || 0, Number(r[7]?.qNum) || 0]);
                                 if (matrix.length < PAGE) break;
                             }
                             ws.close();
@@ -133,7 +133,7 @@ export async function fetchNetworkMetricsPlaywright(
                         } catch (e) { try { ws.close(); } catch { /* noop */ } fail(String((e as Error)?.message || e)); }
                     })();
                 }),
-            { app: cfg.appNetwork, dim: cfg.dimCodeArticleId, mca: cfg.measCaId, mqte: cfg.measQteId, mnb: cfg.measNbMagId, codes: codeCentraux ?? [], token: csrfToken },
+            { app: cfg.appNetwork, dim: cfg.dimCodeArticleId, mca: cfg.measCaId, mqte: cfg.measQteId, mnb: cfg.measNbMagId, mcamag: cfg.measCaMagId, mcouv: cfg.measCouvQteId, mmarge: cfg.measMargePctId, mrupt: cfg.measRuptPctId, codes: codeCentraux ?? [], token: csrfToken },
         )) as InPageResult;
 
         if (!result.ok) throw new Error(`[qlik-pw] ${result.error}`);
@@ -144,7 +144,7 @@ export async function fetchNetworkMetricsPlaywright(
             const code = String(r[0]).trim();
             if (!code || code === "-") continue;
             if (wanted && !wanted.has(code)) continue;
-            out.set(code, { codeCentrale: code, caReseau: Number(r[1]) || 0, qteReseau: Number(r[2]) || 0, nbMagasinsReseau: Number(r[3]) || 0 });
+            out.set(code, { codeCentrale: code, caReseau: Number(r[1]) || 0, qteReseau: Number(r[2]) || 0, nbMagasinsReseau: Number(r[3]) || 0, caParMagasinReseau: Number(r[4]) || 0, couvertureStockReseau: Number(r[5]) || 0, margePctReseau: Number(r[6]) || 0, rupturePctReseau: Number(r[7]) || 0 });
         }
         console.log(`[qlik-pw] ${out.size} produits réseau (cube ${result.size})`);
         return out;
