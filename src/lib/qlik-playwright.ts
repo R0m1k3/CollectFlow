@@ -147,6 +147,11 @@ export async function fetchNetworkMetricsPlaywright(
             out.set(code, { codeCentrale: code, caReseau: Number(r[1]) || 0, qteReseau: Number(r[2]) || 0, nbMagasinsReseau: Number(r[3]) || 0, caParMagasinReseau: Number(r[4]) || 0, couvertureStockReseau: Number(r[5]) || 0, margePctReseau: Number(r[6]) || 0, rupturePctReseau: Number(r[7]) || 0 });
         }
         console.log(`[qlik-pw] ${out.size} produits réseau (cube ${result.size})`);
+        // Échantillon brut pour vérifier que les 4 nouvelles mesures (cols 4-7) renvoient des valeurs
+        const sample = (result.rows ?? []).slice(0, 3).map((r) => ({
+            code: r[0], ca: r[1], qte: r[2], nbMag: r[3], caMag: r[4], couv: r[5], margePct: r[6], ruptPct: r[7],
+        }));
+        console.log(`[qlik-pw] échantillon lignes:`, JSON.stringify(sample));
         return out;
     } finally {
         await ctx.close();
