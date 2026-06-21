@@ -14,7 +14,7 @@
 import "server-only";
 import { chromium, type Browser } from "playwright-core";
 import { getQlikConfig, qlikNtlmSession, type QlikConfig, type NetworkMetric } from "@/lib/qlik-client";
-import { buildGridNetworkQlikDateFilter, chunkSerials, type QlikDateFilter } from "@/lib/qlik-date-range";
+import { buildGridNetworkQlikDateFilter, getMonthRanges, type QlikDateFilter } from "@/lib/qlik-date-range";
 
 let browserPromise: Promise<Browser> | null = null;
 
@@ -79,8 +79,22 @@ export async function fetchNetworkMetricsPlaywright(
         if (!csrfToken) throw new Error("[qlik-pw] qlik-csrf-token introuvable (client Qlik non chargé ?)");
         console.log(`[qlik-pw] csrf-token capturé, ouverture du websocket Engine in-page…`);
 
+        // Pré-calcul des mois côté Node (pour pouvoir logger X/Y et propager au script in-page).
+        const monthRanges: QlikDateFilter[] = dateFilter ? getMonthRanges(dateFilter) : [];
+        const monthlyPayload = monthRanges.map((m) => ({
+            label: m.label,
+            dateDebut: m.dateDebut,
+            dateFin: m.dateFin,
+            serials: m.dailySerials, // ~30 valeurs → SelectValues en une fois
+        }));
+
         const result = (await page.evaluate(
-            ({ app, dim, mca, mqte, mnb, mcamag, mmarge, codes, token, dateBatches, dateLabel }: { app: string; dim: string; mca: string; mqte: string; mnb: string; mcamag: string; mmarge: string; codes: string[]; token: string; dateBatches: number[][]; dateLabel: string | null }) =>
+            ({ app, dim, mca, mqte, mnb, mcamag, mmarge, codes, token, monthlyPayload, noDateMode }: {
+                app: string; dim: string; mca: string; mqte: string; mnb: string; mcamag: string; mmarge: string;
+                codes: string[]; token: string;
+                monthlyPayload: Array<{ label: string; dateDebut: string; dateFin: string; serials: number[] }>;
+                noDateMode: boolean;
+            }) =>
                 new Promise<InPageResult>((resolve) => {
                     const loc = (window as unknown as { location: Location }).location;
                     const url = `wss://${loc.host}/app/${app}?reloadUri=${encodeURIComponent(loc.href)}&qlik-csrf-token=${token}`;
@@ -101,6 +115,32 @@ export async function fetchNetworkMetricsPlaywright(
                         ws.onerror = () => rej(new Error("ws error (403 ?)"));
                         setTimeout(() => rej(new Error("ws timeout")), 30000);
                     });
+
+                    // Sélectionne Date + Article Code puis pagine le cube. Renvoie le nb de lignes
+                    // brutes lues (avant dédoublonnage côté Node).
+                    const PAGE = 1400;
+                    const fetchCubeForSelection = async (oh: number, sink: Array<Array<string | number>>): Promise<number> => {
+                        const layout = await rpc("GetLayout", {}, oh);
+                        const size = ((layout.qLayout as { qHyperCube: { qSize: { qcy: number } } }).qHyperCube).qSize.qcy;
+                        let got = 0;
+                        for (let top = 0; top < size; top += PAGE) {
+                            const d = await rpc("GetHyperCubeData", { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: 6, qHeight: PAGE }] }, oh);
+                            const matrix = (d.qDataPages as Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }>)?.[0]?.qMatrix ?? [];
+                            if (!matrix.length) break;
+                            for (const r of matrix) sink.push([
+                                String(r[0]?.qText ?? ""),
+                                Number(r[1]?.qNum) || 0,
+                                Number(r[2]?.qNum) || 0,
+                                Number(r[3]?.qNum) || 0,
+                                Number(r[4]?.qNum) || 0,
+                                Number(r[5]?.qNum) || 0,
+                            ]);
+                            got += matrix.length;
+                            if (matrix.length < PAGE) break;
+                        }
+                        return got;
+                    };
+
                     (async () => {
                         try {
                             await ready;
@@ -109,33 +149,16 @@ export async function fetchNetworkMetricsPlaywright(
                             const doc = (open.qReturn as { qHandle: number }).qHandle;
                             console.log("OpenDoc OK handle=" + doc);
 
-                            // Aligne Qlik sur la timeline grille : 12 mois complets glissants,
-                            // hors mois courant. La sélection du champ Date est héritée par les
-                            // master measures du cube, sans dupliquer leurs expressions.
-                            if (dateBatches.length) {
-                                try {
-                                    const df = await rpc("GetField", { qFieldName: "Date" }, doc);
-                                    const dfh = (df.qReturn as { qHandle: number }).qHandle;
-                                    for (let i = 0; i < dateBatches.length; i++) {
-                                        const batch = dateBatches[i];
-                                        await rpc(
-                                            "SelectValues",
-                                            { qFieldValues: batch.map((s) => ({ qNum: s, qText: String(s) })), qToggleMode: false, qSoftLock: true },
-                                            dfh,
-                                        );
-                                        console.log("filtre Date " + (i + 1) + "/" + dateBatches.length + " — " + batch.length + " jours — " + dateLabel);
-                                    }
-                                } catch (e) {
-                                    console.log("filtre Date ignoré: " + String((e as Error)?.message || e));
-                                }
-                            }
-
-                            // Handle du champ de sélection (réutilisé pour chaque lot).
+                            // Handles des champs Date / Article Code.
+                            let dfh = -1;
                             let fh = -1;
+                            const df = await rpc("GetField", { qFieldName: "Date" }, doc);
+                            dfh = (df.qReturn as { qHandle: number }).qHandle;
                             if (codes.length) {
                                 const gf = await rpc("GetField", { qFieldName: "Article Code" }, doc);
                                 fh = (gf.qReturn as { qHandle: number }).qHandle;
                             }
+
                             // Résoudre les master measures par TITRE (le qLibraryId fiable = qInfo.qId, ≠ GUID QRS).
                             const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
                             const ml = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "MeasureList" }, qMeasureListDef: { qType: "measure", qData: { title: "/qMetaDef/title" } } } }, doc);
@@ -153,53 +176,65 @@ export async function fetchNetworkMetricsPlaywright(
                                 qInitialDataFetch: [],
                             } } }, doc);
                             const oh = (obj.qReturn as { qHandle: number }).qHandle;
+
                             const out: Array<Array<string | number>> = [];
-                            const PAGE = 1400;
-                            // Lots de sélection : avec le filtre Date actif (~365 jours), même ~400 codes
-                            // forcés d'un coup déclenchent un recalcul de cube trop lourd → l'Engine
-                            // annule (code 15 "Request aborted"). On extrait par petits lots, on vide la
-                            // sélection "Article Code" entre chaque lot (le filtre Date est conservé car
-                            // posé indépendamment), et on accumule les lignes côté client.
-                            const BATCH = 100;
-                            const batches: Array<string[] | null> = codes.length
-                                ? Array.from({ length: Math.ceil(codes.length / BATCH) }, (_, i) => codes.slice(i * BATCH, i * BATCH + BATCH))
-                                : [null];
-                            console.log("codes=" + codes.length + " → " + batches.length + " lot(s) de ≤ " + BATCH);
-                            for (let b = 0; b < batches.length; b++) {
-                                const batch = batches[b];
-                                const sample = batch ? batch.slice(0, 3).join(",") + (batch.length > 3 ? ",…" : "") : "∅";
-                                try {
-                                    if (batch && fh !== -1) {
-                                        const sel = await rpc("SelectValues", { qFieldValues: batch.map((c) => ({ qText: c })), qToggleMode: false, qSoftLock: true }, fh);
-                                        console.log("lot " + (b + 1) + "/" + batches.length + " — SelectValues " + batch.length + " codes [" + sample + "] → " + JSON.stringify(sel.qReturn));
-                                    }
-                                    const layout = await rpc("GetLayout", {}, oh);
-                                    const size = ((layout.qLayout as { qHyperCube: { qSize: { qcy: number } } }).qHyperCube).qSize.qcy;
-                                    let got = 0;
-                                    for (let top = 0; top < size; top += PAGE) {
-                                        const d = await rpc("GetHyperCubeData", { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: 6, qHeight: PAGE }] }, oh);
-                                        const matrix = (d.qDataPages as Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }>)?.[0]?.qMatrix ?? [];
-                                        if (!matrix.length) break;
-                                        for (const r of matrix) out.push([String(r[0]?.qText ?? ""), Number(r[1]?.qNum) || 0, Number(r[2]?.qNum) || 0, Number(r[3]?.qNum) || 0, Number(r[4]?.qNum) || 0, Number(r[5]?.qNum) || 0]);
-                                        got += matrix.length;
-                                        if (matrix.length < PAGE) break;
-                                    }
-                                    console.log("lot " + (b + 1) + "/" + batches.length + " — " + got + " ligne(s) (cube qcy=" + size + "), cumul=" + out.length);
-                                } catch (batchErr) {
-                                    const msg = String((batchErr as Error)?.message || batchErr);
-                                    console.error("[qlik-pw] lot " + (b + 1) + "/" + batches.length + " abort [" + sample + "] — " + msg);
-                                    throw new Error("[qlik-pw] abort lot " + (b + 1) + "/" + batches.length + " (" + (batch?.length ?? 0) + " codes) — " + msg);
+
+                            if (noDateMode) {
+                                // Aucun filtre Date : extraction en un seul appel (tous les codes d'un coup).
+                                // On sélectionne uniquement Article Code ; Date reste libre.
+                                console.log("mode sans dateFilter — sélection de " + codes.length + " codes en une fois");
+                                if (codes.length && fh !== -1) {
+                                    const sel = await rpc("SelectValues", { qFieldValues: codes.map((c) => ({ qText: c })), qToggleMode: false, qSoftLock: true }, fh);
+                                    console.log("SelectValues Article Code → " + JSON.stringify(sel.qReturn));
                                 }
-                                // Vide la sélection Article Code avant le lot suivant : le filtre Date
-                                // reste posé sur l'app, on évite l'accumulation côté Engine.
-                                if (batch && fh !== -1 && b < batches.length - 1) {
+                                const got = await fetchCubeForSelection(oh, out);
+                                console.log("extraction sans date — " + got + " ligne(s), cumul=" + out.length);
+                            } else {
+                                // Itération par mois : pour chaque mois, SelectValues Date (~30 serials) +
+                                // SelectValues Article Code (tous les codes d'un coup) → cube mensuel léger.
+                                // Clear Date + Clear Article Code avant le mois suivant.
+                                const total = monthlyPayload.length;
+                                console.log("itération par mois — " + total + " mois, " + codes.length + " codes");
+                                for (let mi = 0; mi < total; mi++) {
+                                    const m = monthlyPayload[mi];
+                                    const prefix = "[qlik-pw] mois " + (mi + 1) + "/" + total + " " + m.label + " (" + m.dateDebut + "→" + m.dateFin + ", " + m.serials.length + "j)";
                                     try {
-                                        await rpc("Clear", {}, fh);
-                                    } catch (clearErr) {
-                                        console.log("[qlik-pw] Clear Article Code ignoré: " + String((clearErr as Error)?.message || clearErr));
+                                        // 1) Sélection Date pour le mois (un seul SelectValues, ~30 valeurs).
+                                        const dsel = await rpc("SelectValues", {
+                                            qFieldValues: m.serials.map((s) => ({ qNum: s, qText: String(s) })),
+                                            qToggleMode: false,
+                                            qSoftLock: true,
+                                        }, dfh);
+                                        console.log(prefix + " — SelectValues Date " + m.serials.length + " serials → " + JSON.stringify(dsel.qReturn));
+                                        // 2) Sélection Article Code (tous les codes d'un coup).
+                                        if (codes.length && fh !== -1) {
+                                            const csel = await rpc("SelectValues", {
+                                                qFieldValues: codes.map((c) => ({ qText: c })),
+                                                qToggleMode: false,
+                                                qSoftLock: true,
+                                            }, fh);
+                                            console.log(prefix + " — SelectValues Article Code " + codes.length + " codes → " + JSON.stringify(csel.qReturn));
+                                        }
+                                        // 3) Lecture du cube mensuel.
+                                        const got = await fetchCubeForSelection(oh, out);
+                                        console.log(prefix + " — " + got + " ligne(s), cumul=" + out.length);
+                                    } catch (monthErr) {
+                                        const msg = String((monthErr as Error)?.message || monthErr);
+                                        console.error(prefix + " — ABORT — " + msg);
+                                        throw new Error(prefix + " — " + msg);
+                                    }
+                                    // 4) Clear Date + Clear Article Code avant le mois suivant (soulage l'Engine).
+                                    if (mi < total - 1) {
+                                        try {
+                                            await rpc("Clear", {}, dfh);
+                                            if (fh !== -1) await rpc("Clear", {}, fh);
+                                        } catch (clearErr) {
+                                            console.log(prefix + " — Clear ignoré: " + String((clearErr as Error)?.message || clearErr));
+                                        }
                                     }
                                 }
                             }
+
                             ws.close();
                             resolve({ ok: true, rows: out, size: out.length });
                         } catch (e) { try { ws.close(); } catch { /* noop */ } fail(String((e as Error)?.message || e)); }
@@ -215,8 +250,8 @@ export async function fetchNetworkMetricsPlaywright(
                 mmarge: cfg.measMargePctId,
                 codes: codeCentraux ?? [],
                 token: csrfToken,
-                dateBatches: dateFilter ? chunkSerials(dateFilter.dailySerials, 500) : [],
-                dateLabel: dateFilter?.label ?? null,
+                monthlyPayload,
+                noDateMode: !dateFilter,
             },
         )) as InPageResult;
 
@@ -224,11 +259,39 @@ export async function fetchNetworkMetricsPlaywright(
 
         const wanted = codeCentraux ? new Set(codeCentraux) : null;
         const out = new Map<string, NetworkMetric>();
+        const margeWeight = new Map<string, number>();
         for (const r of result.rows ?? []) {
             const code = String(r[0]).trim();
             if (!code || code === "-") continue;
             if (wanted && !wanted.has(code)) continue;
-            out.set(code, { codeCentrale: code, caReseau: Number(r[1]) || 0, qteReseau: Number(r[2]) || 0, nbMagasinsReseau: Number(r[3]) || 0, caParMagasinReseau: Number(r[4]) || 0, margePctReseau: Number(r[5]) || 0, periode: dateFilter?.label });
+
+            const ca = Number(r[1]) || 0;
+            const qte = Number(r[2]) || 0;
+            const nbMag = Number(r[3]) || 0;
+            const margePct = Number(r[5]) || 0;
+            const prev = out.get(code);
+            if (!prev) {
+                out.set(code, {
+                    codeCentrale: code,
+                    caReseau: ca,
+                    qteReseau: qte,
+                    nbMagasinsReseau: nbMag,
+                    caParMagasinReseau: nbMag > 0 ? ca / nbMag : 0,
+                    margePctReseau: margePct,
+                    periode: dateFilter?.label,
+                });
+                margeWeight.set(code, ca);
+                continue;
+            }
+
+            prev.caReseau += ca;
+            prev.qteReseau += qte;
+            prev.nbMagasinsReseau = Math.max(prev.nbMagasinsReseau, nbMag);
+            const weight = margeWeight.get(code) ?? 0;
+            const nextWeight = weight + ca;
+            prev.margePctReseau = nextWeight > 0 ? ((prev.margePctReseau * weight) + (margePct * ca)) / nextWeight : Math.max(prev.margePctReseau, margePct);
+            prev.caParMagasinReseau = prev.nbMagasinsReseau > 0 ? prev.caReseau / prev.nbMagasinsReseau : 0;
+            margeWeight.set(code, nextWeight);
         }
         console.log(`[qlik-pw] ${out.size} produits réseau (cube ${result.size})`);
         // Échantillon brut pour vérifier que les 4 nouvelles mesures (cols 4-7) renvoient des valeurs

@@ -135,3 +135,99 @@ export function chunkSerials(serials: number[], batchSize = 500): number[][] {
     }
     return out;
 }
+
+/**
+ * Découpe une fenêtre temporelle en sous-fenêtres mensuelles calendaires
+ * **inclusives et continues**.
+ *
+ * But : éviter qu'un seul hypercube Qlik ne doive charger 365 jours × N
+ * codes d'un coup (provoque `code:15 Request aborted`). Avec cette découpe,
+ * chaque mois ≈ 28–31 jours × N codes → beaucoup plus léger pour l'Engine.
+ *
+ * Règles :
+ *  - Le 1er mois commence à `filter.dateDebut` (peut être un jour quelconque,
+ *    pas forcément le 1er calendaire).
+ *  - Chaque mois intermédiaire est un mois calendaire **complet** (du 1er
+ *    au dernier jour du mois).
+ *  - Le dernier mois se termine à `filter.dateFin` (tronqué si pas fin de mois).
+ *  - Les mois sont contigus : fin d'un mois + 1 = début du suivant.
+ *  - Si `filter.dateDebut` et `filter.dateFin` tombent dans le même mois,
+ *    on renvoie un seul mois (identique à `filter` mais re-calculé).
+ *
+ * Chaque mois retourné est un `QlikDateFilter` autonome : `qStart`/`qEnd`,
+ * `dailySerials` recomptés, `setAnalysis` et `label` au format `YYYY-MM`.
+ *
+ * Pré-condition : `dateDebut <= dateFin` au sens calendaire (pas vérifié ici,
+ * la validation est faite par `buildGridNetworkQlikDateFilter`).
+ */
+export function getMonthRanges(filter: QlikDateFilter): QlikDateFilter[] {
+    const start = filter.dateDebut; // YYYY-MM-DD
+    const end = filter.dateFin;     // YYYY-MM-DD
+
+    // [yyyy, mm, dd] depuis YYYY-MM-DD (déjà validé par isoDateToQlikSerial).
+    const sy = Number(start.slice(0, 4));
+    const sm = Number(start.slice(5, 7));
+    // const sd = Number(start.slice(8, 10)); // non utilisé directement
+    const ey = Number(end.slice(0, 4));
+    const em = Number(end.slice(5, 7));
+    const ed = Number(end.slice(8, 10));
+
+    // Dernier jour du mois (0-ième du mois suivant en UTC local Date).
+    const lastDayOfMonth = (y: number, m: number): number => {
+        // m: 1..12 ; on prend le jour 0 du mois suivant, qui donne le dernier jour du mois courant.
+        return new Date(y, m, 0).getDate();
+    };
+
+    const pad = (n: number): string => String(n).padStart(2, "0");
+
+    const out: QlikDateFilter[] = [];
+
+    // Itère mois par mois du mois de début au mois de fin (inclus).
+    let curY = sy;
+    let curM = sm;
+    // Sécurité anti-boucle infinie (au cas où).
+    const MAX_MONTHS = 1200; // 100 ans, large.
+    let safety = 0;
+    while (safety++ < MAX_MONTHS) {
+        const isFirst = curY === sy && curM === sm;
+        const isLast = curY === ey && curM === em;
+
+        // Début du mois courant : si c'est le premier mois, on respecte `dateDebut` ;
+        // sinon on prend le 1er calendaire.
+        const monthStartDay = isFirst ? Number(start.slice(8, 10)) : 1;
+        const monthStartDate = `${curY}-${pad(curM)}-${pad(monthStartDay)}`;
+
+        // Fin du mois courant : si c'est le dernier mois, on respecte `dateFin` ;
+        // sinon on prend le dernier jour calendaire du mois.
+        const monthEndDay = isLast ? ed : lastDayOfMonth(curY, curM);
+        const monthEndDate = `${curY}-${pad(curM)}-${pad(monthEndDay)}`;
+
+        const qStart = isoDateToQlikSerial(monthStartDate);
+        const qEnd = isoDateToQlikSerial(monthEndDate);
+
+        const dailySerials: number[] = [];
+        for (let s = qStart; s <= qEnd; s++) dailySerials.push(s);
+
+        const label = `${curY}-${pad(curM)}`;
+        const setAnalysis = `Date={">=${qStart}<=${qEnd}"}`;
+
+        out.push({ dateDebut: monthStartDate, dateFin: monthEndDate, qStart, qEnd, label, dailySerials, setAnalysis });
+
+        if (isLast) break;
+
+        // Avance d'un mois calendaire (gère le passage décembre → janvier).
+        curM += 1;
+        if (curM > 12) { curM = 1; curY += 1; }
+    }
+
+    if (out.length === 0) {
+        // Fenêtre vide : on retourne un seul mois vide aligné sur dateDebut.
+        const qStart = filter.qStart;
+        const qEnd = filter.qEnd;
+        const label = start.slice(0, 7);
+        const setAnalysis = `Date={">=${qStart}<=${qEnd}"}`;
+        out.push({ dateDebut: start, dateFin: end, qStart, qEnd, label, dailySerials: [], setAnalysis });
+    }
+
+    return out;
+}
