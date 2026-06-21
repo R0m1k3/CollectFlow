@@ -43,10 +43,12 @@ export function SyncQlikButton({ codeFournisseur, lastUpdate }: SyncQlikButtonPr
             if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
             setStatus("success");
             setMessage(`${data.upserted} produits réseau synchronisés`);
-            // Recharge la grille pour afficher les nouvelles données réseau
+            // Bump _refresh → grid-client refetch /api/grid/rows avec refresh=1 (forceRefresh,
+            // bypass cache 10 min de getProductRows) pour afficher les nouvelles métriques réseau.
             const params = new URLSearchParams(searchParams.toString());
             params.set("_refresh", String(Date.now()));
             router.replace(`${pathname}?${params.toString()}`);
+            router.refresh();
             setTimeout(() => setStatus("idle"), 4000);
         } catch (e) {
             setStatus("error");
