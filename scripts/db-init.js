@@ -103,7 +103,6 @@ async function main() {
                 "qte_reseau" numeric(14, 2),
                 "nb_magasins_reseau" integer,
                 "ca_par_magasin_reseau" numeric(16, 2),
-                "couverture_stock_reseau" numeric(12, 3),
                 "marge_pct_reseau" numeric(8, 4),
                 "periode" varchar(20),
                 "fetched_at" timestamp DEFAULT now()
@@ -113,9 +112,9 @@ async function main() {
         await tempPool.query(`
             ALTER TABLE "qlik_network_metrics"
                 ADD COLUMN IF NOT EXISTS "ca_par_magasin_reseau" numeric(16, 2),
-                ADD COLUMN IF NOT EXISTS "couverture_stock_reseau" numeric(12, 3),
                 ADD COLUMN IF NOT EXISTS "marge_pct_reseau" numeric(8, 4);
             ALTER TABLE "qlik_network_metrics" DROP COLUMN IF EXISTS "rupture_pct_reseau";
+            ALTER TABLE "qlik_network_metrics" DROP COLUMN IF EXISTS "couverture_stock_reseau";
         `);
         console.log("[DB Init] Table qlik_network_metrics is verified/created.");
 

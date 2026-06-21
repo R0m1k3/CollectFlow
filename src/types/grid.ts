@@ -115,8 +115,6 @@ export interface ProductRow {
     nbMagasinsReseau?: number;
     /** CA moyen par magasin réseau (productivité normalisée présence) */
     caParMagasinReseau?: number;
-    /** Couverture de stock quantité réseau (rotation : bas = tourne vite) */
-    couvertureStockReseau?: number;
     /** Taux de marge réseau (ratio brut Qlik, ex 0.32 = 32%) */
     margePctReseau?: number;
     /** Taux de présence réseau = nbMagasinsReseau / 270 */
