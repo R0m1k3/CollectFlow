@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
                     .filter(Boolean),
             ),
         ];
+        console.log(`[api/qlik/sync] fournisseur=${fournisseur} — ${articles.length} articles, ${codes.length} codes centraux uniques. Échantillon: ${JSON.stringify(codes.slice(0, 5))}`);
         if (codes.length === 0) {
             return NextResponse.json({
                 success: true,
@@ -44,8 +45,11 @@ export async function POST(req: NextRequest) {
             });
         }
 
+        console.log(`[api/qlik/sync] → lancement extraction Qlik pour ${codes.length} codes…`);
         const metrics = await fetchNetworkMetricsPlaywright(codes);
+        console.log(`[api/qlik/sync] ← Qlik a renvoyé ${metrics.size} produits réseau`);
         const count = await upsertNetworkMetrics([...metrics.values()]);
+        console.log(`[api/qlik/sync] ${count} lignes upsert dans le cache`);
         return NextResponse.json({
             success: true,
             fournisseur,

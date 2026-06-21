@@ -39,11 +39,14 @@ export async function fetchNetworkMetricsPlaywright(
     if (!cfg.appNetwork) throw new Error("[qlik-pw] QLIK_APP_NETWORK manquant");
     if (!cfg.user || !cfg.password) throw new Error("[qlik-pw] identifiants Qlik manquants");
 
+    console.log(`[qlik-pw] host=${cfg.host} app=${cfg.appNetwork} — ${(codeCentraux ?? []).length} codes à sélectionner`);
     const sess = await qlikNtlmSession(cfg);
+    console.log(`[qlik-pw] session NTLM OK, cookie=${sess.cookie.split("=")[0]}=…`);
     const [cookieName, ...rest] = sess.cookie.split("=");
     const cookieValue = rest.join("=");
 
     const browser = await getBrowser();
+    console.log(`[qlik-pw] chromium lancé`);
     const ctx = await browser.newContext({
         httpCredentials: { username: cfg.user, password: cfg.password, origin: `https://${cfg.host}` },
         ignoreHTTPSErrors: true,
@@ -52,6 +55,8 @@ export async function fetchNetworkMetricsPlaywright(
 
     try {
         const page = await ctx.newPage();
+        page.on("console", (msg) => console.log(`[qlik-pw][page] ${msg.text()}`));
+        page.on("pageerror", (e) => console.log(`[qlik-pw][pageerror] ${e.message}`));
 
         // Capture le qlik-csrf-token depuis le websocket que le client Qlik ouvre
         let csrfToken: string | null = null;
@@ -64,8 +69,10 @@ export async function fetchNetworkMetricsPlaywright(
 
         await page.goto(`https://${cfg.host}/sense/app/${cfg.appNetwork}`, { waitUntil: "domcontentloaded", timeout: cfg.timeoutMs })
             .catch(() => { /* le client ouvre son ws ensuite */ });
+        console.log(`[qlik-pw] page chargée, attente du qlik-csrf-token…`);
         await Promise.race([tokenReady, page.waitForTimeout(15000)]);
         if (!csrfToken) throw new Error("[qlik-pw] qlik-csrf-token introuvable (client Qlik non chargé ?)");
+        console.log(`[qlik-pw] csrf-token capturé, ouverture du websocket Engine in-page…`);
 
         const result = (await page.evaluate(
             ({ app, dim, mca, mqte, mnb, codes, token }: { app: string; dim: string; mca: string; mqte: string; mnb: string; codes: string[]; token: string }) =>
@@ -92,13 +99,16 @@ export async function fetchNetworkMetricsPlaywright(
                     (async () => {
                         try {
                             await ready;
+                            console.log("ws connecté (OnConnected)");
                             const open = await rpc("OpenDoc", { qDocName: app });
                             const doc = (open.qReturn as { qHandle: number }).qHandle;
+                            console.log("OpenDoc OK handle=" + doc);
                             // Sélection des codes du fournisseur (sinon ~1,2M lignes)
                             if (codes.length) {
                                 const gf = await rpc("GetField", { qFieldName: "Article Code" }, doc);
                                 const fh = (gf.qReturn as { qHandle: number }).qHandle;
-                                await rpc("SelectValues", { qFieldValues: codes.map((c) => ({ qText: c })), qToggleMode: false, qSoftLock: true }, fh);
+                                const sel = await rpc("SelectValues", { qFieldValues: codes.map((c) => ({ qText: c })), qToggleMode: false, qSoftLock: true }, fh);
+                                console.log("SelectValues " + codes.length + " codes → " + JSON.stringify(sel.qReturn));
                             }
                             const obj = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "cf-net" }, qHyperCubeDef: {
                                 qDimensions: [{ qLibraryId: dim }],
@@ -108,6 +118,7 @@ export async function fetchNetworkMetricsPlaywright(
                             const oh = (obj.qReturn as { qHandle: number }).qHandle;
                             const layout = await rpc("GetLayout", {}, oh);
                             const size = ((layout.qLayout as { qHyperCube: { qSize: { qcy: number } } }).qHyperCube).qSize.qcy;
+                            console.log("cube qSize.qcy=" + size + " lignes");
                             const out: Array<Array<string | number>> = [];
                             const PAGE = 2500;
                             for (let top = 0; top < size; top += PAGE) {
