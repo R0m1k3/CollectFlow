@@ -92,6 +92,27 @@ interface HeatmapGridProps {
 
 const EMPTY_DRAFT_CHANGES: Record<string, GammeCode> = {};
 
+const QLIK_NETWORK_COLUMN_IDS = new Set<string>([
+    "caReseau",
+    "qteReseau",
+    "nbMagasinsReseau",
+    "tauxPresenceReseau",
+    "caParMagasinReseau",
+    "margePctReseau",
+]);
+
+function getQlikNetworkSortValue(value: number | null | undefined, columnId: string, sorting: SortingState): number | undefined {
+    if (value != null) return value;
+
+    const activeSort = sorting.find((sort) => sort.id === columnId);
+    if (!activeSort) return undefined;
+
+    // TanStack inverse le résultat en tri descendant. On utilise donc une
+    // sentinelle dépendante du sens de tri pour garder les valeurs absentes
+    // toujours en bas, en ascendant comme en descendant.
+    return activeSort.desc ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY;
+}
+
 // =========================================================================
 // OPTIMISATION PERFORMANCES (React.memo + Zustand Selectors granulaires)
 // =========================================================================
@@ -178,7 +199,7 @@ const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnVisi
         >
             {row.getVisibleCells().map((cell: Cell<ProductRow, unknown>) => {
                 const isFlexible = cell.column.id === "libelle1" || cell.column.id === "libelle3";
-                const isCenter = cell.column.id === "totalQuantite" || cell.column.id === "totalCa" || cell.column.id === "totalMarge" || cell.column.id.startsWith("month_") || cell.column.id === "gammeInitial" || cell.column.id === "caReseau" || cell.column.id === "qteReseau" || cell.column.id === "nbMagasinsReseau" || cell.column.id === "caParMagasinReseau" || cell.column.id === "margePctReseau" || cell.column.id === "tauxPresenceReseau" || cell.column.id === "gamme";
+                const isCenter = cell.column.id === "totalQuantite" || cell.column.id === "totalCa" || cell.column.id === "totalMarge" || cell.column.id.startsWith("month_") || cell.column.id === "gammeInitial" || QLIK_NETWORK_COLUMN_IDS.has(cell.column.id) || cell.column.id === "gamme";
                 const size = cell.column.getSize();
                 return (
                     <td
@@ -506,11 +527,12 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
             },
         },
         {
-            accessorKey: "caReseau",
+            id: "caReseau",
+            accessorFn: (row) => getQlikNetworkSortValue(row.caReseau, "caReseau", sorting),
             header: () => <div className="text-center w-full">CA<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
             size: 90,
-            cell: ({ getValue }) => {
-                const val = getValue<number | undefined>();
+            cell: ({ row }) => {
+                const val = row.original.caReseau;
                 return (
                     <div className="text-center tabular-nums text-[12px] font-bold text-emerald-600 dark:text-emerald-400">
                         {val != null ? val.toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }) : "-"}
@@ -519,11 +541,12 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
             },
         },
         {
-            accessorKey: "qteReseau",
+            id: "qteReseau",
+            accessorFn: (row) => getQlikNetworkSortValue(row.qteReseau, "qteReseau", sorting),
             header: () => <div className="text-center w-full">Qté<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
             size: 80,
-            cell: ({ getValue }) => {
-                const val = getValue<number | undefined>();
+            cell: ({ row }) => {
+                const val = row.original.qteReseau;
                 return (
                     <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
                         {val != null ? Math.round(val).toLocaleString("fr-FR") : "-"}
@@ -532,11 +555,12 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
             },
         },
         {
-            accessorKey: "nbMagasinsReseau",
+            id: "nbMagasinsReseau",
+            accessorFn: (row) => getQlikNetworkSortValue(row.nbMagasinsReseau, "nbMagasinsReseau", sorting),
             header: () => <div className="text-center w-full">Magasins<br/><span className="text-[9px] opacity-60">/ 270</span></div>,
             size: 80,
-            cell: ({ getValue }) => {
-                const val = getValue<number | undefined>();
+            cell: ({ row }) => {
+                const val = row.original.nbMagasinsReseau;
                 return (
                     <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
                         {val != null ? val : "-"}
@@ -545,11 +569,12 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
             },
         },
         {
-            accessorKey: "tauxPresenceReseau",
+            id: "tauxPresenceReseau",
+            accessorFn: (row) => getQlikNetworkSortValue(row.tauxPresenceReseau, "tauxPresenceReseau", sorting),
             header: () => <div className="text-center w-full">% Prés.<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
             size: 70,
-            cell: ({ getValue }) => {
-                const val = getValue<number | undefined>();
+            cell: ({ row }) => {
+                const val = row.original.tauxPresenceReseau;
                 if (val == null) return <div className="text-center text-[12px]" style={{ color: "var(--text-secondary)" }}>-</div>;
                 const pct = Math.round(val * 100);
                 const color = pct >= 66 ? "text-emerald-500" : pct >= 33 ? "text-amber-500" : "text-rose-500";
@@ -561,11 +586,12 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
             },
         },
         {
-            accessorKey: "caParMagasinReseau",
+            id: "caParMagasinReseau",
+            accessorFn: (row) => getQlikNetworkSortValue(row.caParMagasinReseau, "caParMagasinReseau", sorting),
             header: () => <div className="text-center w-full">CA / Mag<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
             size: 85,
-            cell: ({ getValue }) => {
-                const val = getValue<number | undefined>();
+            cell: ({ row }) => {
+                const val = row.original.caParMagasinReseau;
                 return (
                     <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
                         {val != null ? val.toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }) : "-"}
@@ -574,11 +600,12 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
             },
         },
         {
-            accessorKey: "margePctReseau",
+            id: "margePctReseau",
+            accessorFn: (row) => getQlikNetworkSortValue(row.margePctReseau, "margePctReseau", sorting),
             header: () => <div className="text-center w-full">Marge %<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
             size: 75,
-            cell: ({ getValue }) => {
-                const val = getValue<number | undefined>();
+            cell: ({ row }) => {
+                const val = row.original.margePctReseau;
                 if (val == null) return <div className="text-center text-[12px]" style={{ color: "var(--text-secondary)" }}>-</div>;
                 const pct = Math.abs(val) <= 1 ? val * 100 : val;
                 const color = pct >= 30 ? "text-emerald-500" : pct >= 15 ? "text-amber-500" : "text-rose-500";
@@ -696,7 +723,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
             size: 110,
             cell: ({ row }) => <GammeCell row={row.original} isAdmin={isAdmin} />,
         },
-    ], [MONTHS_12, activeMagasin, isAdmin]); // activeMagasin déclenche re-render des cellules mensuelles et totaux
+    ], [MONTHS_12, activeMagasin, isAdmin, sorting]); // activeMagasin déclenche re-render des cellules mensuelles et totaux
 
     const table = useReactTable({
         data: filteredData,
@@ -807,7 +834,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
                             <tr key={headerGroup.id} className="flex w-full">
                                 {headerGroup.headers.map((header) => {
                                     const isFlexible = header.column.id === "libelle1" || header.column.id === "libelle3";
-                                    const isCenter = header.column.id === "totalQuantite" || header.column.id === "totalCa" || header.column.id === "totalMarge" || header.column.id.startsWith("month_") || header.column.id === "gammeInitial" || header.column.id === "caReseau" || header.column.id === "qteReseau" || header.column.id === "nbMagasinsReseau" || header.column.id === "caParMagasinReseau" || header.column.id === "margePctReseau" || header.column.id === "tauxPresenceReseau" || header.column.id === "gamme";
+                                    const isCenter = header.column.id === "totalQuantite" || header.column.id === "totalCa" || header.column.id === "totalMarge" || header.column.id.startsWith("month_") || header.column.id === "gammeInitial" || QLIK_NETWORK_COLUMN_IDS.has(header.column.id) || header.column.id === "gamme";
                                     const size = header.getSize();
                                     return (
                                         <th
