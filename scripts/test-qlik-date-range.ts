@@ -9,6 +9,8 @@
  *    label=2025-06_2026-05, 365 serials)
  *  - exemples supplémentaires (1er du mois, fin d'année, année bissextile)
  *  - erreurs attendues sur entrée mal formée
+ *  - option `monthsBack` : 6 mois, bornes (clamp 1..12)
+ *  - helper `envMonthsBack` : valeur absente, valide, hors bornes, non numérique
  *
  * Aucun framework : assertions manuelles, exit code 0/1.
  */
@@ -19,7 +21,11 @@ import {
     buildGridNetworkQlikDateFilter,
     chunkSerials,
     getMonthRanges,
+    envMonthsBack,
     QLIK_DATE_ANCHORS,
+    QLIK_MONTHS_BACK_MIN,
+    QLIK_MONTHS_BACK_MAX,
+    QLIK_MONTHS_BACK_DEFAULT,
 } from "../src/lib/qlik-date-range";
 
 let pass = 0;
@@ -141,6 +147,48 @@ const monthsShort = getMonthRanges(fShort);
 eq("3 mois (juin, juillet, août)", monthsShort.length, 3);
 eq("août tronqué à 15j", monthsShort[2].dailySerials.length, 15);
 eq("août dateFin = 2025-08-15", monthsShort[2].dateFin, "2025-08-15");
+
+console.log("\n[10] monthsBack=6 (now=2026-06-21) → 2025-12-01 .. 2026-05-31");
+const f6 = buildGridNetworkQlikDateFilter(new Date("2026-06-21T12:00:00Z"), 6);
+eq("dateDebut", f6.dateDebut, "2025-12-01");
+eq("dateFin",   f6.dateFin,   "2026-05-31");
+eq("qStart", f6.qStart, 45992);
+eq("qEnd",   f6.qEnd,   46173);
+eq("label",  f6.label,  "2025-12_2026-05");
+eq("dailySerials.length = 182 (déc 2025:31 + jan:31 + fév:28 + mar:31 + avr:30 + mai:31)", f6.dailySerials.length, 182);
+const months6 = getMonthRanges(f6);
+eq("getMonthRanges: 6 mois exactement", months6.length, 6);
+eq("premier mois label", months6[0].label, "2025-12");
+eq("dernier mois label", months6[5].label, "2026-05");
+const totalDays6 = months6.reduce((acc, m) => acc + m.dailySerials.length, 0);
+eq("somme des jours = 182", totalDays6, 182);
+
+console.log("\n[11] monthsBack — bornes et clamp");
+eq("monthsBack=1 (now=2026-06-21) → 2026-05-01 .. 2026-05-31 (1 mois complet)",
+    (() => { const x = buildGridNetworkQlikDateFilter(new Date("2026-06-21T12:00:00Z"), 1); return x.dateDebut === "2026-05-01" && x.dateFin === "2026-05-31"; })(),
+    true);
+eq("monthsBack=0 clampé à 1", (() => { const x = buildGridNetworkQlikDateFilter(new Date("2026-06-21T12:00:00Z"), 0); return x.dateDebut === "2026-05-01"; })(), true);
+eq("monthsBack=24 clampé à 12 (max)", (() => { const x = buildGridNetworkQlikDateFilter(new Date("2026-06-21T12:00:00Z"), 24); return x.dateDebut === "2025-06-01" && x.dateFin === "2026-05-31"; })(), true);
+eq("monthsBack=-5 clampé à 1", (() => { const x = buildGridNetworkQlikDateFilter(new Date("2026-06-21T12:00:00Z"), -5); return x.dateDebut === "2026-05-01"; })(), true);
+eq("monthsBack=NaN ramené au défaut 12", (() => { const x = buildGridNetworkQlikDateFilter(new Date("2026-06-21T12:00:00Z"), Number.NaN); return x.dateDebut === "2025-06-01" && x.dateFin === "2026-05-31"; })(), true);
+eq("monthsBack=undefined (par défaut) = défaut 12", (() => { const x = buildGridNetworkQlikDateFilter(new Date("2026-06-21T12:00:00Z")); return x.dateDebut === "2025-06-01" && x.dateFin === "2026-05-31"; })(), true);
+eq("bornes exportées MIN=1", QLIK_MONTHS_BACK_MIN, 1);
+eq("bornes exportées MAX=12", QLIK_MONTHS_BACK_MAX, 12);
+eq("défaut exporté = 12", QLIK_MONTHS_BACK_DEFAULT, 12);
+
+console.log("\n[12] envMonthsBack — lecture env");
+const PREV = process.env.QLIK_TEST_MONTHS_BACK;
+delete process.env.QLIK_TEST_MONTHS_BACK;
+eq("env absent → défaut", envMonthsBack("QLIK_TEST_MONTHS_BACK"), QLIK_MONTHS_BACK_DEFAULT);
+eq("env vide → défaut", (() => { process.env.QLIK_TEST_MONTHS_BACK = ""; return envMonthsBack("QLIK_TEST_MONTHS_BACK"); })(), QLIK_MONTHS_BACK_DEFAULT);
+eq("env '6' → 6", (() => { process.env.QLIK_TEST_MONTHS_BACK = "6"; return envMonthsBack("QLIK_TEST_MONTHS_BACK"); })(), 6);
+eq("env 'abc' → défaut", (() => { process.env.QLIK_TEST_MONTHS_BACK = "abc"; return envMonthsBack("QLIK_TEST_MONTHS_BACK"); })(), QLIK_MONTHS_BACK_DEFAULT);
+eq("env '24' clampé à MAX=12", (() => { process.env.QLIK_TEST_MONTHS_BACK = "24"; return envMonthsBack("QLIK_TEST_MONTHS_BACK"); })(), QLIK_MONTHS_BACK_MAX);
+eq("env '-3' clampé à MIN=1", (() => { process.env.QLIK_TEST_MONTHS_BACK = "-3"; return envMonthsBack("QLIK_TEST_MONTHS_BACK"); })(), QLIK_MONTHS_BACK_MIN);
+eq("env '0' clampé à MIN=1", (() => { process.env.QLIK_TEST_MONTHS_BACK = "0"; return envMonthsBack("QLIK_TEST_MONTHS_BACK"); })(), QLIK_MONTHS_BACK_MIN);
+eq("env '3.7' troncé à 3", (() => { process.env.QLIK_TEST_MONTHS_BACK = "3.7"; return envMonthsBack("QLIK_TEST_MONTHS_BACK"); })(), 3);
+eq("env '  8  ' trimé puis parsé → 8", (() => { process.env.QLIK_TEST_MONTHS_BACK = "  8  "; return envMonthsBack("QLIK_TEST_MONTHS_BACK"); })(), 8);
+if (PREV === undefined) delete process.env.QLIK_TEST_MONTHS_BACK; else process.env.QLIK_TEST_MONTHS_BACK = PREV;
 
 console.log(`\n=== ${pass} passés, ${fail} échoués ===`);
 if (fail > 0) process.exit(1);

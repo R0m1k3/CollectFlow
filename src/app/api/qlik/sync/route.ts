@@ -3,7 +3,13 @@ import { auth } from "@/lib/auth";
 import { fetchNetworkMetricsPlaywright } from "@/lib/qlik-playwright";
 import { upsertNetworkMetrics } from "@/lib/qlik-network-cache";
 import { pgGetArticlesByFournisseur } from "@/lib/pg-ff-client";
-import { buildGridNetworkQlikDateFilter } from "@/lib/qlik-date-range";
+import {
+    buildGridNetworkQlikDateFilter,
+    envMonthsBack,
+    QLIK_MONTHS_BACK_DEFAULT,
+    QLIK_MONTHS_BACK_MAX,
+    QLIK_MONTHS_BACK_MIN,
+} from "@/lib/qlik-date-range";
 
 // Tâche d'extraction Qlik potentiellement très longue (hypercube paginé).
 // On accepte quand même 5 min côté plateforme Next.js, mais on rend la main au
@@ -100,36 +106,99 @@ async function requireAdmin(): Promise<NextResponse | null> {
 }
 
 /**
+ * Regex de validation d'un code centrale "raisonnable".
+ *
+ * Format attendu d'après l'API FF : préfixe `10000` + 6 chiffres (ex `10000167303`),
+ * donc 11 caractères alphanumériques. Pour rester large et ne pas casser
+ * d'éventuels codes alphanumériques fournisseur (refs internes), on autorise
+ *   - longueur 2..30
+ *   - jeu `[A-Z0-9_-]`
+ *   - premier caractère alphanumérique (pas `_` ni `-`)
+ *
+ * But : éviter d'envoyer à Qlik des chaînes vides, des `-`, des espaces
+ * parasites, ou des entrées manifestement invalides qui déclenchent des
+ * codes d'erreur Engine ou du gaspillage réseau. **Volontairement simple** :
+ * on ne touche pas au mapping ; on filtre seulement ce qui ne ressemble à
+ * aucun code plausible.
+ */
+const CENTRAL_CODE_REGEX = /^[A-Z0-9][A-Z0-9_-]{1,29}$/i;
+
+/**
+ * Filtre strict des codes centraux avant d'envoyer à Qlik.
+ * - trim + drop vides
+ * - drop "-" (placeholder déjà exclu côté agrégation mais on double-check)
+ * - drop doublons (préserve l'ordre, comparaison insensible à la casse)
+ * - drop codes ne matchant pas CENTRAL_CODE_REGEX (longueur / charset)
+ *
+ * Renvoie `{ accepted, rejected, deduped }`. Les logs n'exposent que les
+ * compteurs, jamais les valeurs des codes.
+ */
+function filterCentralCodes(rawCodes: Array<string | null | undefined>): {
+    accepted: string[];
+    rejected: number;
+    deduped: number;
+} {
+    const seen = new Set<string>();
+    const accepted: string[] = [];
+    let rejected = 0;
+    let deduped = 0;
+    for (const raw of rawCodes) {
+        if (raw == null) {
+            rejected++;
+            continue;
+        }
+        const code = String(raw).trim();
+        const key = code.toUpperCase();
+        if (!code || code === "-" || code === "_") {
+            rejected++;
+            continue;
+        }
+        if (seen.has(key)) {
+            deduped++;
+            continue;
+        }
+        if (!CENTRAL_CODE_REGEX.test(code)) {
+            rejected++;
+            continue;
+        }
+        seen.add(key);
+        accepted.push(code);
+    }
+    return { accepted, rejected, deduped };
+}
+
+/**
  * Exécute réellement l'extraction + l'upsert, en mettant à jour le job
  * au fur et à mesure (compteur fetched, puis upserted, puis finishedAt).
  */
 async function runJob(job: QlikSyncJob): Promise<void> {
     try {
         const articles = await pgGetArticlesByFournisseur(job.fournisseur);
-        const codes = [
-            ...new Set(
-                articles
-                    .map((a) => (a.codeCentrale ? String(a.codeCentrale).trim() : ""))
-                    .filter(Boolean),
-            ),
-        ];
+        // Filtre strict des codes (trim, dedupe, exclusion vides/`-`/codes trop suspects).
+        const { accepted: codes, rejected: codesRejected, deduped: codesDeduped } = filterCentralCodes(
+            articles.map((a) => a.codeCentrale),
+        );
         job.requested = codes.length;
         console.log(
-            `[api/qlik/sync] job=${job.jobId} fournisseur=${job.fournisseur} — ${articles.length} articles, ${codes.length} codes centraux uniques. Échantillon: ${JSON.stringify(codes.slice(0, 5))}`,
+            `[api/qlik/sync] job=${job.jobId} fournisseur=${job.fournisseur} — ${articles.length} articles, ${codes.length} codes centraux retenus, ${codesRejected} rejetés (vide/-/anormaux), ${codesDeduped} doublons supprimés`,
         );
         if (codes.length === 0) {
             job.status = "success";
-            job.message = "Aucun article avec code centrale pour ce fournisseur";
+            job.message = "Aucun code centrale valide pour ce fournisseur";
             job.finishedAt = new Date().toISOString();
             return;
         }
 
-        const dateFilter = buildGridNetworkQlikDateFilter();
+        // Fenêtre temporelle alignée sur la grille, éventuellement raccourcie via
+        // QLIK_SYNC_MONTHS_BACK (1..12, défaut 12). On logue la valeur effective
+        // pour audit.
+        const monthsBack = envMonthsBack("QLIK_SYNC_MONTHS_BACK", QLIK_MONTHS_BACK_DEFAULT);
+        const dateFilter = buildGridNetworkQlikDateFilter(new Date(), monthsBack);
         job.periode = dateFilter.label;
         job.dateDebut = dateFilter.dateDebut;
         job.dateFin = dateFilter.dateFin;
         console.log(
-            `[api/qlik/sync] job=${job.jobId} → extraction Qlik pour ${codes.length} codes — période ${dateFilter.label} (${dateFilter.dateDebut} → ${dateFilter.dateFin})…`,
+            `[api/qlik/sync] job=${job.jobId} → extraction Qlik pour ${codes.length} codes — fenêtre ${dateFilter.label} (${dateFilter.dateDebut} → ${dateFilter.dateFin}, QLIK_SYNC_MONTHS_BACK=${monthsBack}, bornes ${QLIK_MONTHS_BACK_MIN}..${QLIK_MONTHS_BACK_MAX})…`,
         );
         const metrics = await fetchNetworkMetricsPlaywright(codes, undefined, dateFilter);
         job.fetched = metrics.size;

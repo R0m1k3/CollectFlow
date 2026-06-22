@@ -2,7 +2,7 @@
  * CollectFlow — Helper de fenêtre temporelle pour Qlik réseau.
  *
  * Aligne la timeline d'extraction Qlik réseau sur la timeline de la grille :
- *   - 12 mois complets glissants
+ *   - `monthsBack` mois complets glissants (défaut : 12)
  *   - exclut systématiquement le mois courant
  *
  * Référence utilisée : `buildLast12MonthsRange()` de `api-ff-client.ts`
@@ -32,6 +32,34 @@
  *
  * Pas de secrets ici. Pure fonction utilitaire testable en CLI Node.
  */
+
+/**
+ * Bornes acceptées pour `monthsBack`. On reste sur 1..12 pour ne pas casser
+ * la sémantique "12 mois glissants alignés sur la grille" : une valeur plus
+ * grande n'apporterait pas de signal réseau supplémentaire (la grille
+ * n'expose elle-même que ~12 mois). En-deçà de 1 mois, la fenêtre serait
+ * vide (mois courant exclu) ou incohérente.
+ */
+export const QLIK_MONTHS_BACK_MIN = 1;
+export const QLIK_MONTHS_BACK_MAX = 12;
+export const QLIK_MONTHS_BACK_DEFAULT = 12;
+
+/**
+ * Lit `process.env[name]` et renvoie un entier borné entre `min` et `max`.
+ * Renvoie `defaultValue` si la variable est absente / vide / non numérique.
+ *
+ * Volontairement exportée pour être réutilisée par `qlik-playwright.ts` et
+ * `sync/route.ts` (cohérence avec `envNumber` côté Playwright, mais en pur
+ * Node sans dépendance Next.js).
+ */
+export function envMonthsBack(name: string, defaultValue: number = QLIK_MONTHS_BACK_DEFAULT): number {
+    const raw = process.env[name];
+    if (raw == null || raw.trim() === "") return defaultValue;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return defaultValue;
+    const clamped = Math.min(QLIK_MONTHS_BACK_MAX, Math.max(QLIK_MONTHS_BACK_MIN, Math.trunc(parsed)));
+    return clamped;
+}
 
 /** Epoch Qlik = 1899-12-30 (équivalent Excel/Lotus 1-2-3). */
 const QLIK_EPOCH_MS = Date.UTC(1899, 11, 30); // 1899-12-30T00:00:00Z
@@ -91,17 +119,30 @@ export interface QlikDateFilter {
 }
 
 /**
- * Calcule la fenêtre 12 mois complets (excluant mois courant).
- * Par défaut, utilise `now = new Date()`. Testable via injection de `now`.
+ * Calcule la fenêtre `monthsBack` mois complets (excluant mois courant).
+ * Par défaut, utilise `now = new Date()` et `monthsBack = 12`.
  *
- * Logique alignée sur `buildLast12MonthsRange()` de `src/lib/api-ff-client.ts`.
- * Si la source officielle change, mettre à jour ici aussi (garder en sync).
+ * Logique alignée sur `buildLast12MonthsRange()` de `src/lib/api-ff-client.ts`
+ * (défaut = 12 mois). Si la source officielle change, mettre à jour ici aussi
+ * (garder en sync).
+ *
+ * Bornes : `monthsBack` est clampé dans `[QLIK_MONTHS_BACK_MIN, QLIK_MONTHS_BACK_MAX]`
+ * (1..12). Une valeur invalide (NaN, ≤ 0, > 12) est ramenée aux bornes sans
+ * exception — on veut que la sync reste possible même si l'env est mal
+ * configuré.
  */
-export function buildGridNetworkQlikDateFilter(now: Date = new Date()): QlikDateFilter {
+export function buildGridNetworkQlikDateFilter(
+    now: Date = new Date(),
+    monthsBack: number = QLIK_MONTHS_BACK_DEFAULT,
+): QlikDateFilter {
+    const months = Math.min(
+        QLIK_MONTHS_BACK_MAX,
+        Math.max(QLIK_MONTHS_BACK_MIN, Math.trunc(Number.isFinite(monthsBack) ? monthsBack : QLIK_MONTHS_BACK_DEFAULT)),
+    );
     // Fin : dernier jour du mois précédent le mois courant
     const endMonth = new Date(now.getFullYear(), now.getMonth(), 0);
-    // Début : 12 mois avant le mois courant (1er du mois)
-    const startMonth = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+    // Début : `months` mois avant le mois courant (1er du mois)
+    const startMonth = new Date(now.getFullYear(), now.getMonth() - months, 1);
 
     const dateDebut = startMonth.toISOString().slice(0, 10);
     const dateFin = endMonth.toISOString().slice(0, 10);
