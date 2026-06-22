@@ -115,6 +115,36 @@ export async function fetchNetworkMetricsPlaywright(
                         ws.onerror = () => rej(new Error("ws error (403 ?)"));
                         setTimeout(() => rej(new Error("ws timeout")), 30000);
                     });
+                    // Qlik Engine code 15 = "Request aborted" : déclenché quand une requête
+                    // (GetLayout / GetHyperCubeData / CreateSessionObject) entre en collision
+                    // avec une évaluation de sélection encore en cours côté Engine. On retente
+                    // quelques fois avec un court backoff et un log explicite de l'étape.
+                    const isEngineCode15 = (e: unknown): boolean => {
+                        const msg = String((e as Error)?.message ?? e);
+                        return /"code"\s*:\s*15\b/.test(msg);
+                    };
+                    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+                    const rpcWithRetry = async (
+                        etape: string,
+                        method: string,
+                        params: unknown,
+                        handle: number,
+                        maxAttempts = 4,
+                    ): Promise<{ [k: string]: unknown }> => {
+                        let lastErr: unknown;
+                        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                            try {
+                                return await rpc(method, params, handle);
+                            } catch (e) {
+                                lastErr = e;
+                                if (!isEngineCode15(e) || attempt === maxAttempts) throw e;
+                                const backoff = 150 * attempt;
+                                console.log(`[qlik-pw] retry code15 étape=${etape} méthode=${method} tentative=${attempt}/${maxAttempts} backoff=${backoff}ms`);
+                                await sleep(backoff);
+                            }
+                        }
+                        throw lastErr;
+                    };
 
                     (async () => {
                         try {
@@ -158,8 +188,11 @@ export async function fetchNetworkMetricsPlaywright(
                             // déjà sélectionnés) puis le détruit. Réutiliser le même objet sur des centaines de
                             // lots force Qlik à recalculer en boucle et finit par "Request aborted" (code 15).
                             const PAGE = 1400;
+                            // Petite latence après chaque mutation de sélection : laisser l'Engine
+                            // finaliser l'évaluation de la sélection avant la prochaine requête layout/cube.
+                            const SETTLE_MS = 150;
                             const createCubeForBatch = async (): Promise<{ handle: number; id: string }> => {
-                                const obj = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "cf-net" }, qHyperCubeDef: {
+                                const obj = await rpcWithRetry("createCube", "CreateSessionObject", { qProp: { qInfo: { qType: "cf-net" }, qHyperCubeDef: {
                                     qDimensions: [{ qLibraryId: dim }],
                                     qMeasures: [{ qLibraryId: mca }, { qLibraryId: mqte }, { qLibraryId: mnb }, { qLibraryId: rCamag }, { qLibraryId: rMarge }],
                                     qInitialDataFetch: [],
@@ -170,9 +203,10 @@ export async function fetchNetworkMetricsPlaywright(
                             const destroyCube = async (cube: { handle: number; id: string }) => {
                                 if (!cube.id) return;
                                 try {
-                                    await rpc("DestroySessionObject", { qId: cube.id }, doc);
+                                    await rpcWithRetry("destroyCube", "DestroySessionObject", { qId: cube.id }, doc);
                                 } catch (e) {
                                     // Non fatal : l'objet est de toute façon scopé à la session websocket.
+                                    // Un code 15 ici signifie que l'Engine l'a déjà libéré après un abort.
                                     console.log("[qlik-pw] DestroySessionObject ignoré: " + String((e as Error)?.message || e));
                                 }
                             };
@@ -180,11 +214,11 @@ export async function fetchNetworkMetricsPlaywright(
                                 const cube = await createCubeForBatch();
                                 const oh = cube.handle;
                                 try {
-                                    const layout = await rpc("GetLayout", {}, oh);
+                                    const layout = await rpcWithRetry("getLayout", "GetLayout", {}, oh);
                                     const size = ((layout.qLayout as { qHyperCube: { qSize: { qcy: number } } }).qHyperCube).qSize.qcy;
                                     let got = 0;
                                     for (let top = 0; top < size; top += PAGE) {
-                                        const d = await rpc("GetHyperCubeData", { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: 6, qHeight: PAGE }] }, oh);
+                                        const d = await rpcWithRetry("getHyperCubeData", "GetHyperCubeData", { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: 6, qHeight: PAGE }] }, oh);
                                         const matrix = (d.qDataPages as Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }>)?.[0]?.qMatrix ?? [];
                                         if (!matrix.length) break;
                                         for (const r of matrix) sink.push([
@@ -239,6 +273,9 @@ export async function fetchNetworkMetricsPlaywright(
                                             qSoftLock: true,
                                         }, dfh);
                                         console.log(prefix + " — SelectValues Date " + m.serials.length + " serials → " + JSON.stringify(dsel.qReturn));
+                                        // Laisser l'Engine finaliser l'évaluation de la sélection Date
+                                        // avant la première SelectValues Article Code du 1er lot.
+                                        await sleep(SETTLE_MS);
 
                                         // 2) Sélection Article Code par lots contrôlés.
                                         for (let bi = 0; bi < codeBatches.length; bi++) {
@@ -247,12 +284,17 @@ export async function fetchNetworkMetricsPlaywright(
                                             try {
                                                 if (fh !== -1) {
                                                     await rpc("Clear", {}, fh);
+                                                    // Laisser l'Engine appliquer le Clear avant la nouvelle sélection.
+                                                    await sleep(SETTLE_MS);
                                                     const csel = await rpc("SelectValues", {
                                                         qFieldValues: batch.map((c) => ({ qText: c })),
                                                         qToggleMode: false,
                                                         qSoftLock: true,
                                                     }, fh);
                                                     console.log(batchPrefix + " — SelectValues Article Code → " + JSON.stringify(csel.qReturn));
+                                                    // Laisser l'Engine finaliser l'évaluation de la sélection
+                                                    // avant de créer / interroger le cube (évite code 15 sur le 1er lot).
+                                                    await sleep(SETTLE_MS);
                                                 }
                                                 const got = await fetchCubeForSelection(out);
                                                 console.log(batchPrefix + " — " + got + " ligne(s), cumul=" + out.length);
