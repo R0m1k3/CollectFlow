@@ -116,31 +116,6 @@ export async function fetchNetworkMetricsPlaywright(
                         setTimeout(() => rej(new Error("ws timeout")), 30000);
                     });
 
-                    // Sélectionne Date + Article Code puis pagine le cube. Renvoie le nb de lignes
-                    // brutes lues (avant dédoublonnage côté Node).
-                    const PAGE = 1400;
-                    const fetchCubeForSelection = async (oh: number, sink: Array<Array<string | number>>): Promise<number> => {
-                        const layout = await rpc("GetLayout", {}, oh);
-                        const size = ((layout.qLayout as { qHyperCube: { qSize: { qcy: number } } }).qHyperCube).qSize.qcy;
-                        let got = 0;
-                        for (let top = 0; top < size; top += PAGE) {
-                            const d = await rpc("GetHyperCubeData", { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: 6, qHeight: PAGE }] }, oh);
-                            const matrix = (d.qDataPages as Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }>)?.[0]?.qMatrix ?? [];
-                            if (!matrix.length) break;
-                            for (const r of matrix) sink.push([
-                                String(r[0]?.qText ?? ""),
-                                Number(r[1]?.qNum) || 0,
-                                Number(r[2]?.qNum) || 0,
-                                Number(r[3]?.qNum) || 0,
-                                Number(r[4]?.qNum) || 0,
-                                Number(r[5]?.qNum) || 0,
-                            ]);
-                            got += matrix.length;
-                            if (matrix.length < PAGE) break;
-                        }
-                        return got;
-                    };
-
                     (async () => {
                         try {
                             await ready;
@@ -170,14 +145,64 @@ export async function fetchNetworkMetricsPlaywright(
                             const rCamag = pickMeasure("CA par Magasin N", mcamag);
                             const rMarge = pickMeasure("Marge % N", mmarge);
                             console.log("measures résolues par titre: " + JSON.stringify({ rCamag, rMarge }) + " (sur " + items.length + " mesures)");
-                            const obj = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "cf-net" }, qHyperCubeDef: {
-                                qDimensions: [{ qLibraryId: dim }],
-                                qMeasures: [{ qLibraryId: mca }, { qLibraryId: mqte }, { qLibraryId: mnb }, { qLibraryId: rCamag }, { qLibraryId: rMarge }],
-                                qInitialDataFetch: [],
-                            } } }, doc);
-                            const oh = (obj.qReturn as { qHandle: number }).qHandle;
+                            // L'hypercube session object est désormais créé JETABLE dans fetchCubeForSelection
+                            // (un objet par lot) puis DestroySessionObject — corrige "Request aborted" (code 15)
+                            // causé par la réutilisation du même objet sur des centaines de recalculs.
 
                             const out: Array<Array<string | number>> = [];
+
+                            // Sélectionne Date + Article Code puis pagine le cube. Renvoie le nb de lignes
+                            // brutes lues (avant dédoublonnage côté Node).
+                            //
+                            // IMPORTANT : crée un hypercube session object JETABLE par lot (Date + Article Code
+                            // déjà sélectionnés) puis le détruit. Réutiliser le même objet sur des centaines de
+                            // lots force Qlik à recalculer en boucle et finit par "Request aborted" (code 15).
+                            const PAGE = 1400;
+                            const createCubeForBatch = async (): Promise<{ handle: number; id: string }> => {
+                                const obj = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "cf-net" }, qHyperCubeDef: {
+                                    qDimensions: [{ qLibraryId: dim }],
+                                    qMeasures: [{ qLibraryId: mca }, { qLibraryId: mqte }, { qLibraryId: mnb }, { qLibraryId: rCamag }, { qLibraryId: rMarge }],
+                                    qInitialDataFetch: [],
+                                } } }, doc);
+                                const qReturn = obj.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
+                                return { handle: qReturn.qHandle, id: String(qReturn.qGenericId ?? qReturn.qId ?? "") };
+                            };
+                            const destroyCube = async (cube: { handle: number; id: string }) => {
+                                if (!cube.id) return;
+                                try {
+                                    await rpc("DestroySessionObject", { qId: cube.id }, doc);
+                                } catch (e) {
+                                    // Non fatal : l'objet est de toute façon scopé à la session websocket.
+                                    console.log("[qlik-pw] DestroySessionObject ignoré: " + String((e as Error)?.message || e));
+                                }
+                            };
+                            const fetchCubeForSelection = async (sink: Array<Array<string | number>>): Promise<number> => {
+                                const cube = await createCubeForBatch();
+                                const oh = cube.handle;
+                                try {
+                                    const layout = await rpc("GetLayout", {}, oh);
+                                    const size = ((layout.qLayout as { qHyperCube: { qSize: { qcy: number } } }).qHyperCube).qSize.qcy;
+                                    let got = 0;
+                                    for (let top = 0; top < size; top += PAGE) {
+                                        const d = await rpc("GetHyperCubeData", { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: 6, qHeight: PAGE }] }, oh);
+                                        const matrix = (d.qDataPages as Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }>)?.[0]?.qMatrix ?? [];
+                                        if (!matrix.length) break;
+                                        for (const r of matrix) sink.push([
+                                            String(r[0]?.qText ?? ""),
+                                            Number(r[1]?.qNum) || 0,
+                                            Number(r[2]?.qNum) || 0,
+                                            Number(r[3]?.qNum) || 0,
+                                            Number(r[4]?.qNum) || 0,
+                                            Number(r[5]?.qNum) || 0,
+                                        ]);
+                                        got += matrix.length;
+                                        if (matrix.length < PAGE) break;
+                                    }
+                                    return got;
+                                } finally {
+                                    await destroyCube(cube);
+                                }
+                            };
 
                             if (noDateMode) {
                                 // Aucun filtre Date : extraction en un seul appel (tous les codes d'un coup).
@@ -187,7 +212,7 @@ export async function fetchNetworkMetricsPlaywright(
                                     const sel = await rpc("SelectValues", { qFieldValues: codes.map((c) => ({ qText: c })), qToggleMode: false, qSoftLock: true }, fh);
                                     console.log("SelectValues Article Code → " + JSON.stringify(sel.qReturn));
                                 }
-                                const got = await fetchCubeForSelection(oh, out);
+                                const got = await fetchCubeForSelection(out);
                                 console.log("extraction sans date — " + got + " ligne(s), cumul=" + out.length);
                             } else {
                                 // Itération par mois × lots de codes : pour chaque mois, SelectValues Date
@@ -229,7 +254,7 @@ export async function fetchNetworkMetricsPlaywright(
                                                     }, fh);
                                                     console.log(batchPrefix + " — SelectValues Article Code → " + JSON.stringify(csel.qReturn));
                                                 }
-                                                const got = await fetchCubeForSelection(oh, out);
+                                                const got = await fetchCubeForSelection(out);
                                                 console.log(batchPrefix + " — " + got + " ligne(s), cumul=" + out.length);
                                             } catch (batchErr) {
                                                 const msg = String((batchErr as Error)?.message || batchErr);
