@@ -674,6 +674,10 @@ export interface CaByNomenclatureRow {
 /**
  * Retourne le CA TTC par fournisseur et site pour deux mois donnés (mois et mois N-1).
  * Attribution via artfou1.preference = true (fournisseur principal de l'article).
+ * CA NET : SUM(-mntmvtttc) — les retours clients sont déduits (même convention
+ * que pgGetMensuelByFournisseur / pgGetHitParade). Fournisseur préféré résolu
+ * via LATERAL ... LIMIT 1 pour éviter la duplication des mouvements si un
+ * article a plusieurs lignes artfou1 avec preference = 1.
  */
 export async function pgGetCaByFournisseur(
     mois: string,
@@ -685,10 +689,16 @@ export async function pgGetCaByFournisseur(
             COALESCE(fi.nom, af.code, 'Sans fournisseur')::text       AS nom,
             m.site,
             TO_CHAR(m.datmvt, 'YYYY-MM')                             AS mois,
-            ABS(SUM(m.mntmvtttc))::float                             AS ca_ttc
+            SUM(-m.mntmvtttc)::float                                 AS ca_ttc
         FROM mvtart m
         JOIN articles a   ON a.no_id        = m.artnoid
-        LEFT JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
+        LEFT JOIN LATERAL (
+            SELECT af1.code
+            FROM artfou1 af1
+            WHERE af1.art_no_id = a.no_id AND af1.preference = 1
+            ORDER BY af1.code
+            LIMIT 1
+        ) af ON TRUE
         LEFT JOIN fouident fi ON fi.code     = af.code
         WHERE (TO_CHAR(m.datmvt, 'YYYY-MM') = ${mois} OR TO_CHAR(m.datmvt, 'YYYY-MM') = ${moisN1})
           AND m.site IN ('292', '579')
@@ -703,6 +713,7 @@ export async function pgGetCaByFournisseur(
 
 /**
  * Retourne le CA TTC par nomenclature et site pour deux mois donnés.
+ * CA NET : SUM(-mntmvtttc) — retours clients déduits (convention commune).
  */
 export async function pgGetCaByNomenclature(
     mois: string,
@@ -714,7 +725,7 @@ export async function pgGetCaByNomenclature(
             COALESCE(n.libelle, 'Sans nomenclature')::text AS libelle,
             m.site,
             TO_CHAR(m.datmvt, 'YYYY-MM')            AS mois,
-            ABS(SUM(m.mntmvtttc))::float             AS ca_ttc
+            SUM(-m.mntmvtttc)::float                 AS ca_ttc
         FROM mvtart m
         JOIN articles      a ON a.no_id    = m.artnoid
         LEFT JOIN nomenclature n ON n.no_id = a.nom_no_id
@@ -751,40 +762,54 @@ export interface HitParadeRow {
 /**
  * Retourne les ventes produit sur une période, avec fournisseur, qté, CA TTC, marge et stock par site.
  * Le stock est intégré via un LEFT JOIN — pas de requête séparée, pas de tableau de paramètres.
+ *
+ * Ventes NETTES, alignées sur pgGetMensuelByFournisseur (genremvt = 3) :
+ * -SUM(qtemvt) / -SUM(mntmvtttc) — les retours clients (mouvements positifs)
+ * sont déduits au lieu d'être additionnés comme des ventes (l'ancien
+ * SUM(ABS(qtemvt)) gonflait les chiffres du magasin ayant des retours).
+ * Agrégation par (codein, site) — garantit 1 ligne par produit et par magasin
+ * même si un codein correspond à plusieurs no_id. Le fournisseur préféré est
+ * résolu via LATERAL ... LIMIT 1 pour éviter toute duplication de jointure.
  */
 export async function pgGetHitParade(dateDebut: string, dateFin: string): Promise<HitParadeRow[]> {
     const result = await pgNoParallel(sql`
         WITH ventes AS (
             SELECT
-                a.no_id                                                         AS art_no_id,
                 a.codein::text                                                  AS codein,
-                a.libelle1::text                                                AS libelle,
-                COALESCE(fi.nom, af.code, 'Sans fournisseur')::text             AS fournisseur,
-                COALESCE(n.code, '')::text                                      AS nomenclature_code,
-                COALESCE(n.libelle, 'Sans nomenclature')::text                  AS nomenclature,
+                MIN(a.libelle1::text)                                           AS libelle,
+                MIN(COALESCE(fi.nom, af.code, 'Sans fournisseur')::text)        AS fournisseur,
+                MIN(COALESCE(n.code, '')::text)                                 AS nomenclature_code,
+                MIN(COALESCE(n.libelle, 'Sans nomenclature')::text)             AS nomenclature,
                 m.site,
-                SUM(ABS(m.qtemvt))::float                                      AS qte_vendue,
-                ABS(SUM(m.mntmvtttc))::float                                   AS ca_ttc,
+                SUM(-m.qtemvt)::float                                          AS qte_vendue,
+                SUM(-m.mntmvtttc)::float                                       AS ca_ttc,
                 SUM(m.margemvt)::float                                          AS marge
             FROM mvtart m
             JOIN articles a      ON a.no_id        = m.artnoid
-            LEFT JOIN artfou1 af ON af.art_no_id   = a.no_id AND af.preference = 1
+            LEFT JOIN LATERAL (
+                SELECT af1.code
+                FROM artfou1 af1
+                WHERE af1.art_no_id = a.no_id AND af1.preference = 1
+                ORDER BY af1.code
+                LIMIT 1
+            ) af ON TRUE
             LEFT JOIN fouident fi ON fi.code        = af.code
             LEFT JOIN nomenclature n ON n.no_id     = a.nom_no_id
             WHERE m.datmvt BETWEEN ${dateDebut}::date AND ${dateFin}::date
               AND m.site IN ('292', '579')
               AND m.genremvt = 3
-            GROUP BY a.no_id, a.codein, a.libelle1, fi.nom, af.code, n.code, n.libelle, m.site
+            GROUP BY a.codein, m.site
         ),
         stock_agg AS (
             SELECT
-                cs.artnoid,
+                a2.codein::text                                               AS codein,
                 SUM(CASE WHEN cs.site = '292' THEN cs.qte ELSE 0 END)::float AS stock292,
                 SUM(CASE WHEN cs.site = '579' THEN cs.qte ELSE 0 END)::float AS stock579,
                 SUM(cs.qte)::float                                            AS stockTotal
             FROM cube_stock cs
-            WHERE cs.artnoid IN (SELECT DISTINCT art_no_id FROM ventes)
-            GROUP BY cs.artnoid
+            JOIN articles a2 ON a2.no_id = cs.artnoid
+            WHERE a2.codein::text IN (SELECT codein FROM ventes)
+            GROUP BY a2.codein
         )
         SELECT
             v.codein,
@@ -800,7 +825,7 @@ export async function pgGetHitParade(dateDebut: string, dateFin: string): Promis
             COALESCE(s.stock579, 0)    AS stock579,
             COALESCE(s.stockTotal, 0)  AS "stockTotal"
         FROM ventes v
-        LEFT JOIN stock_agg s ON s.artnoid = v.art_no_id
+        LEFT JOIN stock_agg s ON s.codein = v.codein
         ORDER BY v.ca_ttc DESC
     `);
 
@@ -929,7 +954,13 @@ export async function pgGetStockNegatif(site?: string): Promise<PgStockNegatifRo
             ) AS derniereentree
         FROM cube_stock cs
         JOIN articles a ON a.no_id = cs.artnoid
-        JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
+        JOIN LATERAL (
+            SELECT af1.code
+            FROM artfou1 af1
+            WHERE af1.art_no_id = a.no_id AND af1.preference = 1
+            ORDER BY af1.code
+            LIMIT 1
+        ) af ON TRUE
         JOIN fouident f ON f.code = af.code
         WHERE cs.qte < 0
           AND cs.site IN ('292', '579')
@@ -982,7 +1013,13 @@ export async function pgGetSansVente6Mois(site?: string): Promise<PgSansVente6Mo
             ) AS derniere_entree
         FROM cube_stock cs
         JOIN articles a ON a.no_id = cs.artnoid
-        JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
+        JOIN LATERAL (
+            SELECT af1.code
+            FROM artfou1 af1
+            WHERE af1.art_no_id = a.no_id AND af1.preference = 1
+            ORDER BY af1.code
+            LIMIT 1
+        ) af ON TRUE
         JOIN fouident f ON f.code = af.code
         WHERE cs.site IN ('292', '579')
           AND cs.qte > 0
