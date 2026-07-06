@@ -769,6 +769,11 @@ export interface HitParadeRow {
  * joints APRÈS l'agrégation, par codein : aucune jointure ne peut dupliquer les
  * mouvements et fausser les sommes, et le LATERAL fournisseur ne s'exécute que
  * par article vendu (et non par ligne de mouvement).
+ *
+ * Filtre mntmvtttc <> 0 : mvtart contient des lignes genremvt=3 de quantité
+ * sans montant (corrections/régularisations, ex: codein 487673 site 579 —
+ * 38 affiché au lieu de 24 réels, CA exact). Une vente réelle a toujours un
+ * montant TTC non nul ; les endpoints officiels de l'API les excluent aussi.
  */
 export async function pgGetHitParade(dateDebut: string, dateFin: string): Promise<HitParadeRow[]> {
     const result = await pgNoParallel(sql`
@@ -784,6 +789,8 @@ export async function pgGetHitParade(dateDebut: string, dateFin: string): Promis
             WHERE m.datmvt BETWEEN ${dateDebut}::date AND ${dateFin}::date
               AND m.site IN ('292', '579')
               AND m.genremvt = 3
+              AND m.mntmvtttc IS NOT NULL
+              AND m.mntmvtttc <> 0
               AND a.codein IS NOT NULL
             GROUP BY TRIM(a.codein::text), m.site
         ),
