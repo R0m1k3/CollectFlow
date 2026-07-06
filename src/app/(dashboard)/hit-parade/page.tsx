@@ -42,14 +42,17 @@ function pivotHitParade(rows: HitParadeRow[]): HitParadePivotRow[] {
             });
         }
         const entry = map.get(row.codein)!;
-        if (row.site === "292") {
-            entry.qte292 = row.qte_vendue;
-            entry.ca292 = row.ca_ttc;
-            entry.marge292 = row.marge;
-        } else if (row.site === "579") {
-            entry.qte579 = row.qte_vendue;
-            entry.ca579 = row.ca_ttc;
-            entry.marge579 = row.marge;
+        // Accumulation (+=) et non affectation : si la requête renvoyait plusieurs
+        // lignes pour un même (codein, site), aucune valeur ne serait écrasée.
+        const site = String(row.site).trim();
+        if (site === "292") {
+            entry.qte292 += row.qte_vendue;
+            entry.ca292 += row.ca_ttc;
+            entry.marge292 += row.marge;
+        } else if (site === "579") {
+            entry.qte579 += row.qte_vendue;
+            entry.ca579 += row.ca_ttc;
+            entry.marge579 += row.marge;
         }
     }
 
