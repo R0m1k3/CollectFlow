@@ -391,8 +391,10 @@ async function reconcileSelectedStoreFromMensuelApi(
             for (const entry of entries) {
                 const period = entry.mois.replace("-", "");
                 if (!sortedPeriods.includes(period)) continue;
-                const qty = Math.abs(Number(entry.ventes?.qte_vendue ?? 0) || 0);
-                const ca = Math.abs(Number(entry.ventes?.ca_ht ?? 0) || 0);
+                // qte_vendue / ca_ht sont NÉGATIFS côté API (ventes nettes) : on
+                // les nie au lieu de Math.abs pour que les retours restent déduits.
+                const qty = -(Number(entry.ventes?.qte_vendue ?? 0) || 0);
+                const ca = -(Number(entry.ventes?.ca_ht ?? 0) || 0);
                 const marge = Number(entry.ventes?.marge ?? 0) || 0;
                 const stock = Number(entry.stock_fin_mois ?? 0) || 0;
                 const receptions = Number(entry.receptions?.qte_recue ?? 0) || 0;

@@ -28,6 +28,43 @@ interface Props {
     pivotted: HitParadePivotRow[];
 }
 
+function ColHeader({
+    label,
+    sortable,
+    group,
+    sortKey,
+    sortDir,
+    onSort,
+}: {
+    label: string;
+    sortable?: SortKey;
+    group?: "292" | "579" | "total";
+    sortKey: SortKey;
+    sortDir: SortDir;
+    onSort: (key: SortKey) => void;
+}) {
+    const isActive = sortable && sortKey === sortable;
+    const groupBg = group === "292" ? "bg-blue-50" : group === "579" ? "bg-violet-50" : group === "total" ? "bg-emerald-50" : "";
+    const activeBg = group === "292" ? "bg-blue-100 text-blue-700" : group === "579" ? "bg-violet-100 text-violet-700" : group === "total" ? "bg-emerald-100 text-emerald-700" : "bg-blue-50 text-blue-700";
+    return (
+        <th
+            onClick={sortable ? () => onSort(sortable) : undefined}
+            className={[
+                "px-2 py-2 text-center text-xs font-semibold whitespace-nowrap select-none",
+                sortable ? "cursor-pointer" : "",
+                isActive ? activeBg : `${groupBg} text-gray-600`,
+            ].join(" ")}
+        >
+            {label}
+            {sortable && (
+                <span className="ml-1 inline-block w-3 text-center">
+                    {isActive ? (sortDir === "desc" ? "↓" : "↑") : <span className="text-gray-300">↕</span>}
+                </span>
+            )}
+        </th>
+    );
+}
+
 export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
     const router = useRouter();
     const [sortKey, setSortKey] = useState<SortKey>(DEFAULT_SORT);
@@ -73,6 +110,32 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
 
     const isSorted = sortKey !== DEFAULT_SORT || sortDir !== DEFAULT_DIR;
 
+    const filtered = useMemo(() =>
+        pivotted.filter(r =>
+            (filterFournisseur === "Tous" || r.fournisseur === filterFournisseur) &&
+            (filterNomenclature === "Tous" || r.nomenclature_code === filterNomenclature)
+        ),
+        [pivotted, filterFournisseur, filterNomenclature]
+    );
+
+    const sorted = useMemo(() =>
+        [...filtered].sort((a, b) => {
+            const diff = a[sortKey] - b[sortKey];
+            return sortDir === "desc" ? -diff : diff;
+        }),
+        [filtered, sortKey, sortDir]
+    );
+
+    const totals = useMemo(() => sorted.reduce(
+        (acc, r) => ({
+            qte292: acc.qte292 + r.qte292, ca292: acc.ca292 + r.ca292, marge292: acc.marge292 + r.marge292,
+            qte579: acc.qte579 + r.qte579, ca579: acc.ca579 + r.ca579, marge579: acc.marge579 + r.marge579,
+            qteTotal: acc.qteTotal + r.qteTotal, caTotal: acc.caTotal + r.caTotal, margeTotal: acc.margeTotal + r.margeTotal,
+            stock292: acc.stock292 + r.stock292, stock579: acc.stock579 + r.stock579, stockTotal: acc.stockTotal + r.stockTotal,
+        }),
+        { qte292: 0, ca292: 0, marge292: 0, qte579: 0, ca579: 0, marge579: 0, qteTotal: 0, caTotal: 0, margeTotal: 0, stock292: 0, stock579: 0, stockTotal: 0 }
+    ), [sorted]);
+
     function exportToExcel() {
         const headers = [
             "Code", "Désignation", "Fournisseur", "Nomenclature",
@@ -113,56 +176,6 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Hit Parade");
         XLSX.writeFile(wb, `hit-parade_${dateDebut}_${dateFin}.xlsx`);
-    }
-
-    const filtered = useMemo(() =>
-        pivotted.filter(r =>
-            (filterFournisseur === "Tous" || r.fournisseur === filterFournisseur) &&
-            (filterNomenclature === "Tous" || r.nomenclature_code === filterNomenclature)
-        ),
-        [pivotted, filterFournisseur, filterNomenclature]
-    );
-
-    const sorted = useMemo(() =>
-        [...filtered].sort((a, b) => {
-            const diff = a[sortKey] - b[sortKey];
-            return sortDir === "desc" ? -diff : diff;
-        }),
-        [filtered, sortKey, sortDir]
-    );
-
-    const totals = useMemo(() => sorted.reduce(
-        (acc, r) => ({
-            qte292: acc.qte292 + r.qte292, ca292: acc.ca292 + r.ca292, marge292: acc.marge292 + r.marge292,
-            qte579: acc.qte579 + r.qte579, ca579: acc.ca579 + r.ca579, marge579: acc.marge579 + r.marge579,
-            qteTotal: acc.qteTotal + r.qteTotal, caTotal: acc.caTotal + r.caTotal, margeTotal: acc.margeTotal + r.margeTotal,
-            stock292: acc.stock292 + r.stock292, stock579: acc.stock579 + r.stock579, stockTotal: acc.stockTotal + r.stockTotal,
-        }),
-        { qte292: 0, ca292: 0, marge292: 0, qte579: 0, ca579: 0, marge579: 0, qteTotal: 0, caTotal: 0, margeTotal: 0, stock292: 0, stock579: 0, stockTotal: 0 }
-    ), [sorted]);
-
-    function ColHeader({ label, sortable, k, group }: { label: string; sortable?: SortKey; k: string; group?: "292" | "579" | "total" }) {
-        const isActive = sortable && sortKey === sortable;
-        const groupBg = group === "292" ? "bg-blue-50" : group === "579" ? "bg-violet-50" : group === "total" ? "bg-emerald-50" : "";
-        const activeBg = group === "292" ? "bg-blue-100 text-blue-700" : group === "579" ? "bg-violet-100 text-violet-700" : group === "total" ? "bg-emerald-100 text-emerald-700" : "bg-blue-50 text-blue-700";
-        return (
-            <th
-                key={k}
-                onClick={sortable ? () => handleSort(sortable) : undefined}
-                className={[
-                    "px-2 py-2 text-center text-xs font-semibold whitespace-nowrap select-none",
-                    sortable ? "cursor-pointer" : "",
-                    isActive ? activeBg : `${groupBg} text-gray-600`,
-                ].join(" ")}
-            >
-                {label}
-                {sortable && (
-                    <span className="ml-1 inline-block w-3 text-center">
-                        {isActive ? (sortDir === "desc" ? "↓" : "↑") : <span className="text-gray-300">↕</span>}
-                    </span>
-                )}
-            </th>
-        );
     }
 
     return (
@@ -277,22 +290,22 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                             </th>
                         </tr>
                         <tr className="border-b-2 border-gray-200">
-                            <ColHeader label="Qté" sortable="qte292" k="qte292" group="292" />
-                            <ColHeader label="CA TTC" sortable="ca292" k="ca292" group="292" />
+                            <ColHeader label="Qté" sortable="qte292" group="292" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                            <ColHeader label="CA TTC" sortable="ca292" group="292" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                             <th className="bg-blue-50 px-2 py-2 text-center text-xs font-semibold text-blue-500">% Marge</th>
-                            <ColHeader label="Stock" sortable="stock292" k="stock292" group="292" />
-                            <ColHeader label="Qté" sortable="qte579" k="qte579" group="579" />
-                            <ColHeader label="CA TTC" sortable="ca579" k="ca579" group="579" />
+                            <ColHeader label="Stock" sortable="stock292" group="292" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                            <ColHeader label="Qté" sortable="qte579" group="579" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                            <ColHeader label="CA TTC" sortable="ca579" group="579" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                             <th className="bg-violet-50 px-2 py-2 text-center text-xs font-semibold text-violet-500">% Marge</th>
-                            <ColHeader label="Stock" sortable="stock579" k="stock579" group="579" />
-                            <ColHeader label="Qté" sortable="qteTotal" k="qteTotal" group="total" />
-                            <ColHeader label="CA TTC" sortable="caTotal" k="caTotal" group="total" />
+                            <ColHeader label="Stock" sortable="stock579" group="579" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                            <ColHeader label="Qté" sortable="qteTotal" group="total" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                            <ColHeader label="CA TTC" sortable="caTotal" group="total" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                             <th className="bg-emerald-50 px-2 py-2 text-center text-xs font-semibold text-emerald-600">% Marge</th>
-                            <ColHeader label="Stock" sortable="stockTotal" k="stockTotal" group="total" />
+                            <ColHeader label="Stock" sortable="stockTotal" group="total" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                         </tr>
                     </thead>
                     <tbody>
-                        {sorted.map((row, idx) => (
+                        {sorted.map((row) => (
                             <tr key={row.codein} className={`border-b border-gray-100 hover:brightness-95 transition-colors`}>
                                 <td className="bg-white px-2 py-2.5 font-mono text-xs text-gray-400 text-center">{row.codein}</td>
                                 <td className="bg-white px-2 py-2.5 text-gray-900 font-medium min-w-[200px]">{row.libelle.trim()}</td>
