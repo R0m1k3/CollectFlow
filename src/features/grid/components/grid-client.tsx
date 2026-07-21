@@ -9,10 +9,10 @@ import { ExportDropdown } from "@/features/grid/components/export-dropdown";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
 import type { ProductRow } from "@/types/grid";
-import { CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { CheckCircle, AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { useSession } from "next-auth/react";
 
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import type { GridFilters } from "@/types/grid";
 
 interface GridClientProps {
@@ -60,6 +60,8 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
     const setFilter = useGridStore((s) => s.setFilter);
     const setActiveMagasin = useGridStore((s) => s.setActiveMagasin);
     const searchParams = useSearchParams();
+    const router = useRouter();
+    const pathname = usePathname();
 
     const [selectedCodeins, setSelectedCodeins] = useState<string[]>([]);
     const [isPending, startTransition] = useTransition();
@@ -187,6 +189,16 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
         });
     };
 
+    // Force le rechargement des données depuis le serveur en ignorant le cache
+    // 10 min : on change le paramètre URL `_refresh`, ce qui relance le fetch
+    // avec `refresh=1` (→ forceRefresh) et remonte l'état serveur à jour (INIT).
+    const handleForceRefresh = () => {
+        if (isLoadingRows) return;
+        const params = new URLSearchParams(searchParams.toString());
+        params.set("_refresh", String(Date.now()));
+        router.replace(`${pathname}?${params.toString()}`);
+    };
+
     if (!isMounted) {
         return <div className="p-8 text-center animate-pulse text-muted italic">Initialisation de la grille...</div>;
     }
@@ -233,6 +245,16 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
                                     : "Chargement…"}
                         </div>
                     )}
+                    <button
+                        onClick={handleForceRefresh}
+                        disabled={isLoadingRows}
+                        title="Forcer le rafraîchissement — recharge les données depuis le serveur en ignorant le cache (met à jour la colonne INIT)"
+                        className="flex items-center gap-2 px-3 h-9 text-[13px] font-semibold rounded-xl disabled:opacity-50 transition-all hover:brightness-110 active:scale-[0.97]"
+                        style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+                    >
+                        <RefreshCw className={`w-4 h-4 ${isLoadingRows ? "animate-spin" : ""}`} />
+                        <span className="hidden sm:inline">Rafraîchir</span>
+                    </button>
                     <div id="grid-toolbar-actions"></div>
                     {isAdmin && <ExportDropdown nomFournisseur={nomFournisseur} />}
                     {isAdmin && hasDrafts && (
