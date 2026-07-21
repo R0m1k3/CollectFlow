@@ -47,10 +47,33 @@ export function invalidateGridRowsCache(codeFournisseur?: string) {
     gridRowsPending.clear();
 }
 
+/**
+ * Rafraîchit UNIQUEMENT la colonne INIT (codeGammeInit = gamme serveur courante)
+ * sur des lignes servies depuis le cache. La colonne Gamme (codeGamme) n'est pas
+ * touchée : elle conserve la valeur issue du snapshot. Ainsi l'état serveur (INIT)
+ * est toujours à jour à chaque chargement, même sur un hit du cache 10 min — et le
+ * marqueur "modifié" (Gamme ≠ INIT) se résorbe dès que le serveur rattrape la modif.
+ */
+async function refreshGammeInit(rows: ProductRow[], codeFournisseur: string): Promise<void> {
+    try {
+        const gammeMap = await pgGetGammesByFournisseur(codeFournisseur);
+        if (gammeMap.size === 0) return;
+        for (const row of rows) {
+            const live = gammeMap.get(row.codein);
+            if (live !== undefined) row.codeGammeInit = live as GammeCode;
+        }
+    } catch (e) {
+        console.error("[getProductRows] refreshGammeInit error:", (e as Error).message?.slice(0, 200));
+    }
+}
+
 export async function getProductRows(input: GetProductRowsInput): Promise<ProductRow[]> {
     const cacheKey = gridRowsCacheKey(input);
     const cached = gridRowsCache.get(cacheKey);
     if (!input.forceRefresh && cached && Date.now() - cached.createdAt < GRID_ROWS_CACHE_TTL_MS) {
+        // La colonne INIT doit refléter l'état serveur à CHAQUE chargement,
+        // y compris sur un hit de cache (les données lourdes restent, elles, cachées).
+        await refreshGammeInit(cached.rows, input.codeFournisseur);
         return cached.rows;
     }
 
@@ -313,15 +336,10 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
         // ─── Phase 8 : Données réseau Qlik (CA / Qté / nb magasins par code centrale) ──
         await enrichWithNetworkMetrics(productMap);
 
-        // ─── Phase 9 : Réappliquer les modifications ENCORE EN ATTENTE ───────
-        // codeGammeInit / codeGamme viennent d'être rechargés depuis l'état LIVE
-        // du serveur (Phase 6). On ne réapplique une modification du dernier
-        // snapshot QUE si elle est toujours en attente côté serveur, c.-à-d. si
-        // le serveur est encore sur la valeur d'origine (change.before === gamme
-        // live actuelle). Si le serveur a déjà appliqué la modif (gamme live ==
-        // after) ou a changé la gamme depuis (gamme live != before), on fait
-        // confiance à l'état serveur courant : la grille reflète le réel et la
-        // modif n'apparaît plus comme "en attente".
+        // ─── Phase 9 : Restaurer gammes depuis dernier snapshot ──────────────
+        // La colonne Gamme (codeGamme) conserve la valeur du snapshot telle quelle.
+        // La colonne INIT (codeGammeInit) reste, elle, l'état LIVE du serveur
+        // rechargé en Phase 6 — jamais écrasée ici.
         try {
             const snaps = await db
                 .select()
@@ -332,27 +350,14 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
 
             if (snaps.length > 0) {
                 const changes = snaps[0].changes as Record<string, { before: string | null; after: string }>;
-                let enAttente = 0;
-                let obsoletes = 0;
                 for (const [codein, change] of Object.entries(changes)) {
                     const product = productMap.get(codein);
-                    if (!product || !change.after) continue;
-
-                    const gammeLive = product.codeGammeInit;                 // état serveur courant
-                    const before = change.before ?? null;
-                    const stillPending = before === (gammeLive ?? null) && change.after !== gammeLive;
-
-                    if (stillPending) {
-                        // Modification pas encore appliquée sur le serveur → on la remonte
+                    if (product && change.after) {
+                        // codeGammeInit reste figé (état serveur) — seul codeGamme est overridé
                         product.codeGamme = change.after as GammeCode;
-                        enAttente++;
-                    } else {
-                        // Déjà appliquée côté serveur (ou serveur divergent) → on garde le LIVE
-                        product.codeGamme = gammeLive;
-                        obsoletes++;
                     }
                 }
-                console.log(`[getProductRows] Snapshot: ${enAttente} modif(s) en attente réappliquée(s), ${obsoletes} déjà appliquée(s)/obsolète(s) ignorée(s)`);
+                console.log(`[getProductRows] Gammes restaurées depuis snapshot`);
             }
         } catch (snapErr) {
             console.error("[getProductRows] Snapshot restore error:", snapErr);
