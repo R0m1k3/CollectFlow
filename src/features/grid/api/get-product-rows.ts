@@ -313,7 +313,15 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
         // ─── Phase 8 : Données réseau Qlik (CA / Qté / nb magasins par code centrale) ──
         await enrichWithNetworkMetrics(productMap);
 
-        // ─── Phase 9 : Restaurer gammes depuis dernier snapshot ──────────────
+        // ─── Phase 9 : Réappliquer les modifications ENCORE EN ATTENTE ───────
+        // codeGammeInit / codeGamme viennent d'être rechargés depuis l'état LIVE
+        // du serveur (Phase 6). On ne réapplique une modification du dernier
+        // snapshot QUE si elle est toujours en attente côté serveur, c.-à-d. si
+        // le serveur est encore sur la valeur d'origine (change.before === gamme
+        // live actuelle). Si le serveur a déjà appliqué la modif (gamme live ==
+        // after) ou a changé la gamme depuis (gamme live != before), on fait
+        // confiance à l'état serveur courant : la grille reflète le réel et la
+        // modif n'apparaît plus comme "en attente".
         try {
             const snaps = await db
                 .select()
@@ -324,14 +332,27 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
 
             if (snaps.length > 0) {
                 const changes = snaps[0].changes as Record<string, { before: string | null; after: string }>;
+                let enAttente = 0;
+                let obsoletes = 0;
                 for (const [codein, change] of Object.entries(changes)) {
                     const product = productMap.get(codein);
-                    if (product && change.after) {
-                        // codeGammeInit reste figé — seulement codeGamme est overridé
+                    if (!product || !change.after) continue;
+
+                    const gammeLive = product.codeGammeInit;                 // état serveur courant
+                    const before = change.before ?? null;
+                    const stillPending = before === (gammeLive ?? null) && change.after !== gammeLive;
+
+                    if (stillPending) {
+                        // Modification pas encore appliquée sur le serveur → on la remonte
                         product.codeGamme = change.after as GammeCode;
+                        enAttente++;
+                    } else {
+                        // Déjà appliquée côté serveur (ou serveur divergent) → on garde le LIVE
+                        product.codeGamme = gammeLive;
+                        obsoletes++;
                     }
                 }
-                console.log(`[getProductRows] Gammes restaurées depuis snapshot`);
+                console.log(`[getProductRows] Snapshot: ${enAttente} modif(s) en attente réappliquée(s), ${obsoletes} déjà appliquée(s)/obsolète(s) ignorée(s)`);
             }
         } catch (snapErr) {
             console.error("[getProductRows] Snapshot restore error:", snapErr);
