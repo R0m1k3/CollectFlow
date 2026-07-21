@@ -47,10 +47,33 @@ export function invalidateGridRowsCache(codeFournisseur?: string) {
     gridRowsPending.clear();
 }
 
+/**
+ * Rafraîchit UNIQUEMENT la colonne INIT (codeGammeInit = gamme serveur courante)
+ * sur des lignes servies depuis le cache. La colonne Gamme (codeGamme) n'est pas
+ * touchée : elle conserve la valeur issue du snapshot. Ainsi l'état serveur (INIT)
+ * est toujours à jour à chaque chargement, même sur un hit du cache 10 min — et le
+ * marqueur "modifié" (Gamme ≠ INIT) se résorbe dès que le serveur rattrape la modif.
+ */
+async function refreshGammeInit(rows: ProductRow[], codeFournisseur: string): Promise<void> {
+    try {
+        const gammeMap = await pgGetGammesByFournisseur(codeFournisseur);
+        if (gammeMap.size === 0) return;
+        for (const row of rows) {
+            const live = gammeMap.get(row.codein);
+            if (live !== undefined) row.codeGammeInit = live as GammeCode;
+        }
+    } catch (e) {
+        console.error("[getProductRows] refreshGammeInit error:", (e as Error).message?.slice(0, 200));
+    }
+}
+
 export async function getProductRows(input: GetProductRowsInput): Promise<ProductRow[]> {
     const cacheKey = gridRowsCacheKey(input);
     const cached = gridRowsCache.get(cacheKey);
     if (!input.forceRefresh && cached && Date.now() - cached.createdAt < GRID_ROWS_CACHE_TTL_MS) {
+        // La colonne INIT doit refléter l'état serveur à CHAQUE chargement,
+        // y compris sur un hit de cache (les données lourdes restent, elles, cachées).
+        await refreshGammeInit(cached.rows, input.codeFournisseur);
         return cached.rows;
     }
 
@@ -314,6 +337,9 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
         await enrichWithNetworkMetrics(productMap);
 
         // ─── Phase 9 : Restaurer gammes depuis dernier snapshot ──────────────
+        // La colonne Gamme (codeGamme) conserve la valeur du snapshot telle quelle.
+        // La colonne INIT (codeGammeInit) reste, elle, l'état LIVE du serveur
+        // rechargé en Phase 6 — jamais écrasée ici.
         try {
             const snaps = await db
                 .select()
@@ -327,7 +353,7 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
                 for (const [codein, change] of Object.entries(changes)) {
                     const product = productMap.get(codein);
                     if (product && change.after) {
-                        // codeGammeInit reste figé — seulement codeGamme est overridé
+                        // codeGammeInit reste figé (état serveur) — seul codeGamme est overridé
                         product.codeGamme = change.after as GammeCode;
                     }
                 }
