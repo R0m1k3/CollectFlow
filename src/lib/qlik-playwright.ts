@@ -96,7 +96,11 @@ export async function fetchNetworkMetricsPlaywright(
     const qlikArticleBatchSize = envNumber("QLIK_ARTICLE_BATCH_SIZE", 150, 1, 500);
     const csvFallbacks = envNumberCsv("QLIK_ARTICLE_BATCH_FALLBACKS", 1, 500);
     const qlikArticleBatchFallbacks = uniqueOrdered([qlikArticleBatchSize, ...(csvFallbacks.length ? csvFallbacks : [75, 50]), 75, 50]);
-    console.log(`[qlik-pw] tuning settle=${qlikSettleMs}ms code15Attempts=${qlikCode15MaxAttempts} batchFallbacks=${qlikArticleBatchFallbacks.join(">")}`);
+    // Chemin rapide : sélectionner TOUS les Article Code une seule fois, puis ne
+    // changer que la Date par mois (au lieu de re-sélectionner par lots de 150 chaque
+    // mois). Repli automatique sur le chemin par lots en cas de code 15.
+    const qlikSelectAllCodes = ["1", "true", "yes", "on"].includes((process.env.QLIK_SELECT_ALL_CODES ?? "").trim().toLowerCase());
+    console.log(`[qlik-pw] tuning settle=${qlikSettleMs}ms code15Attempts=${qlikCode15MaxAttempts} batchFallbacks=${qlikArticleBatchFallbacks.join(">")} selectAllCodes=${qlikSelectAllCodes}`);
 
     const browser = await getBrowser();
     console.log(`[qlik-pw] chromium lancé`);
@@ -137,7 +141,7 @@ export async function fetchNetworkMetricsPlaywright(
         }));
 
         const result = (await page.evaluate(
-            ({ app, dim, mca, mqte, mnb, mcamag, mmarge, codes, token, monthlyPayload, noDateMode, qlikSettleMs, qlikCode15MaxAttempts, qlikArticleBatchFallbacks }: {
+            ({ app, dim, mca, mqte, mnb, mcamag, mmarge, codes, token, monthlyPayload, noDateMode, qlikSettleMs, qlikCode15MaxAttempts, qlikArticleBatchFallbacks, selectAllCodes }: {
                 app: string; dim: string; mca: string; mqte: string; mnb: string; mcamag: string; mmarge: string;
                 codes: string[]; token: string;
                 monthlyPayload: Array<{ label: string; dateDebut: string; dateFin: string; serials: number[] }>;
@@ -145,6 +149,7 @@ export async function fetchNetworkMetricsPlaywright(
                 qlikSettleMs: number;
                 qlikCode15MaxAttempts: number;
                 qlikArticleBatchFallbacks: number[];
+                selectAllCodes: boolean;
             }) =>
                 new Promise<InPageResult>((resolve) => {
                     const loc = (window as unknown as { location: Location }).location;
@@ -320,6 +325,71 @@ export async function fetchNetworkMetricsPlaywright(
                                 }
                             };
 
+                            // Chemin rapide (flag QLIK_SELECT_ALL_CODES) : sélectionne TOUS les
+                            // Article Code une seule fois, puis n'itère que la sélection Date par
+                            // mois avec UN cube paginé (au lieu de re-sélectionner les codes par lots
+                            // de 150 à chaque mois — la SelectValues répétée coûte ~22 s × 120).
+                            // Renvoie true si le mois complet a réussi ; false si repli code 15 (les
+                            // résultats partiels et sélections sont réinitialisés avant le chemin par lots).
+                            const trySelectAllCodesPath = async (): Promise<boolean> => {
+                                const savedLen = out.length;
+                                try {
+                                    if (codes.length && fh !== -1) {
+                                        await timed("clearCodeAll", "Clear", () => rpc("Clear", {}, fh), {});
+                                        await sleep(qlikSettleMs);
+                                        const { value: sel } = await timed("selectCodeAll", "SelectValues", () => rpc("SelectValues", {
+                                            qFieldValues: codes.map((c) => ({ qText: c })),
+                                            qToggleMode: false,
+                                            qSoftLock: true,
+                                        }, fh), {});
+                                        console.log("[qlik-pw] select-all — SelectValues Article Code (" + codes.length + " codes) → " + JSON.stringify(sel.qReturn));
+                                        await sleep(qlikSettleMs);
+                                    }
+                                    const total = monthlyPayload.length;
+                                    console.log("[qlik-pw] chemin rapide select-all — " + total + " mois, 1 sélection Article Code globale");
+                                    for (let mi = 0; mi < total; mi++) {
+                                        const m = monthlyPayload[mi];
+                                        const prefix = "[qlik-pw] (rapide) mois " + (mi + 1) + "/" + total + " " + m.label + " (" + m.dateDebut + "→" + m.dateFin + ", " + m.serials.length + "j)";
+                                        const monthStart = nowMs();
+                                        const monthTimings: Record<string, number> = {};
+                                        aggMonths = mi + 1;
+                                        let code15Retries = 0;
+                                        // Sélection Date du mois uniquement (la sélection Article Code reste active).
+                                        const { value: dsel } = await timed("selectDate", "SelectValues", () => rpc("SelectValues", {
+                                            qFieldValues: m.serials.map((s) => ({ qNum: s, qText: String(s) })),
+                                            qToggleMode: false,
+                                            qSoftLock: true,
+                                        }, dfh), monthTimings);
+                                        console.log(prefix + " — SelectValues Date " + m.serials.length + " serials → " + JSON.stringify(dsel.qReturn));
+                                        await sleep(qlikSettleMs);
+                                        // Un seul cube paginé pour tous les articles du mois.
+                                        const batchRows: Array<Array<string | number>> = [];
+                                        const { value: got, ms } = await timed("cube", "batch", () => fetchCubeForSelection(batchRows, monthTimings, () => { code15Retries++; }), monthTimings);
+                                        out.push(...batchRows);
+                                        aggBatches++;
+                                        aggCode15Retries += code15Retries;
+                                        console.log("[qlik-pw][timing] " + prefix + " — rows=" + got + " cumul=" + out.length + " ms=" + ms + " retries15=" + code15Retries + " timings=" + timingSummary(monthTimings));
+                                        // Clear Date uniquement — on garde la sélection Article Code pour le mois suivant.
+                                        if (mi < total - 1) {
+                                            try { await timed("clearDate", "Clear", () => rpc("Clear", {}, dfh), monthTimings); }
+                                            catch (e) { console.log(prefix + " — Clear Date ignoré: " + String((e as Error)?.message || e)); }
+                                        }
+                                        console.log("[qlik-pw][timing] " + prefix + " — done ms=" + Math.round(nowMs() - monthStart) + " timings=" + timingSummary(monthTimings));
+                                    }
+                                    return true;
+                                } catch (e) {
+                                    if (isEngineCode15(e)) {
+                                        console.log("[qlik-pw] chemin rapide échoué (code 15) → repli sur le chemin par lots");
+                                        out.length = savedLen;
+                                        aggMonths = 0; aggBatches = 0; aggCode15Retries = 0;
+                                        try { await rpc("Clear", {}, dfh); if (fh !== -1) await rpc("Clear", {}, fh); } catch { /* noop */ }
+                                        await sleep(qlikSettleMs);
+                                        return false;
+                                    }
+                                    throw e;
+                                }
+                            };
+
                             if (noDateMode) {
                                 // Aucun filtre Date : extraction en un seul appel (tous les codes d'un coup).
                                 // On sélectionne uniquement Article Code ; Date reste libre.
@@ -337,6 +407,9 @@ export async function fetchNetworkMetricsPlaywright(
                                 aggBatches = 1;
                                 aggCode15Retries = code15Retries;
                                 console.log("[qlik-pw][timing] noDate rows=" + got + " cumul=" + out.length + " ms=" + ms + " retries15=" + code15Retries + " timings=" + timingSummary(timings));
+                            } else if (selectAllCodes && (await trySelectAllCodesPath())) {
+                                // Chemin rapide terminé avec succès (voir trySelectAllCodesPath).
+                                // Si false (repli code 15), on tombe dans le chemin par lots ci-dessous.
                             } else {
                                 // Itération par mois × lots de codes : pour chaque mois, SelectValues Date
                                 // (~30 serials), puis SelectValues Article Code par petits lots. Le cube
@@ -454,6 +527,7 @@ export async function fetchNetworkMetricsPlaywright(
                 qlikSettleMs,
                 qlikCode15MaxAttempts,
                 qlikArticleBatchFallbacks,
+                selectAllCodes: qlikSelectAllCodes,
             },
         )) as InPageResult;
 
