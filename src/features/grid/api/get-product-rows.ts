@@ -514,6 +514,7 @@ async function enrichWithNetworkMetrics(productMap: Map<string, ProductRow>): Pr
                 product.caParMagasinReseau = m.caParMagasinReseau;
                 product.margePctReseau = m.margePctReseau;
                 product.tauxPresenceReseau = m.nbMagasinsReseau / NB_MAGASINS_RESEAU;
+                product.qteReseauByMonth = m.qteByMonth ?? null;
                 product.networkFetchedAt = m.fetchedAt ?? undefined;
             }
         }

@@ -89,6 +89,8 @@ export interface NetworkMetric {
     /** Taux de marge réseau (ratio brut Qlik, ex 0.32 = 32%) */
     margePctReseau: number;
     periode?: string;
+    /** Quantité vendue réseau par mois : { "YYYY-MM": qté }. Rempli si sync avec filtre Date. */
+    qteByMonth?: Record<string, number>;
 }
 
 function makeXrfkey(): string {
