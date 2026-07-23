@@ -291,13 +291,6 @@ const TREND_COLOR: Record<NetworkTrend["direction"], string> = {
     flat: "#94a3b8",
 };
 
-function fmtMonthYYYYMM(lab: string): string {
-    const [y, m] = lab.split("-");
-    const names = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
-    const idx = Number(m) - 1;
-    return `${names[idx] ?? m} ${(y ?? "").slice(2)}`;
-}
-
 /** Sparkline compacte 12 mois + flèche, teintée selon la tendance. */
 function TrendSparkline({ trend }: { trend: NetworkTrend }) {
     if (!trend.hasData) return <div className="text-center text-[12px]" style={{ color: "var(--text-secondary)" }}>-</div>;
@@ -330,11 +323,54 @@ function TrendSparkline({ trend }: { trend: NetworkTrend }) {
     );
 }
 
-/** Modal : quantités vendues réseau sur les 12 derniers mois, mois par mois. */
+/** "2026-01" → "01/26" pour un axe compact. */
+function fmtMonthShort(lab: string): string {
+    const [y, m] = lab.split("-");
+    return `${m ?? lab}/${(y ?? "").slice(2)}`;
+}
+
+/** Courbe unique des ventes réseau mensuelles (SVG). */
+function NetworkLineChart({ labels, values, color }: { labels: string[]; values: number[]; color: string }) {
+    const W = 460, H = 200;
+    const padL = 10, padR = 10, padT = 22, padB = 30;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const n = values.length;
+    const maxV = Math.max(...values, 1);
+    const x = (i: number) => (n > 1 ? padL + (i / (n - 1)) * plotW : padL + plotW / 2);
+    const y = (v: number) => padT + plotH - (v / maxV) * plotH;
+    const linePts = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    const areaPts = `${padL},${padT + plotH} ${linePts} ${(padL + plotW).toFixed(1)},${(padT + plotH).toFixed(1)}`;
+    return (
+        <div className="mt-3 w-full overflow-x-auto">
+            <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minWidth: 380 }} role="img" aria-label="Ventes réseau mensuelles">
+                {/* ligne de base */}
+                <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="var(--border)" strokeWidth={1} />
+                {/* aire douce sous la courbe */}
+                {n > 1 && <polygon points={areaPts} fill={color} opacity={0.08} />}
+                {/* courbe */}
+                {n > 1 && <polyline points={linePts} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />}
+                {values.map((v, i) => (
+                    <g key={labels[i]}>
+                        <circle cx={x(i)} cy={y(v)} r={2.6} fill={color} />
+                        {/* quantité au-dessus du point */}
+                        <text x={x(i)} y={y(v) - 6} textAnchor="middle" fontSize={9} fontWeight={700} fill="var(--text-primary)">
+                            {Math.round(v).toLocaleString("fr-FR")}
+                        </text>
+                        {/* mois sous l'axe */}
+                        <text x={x(i)} y={H - 10} textAnchor="middle" fontSize={8} fill="var(--text-muted)">
+                            {fmtMonthShort(labels[i])}
+                        </text>
+                    </g>
+                ))}
+            </svg>
+        </div>
+    );
+}
+
+/** Modal : quantités vendues réseau sur les 12 derniers mois, en une seule courbe. */
 function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () => void }) {
     const trend = computeNetworkTrend(row.qteReseauByMonth);
     const { values, labels, direction, pct } = trend;
-    const max = Math.max(...values, 1);
     const color = TREND_COLOR[direction];
     return (
         <DialogContent className="max-w-md" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }} onInteractOutside={onClose}>
@@ -358,23 +394,7 @@ function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () =>
                     Pas encore de détail mensuel pour ce produit.<br />Relancez un Sync Qlik pour le remplir.
                 </div>
             ) : (
-                <div className="space-y-1.5 mt-2 max-h-[60vh] overflow-y-auto pr-1">
-                    {labels.map((lab, i) => {
-                        const v = values[i];
-                        const w = Math.max(2, (v / max) * 100);
-                        return (
-                            <div key={lab} className="flex items-center gap-2">
-                                <span className="w-[64px] text-[11px] tabular-nums shrink-0" style={{ color: "var(--text-muted)" }}>{fmtMonthYYYYMM(lab)}</span>
-                                <div className="flex-1 h-4 rounded overflow-hidden" style={{ background: "var(--bg-elevated)" }}>
-                                    <div className="h-full rounded" style={{ width: `${w}%`, background: "var(--accent)" }} />
-                                </div>
-                                <span className="w-[52px] text-right text-[12px] font-bold tabular-nums shrink-0" style={{ color: "var(--text-primary)" }}>
-                                    {Math.round(v).toLocaleString("fr-FR")}
-                                </span>
-                            </div>
-                        );
-                    })}
-                </div>
+                <NetworkLineChart labels={labels} values={values} color={color} />
             )}
         </DialogContent>
     );
