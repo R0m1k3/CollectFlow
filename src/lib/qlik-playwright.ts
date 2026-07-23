@@ -261,15 +261,26 @@ export async function fetchNetworkMetricsPlaywright(
                                 const ditems = (((dll.qLayout as { qDimensionList?: { qItems?: Array<{ qInfo: { qId: string }; qMeta?: { title?: string }; qData?: { title?: string } }> } }).qDimensionList?.qItems) ?? []);
                                 console.log("[qlik-pw][dump] DIMENSIONS (" + ditems.length + "): " + JSON.stringify(ditems.map((it) => ({ t: it.qMeta?.title ?? it.qData?.title ?? "", id: it.qInfo.qId }))));
                             } catch (e) { console.log("[qlik-pw][dump] DimensionList error: " + String((e as Error)?.message || e)); }
-                            // SONDE : cube [Article Code, Mois] × Quantité N — vérifie le FORMAT des
-                            // valeurs "Mois" et si la quantité VARIE par mois (pour concevoir le vrai
-                            // découpage mensuel). Dimension "Mois" id="pfGAwTs" (configurable via env).
+                            // SONDE : sélectionne ~50 codes + la fenêtre 12 mois, PUIS crée un petit
+                            // cube [Article Code, Mois] × Quantité N. Vérifie le FORMAT des valeurs "Mois"
+                            // et si la quantité VARIE par mois (pour concevoir le vrai découpage mensuel).
+                            // Scopé pour éviter le code 15 (le cube plein catalogue était trop gros).
                             try {
                                 const moisDimId = "pfGAwTs";
+                                const probeCodes = (codes ?? []).slice(0, 50);
+                                if (fh !== -1 && probeCodes.length) {
+                                    await rpc("Clear", {}, fh);
+                                    await rpc("SelectValues", { qFieldValues: probeCodes.map((c) => ({ qText: c })), qToggleMode: false, qSoftLock: true }, fh);
+                                }
+                                const allSerials = monthlyPayload.flatMap((m) => m.serials);
+                                if (dfh !== -1 && allSerials.length) {
+                                    await rpc("SelectValues", { qFieldValues: allSerials.map((s) => ({ qNum: s, qText: String(s) })), qToggleMode: false, qSoftLock: true }, dfh);
+                                }
+                                await sleep(qlikSettleMs);
                                 const probe = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "cf-probe" }, qHyperCubeDef: {
                                     qDimensions: [{ qLibraryId: dim }, { qLibraryId: moisDimId }],
                                     qMeasures: [{ qLibraryId: mqte }],
-                                    qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 3, qHeight: 24 }],
+                                    qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 3, qHeight: 40 }],
                                 } } }, doc);
                                 const pRet = probe.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
                                 const pl = await rpc("GetLayout", {}, pRet.qHandle);
@@ -278,9 +289,11 @@ export async function fetchNetworkMetricsPlaywright(
                                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                 const matrix: any[] = hc?.qDataPages?.[0]?.qMatrix ?? [];
                                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                const sample = matrix.slice(0, 24).map((row: any[]) => [row[0]?.qText, row[1]?.qText, row[2]?.qNum]);
+                                const sample = matrix.slice(0, 40).map((row: any[]) => [row[0]?.qText, row[1]?.qText, row[2]?.qNum]);
                                 console.log("[qlik-pw][probe] cube [Article Code, Mois] x Quantite N — size=" + (hc?.qSize?.qcy ?? "?") + " echantillon: " + JSON.stringify(sample));
                                 try { await rpc("DestroySessionObject", { qId: String(pRet.qGenericId ?? pRet.qId ?? "") }, doc); } catch { /* noop */ }
+                                // Nettoyage : le chemin de sync re-sélectionne ensuite ses propres codes/dates.
+                                try { if (fh !== -1) await rpc("Clear", {}, fh); if (dfh !== -1) await rpc("Clear", {}, dfh); } catch { /* noop */ }
                             } catch (e) { console.log("[qlik-pw][probe] error: " + String((e as Error)?.message || e)); }
                             // L'hypercube session object est désormais créé JETABLE dans fetchCubeForSelection
                             // (un objet par lot) puis DestroySessionObject — corrige "Request aborted" (code 15)
