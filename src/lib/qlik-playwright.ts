@@ -101,7 +101,8 @@ export async function fetchNetworkMetricsPlaywright(
     // Chemin rapide : sélectionner TOUS les Article Code une seule fois, puis ne
     // changer que la Date par mois (au lieu de re-sélectionner par lots de 150 chaque
     // mois). Repli automatique sur le chemin par lots en cas de code 15.
-    const qlikSelectAllCodes = ["1", "true", "yes", "on"].includes((process.env.QLIK_SELECT_ALL_CODES ?? "").trim().toLowerCase());
+    // ACTIVÉ PAR DÉFAUT (validé fiable) — désactivable seulement avec QLIK_SELECT_ALL_CODES=0.
+    const qlikSelectAllCodes = !["0", "false", "no", "off"].includes((process.env.QLIK_SELECT_ALL_CODES ?? "").trim().toLowerCase());
     console.log(`[qlik-pw] tuning settle=${qlikSettleMs}ms code15Attempts=${qlikCode15MaxAttempts} batchFallbacks=${qlikArticleBatchFallbacks.join(">")} selectAllCodes=${qlikSelectAllCodes}`);
 
     const browser = await getBrowser();
@@ -250,6 +251,16 @@ export async function fetchNetworkMetricsPlaywright(
                             const rCamag = pickMeasure("CA par Magasin N", mcamag);
                             const rMarge = pickMeasure("Marge % N", mmarge);
                             console.log("measures résolues par titre: " + JSON.stringify({ rCamag, rMarge }) + " (sur " + items.length + " mesures)");
+                            // DUMP diagnostic : inventaire des mesures + dimensions (titre + id) pour
+                            // identifier une mesure "Quantité" NON annuelle et/ou une dimension "Mois/Période"
+                            // permettant un vrai découpage mensuel du réseau.
+                            console.log("[qlik-pw][dump] MESURES (" + items.length + "): " + JSON.stringify(items.map((it) => ({ t: it.qMeta?.title ?? it.qData?.title ?? "", id: it.qInfo.qId }))));
+                            try {
+                                const dl = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "DimensionList" }, qDimensionListDef: { qType: "dimension", qData: { title: "/qMetaDef/title" } } } }, doc);
+                                const dll = await rpc("GetLayout", {}, (dl.qReturn as { qHandle: number }).qHandle);
+                                const ditems = (((dll.qLayout as { qDimensionList?: { qItems?: Array<{ qInfo: { qId: string }; qMeta?: { title?: string }; qData?: { title?: string } }> } }).qDimensionList?.qItems) ?? []);
+                                console.log("[qlik-pw][dump] DIMENSIONS (" + ditems.length + "): " + JSON.stringify(ditems.map((it) => ({ t: it.qMeta?.title ?? it.qData?.title ?? "", id: it.qInfo.qId }))));
+                            } catch (e) { console.log("[qlik-pw][dump] DimensionList error: " + String((e as Error)?.message || e)); }
                             // L'hypercube session object est désormais créé JETABLE dans fetchCubeForSelection
                             // (un objet par lot) puis DestroySessionObject — corrige "Request aborted" (code 15)
                             // causé par la réutilisation du même objet sur des centaines de recalculs.
