@@ -34,6 +34,8 @@ async function getBrowser(): Promise<Browser> {
 interface InPageResult {
     ok: boolean;
     rows?: Array<Array<string | number>>;
+    /** Quantité réseau par code central et par mois : { code: { "YYYY-MM": qté } }. */
+    monthly?: Record<string, Record<string, number>>;
     size?: number;
     error?: string;
     diag?: Record<string, unknown>;
@@ -253,6 +255,18 @@ export async function fetchNetworkMetricsPlaywright(
                             // causé par la réutilisation du même objet sur des centaines de recalculs.
 
                             const out: Array<Array<string | number>> = [];
+                            // Quantité réseau par code central et par mois (label "YYYY-MM").
+                            // Accumulée en parallèle du total, sans toucher l'agrégation existante.
+                            const monthlyByCode: Record<string, Record<string, number>> = {};
+                            const accMonthly = (batchRows: Array<Array<string | number>>, monthLabel: string) => {
+                                for (const r of batchRows) {
+                                    const c = String(r[0] ?? "").trim();
+                                    if (!c || c === "-") continue;
+                                    const q = Number(r[2]) || 0;
+                                    (monthlyByCode[c] ??= {});
+                                    monthlyByCode[c][monthLabel] = (monthlyByCode[c][monthLabel] ?? 0) + q;
+                                }
+                            };
                             // Compteurs agrégés pour le résumé timing final (loggué côté Node après la sync).
                             let aggMonths = 0;
                             let aggBatches = 0;
@@ -366,6 +380,7 @@ export async function fetchNetworkMetricsPlaywright(
                                         const batchRows: Array<Array<string | number>> = [];
                                         const { value: got, ms } = await timed("cube", "batch", () => fetchCubeForSelection(batchRows, monthTimings, () => { code15Retries++; }), monthTimings);
                                         out.push(...batchRows);
+                                        accMonthly(batchRows, m.label);
                                         aggBatches++;
                                         aggCode15Retries += code15Retries;
                                         console.log("[qlik-pw][timing] " + prefix + " — rows=" + got + " cumul=" + out.length + " ms=" + ms + " retries15=" + code15Retries + " timings=" + timingSummary(monthTimings));
@@ -381,6 +396,7 @@ export async function fetchNetworkMetricsPlaywright(
                                     if (isEngineCode15(e)) {
                                         console.log("[qlik-pw] chemin rapide échoué (code 15) → repli sur le chemin par lots");
                                         out.length = savedLen;
+                                        for (const k of Object.keys(monthlyByCode)) delete monthlyByCode[k];
                                         aggMonths = 0; aggBatches = 0; aggCode15Retries = 0;
                                         try { await rpc("Clear", {}, dfh); if (fh !== -1) await rpc("Clear", {}, fh); } catch { /* noop */ }
                                         await sleep(qlikSettleMs);
@@ -469,6 +485,7 @@ export async function fetchNetworkMetricsPlaywright(
                                                 const batchRows: Array<Array<string | number>> = [];
                                                 const { value: got, ms } = await timed("cube", "batch", () => fetchCubeForSelection(batchRows, timings, () => { code15Retries++; }), timings);
                                                 out.push(...batchRows);
+                                                accMonthly(batchRows, m.label);
                                                 aggBatches++;
                                                 aggCode15Retries += code15Retries;
                                                 console.log("[qlik-pw][timing] " + batchPrefix + " — rows=" + got + " cumul=" + out.length + " ms=" + ms + " retries15=" + code15Retries + " timings=" + timingSummary(timings));
@@ -508,7 +525,7 @@ export async function fetchNetworkMetricsPlaywright(
                             }
 
                             ws.close();
-                            resolve({ ok: true, rows: out, size: out.length, months: aggMonths, batches: aggBatches, code15Retries: aggCode15Retries, fallbackCount: aggFallbackCount });
+                            resolve({ ok: true, rows: out, monthly: monthlyByCode, size: out.length, months: aggMonths, batches: aggBatches, code15Retries: aggCode15Retries, fallbackCount: aggFallbackCount });
                         } catch (e) { try { ws.close(); } catch { /* noop */ } fail(String((e as Error)?.message || e)); }
                     })();
                 }),
@@ -576,6 +593,12 @@ export async function fetchNetworkMetricsPlaywright(
             prev.margePctReseau = nextWeight > 0 ? ((prev.margePctReseau * weight) + (margePct * ca)) / nextWeight : Math.max(prev.margePctReseau, margePct);
             prev.caParMagasinReseau = prev.nbMagasinsReseau > 0 ? prev.caReseau / prev.nbMagasinsReseau : 0;
             margeWeight.set(code, nextWeight);
+        }
+        // Rattache la quantité mensuelle (par code central) au métrique agrégé.
+        const monthly = result.monthly ?? {};
+        for (const [code, metric] of out) {
+            const mm = monthly[code];
+            if (mm && Object.keys(mm).length) metric.qteByMonth = mm;
         }
         console.log(`[qlik-pw] ${out.size} produits réseau (cube ${result.size})`);
         // Échantillon brut pour vérifier que les 4 nouvelles mesures (cols 4-7) renvoient des valeurs

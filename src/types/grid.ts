@@ -119,6 +119,8 @@ export interface ProductRow {
     margePctReseau?: number;
     /** Taux de présence réseau = nbMagasinsReseau / 270 */
     tauxPresenceReseau?: number;
+    /** Quantité vendue réseau par mois : { "YYYY-MM": qté } (tendance / modal). */
+    qteReseauByMonth?: Record<string, number> | null;
     /** Fraîcheur des données réseau (ISO) */
     networkFetchedAt?: string;
 }

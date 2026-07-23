@@ -17,6 +17,8 @@ export interface NetworkMetricCached {
     nbMagasinsReseau: number;
     caParMagasinReseau: number;
     margePctReseau: number;
+    /** Quantité réseau par mois : { "YYYY-MM": qté } — null si non synchronisé avec dates. */
+    qteByMonth: Record<string, number> | null;
     fetchedAt: string | null;
 }
 
@@ -40,6 +42,7 @@ export async function getNetworkMetricsByCodeCentrale(
             nbMagasinsReseau: Number(r.nbMagasinsReseau ?? 0) || 0,
             caParMagasinReseau: Number(r.caParMagasinReseau ?? 0) || 0,
             margePctReseau: Number(r.margePctReseau ?? 0) || 0,
+            qteByMonth: (r.qteByMonth as Record<string, number> | null) ?? null,
             fetchedAt: r.fetchedAt ? new Date(r.fetchedAt).toISOString() : null,
         });
     }
@@ -58,6 +61,7 @@ export async function upsertNetworkMetrics(metrics: NetworkMetric[]): Promise<nu
         caParMagasinReseau: String(m.caParMagasinReseau),
         margePctReseau: String(m.margePctReseau),
         periode: m.periode ?? null,
+        qteByMonth: m.qteByMonth ?? null,
         fetchedAt: now,
     }));
 
@@ -78,6 +82,7 @@ export async function upsertNetworkMetrics(metrics: NetworkMetric[]): Promise<nu
                     caParMagasinReseau: sql`excluded.ca_par_magasin_reseau`,
                     margePctReseau: sql`excluded.marge_pct_reseau`,
                     periode: sql`excluded.periode`,
+                    qteByMonth: sql`excluded.qte_by_month`,
                     fetchedAt: sql`excluded.fetched_at`,
                 },
             });

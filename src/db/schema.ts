@@ -123,6 +123,8 @@ export const qlikNetworkMetrics = pgTable("qlik_network_metrics", {
   margePctReseau: numeric("marge_pct_reseau", { precision: 8, scale: 4 }),
   /** Période couverte (libre, ex "12m" ou "2025") */
   periode: varchar("periode", { length: 20 }),
+  /** Quantité vendue réseau par mois : { "YYYY-MM": qté } (12 derniers mois). */
+  qteByMonth: jsonb("qte_by_month"),
   /** Dernière synchro depuis Qlik */
   fetchedAt: timestamp("fetched_at").defaultNow(),
 });

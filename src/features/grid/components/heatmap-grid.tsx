@@ -13,7 +13,7 @@ import {
     RowSelectionState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, Warehouse, AlertTriangle } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, Warehouse, AlertTriangle, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -96,7 +96,7 @@ const QLIK_NETWORK_COLUMN_IDS = new Set<string>([
     "caReseau",
     "qteReseau",
     "nbMagasinsReseau",
-    "tauxPresenceReseau",
+    "tendanceReseau",
     "caParMagasinReseau",
     "margePctReseau",
 ]);
@@ -238,6 +238,129 @@ interface CellDetailData {
     receptions: number | null;
 }
 
+// ─── Tendance réseau (à partir de qteReseauByMonth) ───────────────────────────
+type NetworkTrend = {
+    values: number[];   // quantités mensuelles, ordre chronologique
+    labels: string[];   // "YYYY-MM"
+    direction: "up" | "down" | "flat";
+    pct: number | null; // variation moyenne 4 derniers mois vs 4 précédents
+    hasData: boolean;
+};
+
+function computeNetworkTrend(qteByMonth?: Record<string, number> | null): NetworkTrend {
+    const empty: NetworkTrend = { values: [], labels: [], direction: "flat", pct: null, hasData: false };
+    if (!qteByMonth) return empty;
+    const labels = Object.keys(qteByMonth).sort(); // "YYYY-MM" trie chronologiquement
+    if (labels.length === 0) return empty;
+    const values = labels.map((l) => Number(qteByMonth[l]) || 0);
+    const n = values.length;
+    let pct: number | null = null;
+    let direction: NetworkTrend["direction"] = "flat";
+    if (n >= 2) {
+        const w = Math.max(1, Math.min(4, Math.floor(n / 2)));
+        const mean = (a: number[]) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0);
+        const lastM = mean(values.slice(n - w));
+        const prevM = mean(values.slice(n - 2 * w, n - w));
+        if (prevM > 0) {
+            pct = (lastM - prevM) / prevM;
+            direction = pct > 0.1 ? "up" : pct < -0.1 ? "down" : "flat";
+        } else if (lastM > 0) {
+            direction = "up"; // apparition (rien avant, ventes maintenant)
+        }
+    }
+    return { values, labels, direction, pct, hasData: true };
+}
+
+const TREND_COLOR: Record<NetworkTrend["direction"], string> = {
+    up: "#22c55e",
+    down: "#ef4444",
+    flat: "#94a3b8",
+};
+
+function fmtMonthYYYYMM(lab: string): string {
+    const [y, m] = lab.split("-");
+    const names = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+    const idx = Number(m) - 1;
+    return `${names[idx] ?? m} ${(y ?? "").slice(2)}`;
+}
+
+/** Sparkline compacte 12 mois + flèche, teintée selon la tendance. */
+function TrendSparkline({ trend }: { trend: NetworkTrend }) {
+    if (!trend.hasData) return <div className="text-center text-[12px]" style={{ color: "var(--text-secondary)" }}>-</div>;
+    const { values, direction, pct } = trend;
+    const color = TREND_COLOR[direction];
+    const W = 46, H = 18, n = values.length;
+    const max = Math.max(...values, 1), min = Math.min(...values, 0);
+    const range = max - min || 1;
+    const pts = values.map((v, i) => {
+        const x = n > 1 ? (i / (n - 1)) * (W - 2) + 1 : W / 2;
+        const y = H - 1 - ((v - min) / range) * (H - 2);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(" ");
+    const Arrow = direction === "up" ? TrendingUp : direction === "down" ? TrendingDown : Minus;
+    return (
+        <div className="flex flex-col items-center justify-center gap-0.5" title={pct != null ? `${pct >= 0 ? "+" : ""}${(pct * 100).toFixed(0)}% (4 derniers mois vs 4 précédents)` : "tendance réseau"}>
+            <div className="flex items-center gap-1">
+                <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="shrink-0" aria-hidden>
+                    {n > 1 && <polyline points={pts} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />}
+                    {n === 1 && <circle cx={W / 2} cy={H / 2} r={2} fill={color} />}
+                </svg>
+                <Arrow className="w-3.5 h-3.5 shrink-0" style={{ color }} strokeWidth={2.5} />
+            </div>
+            {pct != null && (
+                <span className="text-[9px] font-bold tabular-nums leading-none" style={{ color }}>
+                    {pct >= 0 ? "+" : ""}{Math.round(pct * 100)}%
+                </span>
+            )}
+        </div>
+    );
+}
+
+/** Modal : quantités vendues réseau sur les 12 derniers mois, mois par mois. */
+function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () => void }) {
+    const trend = computeNetworkTrend(row.qteReseauByMonth);
+    const { values, labels, direction, pct } = trend;
+    const max = Math.max(...values, 1);
+    const color = TREND_COLOR[direction];
+    return (
+        <DialogContent className="max-w-md" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }} onInteractOutside={onClose}>
+            <DialogHeader>
+                <DialogTitle className="text-base leading-snug pr-6" style={{ color: "var(--text-primary)" }}>
+                    {row.libelle1}
+                </DialogTitle>
+                <p className="text-[12px] mt-0.5" style={{ color: "var(--text-muted)" }}>
+                    Ventes réseau · 12 derniers mois
+                    {row.nbMagasinsReseau != null && <> · <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>{row.nbMagasinsReseau} magasins</span></>}
+                    {pct != null && <> · <span className="font-bold" style={{ color }}>{pct >= 0 ? "+" : ""}{Math.round(pct * 100)}%</span></>}
+                </p>
+            </DialogHeader>
+            {!trend.hasData ? (
+                <div className="mt-3 rounded-xl p-4 text-center text-[13px]" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
+                    Pas encore de détail mensuel pour ce produit.<br />Relancez un Sync Qlik pour le remplir.
+                </div>
+            ) : (
+                <div className="space-y-1.5 mt-2 max-h-[60vh] overflow-y-auto pr-1">
+                    {labels.map((lab, i) => {
+                        const v = values[i];
+                        const w = Math.max(2, (v / max) * 100);
+                        return (
+                            <div key={lab} className="flex items-center gap-2">
+                                <span className="w-[64px] text-[11px] tabular-nums shrink-0" style={{ color: "var(--text-muted)" }}>{fmtMonthYYYYMM(lab)}</span>
+                                <div className="flex-1 h-4 rounded overflow-hidden" style={{ background: "var(--bg-elevated)" }}>
+                                    <div className="h-full rounded" style={{ width: `${w}%`, background: "var(--accent)" }} />
+                                </div>
+                                <span className="w-[52px] text-right text-[12px] font-bold tabular-nums shrink-0" style={{ color: "var(--text-primary)" }}>
+                                    {Math.round(v).toLocaleString("fr-FR")}
+                                </span>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </DialogContent>
+    );
+}
+
 function CellDetailModal({ d, activeMagasin, onClose }: { d: CellDetailData; activeMagasin: string; onClose: () => void }) {
     const hasReceptions = (d.receptions ?? 0) > 0;
     const storeLabel = activeMagasin === "TOTAL" ? "Total réseau" : (SITE_LABELS[activeMagasin]?.nom ?? activeMagasin);
@@ -328,6 +451,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
 
     // État pour le détail d'une cellule mensuelle (modal)
     const [cellDetail, setCellDetail] = useState<CellDetailData | null>(null);
+    const [networkModal, setNetworkModal] = useState<ProductRow | null>(null);
     const tableContainerRef = useRef<HTMLDivElement>(null);
 
     // Calculer les mois dynamiquement pour éviter le mismatch entre serveur et client
@@ -561,29 +685,30 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
             size: 80,
             cell: ({ row }) => {
                 const val = row.original.nbMagasinsReseau;
+                if (val == null) return <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>-</div>;
+                // Cliquable → modal des ventes réseau par mois (12 derniers mois).
                 return (
-                    <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
-                        {val != null ? val : "-"}
-                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setNetworkModal(row.original)}
+                        title="Voir les ventes réseau mois par mois"
+                        className="w-full text-center tabular-nums text-[12px] font-bold underline decoration-dotted decoration-1 underline-offset-2 hover:opacity-80 transition-opacity cursor-pointer"
+                        style={{ color: "var(--accent)" }}
+                    >
+                        {val}
+                    </button>
                 );
             },
         },
         {
-            id: "tauxPresenceReseau",
-            accessorFn: (row) => getQlikNetworkSortValue(row.tauxPresenceReseau, "tauxPresenceReseau", sorting),
-            header: () => <div className="text-center w-full">% Prés.<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
-            size: 70,
-            cell: ({ row }) => {
-                const val = row.original.tauxPresenceReseau;
-                if (val == null) return <div className="text-center text-[12px]" style={{ color: "var(--text-secondary)" }}>-</div>;
-                const pct = Math.round(val * 100);
-                const color = pct >= 66 ? "text-emerald-500" : pct >= 33 ? "text-amber-500" : "text-rose-500";
-                return (
-                    <div className={cn("text-center font-black text-[13px] tabular-nums", color)}>
-                        {pct}%
-                    </div>
-                );
+            id: "tendanceReseau",
+            accessorFn: (row) => {
+                const t = computeNetworkTrend(row.qteReseauByMonth);
+                return t.hasData && t.pct != null ? t.pct : Number.NEGATIVE_INFINITY;
             },
+            header: () => <div className="text-center w-full">Tendance<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
+            size: 78,
+            cell: ({ row }) => <TrendSparkline trend={computeNetworkTrend(row.original.qteReseauByMonth)} />,
         },
         {
             id: "caParMagasinReseau",
@@ -902,6 +1027,9 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
         {/* Modal détail cellule mensuelle */}
         <Dialog open={cellDetail !== null} onOpenChange={(open) => { if (!open) setCellDetail(null); }}>
             {cellDetail !== null && <CellDetailModal d={cellDetail!} activeMagasin={activeMagasin} onClose={() => setCellDetail(null)} />}
+        </Dialog>
+        <Dialog open={networkModal !== null} onOpenChange={(open) => { if (!open) setNetworkModal(null); }}>
+            {networkModal !== null && <NetworkMonthlyModal row={networkModal} onClose={() => setNetworkModal(null)} />}
         </Dialog>
         </>
     );
