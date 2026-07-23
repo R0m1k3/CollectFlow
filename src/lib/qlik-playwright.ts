@@ -261,6 +261,27 @@ export async function fetchNetworkMetricsPlaywright(
                                 const ditems = (((dll.qLayout as { qDimensionList?: { qItems?: Array<{ qInfo: { qId: string }; qMeta?: { title?: string }; qData?: { title?: string } }> } }).qDimensionList?.qItems) ?? []);
                                 console.log("[qlik-pw][dump] DIMENSIONS (" + ditems.length + "): " + JSON.stringify(ditems.map((it) => ({ t: it.qMeta?.title ?? it.qData?.title ?? "", id: it.qInfo.qId }))));
                             } catch (e) { console.log("[qlik-pw][dump] DimensionList error: " + String((e as Error)?.message || e)); }
+                            // SONDE : cube [Article Code, Mois] × Quantité N — vérifie le FORMAT des
+                            // valeurs "Mois" et si la quantité VARIE par mois (pour concevoir le vrai
+                            // découpage mensuel). Dimension "Mois" id="pfGAwTs" (configurable via env).
+                            try {
+                                const moisDimId = "pfGAwTs";
+                                const probe = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "cf-probe" }, qHyperCubeDef: {
+                                    qDimensions: [{ qLibraryId: dim }, { qLibraryId: moisDimId }],
+                                    qMeasures: [{ qLibraryId: mqte }],
+                                    qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 3, qHeight: 24 }],
+                                } } }, doc);
+                                const pRet = probe.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
+                                const pl = await rpc("GetLayout", {}, pRet.qHandle);
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                const hc = (pl.qLayout as any)?.qHyperCube;
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                const matrix: any[] = hc?.qDataPages?.[0]?.qMatrix ?? [];
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                const sample = matrix.slice(0, 24).map((row: any[]) => [row[0]?.qText, row[1]?.qText, row[2]?.qNum]);
+                                console.log("[qlik-pw][probe] cube [Article Code, Mois] x Quantite N — size=" + (hc?.qSize?.qcy ?? "?") + " echantillon: " + JSON.stringify(sample));
+                                try { await rpc("DestroySessionObject", { qId: String(pRet.qGenericId ?? pRet.qId ?? "") }, doc); } catch { /* noop */ }
+                            } catch (e) { console.log("[qlik-pw][probe] error: " + String((e as Error)?.message || e)); }
                             // L'hypercube session object est désormais créé JETABLE dans fetchCubeForSelection
                             // (un objet par lot) puis DestroySessionObject — corrige "Request aborted" (code 15)
                             // causé par la réutilisation du même objet sur des centaines de recalculs.
