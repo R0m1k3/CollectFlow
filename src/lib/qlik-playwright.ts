@@ -600,6 +600,16 @@ export async function fetchNetworkMetricsPlaywright(
             const mm = monthly[code];
             if (mm && Object.keys(mm).length) metric.qteByMonth = mm;
         }
+        // Diagnostic : échantillon du détail mensuel pour vérifier que les mois VARIENT
+        // (si toutes les valeurs sont identiques → la mesure Qlik ignore la sélection Date).
+        const sampleM = [...out.values()].find((m) => m.qteByMonth && Object.keys(m.qteByMonth).length > 1);
+        if (sampleM) {
+            const vals = Object.values(sampleM.qteByMonth ?? {});
+            const allEqual = vals.every((v) => v === vals[0]);
+            console.log(`[qlik-pw] qteByMonth échantillon ${sampleM.codeCentrale} (total qté=${Math.round(sampleM.qteReseau)}, mois identiques=${allEqual}):`, JSON.stringify(sampleM.qteByMonth));
+        } else {
+            console.log(`[qlik-pw] qteByMonth: aucun échantillon multi-mois (monthly vide ?)`);
+        }
         console.log(`[qlik-pw] ${out.size} produits réseau (cube ${result.size})`);
         // Échantillon brut pour vérifier que les 4 nouvelles mesures (cols 4-7) renvoient des valeurs
         const sample = (result.rows ?? []).slice(0, 3).map((r) => ({
