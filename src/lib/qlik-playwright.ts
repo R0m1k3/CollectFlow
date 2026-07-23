@@ -600,16 +600,23 @@ export async function fetchNetworkMetricsPlaywright(
             const mm = monthly[code];
             if (mm && Object.keys(mm).length) metric.qteByMonth = mm;
         }
-        // Diagnostic : échantillon du détail mensuel pour vérifier que les mois VARIENT
-        // (si toutes les valeurs sont identiques → la mesure Qlik ignore la sélection Date).
-        const sampleM = [...out.values()].find((m) => m.qteByMonth && Object.keys(m.qteByMonth).length > 1);
-        if (sampleM) {
-            const vals = Object.values(sampleM.qteByMonth ?? {});
-            const allEqual = vals.every((v) => v === vals[0]);
-            console.log(`[qlik-pw] qteByMonth échantillon ${sampleM.codeCentrale} (total qté=${Math.round(sampleM.qteReseau)}, mois identiques=${allEqual}):`, JSON.stringify(sampleM.qteByMonth));
-        } else {
-            console.log(`[qlik-pw] qteByMonth: aucun échantillon multi-mois (monthly vide ?)`);
+        // Diagnostic CONCLUSIF : combien de codes ont des mois qui VARIENT vs identiques.
+        // Si presque tous varient → la mesure respecte le mois (feature OK).
+        // Si tous identiques → la mesure Qlik ignore la sélection Date.
+        let nVar = 0, nFlat = 0;
+        let exVar: NetworkMetric | null = null, exFlat: NetworkMetric | null = null;
+        for (const m of out.values()) {
+            const bm = m.qteByMonth;
+            if (!bm) continue;
+            const vals = Object.values(bm);
+            if (vals.length < 2) continue;
+            const allEq = vals.every((v) => v === vals[0]);
+            if (allEq) { nFlat++; if (!exFlat) exFlat = m; }
+            else { nVar++; if (!exVar) exVar = m; }
         }
+        console.log(`[qlik-pw] qteByMonth distribution: ${nVar} codes VARIENT / ${nFlat} identiques (total ${nVar + nFlat})`);
+        if (exVar) console.log(`[qlik-pw] exemple VARIE ${exVar.codeCentrale}:`, JSON.stringify(exVar.qteByMonth));
+        if (exFlat) console.log(`[qlik-pw] exemple IDENTIQUE ${exFlat.codeCentrale}:`, JSON.stringify(exFlat.qteByMonth));
         console.log(`[qlik-pw] ${out.size} produits réseau (cube ${result.size})`);
         // Échantillon brut pour vérifier que les 4 nouvelles mesures (cols 4-7) renvoient des valeurs
         const sample = (result.rows ?? []).slice(0, 3).map((r) => ({
