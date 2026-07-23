@@ -103,7 +103,12 @@ export async function fetchNetworkMetricsPlaywright(
     // mois). Repli automatique sur le chemin par lots en cas de code 15.
     // ACTIVÉ PAR DÉFAUT (validé fiable) — désactivable seulement avec QLIK_SELECT_ALL_CODES=0.
     const qlikSelectAllCodes = !["0", "false", "no", "off"].includes((process.env.QLIK_SELECT_ALL_CODES ?? "").trim().toLowerCase());
-    console.log(`[qlik-pw] tuning settle=${qlikSettleMs}ms code15Attempts=${qlikCode15MaxAttempts} batchFallbacks=${qlikArticleBatchFallbacks.join(">")} selectAllCodes=${qlikSelectAllCodes}`);
+    // Découpage mensuel réel via la dimension "Mois" (cube [Article Code, Mois]) : donne
+    // les vraies quantités par mois ET le vrai total (au lieu de 12× la valeur annuelle).
+    // Activé par défaut ; désactivable via QLIK_MONTH_DIM=0 (revient à l'itération par mois).
+    const qlikMonthDim = !["0", "false", "no", "off"].includes((process.env.QLIK_MONTH_DIM ?? "").trim().toLowerCase());
+    const qlikMoisDimId = (process.env.QLIK_MOIS_DIM_ID ?? "pfGAwTs").trim();
+    console.log(`[qlik-pw] tuning settle=${qlikSettleMs}ms code15Attempts=${qlikCode15MaxAttempts} batchFallbacks=${qlikArticleBatchFallbacks.join(">")} selectAllCodes=${qlikSelectAllCodes} monthDim=${qlikMonthDim}`);
 
     const browser = await getBrowser();
     console.log(`[qlik-pw] chromium lancé`);
@@ -144,7 +149,7 @@ export async function fetchNetworkMetricsPlaywright(
         }));
 
         const result = (await page.evaluate(
-            ({ app, dim, mca, mqte, mnb, mcamag, mmarge, codes, token, monthlyPayload, noDateMode, qlikSettleMs, qlikCode15MaxAttempts, qlikArticleBatchFallbacks, selectAllCodes }: {
+            ({ app, dim, mca, mqte, mnb, mcamag, mmarge, codes, token, monthlyPayload, noDateMode, qlikSettleMs, qlikCode15MaxAttempts, qlikArticleBatchFallbacks, selectAllCodes, monthDim, moisDimId }: {
                 app: string; dim: string; mca: string; mqte: string; mnb: string; mcamag: string; mmarge: string;
                 codes: string[]; token: string;
                 monthlyPayload: Array<{ label: string; dateDebut: string; dateFin: string; serials: number[] }>;
@@ -153,6 +158,8 @@ export async function fetchNetworkMetricsPlaywright(
                 qlikCode15MaxAttempts: number;
                 qlikArticleBatchFallbacks: number[];
                 selectAllCodes: boolean;
+                monthDim: boolean;
+                moisDimId: string;
             }) =>
                 new Promise<InPageResult>((resolve) => {
                     const loc = (window as unknown as { location: Location }).location;
@@ -350,6 +357,107 @@ export async function fetchNetworkMetricsPlaywright(
                                 }
                             };
 
+                            // ─── Découpage mensuel réel via dimension "Mois" ────────────────────
+                            // Cube [Article Code, Mois] × 5 mesures. Chaque ligne = (code, mois, ca,
+                            // qte, nbMag, caMag, marge). Le "Mois" est au format "YYYYMM" → "YYYY-MM".
+                            const normMois = (m: string): string => (/^\d{6}$/.test(m) ? m.slice(0, 4) + "-" + m.slice(4) : m);
+                            const PAGEM = 1400;
+                            const fetchMonthCube = async (
+                                onRow: (code: string, mois: string, ca: number, qte: number, nbMag: number, caMag: number, marge: number) => void,
+                                timings?: Record<string, number>,
+                                onCode15Retry?: () => void,
+                            ): Promise<number> => {
+                                const { value: obj } = await timed("createCube", "CreateSessionObject", () => rpcWithRetry("createCube", "CreateSessionObject", { qProp: { qInfo: { qType: "cf-net-mois" }, qHyperCubeDef: {
+                                    qDimensions: [{ qLibraryId: dim }, { qLibraryId: moisDimId }],
+                                    qMeasures: [{ qLibraryId: mca }, { qLibraryId: mqte }, { qLibraryId: mnb }, { qLibraryId: rCamag }, { qLibraryId: rMarge }],
+                                    qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 7, qHeight: PAGEM }],
+                                } } }, doc, onCode15Retry), timings);
+                                const qReturn = obj.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
+                                const cube = { handle: qReturn.qHandle, id: String(qReturn.qGenericId ?? qReturn.qId ?? "") };
+                                const oh = cube.handle;
+                                const process = (matrix: Array<Array<{ qText?: string; qNum?: number }>>): number => {
+                                    for (const r of matrix) {
+                                        onRow(
+                                            String(r[0]?.qText ?? ""), String(r[1]?.qText ?? ""),
+                                            Number(r[2]?.qNum) || 0, Number(r[3]?.qNum) || 0, Number(r[4]?.qNum) || 0,
+                                            Number(r[5]?.qNum) || 0, Number(r[6]?.qNum) || 0,
+                                        );
+                                    }
+                                    return matrix.length;
+                                };
+                                try {
+                                    const { value: layout } = await timed("layout", "GetLayout", () => rpcWithRetry("layout", "GetLayout", {}, oh, onCode15Retry), timings);
+                                    const hc = (layout.qLayout as { qHyperCube: { qSize: { qcy: number }; qDataPages?: Array<{ qArea?: { qTop?: number }; qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }> } }).qHyperCube;
+                                    const size = hc.qSize.qcy;
+                                    let got = 0, top = 0;
+                                    const firstPage = hc.qDataPages?.find((p) => (p.qArea?.qTop ?? 0) === 0);
+                                    if (firstPage?.qMatrix?.length) { got += process(firstPage.qMatrix); top = PAGEM; }
+                                    for (; top < size; top += PAGEM) {
+                                        const { value: d } = await timed("getCubeData", "GetHyperCubeData", () => rpcWithRetry("getCubeData", "GetHyperCubeData", { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: 7, qHeight: PAGEM }] }, oh, onCode15Retry), timings);
+                                        const matrix = (d.qDataPages as Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }>)?.[0]?.qMatrix ?? [];
+                                        if (!matrix.length) break;
+                                        got += process(matrix);
+                                        if (matrix.length < PAGEM) break;
+                                    }
+                                    return got;
+                                } finally {
+                                    await destroyCube(cube, timings);
+                                }
+                            };
+
+                            // Sélectionne toute la fenêtre de dates une fois, puis parcourt les codes par
+                            // lots ; un seul cube [Article Code, Mois] par lot donne TOUS les mois d'un coup.
+                            const monthDimPath = async (): Promise<void> => {
+                                const allSerials = monthlyPayload.flatMap((m) => m.serials);
+                                if (dfh !== -1 && allSerials.length) {
+                                    await rpc("Clear", {}, dfh);
+                                    await sleep(qlikSettleMs);
+                                    await rpc("SelectValues", { qFieldValues: allSerials.map((s) => ({ qNum: s, qText: String(s) })), qToggleMode: false, qSoftLock: true }, dfh);
+                                    await sleep(qlikSettleMs);
+                                }
+                                aggMonths = monthlyPayload.length;
+                                const fallbackSizes = [800, 400, 200];
+                                const totalCodes = codes.length;
+                                let codeIndex = 0, batchNumber = 0, fallbackIndex = 0;
+                                while (codes.length ? codeIndex < totalCodes : batchNumber === 0) {
+                                    const batch = codes.length ? codes.slice(codeIndex, Math.min(codeIndex + fallbackSizes[fallbackIndex], totalCodes)) : [];
+                                    const timings: Record<string, number> = {};
+                                    let code15Retries = 0;
+                                    batchNumber++;
+                                    const bp = "[qlik-pw] (mois) lot " + batchNumber + " [" + codeIndex + "," + (codeIndex + batch.length) + ") size=" + batch.length;
+                                    try {
+                                        if (batch.length && fh !== -1) {
+                                            await timed("clearCode", "Clear", () => rpc("Clear", {}, fh), timings);
+                                            await sleep(qlikSettleMs);
+                                            await timed("selectCode", "SelectValues", () => rpc("SelectValues", { qFieldValues: batch.map((c) => ({ qText: c })), qToggleMode: false, qSoftLock: true }, fh), timings);
+                                            await sleep(qlikSettleMs);
+                                        }
+                                        const got = await timed("cube", "batch", () => fetchMonthCube((code, mois, ca, qte, nbMag, caMag, marge) => {
+                                            if (!code || code === "-") return;
+                                            out.push([code, ca, qte, nbMag, caMag, marge]);
+                                            const mm = normMois(mois);
+                                            (monthlyByCode[code] ??= {});
+                                            monthlyByCode[code][mm] = (monthlyByCode[code][mm] ?? 0) + qte;
+                                        }, timings, () => { code15Retries++; }), timings);
+                                        aggBatches++;
+                                        aggCode15Retries += code15Retries;
+                                        console.log("[qlik-pw][timing] " + bp + " — rows=" + got + " cumul=" + out.length + " retries15=" + code15Retries + " timings=" + timingSummary(timings));
+                                        if (!codes.length) break;
+                                        codeIndex += batch.length;
+                                        fallbackIndex = 0;
+                                    } catch (batchErr) {
+                                        const nextSize = fallbackSizes[fallbackIndex + 1];
+                                        if (codes.length && isEngineCode15(batchErr) && nextSize && batch.length > nextSize) {
+                                            console.log("[qlik-pw] " + bp + " — fallback code15 " + batch.length + "→" + nextSize);
+                                            fallbackIndex += 1;
+                                            aggFallbackCount++;
+                                            continue;
+                                        }
+                                        throw new Error(bp + " — " + String((batchErr as Error)?.message || batchErr));
+                                    }
+                                }
+                            };
+
                             // Chemin rapide (flag QLIK_SELECT_ALL_CODES) : sélectionne TOUS les
                             // Article Code une seule fois, puis n'itère que la sélection Date par
                             // mois avec UN cube paginé (au lieu de re-sélectionner les codes par lots
@@ -417,7 +525,11 @@ export async function fetchNetworkMetricsPlaywright(
                                 }
                             };
 
-                            if (noDateMode) {
+                            if (!noDateMode && monthDim) {
+                                // Découpage mensuel réel (dimension Mois) — remplace l'itération par mois.
+                                console.log("[qlik-pw] extraction via dimension Mois (" + monthlyPayload.length + " mois attendus, moisDim=" + moisDimId + ")");
+                                await monthDimPath();
+                            } else if (noDateMode) {
                                 // Aucun filtre Date : extraction en un seul appel (tous les codes d'un coup).
                                 // On sélectionne uniquement Article Code ; Date reste libre.
                                 const timings: Record<string, number> = {};
@@ -589,6 +701,8 @@ export async function fetchNetworkMetricsPlaywright(
                 qlikCode15MaxAttempts,
                 qlikArticleBatchFallbacks,
                 selectAllCodes: qlikSelectAllCodes,
+                monthDim: qlikMonthDim,
+                moisDimId: qlikMoisDimId,
             },
         )) as InPageResult;
 
