@@ -247,29 +247,43 @@ type NetworkTrend = {
     hasData: boolean;
 };
 
+/**
+ * Tendance réseau par RÉGRESSION LINÉAIRE (moindres carrés) sur les 12 derniers mois.
+ * Utilise tous les points (robuste au bruit d'un mois isolé). L'indicateur `pct` est la
+ * variation modélisée sur la période (pente × durée) rapportée à la moyenne.
+ * Direction : forte hausse >+25%, hausse >+8%, stable, baisse <−8%, forte baisse <−25%.
+ */
 function computeNetworkTrend(qteByMonth?: Record<string, number> | null): NetworkTrend {
     const empty: NetworkTrend = { values: [], labels: [], direction: "flat", pct: null, hasData: false };
     if (!qteByMonth) return empty;
-    const labels = Object.keys(qteByMonth).sort(); // "YYYY-MM" trie chronologiquement
+    let labels = Object.keys(qteByMonth).sort(); // "YYYY-MM" trie chronologiquement
     if (labels.length === 0) return empty;
+    labels = labels.slice(-12); // 12 derniers mois
     const values = labels.map((l) => Number(qteByMonth[l]) || 0);
     const n = values.length;
     let pct: number | null = null;
     let direction: NetworkTrend["direction"] = "flat";
-    if (n >= 2) {
-        const w = Math.max(1, Math.min(4, Math.floor(n / 2)));
-        const mean = (a: number[]) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0);
-        const lastM = mean(values.slice(n - w));
-        const prevM = mean(values.slice(n - 2 * w, n - w));
-        if (prevM > 0) {
-            pct = (lastM - prevM) / prevM;
-            direction = pct > 0.1 ? "up" : pct < -0.1 ? "down" : "flat";
-        } else if (lastM > 0) {
-            direction = "up"; // apparition (rien avant, ventes maintenant)
+    if (n >= 3) {
+        const mx = (n - 1) / 2;
+        const my = values.reduce((s, v) => s + v, 0) / n;
+        let num = 0, den = 0;
+        for (let i = 0; i < n; i++) { num += (i - mx) * (values[i] - my); den += (i - mx) * (i - mx); }
+        const slope = den ? num / den : 0;
+        if (my > 0) {
+            pct = (slope * (n - 1)) / my; // variation modélisée sur toute la période / moyenne
+            direction = pct > 0.08 ? "up" : pct < -0.08 ? "down" : "flat";
+        } else if (slope > 0) {
+            direction = "up";
         }
+    } else if (n === 2 && values[0] > 0) {
+        pct = (values[1] - values[0]) / values[0];
+        direction = pct > 0.08 ? "up" : pct < -0.08 ? "down" : "flat";
     }
     return { values, labels, direction, pct, hasData: true };
 }
+
+/** Seuil de "forte" variation (±25%) pour distinguer hausse/forte hausse dans l'UI. */
+const TREND_STRONG = 0.25;
 
 const TREND_COLOR: Record<NetworkTrend["direction"], string> = {
     up: "#22c55e",
@@ -331,7 +345,12 @@ function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () =>
                 <p className="text-[12px] mt-0.5" style={{ color: "var(--text-muted)" }}>
                     Ventes réseau · 12 derniers mois
                     {row.nbMagasinsReseau != null && <> · <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>{row.nbMagasinsReseau} magasins</span></>}
-                    {pct != null && <> · <span className="font-bold" style={{ color }}>{pct >= 0 ? "+" : ""}{Math.round(pct * 100)}%</span></>}
+                    {pct != null && (
+                        <> · <span className="font-bold" style={{ color }}>
+                            {pct >= 0 ? "+" : ""}{Math.round(pct * 100)}% ·{" "}
+                            {pct > TREND_STRONG ? "Forte hausse" : pct > 0.08 ? "Hausse" : pct < -TREND_STRONG ? "Forte baisse" : pct < -0.08 ? "Baisse" : "Stable"}
+                        </span></>
+                    )}
                 </p>
             </DialogHeader>
             {!trend.hasData ? (
@@ -685,18 +704,10 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
             size: 80,
             cell: ({ row }) => {
                 const val = row.original.nbMagasinsReseau;
-                if (val == null) return <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>-</div>;
-                // Cliquable → modal des ventes réseau par mois (12 derniers mois).
                 return (
-                    <button
-                        type="button"
-                        onClick={() => setNetworkModal(row.original)}
-                        title="Voir les ventes réseau mois par mois"
-                        className="w-full text-center tabular-nums text-[12px] font-bold underline decoration-dotted decoration-1 underline-offset-2 hover:opacity-80 transition-opacity cursor-pointer"
-                        style={{ color: "var(--accent)" }}
-                    >
-                        {val}
-                    </button>
+                    <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
+                        {val != null ? val : "-"}
+                    </div>
                 );
             },
         },
@@ -706,9 +717,23 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
                 const t = computeNetworkTrend(row.qteReseauByMonth);
                 return t.hasData && t.pct != null ? t.pct : Number.NEGATIVE_INFINITY;
             },
-            header: () => <div className="text-center w-full">Tendance<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
+            header: () => <div className="text-center w-full">Tendance<br/><span className="text-[9px] opacity-60">Réseau · 12 m</span></div>,
             size: 78,
-            cell: ({ row }) => <TrendSparkline trend={computeNetworkTrend(row.original.qteReseauByMonth)} />,
+            cell: ({ row }) => {
+                const trend = computeNetworkTrend(row.original.qteReseauByMonth);
+                if (!trend.hasData) return <div className="text-center text-[12px]" style={{ color: "var(--text-secondary)" }}>-</div>;
+                // Cliquable → modal des ventes réseau mois par mois (12 derniers mois).
+                return (
+                    <button
+                        type="button"
+                        onClick={() => setNetworkModal(row.original)}
+                        title="Voir les ventes réseau mois par mois (12 derniers mois)"
+                        className="w-full cursor-pointer rounded hover:bg-[var(--bg-elevated)] transition-colors py-0.5"
+                    >
+                        <TrendSparkline trend={trend} />
+                    </button>
+                );
+            },
         },
         {
             id: "caParMagasinReseau",
