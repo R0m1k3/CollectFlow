@@ -212,7 +212,14 @@ async function runJob(job: QlikSyncJob): Promise<void> {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(`[api/qlik/sync] job=${job.jobId}`, msg);
         job.status = "error";
-        job.error = msg;
+        // Message explicite quand le serveur Qlik est saturé (OOM à l'ouverture de
+        // l'app) : ce n'est PAS un bug CollectFlow, l'app Qlik ne se charge même pas.
+        const lower = msg.toLowerCase();
+        if (lower.includes("out of memory") || lower.includes("not enough memory") || lower.includes("file corrupted") || lower.includes('"code":6') || lower.includes('"code":3002')) {
+            job.error = "Serveur Qlik saturé : mémoire insuffisante pour charger l'application. Réessayez plus tard (ou faites libérer / augmenter la RAM du serveur Qlik).";
+        } else {
+            job.error = msg;
+        }
         job.finishedAt = new Date().toISOString();
     }
 }
