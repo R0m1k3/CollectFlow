@@ -243,7 +243,7 @@ type NetworkTrend = {
     values: number[];   // quantités mensuelles, ordre chronologique
     labels: string[];   // "YYYY-MM"
     direction: "up" | "down" | "flat";
-    pct: number | null; // variation moyenne 4 derniers mois vs 4 précédents
+    pct: number | null; // variation modélisée (régression linéaire) sur 12 mois
     hasData: boolean;
 };
 
@@ -306,7 +306,7 @@ function TrendSparkline({ trend }: { trend: NetworkTrend }) {
     }).join(" ");
     const Arrow = direction === "up" ? TrendingUp : direction === "down" ? TrendingDown : Minus;
     return (
-        <div className="flex flex-col items-center justify-center gap-0.5" title={pct != null ? `${pct >= 0 ? "+" : ""}${(pct * 100).toFixed(0)}% (4 derniers mois vs 4 précédents)` : "tendance réseau"}>
+        <div className="flex flex-col items-center justify-center gap-0.5" title={pct != null ? `Tendance ${pct >= 0 ? "+" : ""}${(pct * 100).toFixed(0)}% sur 12 mois (régression) — cliquer pour le détail` : "Tendance réseau — cliquer pour le détail"}>
             <div className="flex items-center gap-1">
                 <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="shrink-0" aria-hidden>
                     {n > 1 && <polyline points={pts} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />}
