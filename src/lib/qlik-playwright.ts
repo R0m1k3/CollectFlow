@@ -108,6 +108,10 @@ export async function fetchNetworkMetricsPlaywright(
     // Activé par défaut ; désactivable via QLIK_MONTH_DIM=0 (revient à l'itération par mois).
     const qlikMonthDim = !["0", "false", "no", "off"].includes((process.env.QLIK_MONTH_DIM ?? "").trim().toLowerCase());
     const qlikMoisDimId = (process.env.QLIK_MOIS_DIM_ID ?? "pfGAwTs").trim();
+    // Mesure "Quantité COMP" (année N-1) pour compléter les mois de l'année précédente
+    // → 12 mois glissants (Quantité N ne couvre que l'année en cours).
+    const qlikMeasQteCompId = (process.env.QLIK_MEAS_QTE_COMP_ID ?? "96862880-76cd-4957-bf25-b96901f2ac5f").trim();
+    const yearN = new Date().getFullYear();
     console.log(`[qlik-pw] tuning settle=${qlikSettleMs}ms code15Attempts=${qlikCode15MaxAttempts} batchFallbacks=${qlikArticleBatchFallbacks.join(">")} selectAllCodes=${qlikSelectAllCodes} monthDim=${qlikMonthDim}`);
 
     const browser = await getBrowser();
@@ -149,7 +153,7 @@ export async function fetchNetworkMetricsPlaywright(
         }));
 
         const result = (await page.evaluate(
-            ({ app, dim, mca, mqte, mnb, mcamag, mmarge, codes, token, monthlyPayload, noDateMode, qlikSettleMs, qlikCode15MaxAttempts, qlikArticleBatchFallbacks, selectAllCodes, monthDim, moisDimId }: {
+            ({ app, dim, mca, mqte, mnb, mcamag, mmarge, codes, token, monthlyPayload, noDateMode, qlikSettleMs, qlikCode15MaxAttempts, qlikArticleBatchFallbacks, selectAllCodes, monthDim, moisDimId, mqteComp, yearN }: {
                 app: string; dim: string; mca: string; mqte: string; mnb: string; mcamag: string; mmarge: string;
                 codes: string[]; token: string;
                 monthlyPayload: Array<{ label: string; dateDebut: string; dateFin: string; serials: number[] }>;
@@ -160,6 +164,8 @@ export async function fetchNetworkMetricsPlaywright(
                 selectAllCodes: boolean;
                 monthDim: boolean;
                 moisDimId: string;
+                mqteComp: string;
+                yearN: number;
             }) =>
                 new Promise<InPageResult>((resolve) => {
                     const loc = (window as unknown as { location: Location }).location;
@@ -361,16 +367,16 @@ export async function fetchNetworkMetricsPlaywright(
                             // Cube [Article Code, Mois] × 5 mesures. Chaque ligne = (code, mois, ca,
                             // qte, nbMag, caMag, marge). Le "Mois" est au format "YYYYMM" → "YYYY-MM".
                             const normMois = (m: string): string => (/^\d{6}$/.test(m) ? m.slice(0, 4) + "-" + m.slice(4) : m);
-                            const PAGEM = 1400; // 7 colonnes × 1400 = 9800 cellules < 10000 (limite Qlik)
+                            const PAGEM = 1200; // 8 colonnes × 1200 = 9600 cellules < 10000 (limite Qlik)
                             const fetchMonthCube = async (
-                                onRow: (code: string, mois: string, ca: number, qte: number, nbMag: number, caMag: number, marge: number) => void,
+                                onRow: (code: string, mois: string, ca: number, qte: number, nbMag: number, caMag: number, marge: number, qteComp: number) => void,
                                 timings?: Record<string, number>,
                                 onCode15Retry?: () => void,
                             ): Promise<number> => {
                                 const { value: obj } = await timed("createCube", "CreateSessionObject", () => rpcWithRetry("createCube", "CreateSessionObject", { qProp: { qInfo: { qType: "cf-net-mois" }, qHyperCubeDef: {
                                     qDimensions: [{ qLibraryId: dim }, { qLibraryId: moisDimId }],
-                                    qMeasures: [{ qLibraryId: mca }, { qLibraryId: mqte }, { qLibraryId: mnb }, { qLibraryId: rCamag }, { qLibraryId: rMarge }],
-                                    qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 7, qHeight: PAGEM }],
+                                    qMeasures: [{ qLibraryId: mca }, { qLibraryId: mqte }, { qLibraryId: mnb }, { qLibraryId: rCamag }, { qLibraryId: rMarge }, { qLibraryId: mqteComp }],
+                                    qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 8, qHeight: PAGEM }],
                                 } } }, doc, onCode15Retry), timings);
                                 const qReturn = obj.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
                                 const cube = { handle: qReturn.qHandle, id: String(qReturn.qGenericId ?? qReturn.qId ?? "") };
@@ -380,7 +386,7 @@ export async function fetchNetworkMetricsPlaywright(
                                         onRow(
                                             String(r[0]?.qText ?? ""), String(r[1]?.qText ?? ""),
                                             Number(r[2]?.qNum) || 0, Number(r[3]?.qNum) || 0, Number(r[4]?.qNum) || 0,
-                                            Number(r[5]?.qNum) || 0, Number(r[6]?.qNum) || 0,
+                                            Number(r[5]?.qNum) || 0, Number(r[6]?.qNum) || 0, Number(r[7]?.qNum) || 0,
                                         );
                                     }
                                     return matrix.length;
@@ -393,7 +399,7 @@ export async function fetchNetworkMetricsPlaywright(
                                     const firstPage = hc.qDataPages?.find((p) => (p.qArea?.qTop ?? 0) === 0);
                                     if (firstPage?.qMatrix?.length) { got += process(firstPage.qMatrix); top = PAGEM; }
                                     for (; top < size; top += PAGEM) {
-                                        const { value: d } = await timed("getCubeData", "GetHyperCubeData", () => rpcWithRetry("getCubeData", "GetHyperCubeData", { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: 7, qHeight: PAGEM }] }, oh, onCode15Retry), timings);
+                                        const { value: d } = await timed("getCubeData", "GetHyperCubeData", () => rpcWithRetry("getCubeData", "GetHyperCubeData", { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: 8, qHeight: PAGEM }] }, oh, onCode15Retry), timings);
                                         const matrix = (d.qDataPages as Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }>)?.[0]?.qMatrix ?? [];
                                         if (!matrix.length) break;
                                         got += process(matrix);
@@ -432,12 +438,15 @@ export async function fetchNetworkMetricsPlaywright(
                                             await timed("selectCode", "SelectValues", () => rpc("SelectValues", { qFieldValues: batch.map((c) => ({ qText: c })), qToggleMode: false, qSoftLock: true }, fh), timings);
                                             await sleep(qlikSettleMs);
                                         }
-                                        const got = await timed("cube", "batch", () => fetchMonthCube((code, mois, ca, qte, nbMag, caMag, marge) => {
+                                        const got = await timed("cube", "batch", () => fetchMonthCube((code, mois, ca, qte, nbMag, caMag, marge, qteComp) => {
                                             if (!code || code === "-") return;
                                             out.push([code, ca, qte, nbMag, caMag, marge]);
+                                            // 12 mois glissants : mois de l'année N → Quantité N, mois N-1 → Quantité COMP.
                                             const mm = normMois(mois);
+                                            const y = parseInt(mm.slice(0, 4), 10);
+                                            const qtyMonth = y === yearN ? qte : qteComp;
                                             (monthlyByCode[code] ??= {});
-                                            monthlyByCode[code][mm] = (monthlyByCode[code][mm] ?? 0) + qte;
+                                            monthlyByCode[code][mm] = (monthlyByCode[code][mm] ?? 0) + qtyMonth;
                                         }, timings, () => { code15Retries++; }), timings);
                                         aggBatches++;
                                         aggCode15Retries += code15Retries;
@@ -703,6 +712,8 @@ export async function fetchNetworkMetricsPlaywright(
                 selectAllCodes: qlikSelectAllCodes,
                 monthDim: qlikMonthDim,
                 moisDimId: qlikMoisDimId,
+                mqteComp: qlikMeasQteCompId,
+                yearN,
             },
         )) as InPageResult;
 
