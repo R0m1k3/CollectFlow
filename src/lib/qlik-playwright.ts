@@ -422,7 +422,9 @@ export async function fetchNetworkMetricsPlaywright(
                                     await sleep(qlikSettleMs);
                                 }
                                 aggMonths = monthlyPayload.length;
-                                const fallbackSizes = [800, 400, 200];
+                                // Lots plus petits = cubes plus légers (moins de pression mémoire côté
+                                // moteur Qlik, qui a tendance à saturer "Out of memory" sur les gros cubes).
+                                const fallbackSizes = [300, 150, 75];
                                 const totalCodes = codes.length;
                                 let codeIndex = 0, batchNumber = 0, fallbackIndex = 0;
                                 while (codes.length ? codeIndex < totalCodes : batchNumber === 0) {
