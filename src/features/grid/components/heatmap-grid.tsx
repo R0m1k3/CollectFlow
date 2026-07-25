@@ -379,7 +379,7 @@ function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () =>
                     {row.libelle1}
                 </DialogTitle>
                 <p className="text-[12px] mt-0.5" style={{ color: "var(--text-muted)" }}>
-                    Ventes réseau · 12 derniers mois
+                    Ventes réseau · {labels.length > 0 ? `${labels.length} derniers mois` : "12 derniers mois"}
                     {row.nbMagasinsReseau != null && <> · <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>{row.nbMagasinsReseau} magasins</span></>}
                     {pct != null && (
                         <> · <span className="font-bold" style={{ color }}>

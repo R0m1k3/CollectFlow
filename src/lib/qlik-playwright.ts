@@ -443,12 +443,22 @@ export async function fetchNetworkMetricsPlaywright(
                                         const got = await timed("cube", "batch", () => fetchMonthCube((code, mois, ca, qte, nbMag, caMag, marge, qteComp) => {
                                             if (!code || code === "-") return;
                                             out.push([code, ca, qte, nbMag, caMag, marge]);
-                                            // 12 mois glissants : mois de l'année N → Quantité N, mois N-1 → Quantité COMP.
+                                            // 12 mois glissants. Le cube ne renvoie que les mois de l'année N
+                                            // (les mesures "N" sont nulles ailleurs → lignes supprimées).
+                                            // "Quantité COMP" = comparable N-1 : à la ligne Mois=YYYYMM elle
+                                            // donne la quantité du MÊME mois l'année précédente. On dérive donc
+                                            // deux points par ligne : YYYY-MM (N) et (YYYY-1)-MM (N-1).
                                             const mm = normMois(mois);
                                             const y = parseInt(mm.slice(0, 4), 10);
-                                            const qtyMonth = y === yearN ? qte : qteComp;
                                             (monthlyByCode[code] ??= {});
-                                            monthlyByCode[code][mm] = (monthlyByCode[code][mm] ?? 0) + qtyMonth;
+                                            if (y === yearN) {
+                                                monthlyByCode[code][mm] = (monthlyByCode[code][mm] ?? 0) + qte;
+                                                const mmPrev = String(y - 1) + mm.slice(4); // "2026-03" → "2025-03"
+                                                monthlyByCode[code][mmPrev] = (monthlyByCode[code][mmPrev] ?? 0) + qteComp;
+                                            } else {
+                                                // Ligne d'une autre année (cas non observé) : on prend la mesure N.
+                                                monthlyByCode[code][mm] = (monthlyByCode[code][mm] ?? 0) + qte;
+                                            }
                                         }, timings, () => { code15Retries++; }), timings);
                                         aggBatches++;
                                         aggCode15Retries += code15Retries;
