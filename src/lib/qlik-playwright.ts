@@ -268,6 +268,16 @@ export async function fetchNetworkMetricsPlaywright(
                             const pickMeasure = (title: string, fallback: string) => byTitle.get(norm(title)) ?? fallback;
                             const rCamag = pickMeasure("CA par Magasin N", mcamag);
                             const rMarge = pickMeasure("Marge % N", mmarge);
+                            // Résolution par TITRE aussi pour CA / Quantité / Nb magasins : évite tout
+                            // décalage si un qId d'env ne pointe pas sur la mesure attendue.
+                            const rCa = pickMeasure("CA N", mca);
+                            const rQte = pickMeasure("Quantité N", mqte);
+                            const rNbMag = pickMeasure("Magasin Ventes Nb N", mnb);
+                            console.log("[qlik-pw] mesures utilisées: " + JSON.stringify({
+                                "CA N": rCa, "Quantité N": rQte, "Magasin Ventes Nb N": rNbMag,
+                                "CA par Magasin N": rCamag, "Marge % N": rMarge,
+                                env: { mca, mqte, mnb },
+                            }));
                             console.log("measures résolues par titre: " + JSON.stringify({ rCamag, rMarge }) + " (sur " + items.length + " mesures)");
                             // DUMP diagnostic : inventaire des mesures + dimensions (titre + id) pour
                             // identifier une mesure "Quantité" NON annuelle et/ou une dimension "Mois/Période"
@@ -314,7 +324,7 @@ export async function fetchNetworkMetricsPlaywright(
                             const createCubeForBatch = async (timings?: Record<string, number>, onCode15Retry?: () => void): Promise<{ handle: number; id: string }> => {
                                 const { value: obj } = await timed("createCube", "CreateSessionObject", () => rpcWithRetry("createCube", "CreateSessionObject", { qProp: { qInfo: { qType: "cf-net" }, qHyperCubeDef: {
                                     qDimensions: [{ qLibraryId: dim }],
-                                    qMeasures: [{ qLibraryId: mca }, { qLibraryId: mqte }, { qLibraryId: mnb }, { qLibraryId: rCamag }, { qLibraryId: rMarge }],
+                                    qMeasures: [{ qLibraryId: rCa }, { qLibraryId: rQte }, { qLibraryId: rNbMag }, { qLibraryId: rCamag }, { qLibraryId: rMarge }],
                                     qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 6, qHeight: PAGE }],
                                 } } }, doc, onCode15Retry), timings);
                                 const qReturn = obj.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
@@ -380,7 +390,7 @@ export async function fetchNetworkMetricsPlaywright(
                             ): Promise<number> => {
                                 const { value: obj } = await timed("createCube", "CreateSessionObject", () => rpcWithRetry("createCube", "CreateSessionObject", { qProp: { qInfo: { qType: "cf-net-mois" }, qHyperCubeDef: {
                                     qDimensions: [{ qLibraryId: dim }, { qLibraryId: moisDimId }],
-                                    qMeasures: [{ qLibraryId: mca }, { qLibraryId: mqte }, { qLibraryId: mnb }, { qLibraryId: rCamag }, { qLibraryId: rMarge }, { qLibraryId: mqteComp }],
+                                    qMeasures: [{ qLibraryId: rCa }, { qLibraryId: rQte }, { qLibraryId: rNbMag }, { qLibraryId: rCamag }, { qLibraryId: rMarge }, { qLibraryId: mqteComp }],
                                     qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 8, qHeight: PAGEM }],
                                 } } }, doc, onCode15Retry), timings);
                                 const qReturn = obj.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
@@ -422,6 +432,7 @@ export async function fetchNetworkMetricsPlaywright(
                             // selectYear = 2025 → passe complémentaire : on sélectionne l'année pour
                             // récupérer directement ses mois (seul moyen d'obtenir août→déc N-1, que
                             // COMP ne peut pas fournir puisque l'année N ne va pas jusque-là).
+                            let loggedSampleRow = false;
                             const monthDimPath = async (selectYear: number | null): Promise<void> => {
                                 const isMainPass = selectYear === null;
                                 if (yfh !== -1) {
@@ -466,6 +477,13 @@ export async function fetchNetworkMetricsPlaywright(
                                             if (isMainPass) out.push([code, ca, qte, nbMag, caMag, marge]);
                                             const mm = normMois(mois);
                                             const y = parseInt(mm.slice(0, 4), 10);
+                                            if (!loggedSampleRow) {
+                                                loggedSampleRow = true;
+                                                console.log("[qlik-pw][mesures] échantillon ligne mensuelle: " + JSON.stringify({
+                                                    code, mois: mm, "CA N": ca, "Quantité N (utilisée pour la courbe)": qte,
+                                                    "Magasin Ventes Nb N": nbMag, "CA par Magasin N": caMag, "Marge % N": marge, "Quantité COMP": qteComp,
+                                                }));
+                                            }
                                             (monthlyByCode[code] ??= {});
                                             if (isMainPass && y === yearN) {
                                                 // Mois de l'année N + son comparable N-1 (COMP = même mois, N-1).
