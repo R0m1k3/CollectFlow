@@ -246,8 +246,13 @@ export async function fetchNetworkMetricsPlaywright(
                             // Handles des champs Date / Article Code.
                             let dfh = -1;
                             let fh = -1;
+                            let yfh = -1;
                             const df = await rpc("GetField", { qFieldName: "Date" }, doc);
                             dfh = (df.qReturn as { qHandle: number }).qHandle;
+                            try {
+                                const yf = await rpc("GetField", { qFieldName: "Année" }, doc);
+                                yfh = (yf.qReturn as { qHandle: number }).qHandle;
+                            } catch { yfh = -1; }
                             if (codes.length) {
                                 const gf = await rpc("GetField", { qFieldName: "Article Code" }, doc);
                                 fh = (gf.qReturn as { qHandle: number }).qHandle;
@@ -413,7 +418,21 @@ export async function fetchNetworkMetricsPlaywright(
 
                             // Sélectionne toute la fenêtre de dates une fois, puis parcourt les codes par
                             // lots ; un seul cube [Article Code, Mois] par lot donne TOUS les mois d'un coup.
-                            const monthDimPath = async (): Promise<void> => {
+                            // selectYear = null → passe principale (année N + N-1 dérivée via COMP).
+                            // selectYear = 2025 → passe complémentaire : on sélectionne l'année pour
+                            // récupérer directement ses mois (seul moyen d'obtenir août→déc N-1, que
+                            // COMP ne peut pas fournir puisque l'année N ne va pas jusque-là).
+                            const monthDimPath = async (selectYear: number | null): Promise<void> => {
+                                const isMainPass = selectYear === null;
+                                if (yfh !== -1) {
+                                    await rpc("Clear", {}, yfh);
+                                    await sleep(qlikSettleMs);
+                                    if (selectYear !== null) {
+                                        const ysel = await rpc("SelectValues", { qFieldValues: [{ qNum: selectYear, qText: String(selectYear) }], qToggleMode: false, qSoftLock: true }, yfh);
+                                        console.log("[qlik-pw] (mois) sélection Année=" + selectYear + " → " + JSON.stringify(ysel.qReturn));
+                                        await sleep(qlikSettleMs);
+                                    }
+                                }
                                 const allSerials = monthlyPayload.flatMap((m) => m.serials);
                                 if (dfh !== -1 && allSerials.length) {
                                     await rpc("Clear", {}, dfh);
@@ -442,22 +461,20 @@ export async function fetchNetworkMetricsPlaywright(
                                         }
                                         const got = await timed("cube", "batch", () => fetchMonthCube((code, mois, ca, qte, nbMag, caMag, marge, qteComp) => {
                                             if (!code || code === "-") return;
-                                            out.push([code, ca, qte, nbMag, caMag, marge]);
-                                            // 12 mois glissants. Le cube ne renvoie que les mois de l'année N
-                                            // (les mesures "N" sont nulles ailleurs → lignes supprimées).
-                                            // "Quantité COMP" = comparable N-1 : à la ligne Mois=YYYYMM elle
-                                            // donne la quantité du MÊME mois l'année précédente. On dérive donc
-                                            // deux points par ligne : YYYY-MM (N) et (YYYY-1)-MM (N-1).
+                                            // Les totaux réseau ne viennent QUE de la passe principale
+                                            // (sinon on doublerait CA/Qté avec la passe N-1).
+                                            if (isMainPass) out.push([code, ca, qte, nbMag, caMag, marge]);
                                             const mm = normMois(mois);
                                             const y = parseInt(mm.slice(0, 4), 10);
                                             (monthlyByCode[code] ??= {});
-                                            if (y === yearN) {
-                                                monthlyByCode[code][mm] = (monthlyByCode[code][mm] ?? 0) + qte;
+                                            if (isMainPass && y === yearN) {
+                                                // Mois de l'année N + son comparable N-1 (COMP = même mois, N-1).
+                                                monthlyByCode[code][mm] = qte;
                                                 const mmPrev = String(y - 1) + mm.slice(4); // "2026-03" → "2025-03"
-                                                monthlyByCode[code][mmPrev] = (monthlyByCode[code][mmPrev] ?? 0) + qteComp;
+                                                if (monthlyByCode[code][mmPrev] === undefined) monthlyByCode[code][mmPrev] = qteComp;
                                             } else {
-                                                // Ligne d'une autre année (cas non observé) : on prend la mesure N.
-                                                monthlyByCode[code][mm] = (monthlyByCode[code][mm] ?? 0) + qte;
+                                                // Passe année sélectionnée : valeur directe, prioritaire sur COMP.
+                                                monthlyByCode[code][mm] = qte;
                                             }
                                         }, timings, () => { code15Retries++; }), timings);
                                         aggBatches++;
@@ -549,7 +566,23 @@ export async function fetchNetworkMetricsPlaywright(
                             if (!noDateMode && monthDim) {
                                 // Découpage mensuel réel (dimension Mois) — remplace l'itération par mois.
                                 console.log("[qlik-pw] extraction via dimension Mois (" + monthlyPayload.length + " mois attendus, moisDim=" + moisDimId + ")");
-                                await monthDimPath();
+                                await monthDimPath(null);
+                                // Passe complémentaire : mois de l'année N-1 absents de l'année N
+                                // (ex. août→déc), impossibles à obtenir via COMP. On sélectionne
+                                // l'année N-1 pour que les mesures "N" portent sur cette année.
+                                if (yfh !== -1) {
+                                    const before = Object.values(monthlyByCode).reduce((s, m) => s + Object.keys(m).length, 0);
+                                    try {
+                                        await monthDimPath(yearN - 1);
+                                        const after = Object.values(monthlyByCode).reduce((s, m) => s + Object.keys(m).length, 0);
+                                        console.log("[qlik-pw] (mois) passe N-1 terminée : " + before + " → " + after + " points mensuels");
+                                    } catch (e2) {
+                                        console.log("[qlik-pw] (mois) passe N-1 ignorée: " + String((e2 as Error)?.message || e2));
+                                    }
+                                    try { await rpc("Clear", {}, yfh); } catch { /* noop */ }
+                                } else {
+                                    console.log("[qlik-pw] (mois) champ Année introuvable → pas de passe N-1");
+                                }
                             } else if (noDateMode) {
                                 // Aucun filtre Date : extraction en un seul appel (tous les codes d'un coup).
                                 // On sélectionne uniquement Article Code ; Date reste libre.
