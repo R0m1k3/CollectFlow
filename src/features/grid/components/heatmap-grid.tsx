@@ -13,7 +13,7 @@ import {
     RowSelectionState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, Warehouse, AlertTriangle, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, Warehouse, AlertTriangle } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -26,64 +26,19 @@ import { GammeSelect } from "@/features/grid/components/gamme-select";
 import { HeatmapCell } from "@/features/grid/components/heatmap-cell";
 import type { ProductRow, GammeCode } from "@/types/grid";
 import { cn } from "@/lib/utils";
-
-function getLast12Months(): string[] {
-    const months: string[] = [];
-    const now = new Date();
-    // On commence à i=12 (il y a 12 mois) et on finit à i=1 (le mois dernier)
-    // pour exclure le mois en cours (i=0)
-    for (let i = 12; i >= 1; i--) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        months.push(`${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`);
-    }
-    return months;
-}
-
-// La constante est supprimée d'ici pour éviter le mismatch d'hydratation (new Date() au runtime module)
-
-function formatMonthLabel(key: string): string {
-    const m = parseInt(key.slice(4, 6), 10);
-    const names = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"];
-    return `${names[m - 1]} ${key.slice(2, 4)}`;
-}
-
-function formatDate(iso?: string): string {
-    if (!iso) return "—";
-    return new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
-}
-
-/**
- * Returns premium styling and color for stores based on the store name's hash.
- * This guarantees a consistent color for a given store, regardless of its position in the list.
- */
-const SITE_LABELS: Record<string, { label: string; nom: string }> = {
-    "292": { label: "F", nom: "Frouard (Nancy)" },
-    "579": { label: "H", nom: "Houdemont" },
-};
-
-function getStoreConfig(name: string) {
-    const known = SITE_LABELS[name];
-    const words = (known?.nom ?? name).trim().split(/\s+/);
-    let label = known?.label ?? words[0].charAt(0).toUpperCase();
-    if (!known && words.length > 1) {
-        label += words[1].charAt(0).toUpperCase();
-    }
-
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-        hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const colorInt = Math.abs(hash) % 5;
-
-    switch (colorInt) {
-        case 0: return { bg: "rgba(99, 102, 241, 0.1)", text: "#818cf8", border: "rgba(99, 102, 241, 0.2)", label }; // Indigo
-        case 1: return { bg: "rgba(245, 158, 11, 0.1)", text: "#fbbf24", border: "rgba(245, 158, 11, 0.2)", label }; // Amber
-        case 2: return { bg: "rgba(16, 185, 129, 0.1)", text: "#10b981", border: "rgba(16, 185, 129, 0.2)", label }; // Emerald
-        case 3: return { bg: "rgba(236, 72, 153, 0.1)", text: "#ec4899", border: "rgba(236, 72, 153, 0.2)", label }; // Pink
-        case 4: return { bg: "rgba(14, 165, 233, 0.1)", text: "#0ea5e9", border: "rgba(14, 165, 233, 0.2)", label }; // Sky
-        default: return { bg: "var(--bg-elevated)", text: "var(--text-muted)", border: "var(--border)", label };
-    }
-}
+import {
+    getLast12Months,
+    formatMonthLabel,
+    formatDate,
+    SITE_LABELS,
+    getStoreConfig,
+} from "@/features/grid/lib/months";
+import {
+    computeNetworkTrend,
+    trendLabel,
+    TREND_COLOR,
+} from "@/features/grid/lib/network-trend";
+import { TrendSparkline, NetworkLineChart } from "@/features/grid/components/network-charts";
 
 interface HeatmapGridProps {
     onSelectionChange?: (codeins: string[]) => void;
@@ -238,135 +193,6 @@ interface CellDetailData {
     receptions: number | null;
 }
 
-// ─── Tendance réseau (à partir de qteReseauByMonth) ───────────────────────────
-type NetworkTrend = {
-    values: number[];   // quantités mensuelles, ordre chronologique
-    labels: string[];   // "YYYY-MM"
-    direction: "up" | "down" | "flat";
-    pct: number | null; // variation modélisée (régression linéaire) sur 12 mois
-    hasData: boolean;
-};
-
-/**
- * Tendance réseau par RÉGRESSION LINÉAIRE (moindres carrés) sur les 12 derniers mois.
- * Utilise tous les points (robuste au bruit d'un mois isolé). L'indicateur `pct` est la
- * variation modélisée sur la période (pente × durée) rapportée à la moyenne.
- * Direction : forte hausse >+25%, hausse >+8%, stable, baisse <−8%, forte baisse <−25%.
- */
-function computeNetworkTrend(qteByMonth?: Record<string, number> | null): NetworkTrend {
-    const empty: NetworkTrend = { values: [], labels: [], direction: "flat", pct: null, hasData: false };
-    if (!qteByMonth) return empty;
-    let labels = Object.keys(qteByMonth).sort(); // "YYYY-MM" trie chronologiquement
-    if (labels.length === 0) return empty;
-    labels = labels.slice(-12); // 12 derniers mois
-    const values = labels.map((l) => Number(qteByMonth[l]) || 0);
-    const n = values.length;
-    let pct: number | null = null;
-    let direction: NetworkTrend["direction"] = "flat";
-    if (n >= 3) {
-        const mx = (n - 1) / 2;
-        const my = values.reduce((s, v) => s + v, 0) / n;
-        let num = 0, den = 0;
-        for (let i = 0; i < n; i++) { num += (i - mx) * (values[i] - my); den += (i - mx) * (i - mx); }
-        const slope = den ? num / den : 0;
-        if (my > 0) {
-            pct = (slope * (n - 1)) / my; // variation modélisée sur toute la période / moyenne
-            direction = pct > 0.08 ? "up" : pct < -0.08 ? "down" : "flat";
-        } else if (slope > 0) {
-            direction = "up";
-        }
-    } else if (n === 2 && values[0] > 0) {
-        pct = (values[1] - values[0]) / values[0];
-        direction = pct > 0.08 ? "up" : pct < -0.08 ? "down" : "flat";
-    }
-    return { values, labels, direction, pct, hasData: true };
-}
-
-/** Seuil de "forte" variation (±25%) pour distinguer hausse/forte hausse dans l'UI. */
-const TREND_STRONG = 0.25;
-
-const TREND_COLOR: Record<NetworkTrend["direction"], string> = {
-    up: "#22c55e",
-    down: "#ef4444",
-    flat: "#94a3b8",
-};
-
-/** Sparkline compacte 12 mois + flèche, teintée selon la tendance. */
-function TrendSparkline({ trend }: { trend: NetworkTrend }) {
-    if (!trend.hasData) return <div className="text-center text-[12px]" style={{ color: "var(--text-secondary)" }}>-</div>;
-    const { values, direction, pct } = trend;
-    const color = TREND_COLOR[direction];
-    const W = 46, H = 18, n = values.length;
-    const max = Math.max(...values, 1), min = Math.min(...values, 0);
-    const range = max - min || 1;
-    const pts = values.map((v, i) => {
-        const x = n > 1 ? (i / (n - 1)) * (W - 2) + 1 : W / 2;
-        const y = H - 1 - ((v - min) / range) * (H - 2);
-        return `${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(" ");
-    const Arrow = direction === "up" ? TrendingUp : direction === "down" ? TrendingDown : Minus;
-    return (
-        <div className="flex flex-col items-center justify-center gap-0.5" title={pct != null ? `Tendance ${pct >= 0 ? "+" : ""}${(pct * 100).toFixed(0)}% sur 12 mois (régression) — cliquer pour le détail` : "Tendance réseau — cliquer pour le détail"}>
-            <div className="flex items-center gap-1">
-                <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="shrink-0" aria-hidden>
-                    {n > 1 && <polyline points={pts} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />}
-                    {n === 1 && <circle cx={W / 2} cy={H / 2} r={2} fill={color} />}
-                </svg>
-                <Arrow className="w-3.5 h-3.5 shrink-0" style={{ color }} strokeWidth={2.5} />
-            </div>
-            {pct != null && (
-                <span className="text-[9px] font-bold tabular-nums leading-none" style={{ color }}>
-                    {pct >= 0 ? "+" : ""}{Math.round(pct * 100)}%
-                </span>
-            )}
-        </div>
-    );
-}
-
-/** "2026-01" → "01/26" pour un axe compact. */
-function fmtMonthShort(lab: string): string {
-    const [y, m] = lab.split("-");
-    return `${m ?? lab}/${(y ?? "").slice(2)}`;
-}
-
-/** Courbe unique des ventes réseau mensuelles (SVG). */
-function NetworkLineChart({ labels, values, color }: { labels: string[]; values: number[]; color: string }) {
-    const W = 460, H = 200;
-    const padL = 10, padR = 10, padT = 22, padB = 30;
-    const plotW = W - padL - padR, plotH = H - padT - padB;
-    const n = values.length;
-    const maxV = Math.max(...values, 1);
-    const x = (i: number) => (n > 1 ? padL + (i / (n - 1)) * plotW : padL + plotW / 2);
-    const y = (v: number) => padT + plotH - (v / maxV) * plotH;
-    const linePts = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
-    const areaPts = `${padL},${padT + plotH} ${linePts} ${(padL + plotW).toFixed(1)},${(padT + plotH).toFixed(1)}`;
-    return (
-        <div className="mt-3 w-full overflow-x-auto">
-            <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minWidth: 380 }} role="img" aria-label="Ventes réseau mensuelles">
-                {/* ligne de base */}
-                <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="var(--border)" strokeWidth={1} />
-                {/* aire douce sous la courbe */}
-                {n > 1 && <polygon points={areaPts} fill={color} opacity={0.08} />}
-                {/* courbe */}
-                {n > 1 && <polyline points={linePts} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />}
-                {values.map((v, i) => (
-                    <g key={labels[i]}>
-                        <circle cx={x(i)} cy={y(v)} r={2.6} fill={color} />
-                        {/* quantité au-dessus du point */}
-                        <text x={x(i)} y={y(v) - 6} textAnchor="middle" fontSize={9} fontWeight={700} fill="var(--text-primary)">
-                            {Math.round(v).toLocaleString("fr-FR")}
-                        </text>
-                        {/* mois sous l'axe */}
-                        <text x={x(i)} y={H - 10} textAnchor="middle" fontSize={8} fill="var(--text-muted)">
-                            {fmtMonthShort(labels[i])}
-                        </text>
-                    </g>
-                ))}
-            </svg>
-        </div>
-    );
-}
-
 /** Modal : quantités vendues réseau sur les 12 derniers mois, en une seule courbe. */
 function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () => void }) {
     const trend = computeNetworkTrend(row.qteReseauByMonth);
@@ -383,8 +209,7 @@ function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () =>
                     {row.nbMagasinsReseau != null && <> · <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>{row.nbMagasinsReseau} magasins</span></>}
                     {pct != null && (
                         <> · <span className="font-bold" style={{ color }}>
-                            {pct >= 0 ? "+" : ""}{Math.round(pct * 100)}% ·{" "}
-                            {pct > TREND_STRONG ? "Forte hausse" : pct > 0.08 ? "Hausse" : pct < -TREND_STRONG ? "Forte baisse" : pct < -0.08 ? "Baisse" : "Stable"}
+                            {pct >= 0 ? "+" : ""}{Math.round(pct * 100)}% · {trendLabel(pct)}
                         </span></>
                     )}
                 </p>

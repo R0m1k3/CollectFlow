@@ -15,8 +15,7 @@ import { db } from "@/db";
 import { sessionSnapshots } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { getNetworkMetricsByCodeCentrale } from "@/lib/qlik-network-cache";
-
-const NB_MAGASINS_RESEAU = 270;
+import { NB_MAGASINS_RESEAU } from "@/features/grid/lib/network-trend";
 
 interface GetProductRowsInput {
     codeFournisseur: string;

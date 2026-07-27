@@ -34,8 +34,16 @@ async function getBrowser(): Promise<Browser> {
 interface InPageResult {
     ok: boolean;
     rows?: Array<Array<string | number>>;
-    /** Quantité réseau par code central et par mois : { code: { "YYYY-MM": qté } }. */
-    monthly?: Record<string, Record<string, number>>;
+    /**
+     * Métriques réseau par code central et par mois : { code: { "YYYY-MM": {…} } }.
+     *
+     * Le cube mensuel renvoie déjà les 6 mesures par (Article Code, Mois) ; on les
+     * conserve toutes. Seule `qte` est systématiquement présente : les mois N-1
+     * dérivés de « Quantité COMP » n'ont que la quantité (COMP ne porte pas les
+     * autres mesures), et la passe complémentaire N-1 les complète quand le champ
+     * `Année` existe.
+     */
+    monthly?: Record<string, Record<string, { qte: number; ca?: number; nbMag?: number; caMag?: number; margePct?: number }>>;
     size?: number;
     error?: string;
     diag?: Record<string, unknown>;
@@ -296,14 +304,21 @@ export async function fetchNetworkMetricsPlaywright(
                             const out: Array<Array<string | number>> = [];
                             // Quantité réseau par code central et par mois (label "YYYY-MM").
                             // Accumulée en parallèle du total, sans toucher l'agrégation existante.
-                            const monthlyByCode: Record<string, Record<string, number>> = {};
+                            const monthlyByCode: Record<string, Record<string, { qte: number; ca?: number; nbMag?: number; caMag?: number; margePct?: number }>> = {};
                             const accMonthly = (batchRows: Array<Array<string | number>>, monthLabel: string) => {
                                 for (const r of batchRows) {
                                     const c = String(r[0] ?? "").trim();
                                     if (!c || c === "-") continue;
                                     const q = Number(r[2]) || 0;
                                     (monthlyByCode[c] ??= {});
-                                    monthlyByCode[c][monthLabel] = (monthlyByCode[c][monthLabel] ?? 0) + q;
+                                    const cur = monthlyByCode[c][monthLabel];
+                                    monthlyByCode[c][monthLabel] = {
+                                        qte: (cur?.qte ?? 0) + q,
+                                        ca: (cur?.ca ?? 0) + (Number(r[1]) || 0),
+                                        nbMag: Math.max(cur?.nbMag ?? 0, Number(r[3]) || 0),
+                                        caMag: Number(r[4]) || 0,
+                                        margePct: Number(r[5]) || 0,
+                                    };
                                 }
                             };
                             // Compteurs agrégés pour le résumé timing final (loggué côté Node après la sync).
@@ -485,14 +500,19 @@ export async function fetchNetworkMetricsPlaywright(
                                                 }));
                                             }
                                             (monthlyByCode[code] ??= {});
+                                            // Les 5 mesures du mois courant de la ligne. Le cube les renvoie
+                                            // déjà toutes : les conserver ne coûte aucune requête Qlik en plus.
+                                            const full = { qte, ca, nbMag, caMag, margePct: marge };
                                             if (isMainPass && y === yearN) {
                                                 // Mois de l'année N + son comparable N-1 (COMP = même mois, N-1).
-                                                monthlyByCode[code][mm] = qte;
+                                                monthlyByCode[code][mm] = full;
                                                 const mmPrev = String(y - 1) + mm.slice(4); // "2026-03" → "2025-03"
-                                                if (monthlyByCode[code][mmPrev] === undefined) monthlyByCode[code][mmPrev] = qteComp;
+                                                // COMP ne porte QUE la quantité : les autres mesures restent
+                                                // absentes tant que la passe N-1 ne les a pas complétées.
+                                                if (monthlyByCode[code][mmPrev] === undefined) monthlyByCode[code][mmPrev] = { qte: qteComp };
                                             } else {
-                                                // Passe année sélectionnée : valeur directe, prioritaire sur COMP.
-                                                monthlyByCode[code][mm] = qte;
+                                                // Passe année sélectionnée : valeurs directes, prioritaires sur COMP.
+                                                monthlyByCode[code][mm] = full;
                                             }
                                         }, timings, () => { code15Retries++; }), timings);
                                         aggBatches++;
@@ -826,11 +846,21 @@ export async function fetchNetworkMetricsPlaywright(
             prev.caParMagasinReseau = prev.nbMagasinsReseau > 0 ? prev.caReseau / prev.nbMagasinsReseau : 0;
             margeWeight.set(code, nextWeight);
         }
-        // Rattache la quantité mensuelle (par code central) au métrique agrégé.
+        // Rattache le détail mensuel (par code central) au métrique agrégé.
+        // On produit DEUX représentations :
+        //   - `qteByMonth`  : { "YYYY-MM": qté } — format historique, dont dépend la
+        //                     colonne « Tendance / Réseau » de la Grille. Inchangé.
+        //   - `metricsByMonth` : toutes les mesures du mois, pour la fiche produit.
         const monthly = result.monthly ?? {};
         for (const [code, metric] of out) {
             const mm = monthly[code];
-            if (mm && Object.keys(mm).length) metric.qteByMonth = mm;
+            if (!mm || Object.keys(mm).length === 0) continue;
+            const qteByMonth: Record<string, number> = {};
+            for (const [mois, v] of Object.entries(mm)) {
+                qteByMonth[mois] = Number(v?.qte) || 0;
+            }
+            metric.qteByMonth = qteByMonth;
+            metric.metricsByMonth = mm;
         }
         // Diagnostic CONCLUSIF : combien de codes ont des mois qui VARIENT vs identiques.
         // Si presque tous varient → la mesure respecte le mois (feature OK).

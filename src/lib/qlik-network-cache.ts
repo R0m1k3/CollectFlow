@@ -9,7 +9,7 @@ import "server-only";
 import { db } from "@/db";
 import { qlikNetworkMetrics } from "@/db/schema";
 import { inArray, sql } from "drizzle-orm";
-import type { NetworkMetric } from "@/lib/qlik-client";
+import type { NetworkMetric, QlikMonthMetrics } from "@/lib/qlik-client";
 
 export interface NetworkMetricCached {
     caReseau: number;
@@ -19,6 +19,14 @@ export interface NetworkMetricCached {
     margePctReseau: number;
     /** Quantité réseau par mois : { "YYYY-MM": qté } — null si non synchronisé avec dates. */
     qteByMonth: Record<string, number> | null;
+    /**
+     * Détail mensuel complet : { "YYYY-MM": { qte, ca, nbMag, caMag, margePct } }.
+     * null pour les lignes synchronisées avant l'ajout de la colonne — l'UI
+     * retombe alors sur `qteByMonth`.
+     */
+    metricsByMonth: Record<string, QlikMonthMetrics> | null;
+    /** Période couverte par l'extraction (ex "2025-03_2026-02"). */
+    periode: string | null;
     fetchedAt: string | null;
 }
 
@@ -43,6 +51,8 @@ export async function getNetworkMetricsByCodeCentrale(
             caParMagasinReseau: Number(r.caParMagasinReseau ?? 0) || 0,
             margePctReseau: Number(r.margePctReseau ?? 0) || 0,
             qteByMonth: (r.qteByMonth as Record<string, number> | null) ?? null,
+            metricsByMonth: (r.metricsByMonth as Record<string, QlikMonthMetrics> | null) ?? null,
+            periode: r.periode ?? null,
             fetchedAt: r.fetchedAt ? new Date(r.fetchedAt).toISOString() : null,
         });
     }
@@ -62,6 +72,7 @@ export async function upsertNetworkMetrics(metrics: NetworkMetric[]): Promise<nu
         margePctReseau: String(m.margePctReseau),
         periode: m.periode ?? null,
         qteByMonth: m.qteByMonth ?? null,
+        metricsByMonth: m.metricsByMonth ?? null,
         fetchedAt: now,
     }));
 
@@ -83,6 +94,7 @@ export async function upsertNetworkMetrics(metrics: NetworkMetric[]): Promise<nu
                     margePctReseau: sql`excluded.marge_pct_reseau`,
                     periode: sql`excluded.periode`,
                     qteByMonth: sql`excluded.qte_by_month`,
+                    metricsByMonth: sql`excluded.metrics_by_month`,
                     fetchedAt: sql`excluded.fetched_at`,
                 },
             });
