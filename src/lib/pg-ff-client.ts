@@ -1265,21 +1265,61 @@ export interface PgProduitSearchRow {
 }
 
 /**
- * Recherche un produit par **libellé** (sous-chaîne) ou par **code centrale**
- * (préfixe). Si le terme est entièrement numérique, on tente aussi une
- * correspondance exacte sur le `codein`.
+ * Caractères accentués et leur équivalent non accentué, pour `translate()`.
+ * Les deux chaînes DOIVENT rester de même longueur, caractère par caractère.
+ * Postgres n'a pas `unaccent()` sans l'extension : on ne peut pas compter dessus
+ * sur la base FF, d'où cette table de correspondance explicite.
+ */
+const SQL_ACCENTS_FROM = "àâäãáåéèêëíìîïóòôöõúùûüçñýÿ";
+const SQL_ACCENTS_TO = "aaaaaaeeeeiiiiooooouuuucnyy";
+
+/**
+ * Normalise un terme de recherche côté JS, de la même façon que
+ * `normalizedLibelleSql()` le fait côté SQL : minuscules, accents retirés,
+ * toute ponctuation ramenée à un espace.
+ */
+function normalizeSearchTerm(term: string): string {
+    return term
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")  // retire les diacritiques
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+}
+
+/** Expression SQL renvoyant le libellé normalisé (minuscules, sans accent ni ponctuation). */
+function normalizedLibelleSql() {
+    return sql`regexp_replace(translate(lower(COALESCE(a.libelle1, '')), ${SQL_ACCENTS_FROM}, ${SQL_ACCENTS_TO}), '[^a-z0-9]+', ' ', 'g')`;
+}
+
+/**
+ * Recherche un produit par **libellé** ou par **code centrale** (préfixe).
+ * Si le terme est entièrement numérique, on tente aussi une correspondance
+ * exacte sur le `codein`.
+ *
+ * La recherche par libellé est **insensible aux accents et à la ponctuation**,
+ * et fonctionne **mot à mot** : « tapis anti-poussière » retrouve
+ * « TAPIS ANTI POUSSIERE », et « tapis poussiere » aussi (tous les mots doivent
+ * être présents, dans n'importe quel ordre). Sans cette normalisation, un
+ * `ILIKE` brut exigeait l'accent ET le tiret exacts et ne remontait rien.
  *
  * ⚠️ Il n'existe aucun index texte sur `articles.libelle1` (base FF resynchronisée
  * chaque nuit depuis SQL Server — on n'y crée pas d'index). La requête fait donc
- * un seq-scan : l'appelant impose un minimum de 3 caractères et une soumission
- * explicite, jamais une recherche à la frappe.
+ * un seq-scan avec normalisation par ligne : l'appelant impose un minimum de
+ * 3 caractères et une soumission explicite, jamais une recherche à la frappe.
  */
 export async function pgSearchProduits(term: string, limit = 50): Promise<PgProduitSearchRow[]> {
     const cleaned = term.trim();
     if (cleaned.length < 3) return [];
 
-    const like = `%${cleaned}%`;
     const prefix = `${cleaned}%`;
+    // Mots de la recherche, normalisés. Tous doivent être présents (AND).
+    const tokens = normalizeSearchTerm(cleaned).split(" ").filter(Boolean);
+    const normLibelle = normalizedLibelleSql();
+    const libelleClause = tokens.length > 0
+        ? sql`(${sql.join(tokens.map((t) => sql`${normLibelle} LIKE ${`%${t}%`}`), sql` AND `)})`
+        : sql`FALSE`;
+
     // Un terme purement numérique peut être un codein : on l'ajoute au filtre
     // (correspondance exacte, la colonne est space-padded d'où le TRIM).
     const codeinClause = /^\d+$/.test(cleaned)
@@ -1298,7 +1338,7 @@ export async function pgSearchProduits(term: string, limit = 50): Promise<PgProd
                 FROM articles a
                 WHERE a.codein IS NOT NULL
                   AND (
-                        a.libelle1 ILIKE ${like}
+                        ${libelleClause}
                      OR TRIM(a.artcentrale::text) ILIKE ${prefix}
                      ${codeinClause}
                   )
@@ -1375,25 +1415,42 @@ export interface PgProduitDetailRow {
  */
 export async function pgGetProduitDetail(codein: string): Promise<PgProduitDetailRow | null> {
     const parentCol = await getNomenclatureParentCol();
-    // Hiérarchie nomenclature : seulement si la colonne parent a été trouvée,
-    // sinon on se limite au niveau feuille (même dégradation que pgGetNomenclatureByFournisseur).
+    // Hiérarchie nomenclature — deux stratégies :
+    //
+    //  1. Colonne parent entière si elle existe (FK vers le no_id du niveau au-dessus).
+    //  2. Sinon, remontée par **préfixe de code** : la nomenclature FF est encodée
+    //     hiérarchiquement, secteur = 2 chiffres, famille = 4, sous-famille = 6
+    //     (ex "330702" → "3307" → "33"). En production `nomenclature` n'expose que
+    //     no_id / code / libelle / niveau / chemin_pere : aucune FK entière, et
+    //     `chemin_pere` est un chemin texte. Sans ce repli, Secteur et Famille
+    //     restaient vides sur la fiche.
     const hierarchy = parentCol
         ? sql`
             LEFT JOIN nomenclature n2 ON n2.no_id = n3.${sql.raw(parentCol)}
             LEFT JOIN nomenclature n1 ON n1.no_id = n2.${sql.raw(parentCol)}
         `
-        : sql``;
-    const hierarchyCols = parentCol
-        ? sql`,
+        : sql`
+            LEFT JOIN LATERAL (
+                SELECT nx.code, nx.libelle
+                FROM nomenclature nx
+                WHERE LENGTH(TRIM(n3.code)) >= 4
+                  AND TRIM(nx.code) = LEFT(TRIM(n3.code), 4)
+                LIMIT 1
+            ) n2 ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT nx.code, nx.libelle
+                FROM nomenclature nx
+                WHERE LENGTH(TRIM(n3.code)) >= 2
+                  AND TRIM(nx.code) = LEFT(TRIM(n3.code), 2)
+                LIMIT 1
+            ) n1 ON TRUE
+        `;
+    // Les colonnes sont identiques dans les deux stratégies (alias n1 / n2).
+    const hierarchyCols = sql`,
             n2.code    AS code2,
             n2.libelle AS libelle2,
             n1.code    AS code1,
-            n1.libelle AS libelle1nom`
-        : sql`,
-            NULL::text AS code2,
-            NULL::text AS libelle2,
-            NULL::text AS code1,
-            NULL::text AS libelle1nom`;
+            n1.libelle AS libelle1nom`;
 
     try {
         const result = await pgNoParallel(sql`
