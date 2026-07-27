@@ -273,26 +273,37 @@ export interface PgNomRow {
  * Colonnes confirmées : nomenclature.code, nomenclature.libelle
  * Colonne parent : découverte dynamiquement via information_schema
  */
+/**
+ * Découvre (une seule fois par process) le nom de la colonne "parent" de la
+ * table `nomenclature`, qui porte la FK vers le `no_id` du niveau supérieur.
+ *
+ * On ne peut pas la coder en dur : le nom varie selon les installations
+ * ("chemin_pere" existe mais c'est un chemin *texte* matérialisé, pas la FK),
+ * d'où le filtre explicite sur `data_type` entier.
+ */
+async function getNomenclatureParentCol(): Promise<string | null> {
+    if (_nomenclatureParentCol !== undefined) return _nomenclatureParentCol;
+
+    const metaResult = await db.execute(sql`
+        SELECT column_name, data_type FROM information_schema.columns
+        WHERE table_name = 'nomenclature' ORDER BY ordinal_position
+    `);
+    const nomCols = (metaResult.rows as { column_name: string; data_type: string }[]);
+    console.log("[pg-ff] Nomenclature colonnes:", nomCols.map(r => `${r.column_name}(${r.data_type})`).join(", "));
+    // Cherche une colonne "parent" qui soit un entier (FK vers no_id du parent)
+    // "chemin_pere" = chemin vers le père en français
+    // On vérifie le data_type : integer/bigint/smallint uniquement (pas text/varchar qui serait un chemin matérialisé)
+    const parentRow = nomCols.find(r =>
+        (/parent|pere|father/i.test(r.column_name) || (r.column_name !== "no_id" && /no_id$/i.test(r.column_name)))
+        && /int|serial/i.test(r.data_type)
+    );
+    _nomenclatureParentCol = parentRow?.column_name ?? null;
+    console.log("[pg-ff] Nomenclature parentCol:", _nomenclatureParentCol);
+    return _nomenclatureParentCol;
+}
+
 export async function pgGetNomenclatureByFournisseur(codefou: string): Promise<Map<string, PgNomRow>> {
-    // Découverte de la colonne parent : mise en cache module-level (1 seule fois par process)
-    if (_nomenclatureParentCol === undefined) {
-        const metaResult = await db.execute(sql`
-            SELECT column_name, data_type FROM information_schema.columns
-            WHERE table_name = 'nomenclature' ORDER BY ordinal_position
-        `);
-        const nomCols = (metaResult.rows as { column_name: string; data_type: string }[]);
-        console.log("[pg-ff] Nomenclature colonnes:", nomCols.map(r => `${r.column_name}(${r.data_type})`).join(", "));
-        // Cherche une colonne "parent" qui soit un entier (FK vers no_id du parent)
-        // "chemin_pere" = chemin vers le père en français
-        // On vérifie le data_type : integer/bigint/smallint uniquement (pas text/varchar qui serait un chemin matérialisé)
-        const parentRow = nomCols.find(r =>
-            (/parent|pere|father/i.test(r.column_name) || (r.column_name !== "no_id" && /no_id$/i.test(r.column_name)))
-            && /int|serial/i.test(r.data_type)
-        );
-        _nomenclatureParentCol = parentRow?.column_name ?? null;
-        console.log("[pg-ff] Nomenclature parentCol:", _nomenclatureParentCol);
-    }
-    const parentCol = _nomenclatureParentCol;
+    const parentCol = await getNomenclatureParentCol();
 
     let result;
     if (parentCol) {
@@ -1224,5 +1235,502 @@ export async function pgGetDerniereReceptionParFournisseur(): Promise<Map<string
     } catch (e) {
         console.error("[pg-ff] pgGetDerniereReceptionParFournisseur error:", (e as Error).message?.slice(0, 250));
         return map;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 13. Recherche & fiche produit (page /produits)
+// ---------------------------------------------------------------------------
+
+/**
+ * Une ligne de résultat de recherche produit. Volontairement **légère** :
+ * aucune agrégation `mvtart` ici (le seq-scan du ILIKE domine déjà le coût).
+ * Le détail lourd n'est calculé qu'à l'ouverture de la fiche.
+ */
+export interface PgProduitSearchRow {
+    no_id: number;
+    codein: string;
+    code_centrale: string;
+    libelle1: string;
+    /** Nom du fournisseur principal (artfou1.preference = 1), sinon son code. */
+    fournisseur: string;
+    codefou: string;
+    nomenclature_code: string;
+    nomenclature: string;
+    stock_total: number;
+    /** true si le produit a déjà des métriques réseau Qlik en cache. */
+    has_reseau: boolean;
+    qte_reseau: number;
+    nb_magasins_reseau: number;
+}
+
+/**
+ * Recherche un produit par **libellé** (sous-chaîne) ou par **code centrale**
+ * (préfixe). Si le terme est entièrement numérique, on tente aussi une
+ * correspondance exacte sur le `codein`.
+ *
+ * ⚠️ Il n'existe aucun index texte sur `articles.libelle1` (base FF resynchronisée
+ * chaque nuit depuis SQL Server — on n'y crée pas d'index). La requête fait donc
+ * un seq-scan : l'appelant impose un minimum de 3 caractères et une soumission
+ * explicite, jamais une recherche à la frappe.
+ */
+export async function pgSearchProduits(term: string, limit = 50): Promise<PgProduitSearchRow[]> {
+    const cleaned = term.trim();
+    if (cleaned.length < 3) return [];
+
+    const like = `%${cleaned}%`;
+    const prefix = `${cleaned}%`;
+    // Un terme purement numérique peut être un codein : on l'ajoute au filtre
+    // (correspondance exacte, la colonne est space-padded d'où le TRIM).
+    const codeinClause = /^\d+$/.test(cleaned)
+        ? sql`OR TRIM(a.codein::text) = ${cleaned}`
+        : sql``;
+
+    try {
+        const result = await pgNoParallel(sql`
+            WITH raw AS (
+                SELECT DISTINCT ON (TRIM(a.codein::text))
+                    a.no_id,
+                    TRIM(a.codein::text)                     AS codein,
+                    COALESCE(TRIM(a.artcentrale::text), '')  AS code_centrale,
+                    COALESCE(a.libelle1, '')                 AS libelle1,
+                    a.nom_no_id
+                FROM articles a
+                WHERE a.codein IS NOT NULL
+                  AND (
+                        a.libelle1 ILIKE ${like}
+                     OR TRIM(a.artcentrale::text) ILIKE ${prefix}
+                     ${codeinClause}
+                  )
+                ORDER BY TRIM(a.codein::text), a.no_id DESC
+            ),
+            matched AS (
+                SELECT * FROM raw ORDER BY libelle1 LIMIT ${limit}
+            )
+            SELECT
+                m.no_id,
+                m.codein,
+                m.code_centrale,
+                m.libelle1,
+                COALESCE(fi.nom, af.code, 'Sans fournisseur')::text AS fournisseur,
+                COALESCE(af.code, '')::text                         AS codefou,
+                COALESCE(n.code, '')::text                          AS nomenclature_code,
+                COALESCE(n.libelle, '')::text                       AS nomenclature,
+                COALESCE(st.stock_total, 0)::float                  AS stock_total,
+                (q.code_centrale IS NOT NULL)                       AS has_reseau,
+                COALESCE(q.qte_reseau, 0)::float                    AS qte_reseau,
+                COALESCE(q.nb_magasins_reseau, 0)                   AS nb_magasins_reseau
+            FROM matched m
+            LEFT JOIN LATERAL (
+                SELECT af1.code
+                FROM artfou1 af1
+                WHERE af1.art_no_id = m.no_id AND af1.preference = 1
+                ORDER BY af1.code
+                LIMIT 1
+            ) af ON TRUE
+            LEFT JOIN fouident fi ON fi.code = af.code
+            LEFT JOIN nomenclature n ON n.no_id = m.nom_no_id
+            LEFT JOIN LATERAL (
+                SELECT SUM(cs.qte)::float AS stock_total
+                FROM cube_stock cs
+                WHERE cs.artnoid = m.no_id AND cs.site IN ('292', '579')
+            ) st ON TRUE
+            LEFT JOIN qlik_network_metrics q ON q.code_centrale = m.code_centrale
+            ORDER BY m.libelle1
+        `);
+
+        console.log(`[pg-ff] pgSearchProduits("${cleaned}"): ${result.rows.length} résultats`);
+        return result.rows as unknown as PgProduitSearchRow[];
+    } catch (e) {
+        console.error("[pg-ff] pgSearchProduits error:", (e as Error).message?.slice(0, 250));
+        return [];
+    }
+}
+
+/** Identité, prix et nomenclature d'un produit (une seule ligne). */
+export interface PgProduitDetailRow {
+    no_id: number;
+    codein: string;
+    code_centrale: string;
+    libelle1: string;
+    nom_no_id: number | null;
+    gtin: string;
+    reference: string;
+    pcb: number | null;
+    /** article_infosup.prix_vente_mini */
+    pv_central: number | null;
+    /** cube_pa.pa */
+    pa: number | null;
+    code3: string | null;
+    libelle3: string | null;
+    code2: string | null;
+    libelle2: string | null;
+    code1: string | null;
+    libelle1nom: string | null;
+}
+
+/**
+ * Fiche d'identité complète d'un produit à partir de son `codein`.
+ * Renvoie `null` si le codein est inconnu.
+ */
+export async function pgGetProduitDetail(codein: string): Promise<PgProduitDetailRow | null> {
+    const parentCol = await getNomenclatureParentCol();
+    // Hiérarchie nomenclature : seulement si la colonne parent a été trouvée,
+    // sinon on se limite au niveau feuille (même dégradation que pgGetNomenclatureByFournisseur).
+    const hierarchy = parentCol
+        ? sql`
+            LEFT JOIN nomenclature n2 ON n2.no_id = n3.${sql.raw(parentCol)}
+            LEFT JOIN nomenclature n1 ON n1.no_id = n2.${sql.raw(parentCol)}
+        `
+        : sql``;
+    const hierarchyCols = parentCol
+        ? sql`,
+            n2.code    AS code2,
+            n2.libelle AS libelle2,
+            n1.code    AS code1,
+            n1.libelle AS libelle1nom`
+        : sql`,
+            NULL::text AS code2,
+            NULL::text AS libelle2,
+            NULL::text AS code1,
+            NULL::text AS libelle1nom`;
+
+    try {
+        const result = await pgNoParallel(sql`
+            SELECT
+                a.no_id,
+                TRIM(a.codein::text)                    AS codein,
+                COALESCE(TRIM(a.artcentrale::text), '') AS code_centrale,
+                COALESCE(a.libelle1, '')                AS libelle1,
+                a.nom_no_id,
+                COALESCE(ag.gtin, af.ean13, '')::text   AS gtin,
+                COALESCE(af.reference, '')::text        AS reference,
+                af.pcb::float                           AS pcb,
+                ai.prix_vente_mini::float               AS pv_central,
+                pa.pa::float                            AS pa,
+                n3.code                                 AS code3,
+                n3.libelle                              AS libelle3
+                ${hierarchyCols}
+            FROM articles a
+            LEFT JOIN LATERAL (
+                SELECT af1.code, af1.pcb, af1.reference, af1.ean13
+                FROM artfou1 af1
+                WHERE af1.art_no_id = a.no_id
+                ORDER BY af1.preference DESC NULLS LAST, af1.no_id DESC
+                LIMIT 1
+            ) af ON TRUE
+            LEFT JOIN art_gtin ag         ON ag.idarticle = a.no_id AND ag.preferentiel = 1
+            LEFT JOIN article_infosup ai  ON ai.artnoid = a.no_id
+            LEFT JOIN cube_pa pa          ON pa.artnoid = a.no_id
+            LEFT JOIN nomenclature n3     ON n3.no_id = a.nom_no_id
+            ${hierarchy}
+            WHERE TRIM(a.codein::text) = ${codein}
+            ORDER BY a.no_id DESC
+            LIMIT 1
+        `);
+
+        const row = (result.rows as unknown as PgProduitDetailRow[])[0] ?? null;
+        console.log(`[pg-ff] pgGetProduitDetail(${codein}): ${row ? "trouvé" : "introuvable"}`);
+        return row;
+    } catch (e) {
+        console.error("[pg-ff] pgGetProduitDetail error:", (e as Error).message?.slice(0, 250));
+        return null;
+    }
+}
+
+/** Un fournisseur référencé pour l'article. */
+export interface PgProduitFournisseurRow {
+    codefou: string;
+    nomfou: string;
+    reference: string;
+    pcb: number | null;
+    /** true si artfou1.preference = 1 */
+    principal: boolean;
+}
+
+/** Tous les fournisseurs référencés pour un article (le principal en premier). */
+export async function pgGetFournisseursByCodein(codein: string): Promise<PgProduitFournisseurRow[]> {
+    try {
+        const result = await pgNoParallel(sql`
+            SELECT DISTINCT ON (af.code)
+                af.code::text                        AS codefou,
+                COALESCE(fi.nom, af.code)::text      AS nomfou,
+                COALESCE(af.reference, '')::text     AS reference,
+                af.pcb::float                        AS pcb,
+                (af.preference = 1)                  AS principal
+            FROM articles a
+            JOIN artfou1 af ON af.art_no_id = a.no_id
+            LEFT JOIN fouident fi ON fi.code = af.code
+            WHERE TRIM(a.codein::text) = ${codein}
+            ORDER BY af.code, af.preference DESC NULLS LAST, af.no_id DESC
+        `);
+        const rows = result.rows as unknown as PgProduitFournisseurRow[];
+        // Le principal remonte en tête (le DISTINCT ON impose un tri par code).
+        rows.sort((x, y) => Number(y.principal) - Number(x.principal) || x.nomfou.localeCompare(y.nomfou, "fr"));
+        return rows;
+    } catch (e) {
+        console.error("[pg-ff] pgGetFournisseursByCodein error:", (e as Error).message?.slice(0, 250));
+        return [];
+    }
+}
+
+/** Stock temps réel par site pour un article. */
+export interface PgProduitStockRow {
+    site: string;
+    stockdispo: number;
+    qte: number;
+    valstock: number;
+    prmp: number;
+    dernierevente: string | null;
+    dernierereception: string | null;
+}
+
+export async function pgGetStockByCodein(codein: string): Promise<PgProduitStockRow[]> {
+    try {
+        const result = await pgNoParallel(sql`
+            SELECT
+                cs.site,
+                COALESCE(cs.stockdispo, 0)::float AS stockdispo,
+                COALESCE(cs.qte, 0)::float        AS qte,
+                COALESCE(cs.valstock, 0)::float   AS valstock,
+                COALESCE(cs.prmp, 0)::float       AS prmp,
+                cs.dernierevente::text            AS dernierevente,
+                cs.dernierereception::text        AS dernierereception
+            FROM cube_stock cs
+            JOIN articles a ON a.no_id = cs.artnoid
+            WHERE TRIM(a.codein::text) = ${codein}
+              AND cs.site IN ('292', '579')
+            ORDER BY cs.site
+        `);
+        return result.rows as unknown as PgProduitStockRow[];
+    } catch (e) {
+        console.error("[pg-ff] pgGetStockByCodein error:", (e as Error).message?.slice(0, 250));
+        return [];
+    }
+}
+
+/** Quantité totale en commande fournisseur pour un article. */
+export async function pgGetCommandesByCodein(codein: string): Promise<number> {
+    try {
+        const result = await pgNoParallel(sql`
+            SELECT COALESCE(SUM(cv.cdefou_ligne_qtecde), 0)::float AS qtecde
+            FROM cdefou_vivant cv
+            WHERE TRIM(cv.articles_codein::text) = ${codein}
+        `);
+        const row = (result.rows as unknown as { qtecde: number }[])[0];
+        return Number(row?.qtecde) || 0;
+    } catch (e) {
+        console.error("[pg-ff] pgGetCommandesByCodein error:", (e as Error).message?.slice(0, 250));
+        return 0;
+    }
+}
+
+/** Une gamme affectée à l'article pour une saison donnée. */
+export interface PgGammeHistoryRow {
+    saison_no_id: number;
+    saison_code: string | null;
+    saison_libelle: string | null;
+    gamme_code: string;
+    gamme_libelle: string | null;
+}
+
+/**
+ * Historique complet des gammes de l'article, saison par saison (la plus
+ * récente en premier). Le reste de l'application ne lit que la saison active
+ * (`pgGetGammesByFournisseur`) ; ici on veut la trajectoire d'arbitrage.
+ */
+export async function pgGetGammeHistoryByCodein(codein: string): Promise<PgGammeHistoryRow[]> {
+    try {
+        const result = await pgNoParallel(sql`
+            SELECT
+                s.no_id            AS saison_no_id,
+                s.code::text       AS saison_code,
+                s.libelle::text    AS saison_libelle,
+                g.code::text       AS gamme_code,
+                g.libelle::text    AS gamme_libelle
+            FROM art_gamme_saison ags
+            JOIN articles a ON a.no_id = ags.artnoid
+            JOIN gammes g   ON g.no_id = ags.idgamme
+            JOIN saisons s  ON s.no_id = ags.idsaison
+            WHERE TRIM(a.codein::text) = ${codein}
+            ORDER BY s.no_id DESC
+        `);
+        return result.rows as unknown as PgGammeHistoryRow[];
+    } catch (e) {
+        console.error("[pg-ff] pgGetGammeHistoryByCodein error:", (e as Error).message?.slice(0, 250));
+        return [];
+    }
+}
+
+/**
+ * Données mensuelles (ventes / CA / marge / stock fin de mois / réceptions)
+ * d'UN article, par site et par mois.
+ *
+ * Reprend **exactement** le calcul canonique de `pgGetMensuelByFournisseur`
+ * (la source de vérité de la Grille) : seule la sélection change — filtre sur
+ * le codein au lieu d'une jointure `artfou1`. Les chiffres affichés sur la
+ * fiche produit sont donc identiques à ceux de la Grille, par construction.
+ */
+export async function pgGetMensuelByCodein(
+    codein: string,
+    dateDebut: string,
+    dateFin: string
+): Promise<PgMensuelRow[]> {
+    try {
+        const result = await pgNoParallel(sql`
+            WITH base AS (
+                SELECT
+                    TRIM(a.codein::text)          AS codein,
+                    m.site,
+                    TO_CHAR(m.datmvt, 'YYYY-MM')  AS mois,
+                    m.qtemvt,
+                    m.mntmvtttc,
+                    m.margemvt,
+                    m.genremvt,
+                    m.qtestock,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
+                        ORDER BY m.datmvt DESC
+                    ) AS rn_last
+                FROM mvtart m
+                JOIN articles a ON a.no_id = m.artnoid
+                WHERE TRIM(a.codein::text) = ${codein}
+                  AND m.datmvt BETWEEN ${dateDebut}::date AND ${dateFin}::date
+                  AND m.site IN ('292', '579')
+            )
+            SELECT
+                codein,
+                site,
+                mois,
+                SUM(CASE WHEN genremvt = 3 THEN -qtemvt    ELSE 0 END)::float     AS qte_vendue,
+                SUM(CASE WHEN genremvt = 3 THEN -mntmvtttc ELSE 0 END)::float     AS ca_ht,
+                SUM(CASE WHEN genremvt = 3 THEN  margemvt  ELSE 0 END)::float     AS marge,
+                MAX(CASE WHEN rn_last = 1 THEN qtestock ELSE NULL END)::float     AS stock_fin_mois,
+                SUM(CASE WHEN genremvt IN (1, 2) THEN qtemvt ELSE 0 END)::float   AS qte_recue
+            FROM base
+            GROUP BY codein, site, mois
+            ORDER BY site, mois
+        `);
+
+        console.log(`[pg-ff] pgGetMensuelByCodein(${codein}): ${result.rows.length} lignes`);
+        return result.rows as unknown as PgMensuelRow[];
+    } catch (e) {
+        console.error("[pg-ff] pgGetMensuelByCodein error:", (e as Error).message?.slice(0, 250));
+        return [];
+    }
+}
+
+/** Un produit de la même famille, comparé local vs réseau. */
+export interface PgOpportuniteRow {
+    codein: string;
+    libelle1: string;
+    code_centrale: string;
+    fournisseur: string;
+    qte_reseau: number;
+    nb_magasins_reseau: number;
+    ca_reseau: number;
+    ca_par_magasin_reseau: number;
+    qte_locale: number;
+    nb_sites_locaux: number;
+    qte_reseau_par_magasin: number;
+    qte_locale_par_magasin: number;
+    /** Écart réseau − local, par magasin, sur 12 mois. Positif = opportunité. */
+    ecart_par_magasin: number;
+}
+
+/**
+ * Produits de la même nomenclature, classés par écart entre la performance
+ * réseau et la performance locale (quantités **par magasin**, pour neutraliser
+ * la différence d'échelle entre ~270 magasins et nos 2 sites).
+ *
+ * Périmètre volontairement borné aux articles **de notre catalogue** ayant déjà
+ * des métriques réseau en cache : la dimension Qlik interrogée est
+ * `Article Code`, on ne peut pas découvrir un produit que Nancy ne référence pas.
+ */
+export async function pgGetOpportunitesFamille(
+    nomNoId: number,
+    dateDebut: string,
+    dateFin: string,
+    limit = 30
+): Promise<PgOpportuniteRow[]> {
+    try {
+        const result = await pgNoParallel(sql`
+            WITH famille AS (
+                SELECT DISTINCT ON (TRIM(a.codein::text))
+                    a.no_id,
+                    TRIM(a.codein::text)      AS codein,
+                    TRIM(a.artcentrale::text) AS code_centrale,
+                    COALESCE(a.libelle1, '')  AS libelle1
+                FROM articles a
+                WHERE a.nom_no_id = ${nomNoId}
+                  AND a.codein IS NOT NULL
+                  AND a.artcentrale IS NOT NULL
+                  AND TRIM(a.artcentrale::text) <> ''
+                ORDER BY TRIM(a.codein::text), a.no_id DESC
+            ),
+            avec_reseau AS (
+                SELECT
+                    f.no_id,
+                    f.codein,
+                    f.code_centrale,
+                    f.libelle1,
+                    q.qte_reseau::float             AS qte_reseau,
+                    q.nb_magasins_reseau            AS nb_magasins_reseau,
+                    COALESCE(q.ca_reseau, 0)::float AS ca_reseau,
+                    COALESCE(q.ca_par_magasin_reseau, 0)::float AS ca_par_magasin_reseau
+                FROM famille f
+                JOIN qlik_network_metrics q ON q.code_centrale = f.code_centrale
+                WHERE q.nb_magasins_reseau > 0
+                  AND q.qte_reseau > 0
+            ),
+            ventes AS (
+                SELECT
+                    TRIM(a.codein::text)      AS codein,
+                    SUM(-m.qtemvt)::float     AS qte_locale,
+                    COUNT(DISTINCT m.site)    AS nb_sites_locaux
+                FROM mvtart m
+                JOIN articles a ON a.no_id = m.artnoid
+                WHERE m.genremvt = 3
+                  AND m.site IN ('292', '579')
+                  AND m.datmvt BETWEEN ${dateDebut}::date AND ${dateFin}::date
+                  AND TRIM(a.codein::text) IN (SELECT codein FROM avec_reseau)
+                GROUP BY TRIM(a.codein::text)
+            )
+            SELECT
+                r.codein,
+                r.libelle1,
+                r.code_centrale,
+                COALESCE(fi.nom, af.code, 'Sans fournisseur')::text AS fournisseur,
+                r.qte_reseau,
+                r.nb_magasins_reseau,
+                r.ca_reseau,
+                r.ca_par_magasin_reseau,
+                COALESCE(v.qte_locale, 0)::float   AS qte_locale,
+                COALESCE(v.nb_sites_locaux, 0)     AS nb_sites_locaux,
+                (r.qte_reseau / r.nb_magasins_reseau)::float AS qte_reseau_par_magasin,
+                (COALESCE(v.qte_locale, 0) / GREATEST(COALESCE(v.nb_sites_locaux, 0), 1))::float AS qte_locale_par_magasin,
+                (
+                    (r.qte_reseau / r.nb_magasins_reseau)
+                    - (COALESCE(v.qte_locale, 0) / GREATEST(COALESCE(v.nb_sites_locaux, 0), 1))
+                )::float AS ecart_par_magasin
+            FROM avec_reseau r
+            LEFT JOIN ventes v ON v.codein = r.codein
+            LEFT JOIN LATERAL (
+                SELECT af1.code
+                FROM artfou1 af1
+                WHERE af1.art_no_id = r.no_id AND af1.preference = 1
+                ORDER BY af1.code
+                LIMIT 1
+            ) af ON TRUE
+            LEFT JOIN fouident fi ON fi.code = af.code
+            ORDER BY ecart_par_magasin DESC
+            LIMIT ${limit}
+        `);
+
+        console.log(`[pg-ff] pgGetOpportunitesFamille(nom=${nomNoId}): ${result.rows.length} lignes`);
+        return result.rows as unknown as PgOpportuniteRow[];
+    } catch (e) {
+        console.error("[pg-ff] pgGetOpportunitesFamille error:", (e as Error).message?.slice(0, 250));
+        return [];
     }
 }
