@@ -14,7 +14,7 @@
 
 import "server-only";
 import { chromium, type Browser } from "playwright-core";
-import { getQlikConfig, qlikNtlmSession, type QlikConfig, type NetworkMetric } from "@/lib/qlik-client";
+import { getQlikConfig, qlikNtlmSession, type QlikConfig, type NetworkMetric, type NetworkProduct } from "@/lib/qlik-client";
 import { buildGridNetworkQlikDateFilter, getMonthRanges, type QlikDateFilter } from "@/lib/qlik-date-range";
 
 let browserPromise: Promise<Browser> | null = null;
@@ -856,6 +856,474 @@ export async function fetchNetworkMetricsPlaywright(
         }));
         console.log(`[qlik-pw] échantillon lignes:`, JSON.stringify(sample));
         return out;
+    } finally {
+        await ctx.close();
+    }
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Recherche produits dans le CATALOGUE RÉSEAU Qlik
+// ───────────────────────────────────────────────────────────────────────────────
+//
+// `fetchNetworkMetricsPlaywright` part de NOS codes centraux : elle ne peut donc
+// jamais révéler un produit du réseau que FF Nancy ne référence pas. La recherche
+// ci-dessous fait l'inverse — elle interroge Qlik d'abord :
+//
+//   • mode "code"   → SelectValues sur le champ « Article Code » (un ou plusieurs codes)
+//   • mode "label"  → recherche plein texte sur la dimension « Article » via
+//                     SearchListObjectFor + AcceptListObjectSearch (équivalent d'une
+//                     saisie dans un filtre Qlik : tous les mots doivent matcher).
+//
+// Le mode "label" évite d'avoir à deviner le nom exact du champ libellé : on tente
+// d'abord la master dimension par qLibraryId, puis une liste de noms de champs.
+
+/** Résultat d'une recherche réseau. */
+export interface NetworkSearchResult {
+    products: NetworkProduct[];
+    /** Nb de valeurs « Article » trouvées par Qlik (mode label), ou nb de codes demandés. */
+    matchCount: number;
+    /** true si la recherche a été refusée car trop large (matchCount > maxProducts). */
+    tooMany: boolean;
+    mode: "code" | "label";
+    periode?: string;
+}
+
+interface InPageSearchResult {
+    ok: boolean;
+    /** [code, libelle, ca, qte, nbMag, caMag, margePct] — passe principale uniquement. */
+    rows?: Array<Array<string | number>>;
+    monthly?: Record<string, Record<string, number>>;
+    meta?: Record<string, { fournisseur?: string; famille?: string }>;
+    matchCount?: number;
+    tooMany?: boolean;
+    error?: string;
+}
+
+/** Découpe la saisie utilisateur en codes centraux si elle n'en contient QUE. */
+function parseCodeQuery(query: string): string[] | null {
+    const parts = query.trim().split(/[\s,;]+/).filter(Boolean);
+    if (parts.length === 0) return null;
+    // Un code centrale FF fait 11 chiffres (10000XXXXXX) ; on accepte 5+ chiffres
+    // pour tolérer des saisies partielles côté centrale.
+    if (!parts.every((p) => /^\d{5,}$/.test(p))) return null;
+    return [...new Set(parts)];
+}
+
+/**
+ * Cherche des produits dans le catalogue réseau Qlik par libellé ou par code centrale,
+ * et renvoie leurs métriques réseau + les quantités mois par mois (12 mois glissants).
+ */
+export async function searchNetworkProductsPlaywright(
+    query: string,
+    opts: { maxProducts?: number } = {},
+    cfg: QlikConfig = getQlikConfig(),
+    dateFilter: QlikDateFilter | null = buildGridNetworkQlikDateFilter(),
+): Promise<NetworkSearchResult> {
+    if (!cfg.appNetwork) throw new Error("[qlik-pw] QLIK_APP_NETWORK manquant");
+    if (!cfg.user || !cfg.password) throw new Error("[qlik-pw] identifiants Qlik manquants");
+    const trimmed = query.trim();
+    if (!trimmed) throw new Error("[qlik-pw] recherche vide");
+
+    const totalStart = Date.now();
+    const codes = parseCodeQuery(trimmed);
+    const mode: "code" | "label" = codes ? "code" : "label";
+    const maxProducts = Math.min(2000, Math.max(1, opts.maxProducts ?? envNumber("QLIK_SEARCH_MAX_PRODUCTS", 300, 1, 2000)));
+    const qlikSettleMs = envNumber("QLIK_SETTLE_MS", 150, 0, 2000);
+    const qlikCode15MaxAttempts = envNumber("QLIK_CODE15_MAX_ATTEMPTS", 4, 1, 8);
+    const qlikMoisDimId = (process.env.QLIK_MOIS_DIM_ID ?? "pfGAwTs").trim();
+    const qlikMeasQteCompId = (process.env.QLIK_MEAS_QTE_COMP_ID ?? "96862880-76cd-4957-bf25-b96901f2ac5f").trim();
+    const qlikDimArticleLabelId = (process.env.QLIK_DIM_ARTICLE_LABEL_ID ?? "BcFj").trim();
+    // Noms de champs candidats pour le libellé article (repli si la master dimension échoue).
+    const labelFieldCandidates = [
+        ...(process.env.QLIK_FIELD_ARTICLE_LABEL ? [process.env.QLIK_FIELD_ARTICLE_LABEL.trim()] : []),
+        "Article", "Libellé Article", "Libelle Article", "Article Libellé", "Désignation",
+    ];
+    const yearN = new Date().getFullYear();
+
+    console.log(`[qlik-pw][search] mode=${mode} query="${trimmed}" max=${maxProducts}${dateFilter ? ` fenêtre=${dateFilter.label}` : ""}`);
+    const sess = await qlikNtlmSession(cfg);
+    const [cookieName, ...rest] = sess.cookie.split("=");
+    const cookieValue = rest.join("=");
+
+    const browser = await getBrowser();
+    const ctx = await browser.newContext({
+        httpCredentials: { username: cfg.user, password: cfg.password, origin: `https://${cfg.host}` },
+        ignoreHTTPSErrors: true,
+    });
+    await ctx.addCookies([{ name: cookieName, value: cookieValue, domain: cfg.host, path: "/", secure: true }]);
+
+    try {
+        const page = await ctx.newPage();
+        page.on("console", (msg) => console.log(`[qlik-pw][search][page] ${msg.text()}`));
+        page.on("pageerror", (e) => console.log(`[qlik-pw][search][pageerror] ${e.message}`));
+
+        let csrfToken: string | null = null;
+        let resolveToken: (() => void) | null = null;
+        const tokenReady = new Promise<void>((r) => { resolveToken = r; });
+        page.on("websocket", (ws) => {
+            const m = ws.url().match(/qlik-csrf-token=([^&]+)/);
+            if (m && !csrfToken) { csrfToken = decodeURIComponent(m[1]); resolveToken?.(); }
+        });
+
+        await page.goto(`https://${cfg.host}/sense/app/${cfg.appNetwork}`, { waitUntil: "domcontentloaded", timeout: cfg.timeoutMs })
+            .catch(() => { /* le client ouvre son ws ensuite */ });
+        await Promise.race([tokenReady, page.waitForTimeout(15000)]);
+        if (!csrfToken) throw new Error("[qlik-pw] qlik-csrf-token introuvable (client Qlik non chargé ?)");
+
+        const allSerials = dateFilter ? getMonthRanges(dateFilter).flatMap((m) => m.dailySerials) : [];
+
+        const result = (await page.evaluate(
+            ({ app, token, dimCode, dimLabelId, labelFields, mca, mqte, mnb, mcamag, mmarge, mqteComp, moisDimId, mode, codes, match, allSerials, maxProducts, settleMs, code15Attempts, yearN }: {
+                app: string; token: string; dimCode: string; dimLabelId: string; labelFields: string[];
+                mca: string; mqte: string; mnb: string; mcamag: string; mmarge: string; mqteComp: string;
+                moisDimId: string; mode: "code" | "label"; codes: string[]; match: string;
+                allSerials: number[]; maxProducts: number; settleMs: number; code15Attempts: number; yearN: number;
+            }) =>
+                new Promise<InPageSearchResult>((resolve) => {
+                    const loc = (window as unknown as { location: Location }).location;
+                    const url = `wss://${loc.host}/app/${app}?reloadUri=${encodeURIComponent(loc.href)}&qlik-csrf-token=${token}`;
+                    const ws = new WebSocket(url);
+                    let id = 0;
+                    const pend = new Map<number, { res: (v: { [k: string]: unknown }) => void; rej: (e: unknown) => void }>();
+                    const rpc = (method: string, params: unknown, handle = -1) => new Promise<{ [k: string]: unknown }>((res, rej) => {
+                        const i = ++id; pend.set(i, { res, rej });
+                        ws.send(JSON.stringify({ jsonrpc: "2.0", id: i, handle, method, params }));
+                    });
+                    const fail = (error: string) => resolve({ ok: false, error });
+                    const ready = new Promise<void>((res, rej) => {
+                        ws.onmessage = (ev: MessageEvent) => {
+                            const m = JSON.parse(ev.data as string);
+                            if (m.method === "OnConnected") return res();
+                            if (m.id && pend.has(m.id)) {
+                                const x = pend.get(m.id)!;
+                                pend.delete(m.id);
+                                if (m.error) x.rej(new Error(JSON.stringify(m.error)));
+                                else x.res(m.result);
+                            }
+                        };
+                        ws.onerror = () => rej(new Error("ws error (403 ?)"));
+                        setTimeout(() => rej(new Error("ws timeout")), 30000);
+                    });
+                    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+                    const msgOf = (e: unknown) => String((e as Error)?.message ?? e);
+                    const isEngineCode15 = (e: unknown): boolean => /"code"\s*:\s*15\b/.test(msgOf(e));
+                    const rpcWithRetry = async (etape: string, method: string, params: unknown, handle: number): Promise<{ [k: string]: unknown }> => {
+                        let lastErr: unknown;
+                        for (let attempt = 1; attempt <= code15Attempts; attempt++) {
+                            try { return await rpc(method, params, handle); }
+                            catch (e) {
+                                lastErr = e;
+                                if (!isEngineCode15(e) || attempt === code15Attempts) throw e;
+                                console.log("[search] retry code15 " + etape + ":" + method + " " + attempt + "/" + code15Attempts);
+                                await sleep(settleMs * attempt);
+                            }
+                        }
+                        throw lastErr;
+                    };
+
+                    (async () => {
+                        try {
+                            await ready;
+                            const open = await rpc("OpenDoc", { qDocName: app });
+                            const doc = (open.qReturn as { qHandle: number }).qHandle;
+
+                            // Une recherche doit porter sur TOUT le catalogue : on repart d'un
+                            // état sans sélection (l'app peut en avoir une enregistrée). Non
+                            // fatal si l'Engine refuse.
+                            try { await rpc("ClearAll", { qLockedAlso: false }, doc); await sleep(settleMs); }
+                            catch (e) { console.log("[search] ClearAll ignoré: " + msgOf(e)); }
+
+                            // ── Résolution des mesures ET dimensions par TITRE ──────────────
+                            const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+                            const listByTitle = async (qType: string, defKey: string, listKey: string): Promise<Map<string, string>> => {
+                                const map = new Map<string, string>();
+                                try {
+                                    const o = await rpc("CreateSessionObject", { qProp: { qInfo: { qType }, [defKey]: { qType: qType === "MeasureList" ? "measure" : "dimension", qData: { title: "/qMetaDef/title" } } } }, doc);
+                                    const l = await rpc("GetLayout", {}, (o.qReturn as { qHandle: number }).qHandle);
+                                    const layout = l.qLayout as Record<string, { qItems?: Array<{ qInfo: { qId: string }; qMeta?: { title?: string }; qData?: { title?: string } }> }>;
+                                    for (const it of layout[listKey]?.qItems ?? []) {
+                                        const t = it.qMeta?.title ?? it.qData?.title ?? "";
+                                        if (t) map.set(norm(t), it.qInfo.qId);
+                                    }
+                                } catch (e) { console.log("[search] " + qType + " KO: " + msgOf(e)); }
+                                return map;
+                            };
+                            const measByTitle = await listByTitle("MeasureList", "qMeasureListDef", "qMeasureList");
+                            const dimByTitle = await listByTitle("DimensionList", "qDimensionListDef", "qDimensionList");
+                            const pickMeas = (title: string, fallback: string) => measByTitle.get(norm(title)) ?? fallback;
+                            const rCa = pickMeas("CA N", mca);
+                            const rQte = pickMeas("Quantité N", mqte);
+                            const rNbMag = pickMeas("Magasin Ventes Nb N", mnb);
+                            const rCamag = pickMeas("CA par Magasin N", mcamag);
+                            const rMarge = pickMeas("Marge % N", mmarge);
+                            const dimLabel = dimByTitle.get(norm("Article")) ?? dimLabelId;
+                            const dimFou = dimByTitle.get(norm("Fournisseur")) ?? null;
+                            const dimFam = dimByTitle.get(norm("Famille")) ?? null;
+                            console.log("[search] dims: label=" + dimLabel + " fou=" + dimFou + " fam=" + dimFam);
+
+                            // ── Champs Date / Année ─────────────────────────────────────────
+                            let dfh = -1, yfh = -1;
+                            try { dfh = ((await rpc("GetField", { qFieldName: "Date" }, doc)).qReturn as { qHandle: number }).qHandle; } catch { dfh = -1; }
+                            try { yfh = ((await rpc("GetField", { qFieldName: "Année" }, doc)).qReturn as { qHandle: number }).qHandle; } catch { yfh = -1; }
+
+                            // ── Sélection des articles recherchés ───────────────────────────
+                            let matchCount = -1;
+                            if (mode === "code") {
+                                const fh = ((await rpc("GetField", { qFieldName: "Article Code" }, doc)).qReturn as { qHandle: number }).qHandle;
+                                await rpc("Clear", {}, fh);
+                                await sleep(settleMs);
+                                const sel = await rpc("SelectValues", { qFieldValues: codes.map((c) => ({ qText: c })), qToggleMode: false, qSoftLock: true }, fh);
+                                console.log("[search] SelectValues Article Code (" + codes.length + ") → " + JSON.stringify(sel.qReturn));
+                                matchCount = codes.length;
+                                await sleep(settleMs);
+                            } else {
+                                // Liste de recherche sur le libellé : master dimension d'abord,
+                                // puis repli sur des noms de champs plausibles.
+                                const defs: Array<{ label: string; def: Record<string, unknown> }> = [];
+                                // qHeight: 1 — on ne veut que la taille du résultat de recherche,
+                                // mais certains Engine rejettent un qHeight nul.
+                                const fetchDef = [{ qTop: 0, qLeft: 0, qWidth: 1, qHeight: 1 }];
+                                if (dimLabel) defs.push({ label: "libraryId:" + dimLabel, def: { qLibraryId: dimLabel, qInitialDataFetch: fetchDef } });
+                                for (const f of labelFields) defs.push({ label: "field:" + f, def: { qDef: { qFieldDefs: [f] }, qInitialDataFetch: fetchDef } });
+                                let lo: { handle: number; id: string } | null = null;
+                                for (const d of defs) {
+                                    try {
+                                        const o = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "cf-search-lb" }, qListObjectDef: d.def } }, doc);
+                                        const ret = o.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
+                                        await rpc("GetLayout", {}, ret.qHandle); // valide que la définition tient
+                                        lo = { handle: ret.qHandle, id: String(ret.qGenericId ?? ret.qId ?? "") };
+                                        console.log("[search] listObject OK via " + d.label);
+                                        break;
+                                    } catch (e) { console.log("[search] listObject KO via " + d.label + ": " + msgOf(e)); }
+                                }
+                                if (!lo) { ws.close(); return fail("impossible de construire la recherche sur le libellé article (dimension « Article » introuvable)"); }
+
+                                await rpcWithRetry("search", "SearchListObjectFor", { qPath: "/qListObjectDef", qMatch: match }, lo.handle);
+                                await sleep(settleMs);
+                                try {
+                                    const lol = await rpcWithRetry("searchLayout", "GetLayout", {}, lo.handle);
+                                    const cy = (lol.qLayout as { qListObject?: { qSize?: { qcy?: number } } })?.qListObject?.qSize?.qcy;
+                                    matchCount = typeof cy === "number" ? cy : -1;
+                                } catch (e) { console.log("[search] layout recherche KO: " + msgOf(e)); }
+                                console.log("[search] SearchListObjectFor \"" + match + "\" → " + matchCount + " valeur(s)");
+                                // Garde-fou : une recherche trop large ferait exploser le cube
+                                // (et la mémoire du moteur Qlik, déjà sensible).
+                                if (matchCount > maxProducts) {
+                                    try { if (lo.id) await rpc("DestroySessionObject", { qId: lo.id }, doc); } catch { /* noop */ }
+                                    ws.close();
+                                    return resolve({ ok: true, tooMany: true, matchCount, rows: [], monthly: {}, meta: {} });
+                                }
+                                await rpcWithRetry("accept", "AcceptListObjectSearch", { qPath: "/qListObjectDef", qToggleMode: false, qSoftLock: true }, lo.handle);
+                                await sleep(settleMs);
+                                try { if (lo.id) await rpc("DestroySessionObject", { qId: lo.id }, doc); } catch { /* noop */ }
+                            }
+
+                            // ── Cube mensuel [Article Code, Article, Mois] × 6 mesures ──────
+                            const normMois = (m: string): string => (/^\d{6}$/.test(m) ? m.slice(0, 4) + "-" + m.slice(4) : m);
+                            const PAGEM = 1000; // 9 colonnes × 1000 = 9000 cellules < 10000 (limite Qlik)
+                            const rows: Array<Array<string | number>> = [];
+                            const monthlyByCode: Record<string, Record<string, number>> = {};
+
+                            const fetchMonthCube = async (isMainPass: boolean): Promise<number> => {
+                                const o = await rpcWithRetry("createCube", "CreateSessionObject", { qProp: { qInfo: { qType: "cf-search-mois" }, qHyperCubeDef: {
+                                    qDimensions: [{ qLibraryId: dimCode }, { qLibraryId: dimLabel }, { qLibraryId: moisDimId }],
+                                    qMeasures: [{ qLibraryId: rCa }, { qLibraryId: rQte }, { qLibraryId: rNbMag }, { qLibraryId: rCamag }, { qLibraryId: rMarge }, { qLibraryId: mqteComp }],
+                                    qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 9, qHeight: PAGEM }],
+                                } } }, doc);
+                                const ret = o.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
+                                const cubeId = String(ret.qGenericId ?? ret.qId ?? "");
+                                const onRow = (r: Array<{ qText?: string; qNum?: number }>) => {
+                                    const code = String(r[0]?.qText ?? "").trim();
+                                    if (!code || code === "-") return;
+                                    const lib = String(r[1]?.qText ?? "").trim();
+                                    const mm = normMois(String(r[2]?.qText ?? ""));
+                                    const ca = Number(r[3]?.qNum) || 0, qte = Number(r[4]?.qNum) || 0, nbMag = Number(r[5]?.qNum) || 0;
+                                    const caMag = Number(r[6]?.qNum) || 0, marge = Number(r[7]?.qNum) || 0, qteComp = Number(r[8]?.qNum) || 0;
+                                    // Les totaux réseau ne viennent QUE de la passe principale
+                                    // (sinon la passe N-1 doublerait CA/Qté).
+                                    if (isMainPass) rows.push([code, lib, ca, qte, nbMag, caMag, marge]);
+                                    const y = parseInt(mm.slice(0, 4), 10);
+                                    (monthlyByCode[code] ??= {});
+                                    if (isMainPass && y === yearN) {
+                                        monthlyByCode[code][mm] = qte;
+                                        // COMP = même mois de l'année N-1 : comble la 1re moitié des 12 mois.
+                                        const mmPrev = String(y - 1) + mm.slice(4);
+                                        if (monthlyByCode[code][mmPrev] === undefined) monthlyByCode[code][mmPrev] = qteComp;
+                                    } else {
+                                        // Passe année N-1 : valeur directe, prioritaire sur COMP.
+                                        monthlyByCode[code][mm] = qte;
+                                    }
+                                };
+                                try {
+                                    const layout = await rpcWithRetry("layout", "GetLayout", {}, ret.qHandle);
+                                    const hc = (layout.qLayout as { qHyperCube: { qSize: { qcy: number }; qDataPages?: Array<{ qArea?: { qTop?: number }; qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }> } }).qHyperCube;
+                                    const size = hc.qSize.qcy;
+                                    let got = 0, top = 0;
+                                    const first = hc.qDataPages?.find((p) => (p.qArea?.qTop ?? 0) === 0);
+                                    if (first?.qMatrix?.length) { for (const r of first.qMatrix) onRow(r); got += first.qMatrix.length; top = PAGEM; }
+                                    for (; top < size; top += PAGEM) {
+                                        const d = await rpcWithRetry("getCubeData", "GetHyperCubeData", { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: 9, qHeight: PAGEM }] }, ret.qHandle);
+                                        const matrix = (d.qDataPages as Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }>)?.[0]?.qMatrix ?? [];
+                                        if (!matrix.length) break;
+                                        for (const r of matrix) onRow(r);
+                                        got += matrix.length;
+                                        if (matrix.length < PAGEM) break;
+                                    }
+                                    return got;
+                                } finally {
+                                    try { if (cubeId) await rpc("DestroySessionObject", { qId: cubeId }, doc); } catch { /* noop */ }
+                                }
+                            };
+
+                            // Une passe = (Année ?) + fenêtre Date 12 mois + cube mensuel.
+                            // La sélection article posée plus haut reste active : on ne touche
+                            // qu'aux champs Année / Date.
+                            const runPass = async (selectYear: number | null): Promise<number> => {
+                                if (yfh !== -1) {
+                                    await rpc("Clear", {}, yfh);
+                                    await sleep(settleMs);
+                                    if (selectYear !== null) {
+                                        await rpc("SelectValues", { qFieldValues: [{ qNum: selectYear, qText: String(selectYear) }], qToggleMode: false, qSoftLock: true }, yfh);
+                                        await sleep(settleMs);
+                                    }
+                                }
+                                if (dfh !== -1 && allSerials.length) {
+                                    await rpc("Clear", {}, dfh);
+                                    await sleep(settleMs);
+                                    await rpc("SelectValues", { qFieldValues: allSerials.map((s) => ({ qNum: s, qText: String(s) })), qToggleMode: false, qSoftLock: true }, dfh);
+                                    await sleep(settleMs);
+                                }
+                                return fetchMonthCube(selectYear === null);
+                            };
+
+                            const gotMain = await runPass(null);
+                            console.log("[search] passe principale — " + gotMain + " lignes, " + Object.keys(monthlyByCode).length + " codes");
+                            if (yfh !== -1) {
+                                // Passe complémentaire : mois de N-1 hors de portée de COMP
+                                // (ex. août→déc), indispensable pour 12 mois contigus.
+                                try {
+                                    const gotPrev = await runPass(yearN - 1);
+                                    console.log("[search] passe N-1 — " + gotPrev + " lignes");
+                                } catch (e) { console.log("[search] passe N-1 ignorée: " + msgOf(e)); }
+                                try { await rpc("Clear", {}, yfh); await sleep(settleMs); } catch { /* noop */ }
+                            }
+
+                            // ── Métadonnées (fournisseur / famille) — best effort ───────────
+                            const meta: Record<string, { fournisseur?: string; famille?: string }> = {};
+                            if (dimFou || dimFam) {
+                                try {
+                                    const extra: string[] = [];
+                                    if (dimFou) extra.push(dimFou);
+                                    if (dimFam) extra.push(dimFam);
+                                    const width = 1 + extra.length;
+                                    const o = await rpcWithRetry("metaCube", "CreateSessionObject", { qProp: { qInfo: { qType: "cf-search-meta" }, qHyperCubeDef: {
+                                        qDimensions: [{ qLibraryId: dimCode }, ...extra.map((q) => ({ qLibraryId: q }))],
+                                        qMeasures: [],
+                                        qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: width, qHeight: 1500 }],
+                                    } } }, doc);
+                                    const ret = o.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
+                                    const layout = await rpcWithRetry("metaLayout", "GetLayout", {}, ret.qHandle);
+                                    const hc = (layout.qLayout as { qHyperCube: { qDataPages?: Array<{ qMatrix?: Array<Array<{ qText?: string }>> }> } }).qHyperCube;
+                                    for (const r of hc.qDataPages?.[0]?.qMatrix ?? []) {
+                                        const code = String(r[0]?.qText ?? "").trim();
+                                        if (!code || code === "-") continue;
+                                        let i = 1;
+                                        const entry: { fournisseur?: string; famille?: string } = {};
+                                        if (dimFou) { const v = String(r[i++]?.qText ?? "").trim(); if (v && v !== "-") entry.fournisseur = v; }
+                                        if (dimFam) { const v = String(r[i++]?.qText ?? "").trim(); if (v && v !== "-") entry.famille = v; }
+                                        meta[code] = entry;
+                                    }
+                                    try { await rpc("DestroySessionObject", { qId: String(ret.qGenericId ?? ret.qId ?? "") }, doc); } catch { /* noop */ }
+                                } catch (e) { console.log("[search] méta fournisseur/famille ignorée: " + msgOf(e)); }
+                            }
+
+                            ws.close();
+                            resolve({ ok: true, rows, monthly: monthlyByCode, meta, matchCount, tooMany: false });
+                        } catch (e) { try { ws.close(); } catch { /* noop */ } fail(msgOf(e)); }
+                    })();
+                }),
+            {
+                app: cfg.appNetwork,
+                token: csrfToken,
+                dimCode: cfg.dimCodeArticleId,
+                dimLabelId: qlikDimArticleLabelId,
+                labelFields: labelFieldCandidates,
+                mca: cfg.measCaId,
+                mqte: cfg.measQteId,
+                mnb: cfg.measNbMagId,
+                mcamag: cfg.measCaMagId,
+                mmarge: cfg.measMargePctId,
+                mqteComp: qlikMeasQteCompId,
+                moisDimId: qlikMoisDimId,
+                mode,
+                codes: codes ?? [],
+                match: trimmed,
+                allSerials,
+                maxProducts,
+                settleMs: qlikSettleMs,
+                code15Attempts: qlikCode15MaxAttempts,
+                yearN,
+            },
+        )) as InPageSearchResult;
+
+        if (!result.ok) throw new Error(`[qlik-pw][search] ${result.error}`);
+        const matchCount = result.matchCount ?? -1;
+        if (result.tooMany) {
+            console.log(`[qlik-pw][search] refusé — ${matchCount} valeurs > max ${maxProducts}`);
+            return { products: [], matchCount, tooMany: true, mode, periode: dateFilter?.label };
+        }
+
+        // Agrégation par code centrale (même pondération que la sync réseau :
+        // marge % moyennée par le CA).
+        const byCode = new Map<string, NetworkProduct>();
+        const margeWeight = new Map<string, number>();
+        for (const r of result.rows ?? []) {
+            const code = String(r[0]).trim();
+            if (!code || code === "-") continue;
+            const libelle = String(r[1] ?? "").trim();
+            const ca = Number(r[2]) || 0;
+            const qte = Number(r[3]) || 0;
+            const nbMag = Number(r[4]) || 0;
+            const margePct = Number(r[6]) || 0;
+            const prev = byCode.get(code);
+            if (!prev) {
+                byCode.set(code, {
+                    codeCentrale: code,
+                    libelle,
+                    caReseau: ca,
+                    qteReseau: qte,
+                    nbMagasinsReseau: nbMag,
+                    caParMagasinReseau: nbMag > 0 ? ca / nbMag : 0,
+                    margePctReseau: margePct,
+                    periode: dateFilter?.label,
+                });
+                margeWeight.set(code, ca);
+                continue;
+            }
+            if (!prev.libelle && libelle) prev.libelle = libelle;
+            prev.caReseau += ca;
+            prev.qteReseau += qte;
+            prev.nbMagasinsReseau = Math.max(prev.nbMagasinsReseau, nbMag);
+            const weight = margeWeight.get(code) ?? 0;
+            const nextWeight = weight + ca;
+            prev.margePctReseau = nextWeight > 0 ? ((prev.margePctReseau * weight) + (margePct * ca)) / nextWeight : Math.max(prev.margePctReseau, margePct);
+            prev.caParMagasinReseau = prev.nbMagasinsReseau > 0 ? prev.caReseau / prev.nbMagasinsReseau : 0;
+            margeWeight.set(code, nextWeight);
+        }
+
+        const monthly = result.monthly ?? {};
+        const meta = result.meta ?? {};
+        for (const [code, p] of byCode) {
+            const mm = monthly[code];
+            if (mm && Object.keys(mm).length) p.qteByMonth = mm;
+            const m = meta[code];
+            if (m?.fournisseur) p.fournisseur = m.fournisseur;
+            if (m?.famille) p.famille = m.famille;
+        }
+
+        const products = [...byCode.values()].sort((a, b) => b.caReseau - a.caReseau);
+        console.log(`[qlik-pw][search] ${products.length} produits (match=${matchCount}) en ${Date.now() - totalStart}ms`);
+        return { products, matchCount: matchCount >= 0 ? matchCount : products.length, tooMany: false, mode, periode: dateFilter?.label };
     } finally {
         await ctx.close();
     }

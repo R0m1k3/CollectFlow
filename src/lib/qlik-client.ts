@@ -93,6 +93,20 @@ export interface NetworkMetric {
     qteByMonth?: Record<string, number>;
 }
 
+/**
+ * Produit réseau tel que renvoyé par la **recherche** Qlik (page Recherche réseau).
+ *
+ * Différence clé avec `NetworkMetric` : ces produits viennent du catalogue Qlik
+ * du réseau, pas de notre catalogue local. Ils peuvent donc être totalement
+ * inconnus de FF Nancy — d'où le libellé, qui n'est pas récupérable en base.
+ */
+export interface NetworkProduct extends NetworkMetric {
+    /** Libellé article tel qu'il apparaît dans Qlik (dimension « Article »). */
+    libelle: string;
+    fournisseur?: string;
+    famille?: string;
+}
+
 function makeXrfkey(): string {
     return randomBytes(12).toString("base64").replace(/[^a-zA-Z0-9]/g, "").slice(0, 16).padEnd(16, "0");
 }

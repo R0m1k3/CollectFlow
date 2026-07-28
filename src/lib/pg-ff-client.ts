@@ -157,6 +157,55 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
     return (result.rows as unknown as PgArticle[]).filter(r => r.codein);
 }
 
+/** Article local (FF Nancy) résolu depuis un code centrale — page Recherche réseau. */
+export interface PgArticleLocal {
+    codein: string;
+    codeCentrale: string;
+    libelle1?: string;
+    codefou?: string;
+    nomfou?: string;
+    pa?: number;
+    pv_central?: number;
+}
+
+/**
+ * Résout des codes centraux vers NOS articles locaux.
+ *
+ * Sert à distinguer, dans les résultats de recherche Qlik, les produits que nous
+ * référençons (« Chez moi ») de ceux qui n'existent que dans le réseau. Un code
+ * absent de la Map = produit inconnu de FF Nancy.
+ */
+export async function pgGetArticlesByCodeCentrale(codes: string[]): Promise<Map<string, PgArticleLocal>> {
+    const unique = [...new Set(codes.map(c => String(c ?? "").trim()).filter(Boolean))];
+    if (unique.length === 0) return new Map();
+
+    const result = await pgNoParallel(sql`
+        SELECT DISTINCT ON (a.artcentrale)
+            TRIM(a.codein::text) AS codein,
+            a.artcentrale        AS "codeCentrale",
+            a.libelle1,
+            af.code              AS codefou,
+            fi.nom               AS nomfou,
+            pa.pa,
+            ai.prix_vente_mini   AS pv_central
+        FROM articles a
+        LEFT JOIN artfou1 af ON af.art_no_id = a.no_id
+        LEFT JOIN fouident fi ON fi.code = af.code
+        LEFT JOIN cube_pa pa ON pa.artnoid = a.no_id
+        LEFT JOIN article_infosup ai ON ai.artnoid = a.no_id
+        WHERE a.artcentrale IN (${sql.join(unique.map(c => sql`${c}`), sql`, `)})
+          AND a.codein IS NOT NULL
+        ORDER BY a.artcentrale, af.no_id
+    `);
+
+    const map = new Map<string, PgArticleLocal>();
+    for (const r of result.rows as unknown as PgArticleLocal[]) {
+        if (r.codeCentrale) map.set(String(r.codeCentrale).trim(), r);
+    }
+    console.log(`[pg-ff] pgGetArticlesByCodeCentrale: ${map.size}/${unique.length} codes connus localement`);
+    return map;
+}
+
 // ---------------------------------------------------------------------------
 // 2. Données mensuelles (ventes + stock + réceptions)
 // ---------------------------------------------------------------------------
