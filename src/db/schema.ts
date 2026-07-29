@@ -131,6 +131,15 @@ export const qlikNetworkMetrics = pgTable("qlik_network_metrics", {
    * « Tendance / Réseau » de la Grille.
    */
   metricsByMonth: jsonb("metrics_by_month"),
+  /**
+   * Libellé de l'article tel que Qlik le renvoie. Renseigné par la recherche
+   * produit (qui interroge la dimension libellé) ; la sync fournisseur ne
+   * l'écrase pas. Permet d'afficher une fiche pour un produit réseau que le
+   * catalogue Nancy ne référence pas.
+   */
+  libelleReseau: varchar("libelle_reseau", { length: 255 }),
+  /** Fournisseur de l'article côté Qlik, même origine que `libelleReseau`. */
+  fournisseurReseau: varchar("fournisseur_reseau", { length: 255 }),
   /** Dernière synchro depuis Qlik */
   fetchedAt: timestamp("fetched_at").defaultNow(),
 });

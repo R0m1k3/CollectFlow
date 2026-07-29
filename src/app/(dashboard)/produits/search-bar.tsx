@@ -7,9 +7,10 @@ import { Search, X } from "lucide-react";
 /**
  * Champ de recherche produit.
  *
- * Soumission **explicite** (Entrée ou bouton) et non à la frappe : la requête
- * fait un ILIKE sans index sur `articles.libelle1`, on ne veut pas la déclencher
- * à chaque caractère. Minimum 3 caractères, aligné sur `pgSearchProduits`.
+ * Soumission **explicite** (Entrée ou bouton) et non à la frappe : chaque
+ * recherche déclenche deux allers-retours Qlik Sense (recherche des articles
+ * puis extraction de leurs mesures sur 12 mois), soit plusieurs secondes.
+ * Minimum 3 caractères.
  *
  * L'appelant passe `key={q}` pour que le champ se resynchronise sur l'URL
  * (retour arrière, lien partagé) par remontage, plutôt que par un effet qui

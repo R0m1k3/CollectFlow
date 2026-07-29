@@ -27,6 +27,10 @@ export interface NetworkMetricCached {
     metricsByMonth: Record<string, QlikMonthMetrics> | null;
     /** Période couverte par l'extraction (ex "2025-03_2026-02"). */
     periode: string | null;
+    /** Libellé de l'article côté Qlik — `null` tant qu'aucune recherche produit ne l'a renseigné. */
+    libelleReseau: string | null;
+    /** Fournisseur de l'article côté Qlik, même origine que `libelleReseau`. */
+    fournisseurReseau: string | null;
     fetchedAt: string | null;
 }
 
@@ -53,6 +57,8 @@ export async function getNetworkMetricsByCodeCentrale(
             qteByMonth: (r.qteByMonth as Record<string, number> | null) ?? null,
             metricsByMonth: (r.metricsByMonth as Record<string, QlikMonthMetrics> | null) ?? null,
             periode: r.periode ?? null,
+            libelleReseau: r.libelleReseau ?? null,
+            fournisseurReseau: r.fournisseurReseau ?? null,
             fetchedAt: r.fetchedAt ? new Date(r.fetchedAt).toISOString() : null,
         });
     }
@@ -73,6 +79,8 @@ export async function upsertNetworkMetrics(metrics: NetworkMetric[]): Promise<nu
         periode: m.periode ?? null,
         qteByMonth: m.qteByMonth ?? null,
         metricsByMonth: m.metricsByMonth ?? null,
+        libelleReseau: m.libelleReseau ?? null,
+        fournisseurReseau: m.fournisseurReseau ?? null,
         fetchedAt: now,
     }));
 
@@ -95,6 +103,10 @@ export async function upsertNetworkMetrics(metrics: NetworkMetric[]): Promise<nu
                     periode: sql`excluded.periode`,
                     qteByMonth: sql`excluded.qte_by_month`,
                     metricsByMonth: sql`excluded.metrics_by_month`,
+                    // Seule la recherche produit connaît le libellé / le fournisseur
+                    // réseau : une sync fournisseur ne doit pas les effacer.
+                    libelleReseau: sql`COALESCE(excluded.libelle_reseau, ${qlikNetworkMetrics.libelleReseau})`,
+                    fournisseurReseau: sql`COALESCE(excluded.fournisseur_reseau, ${qlikNetworkMetrics.fournisseurReseau})`,
                     fetchedAt: sql`excluded.fetched_at`,
                 },
             });

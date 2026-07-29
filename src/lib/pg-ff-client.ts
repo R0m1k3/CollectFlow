@@ -1387,6 +1387,105 @@ export async function pgSearchProduits(term: string, limit = 50): Promise<PgProd
     }
 }
 
+/**
+ * Rapproche une liste de **codes centraux** (issus de Qlik) du catalogue FF Nancy.
+ *
+ * C'est l'étape 2 de la recherche produit : Qlik dit quels articles le réseau
+ * travaille, cette requête dit lesquels nous référençons — et avec quel
+ * `codein`, quel fournisseur et quel stock. Un code absent du résultat est un
+ * produit réseau que Nancy ne référence pas (cas normal et intéressant).
+ *
+ * Les codeins sont renvoyés indexés par code centrale ; un même code centrale
+ * peut porter plusieurs codeins (ré-créations d'article), on ne garde que le
+ * `no_id` le plus récent.
+ */
+export async function pgGetProduitsByCodeCentrale(
+    codesCentraux: string[],
+): Promise<Map<string, PgProduitSearchRow>> {
+    const out = new Map<string, PgProduitSearchRow>();
+    const codes = [...new Set(codesCentraux.map((c) => c.trim()).filter(Boolean))];
+    if (codes.length === 0) return out;
+
+    try {
+        const result = await pgNoParallel(sql`
+            WITH matched AS (
+                SELECT DISTINCT ON (TRIM(a.artcentrale::text))
+                    a.no_id,
+                    TRIM(a.codein::text)                    AS codein,
+                    TRIM(a.artcentrale::text)               AS code_centrale,
+                    COALESCE(a.libelle1, '')                AS libelle1,
+                    a.nom_no_id
+                FROM articles a
+                WHERE TRIM(a.artcentrale::text) IN (${sql.join(codes.map((c) => sql`${c}`), sql`, `)})
+                  AND a.codein IS NOT NULL
+                ORDER BY TRIM(a.artcentrale::text), a.no_id DESC
+            )
+            SELECT
+                m.no_id,
+                m.codein,
+                m.code_centrale,
+                m.libelle1,
+                COALESCE(fi.nom, af.code, 'Sans fournisseur')::text AS fournisseur,
+                COALESCE(af.code, '')::text                         AS codefou,
+                COALESCE(n.code, '')::text                          AS nomenclature_code,
+                COALESCE(n.libelle, '')::text                       AS nomenclature,
+                COALESCE(st.stock_total, 0)::float                  AS stock_total,
+                TRUE                                                AS has_reseau,
+                0::float                                            AS qte_reseau,
+                0                                                   AS nb_magasins_reseau
+            FROM matched m
+            LEFT JOIN LATERAL (
+                SELECT af1.code
+                FROM artfou1 af1
+                WHERE af1.art_no_id = m.no_id AND af1.preference = 1
+                ORDER BY af1.code
+                LIMIT 1
+            ) af ON TRUE
+            LEFT JOIN fouident fi ON fi.code = af.code
+            LEFT JOIN nomenclature n ON n.no_id = m.nom_no_id
+            LEFT JOIN LATERAL (
+                SELECT SUM(cs.qte)::float AS stock_total
+                FROM cube_stock cs
+                WHERE cs.artnoid = m.no_id AND cs.site IN ('292', '579')
+            ) st ON TRUE
+        `);
+
+        for (const row of result.rows as unknown as PgProduitSearchRow[]) {
+            out.set(row.code_centrale, row);
+        }
+        console.log(`[pg-ff] pgGetProduitsByCodeCentrale: ${codes.length} codes Qlik → ${out.size} trouvés dans le catalogue Nancy`);
+        return out;
+    } catch (e) {
+        console.error("[pg-ff] pgGetProduitsByCodeCentrale error:", (e as Error).message?.slice(0, 250));
+        return out;
+    }
+}
+
+/**
+ * `codein` de l'article portant ce code centrale, ou `null` si Nancy ne le
+ * référence pas. Utilisé par la fiche produit ouverte depuis un résultat Qlik
+ * (URL `?cc=…`), qui n'a que le code centrale.
+ */
+export async function pgGetCodeinByCodeCentrale(codeCentrale: string): Promise<string | null> {
+    const cleaned = codeCentrale.trim();
+    if (!cleaned) return null;
+    try {
+        const result = await pgNoParallel(sql`
+            SELECT TRIM(a.codein::text) AS codein
+            FROM articles a
+            WHERE TRIM(a.artcentrale::text) = ${cleaned}
+              AND a.codein IS NOT NULL
+            ORDER BY a.no_id DESC
+            LIMIT 1
+        `);
+        const row = (result.rows as unknown as { codein: string }[])[0];
+        return row?.codein ?? null;
+    } catch (e) {
+        console.error("[pg-ff] pgGetCodeinByCodeCentrale error:", (e as Error).message?.slice(0, 250));
+        return null;
+    }
+}
+
 /** Identité, prix et nomenclature d'un produit (une seule ligne). */
 export interface PgProduitDetailRow {
     no_id: number;

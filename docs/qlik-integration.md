@@ -14,6 +14,34 @@ La Foir'Fouille : **CA réseau, Qté vendue réseau, Nb magasins** par produit.
 | Bouton UI | `src/features/grid/components/sync-qlik-button.tsx` |
 | Jointure grille | `enrichWithNetworkMetrics()` dans `src/features/grid/api/get-product-rows.ts` (Phase 8) |
 | Colonnes grille | CA réseau / Qté réseau / Magasins (/270) / % présence (`heatmap-grid.tsx`) |
+| Recherche produit (Qlik d'abord) | `src/lib/qlik-search.ts` → `src/features/produits/api/search-produits.ts` → `GET /api/produits/search` |
+
+## Recherche produit — Qlik d'abord
+
+La page `/produits` ne cherche **plus** dans le catalogue FF Nancy en premier :
+le réseau référence bien plus de produits que Nancy, et ce sont précisément
+ceux-là qu'on veut voir.
+
+1. `searchQlikArticles()` — recherche globale Engine (`SearchResults`) restreinte
+   aux champs article (code + libellé, détectés dynamiquement via `FieldList`).
+   Les valeurs trouvées sont sélectionnées dans leur champ, ce qui restreint la
+   dimension « Article Code » aux articles correspondants.
+2. `fetchNetworkMetricsPlaywright()` — mesures réseau + détail mensuel sur la
+   fenêtre 12 mois glissants (mois en cours exclu), puis `upsertNetworkMetrics()`
+   pour que la fiche produit soit immédiatement servie depuis le cache.
+3. `pgGetProduitsByCodeCentrale()` — rapprochement avec le catalogue Nancy.
+   Un code absent = produit réseau que nous ne référençons pas (`?cc=` sur la fiche).
+
+Repli : si Qlik est injoignable, la recherche retombe sur `pgSearchProduits()` et
+la réponse le signale (`source: "db"`). Résultats mis en cache mémoire 10 min.
+
+## Tendance réseau = 12 mois glissants stricts
+
+`computeNetworkTrend()` reconstruit sa fenêtre à partir de la date du jour :
+12 mois complets, **mois en cours exclu** (partiel, il tirait la pente vers le bas).
+Les mois de la fenêtre absents du cache valent 0 (produit non vendu) ; ceux
+antérieurs au premier mois réellement extrait sont écartés au lieu d'être
+inventés à 0 (extraction plus courte que 12 mois).
 
 Retirés : ranking (champs/query/colonnes), analyse IA (routes `/api/ai/*`, `bulk-ai-analyzer`,
 dossier `ai-copilot`), score (`score-engine.ts`, colonne score).

@@ -23,6 +23,24 @@ export type NetworkTrend = {
 /** Seuil de "forte" variation (±25%) pour distinguer hausse/forte hausse dans l'UI. */
 export const TREND_STRONG = 0.25;
 
+/**
+ * Les 12 mois complets glissants au format Qlik `"YYYY-MM"`, du plus ancien au
+ * plus récent. **Le mois en cours est exclu** : il est partiel, l'intégrer
+ * écraserait systématiquement la tendance vers le bas.
+ *
+ * Même fenêtre que `getLast12Months()` (clés FF `"YYYYMM"`) et que
+ * `buildGridNetworkQlikDateFilter()` (extraction Qlik) — les trois doivent
+ * rester alignés.
+ */
+export function buildRolling12QlikMonths(now: Date = new Date()): string[] {
+    const months: string[] = [];
+    for (let i = 12; i >= 1; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+    }
+    return months;
+}
+
 /** Seuil au-delà duquel on ne considère plus la tendance comme stable (±8%). */
 export const TREND_FLAT = 0.08;
 
@@ -33,17 +51,42 @@ export const TREND_COLOR: Record<NetworkTrend["direction"], string> = {
 };
 
 /**
- * Tendance réseau par RÉGRESSION LINÉAIRE (moindres carrés) sur les 12 derniers mois.
+ * Tendance réseau par RÉGRESSION LINÉAIRE (moindres carrés) sur les **12 mois
+ * complets glissants, mois en cours exclu**.
+ *
+ * La fenêtre est reconstruite à partir de la date du jour (et non des clés
+ * présentes dans `qteByMonth`) : c'est le seul moyen de garantir une tendance
+ * réellement glissante. Deux conséquences voulues :
+ *   - un mois en cours (partiel) ou un mois plus vieux que 12 mois présent dans
+ *     le cache est **ignoré** — sinon la pente est faussée par un mois tronqué ;
+ *   - un mois de la fenêtre **absent** du cache vaut 0 : côté Qlik, un produit
+ *     non vendu sur un mois ne produit tout simplement pas de ligne.
+ *
+ * Seule exception au remplissage par zéro : les mois **antérieurs au premier
+ * mois réellement extrait**. Ils traduisent une extraction plus courte que 12
+ * mois (`QLIK_SYNC_MONTHS_BACK`), pas une absence de ventes — les inventer à 0
+ * simulerait une croissance qui n'existe pas.
+ *
  * Utilise tous les points (robuste au bruit d'un mois isolé). L'indicateur `pct` est la
  * variation modélisée sur la période (pente × durée) rapportée à la moyenne.
  * Direction : forte hausse >+25%, hausse >+8%, stable, baisse <−8%, forte baisse <−25%.
  */
-export function computeNetworkTrend(qteByMonth?: Record<string, number> | null): NetworkTrend {
+export function computeNetworkTrend(
+    qteByMonth?: Record<string, number> | null,
+    now: Date = new Date(),
+): NetworkTrend {
     const empty: NetworkTrend = { values: [], labels: [], direction: "flat", pct: null, hasData: false };
     if (!qteByMonth) return empty;
-    let labels = Object.keys(qteByMonth).sort(); // "YYYY-MM" trie chronologiquement
-    if (labels.length === 0) return empty;
-    labels = labels.slice(-12); // 12 derniers mois
+    const presents = Object.keys(qteByMonth).sort(); // "YYYY-MM" trie chronologiquement
+    if (presents.length === 0) return empty;
+
+    const fenetre = buildRolling12QlikMonths(now);
+    // Aucun mois extrait ne tombe dans la fenêtre glissante (cache périmé) :
+    // rien de fiable à tracer.
+    const premierMoisExtrait = presents[0];
+    const labels = fenetre.filter((m) => m >= premierMoisExtrait);
+    if (labels.length === 0 || !labels.some((m) => qteByMonth[m] != null)) return empty;
+
     const values = labels.map((l) => Number(qteByMonth[l]) || 0);
     const n = values.length;
     let pct: number | null = null;

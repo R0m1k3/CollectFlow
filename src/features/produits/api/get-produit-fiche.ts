@@ -2,6 +2,7 @@ import "server-only";
 
 import {
     pgGetProduitDetail,
+    pgGetCodeinByCodeCentrale,
     pgGetFournisseursByCodein,
     pgGetStockByCodein,
     pgGetCommandesByCodein,
@@ -32,6 +33,55 @@ function totauxFrom(rows: ProduitMois[]): ProduitTotaux {
     const ca = rows.reduce((s, r) => s + r.ca, 0);
     const marge = rows.reduce((s, r) => s + r.marge, 0);
     return { qte, ca, marge, tauxMarge: ca > 0 ? (marge / ca) * 100 : 0 };
+}
+
+/**
+ * Assemble la fiche d'un produit **à partir de son code centrale** : c'est la
+ * clé du réseau Qlik, seule identité disponible pour un produit que le réseau
+ * travaille mais que Nancy ne référence pas.
+ *
+ * Si le catalogue Nancy connaît ce code centrale, on rattache toute la partie
+ * locale (identité, fournisseurs, stock, gammes, 12 mois glissants de ventes).
+ * Sinon la fiche reste purement réseau, ce qui est un cas parfaitement normal
+ * depuis la recherche Qlik.
+ *
+ * Renvoie `null` uniquement si ni Qlik ni le catalogue ne connaissent le code.
+ */
+export async function getProduitFicheByCodeCentrale(codeCentrale: string): Promise<ProduitFiche | null> {
+    const cleaned = codeCentrale.trim();
+    if (!cleaned) return null;
+
+    const codein = await pgGetCodeinByCodeCentrale(cleaned);
+    if (codein) return getProduitFiche(codein);
+
+    // Produit réseau pur : aucune donnée locale à assembler.
+    const map = await getNetworkMetricsByCodeCentrale([cleaned]);
+    const reseau = map.get(cleaned) ?? null;
+    if (!reseau) return null;
+
+    const { dateDebut, dateFin } = buildLast12MonthsRange();
+    const months = buildMonthKeys();
+    const mensuelTotal: Record<string, ProduitMois> = {};
+    for (const m of months) mensuelTotal[m] = emptyMois(m);
+
+    return {
+        detail: null,
+        codeCentrale: cleaned,
+        libelleReseau: reseau.libelleReseau ?? "",
+        fournisseurReseau: reseau.fournisseurReseau ?? "",
+        fournisseurs: [],
+        stock: [],
+        commandesEnCours: 0,
+        gammes: [],
+        months,
+        mensuelTotal,
+        mensuelParSite: {},
+        totaux: totauxFrom(months.map((m) => mensuelTotal[m])),
+        totauxParSite: {},
+        sitesActifs: [],
+        reseau,
+        periode: { dateDebut, dateFin },
+    };
 }
 
 /**
@@ -138,6 +188,9 @@ export async function getProduitFiche(codein: string): Promise<ProduitFiche | nu
 
     return {
         detail,
+        codeCentrale: detail.code_centrale ?? "",
+        libelleReseau: reseau?.libelleReseau ?? "",
+        fournisseurReseau: reseau?.fournisseurReseau ?? "",
         fournisseurs,
         stock,
         commandesEnCours,

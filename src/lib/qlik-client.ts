@@ -101,6 +101,14 @@ export interface NetworkMetric {
      * sautée si le champ Qlik `Année` est absent).
      */
     metricsByMonth?: Record<string, QlikMonthMetrics>;
+    /**
+     * Libellé de l'article côté Qlik. Renseigné uniquement par la recherche
+     * produit (`qlik-search.ts`), qui interroge la dimension libellé ; la sync
+     * fournisseur ne le connaît pas et le laisse `undefined`.
+     */
+    libelleReseau?: string;
+    /** Fournisseur de l'article côté Qlik, même origine que `libelleReseau`. */
+    fournisseurReseau?: string;
 }
 
 /** Les mesures réseau Qlik pour un produit sur un mois donné. */
