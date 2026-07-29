@@ -15,11 +15,16 @@
  * websocket Engine in-page avec le qlik-csrf-token), car le proxy Qlik refuse
  * un websocket « raw » côté serveur.
  *
- * L'API Engine utilisée est la recherche globale (`SearchResults`) : elle
- * renvoie, pour chaque champ, les valeurs qui matchent le terme. On sélectionne
- * ensuite ces valeurs dans leur champ, ce qui restreint la dimension
- * « Article Code » aux articles correspondants — sans avoir à connaître à
- * l'avance le nom exact du champ libellé, qui varie selon les apps.
+ * L'API Engine utilisée est la recherche de **list object**
+ * (`SearchListObjectFor` + `AcceptListObjectSearch`), c'est-à-dire exactement ce
+ * que fait un volet de filtre Qlik quand on tape dans sa zone de recherche :
+ * Qlik applique sa propre sémantique (tous les mots présents, insensible à la
+ * casse et aux accents) puis sélectionne les valeurs trouvées. La sélection
+ * restreint alors la dimension « Article Code » aux articles correspondants.
+ *
+ * Le résultat est **revérifié côté client** avant d'être renvoyé : si la
+ * sélection ne prend pas, le cube renvoie le début du catalogue, et une liste
+ * sans rapport avec la recherche est pire que pas de résultat du tout.
  */
 
 import "server-only";
@@ -42,6 +47,12 @@ export interface QlikSearchOutcome {
     champUtilise: string | null;
     /** true si Qlik a renvoyé plus de résultats que la limite demandée. */
     tronque: boolean;
+    /**
+     * Message de diagnostic quand la recherche aboutit à zéro article alors que
+     * Qlik a bien renvoyé des lignes : le filtre n'a pas été appliqué côté
+     * Engine et le garde-fou a tout écarté. `null` en fonctionnement nominal.
+     */
+    avertissement: string | null;
 }
 
 /**
@@ -52,9 +63,6 @@ export interface QlikSearchOutcome {
  * illisible. L'utilisateur affine son terme.
  */
 export const QLIK_SEARCH_MAX_RESULTS = 40;
-
-/** Nombre maximum de valeurs de champ sélectionnées suite à la recherche. */
-const MAX_FIELD_MATCHES = 400;
 
 let browserPromise: Promise<Browser> | null = null;
 
@@ -76,6 +84,10 @@ interface InPageSearchResult {
     rows?: Array<[string, string, string]>;
     champUtilise?: string | null;
     total?: number;
+    /** Lignes brutes lues dans le cube (avant garde-fou). */
+    lues?: number;
+    /** Lignes écartées parce qu'elles ne correspondaient pas au terme. */
+    rejetees?: number;
     /** Journal compact des étapes, remonté dans les logs serveur. */
     trace?: string[];
 }
@@ -94,11 +106,15 @@ export async function searchQlikArticles(
     cfg: QlikConfig = getQlikConfig(),
 ): Promise<QlikSearchOutcome> {
     const cleaned = term.trim();
-    if (cleaned.length < 3) return { matches: [], champUtilise: null, tronque: false };
+    if (cleaned.length < 3) return { matches: [], champUtilise: null, tronque: false, avertissement: null };
     if (!cfg.appNetwork) throw new Error("[qlik-search] QLIK_APP_NETWORK manquant");
     if (!cfg.user || !cfg.password) throw new Error("[qlik-search] identifiants Qlik manquants");
 
     const started = Date.now();
+    // Latence laissée à l'Engine après chaque mutation de sélection. Même réglage
+    // que l'extraction (`QLIK_SETTLE_MS`) : sans elle, l'objet créé juste après
+    // est calculé sur l'état de sélection précédent.
+    const settleMs = Math.min(2000, Math.max(0, Number(process.env.QLIK_SETTLE_MS ?? "250") || 250));
     const sess = await qlikNtlmSession(cfg);
     const [cookieName, ...rest] = sess.cookie.split("=");
     const cookieValue = rest.join("=");
@@ -128,8 +144,8 @@ export async function searchQlikArticles(
         if (!csrfToken) throw new Error("[qlik-search] qlik-csrf-token introuvable (client Qlik non chargé ?)");
 
         const result = (await page.evaluate(
-            ({ app, dim, token, terme, limite, maxFieldMatches, champLibelleForce, champFournisseurForce }: {
-                app: string; dim: string; token: string; terme: string; limite: number; maxFieldMatches: number;
+            ({ app, dim, token, terme, limite, settleMs, champLibelleForce, champFournisseurForce }: {
+                app: string; dim: string; token: string; terme: string; limite: number; settleMs: number;
                 champLibelleForce: string; champFournisseurForce: string;
             }) =>
                 new Promise<InPageSearchResult>((resolve) => {
@@ -199,56 +215,89 @@ export async function searchQlikArticles(
                             trace.push("champs disponibles=" + JSON.stringify(champs));
                             trace.push("code=" + champCode + " libelle=" + champLibelle + " fournisseur=" + champFournisseur);
 
-                            // ─── 2. Recherche globale Qlik ───────────────────────────
-                            // On restreint aux champs article : sans restriction, un terme
-                            // courant ("noir") matcherait des dizaines de champs sans
-                            // rapport (couleur magasin, région…) et la sélection deviendrait
-                            // absurde.
-                            const champsRecherche = [champCode, ...(champLibelle ? [champLibelle] : [])];
-                            const sr = await rpc("SearchResults", {
-                                qOptions: { qSearchFields: champsRecherche, qContext: "Cleared" },
-                                qTerms: [terme],
-                                qPage: { qOffset: 0, qCount: champsRecherche.length, qMaxNbrFieldMatches: maxFieldMatches },
-                            }, doc);
+                            // ─── 2. Sélection par recherche de champ ─────────────────
+                            //
+                            // On passe par un **list object** + `SearchListObjectFor` /
+                            // `AcceptListObjectSearch` : c'est exactement ce que fait un
+                            // volet de filtre Qlik quand on tape dans sa zone de recherche.
+                            // Qlik applique lui-même sa sémantique (mots multiples = tous
+                            // présents, insensible casse/accents) et sélectionne les valeurs
+                            // trouvées — sans qu'on ait à ré-injecter des `qText` à
+                            // l'identique, ce qui échouait silencieusement et laissait le
+                            // cube renvoyer le début du catalogue.
+                            const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-                            type Match = { qText?: string };
-                            type Item = { qIdentifier?: string; qItemMatches?: Match[]; qTotalNumberOfMatches?: number };
-                            type Group = { qItems?: Item[] };
-                            const groupes = (((sr.qResult as { qSearchGroupArray?: Group[] })?.qSearchGroupArray) ?? []);
-                            const parChamp = new Map<string, string[]>();
-                            for (const g of groupes) {
-                                for (const it of g.qItems ?? []) {
-                                    const champ = it.qIdentifier ?? "";
-                                    if (!champ) continue;
-                                    const vals = (it.qItemMatches ?? []).map((m) => String(m.qText ?? "")).filter(Boolean);
-                                    if (vals.length === 0) continue;
-                                    parChamp.set(champ, [...(parChamp.get(champ) ?? []), ...vals]);
+                            const chercherEtSelectionner = async (champ: string): Promise<number> => {
+                                const lo = await rpc("CreateSessionObject", {
+                                    qProp: {
+                                        qInfo: { qType: "cf-search-lb" },
+                                        qListObjectDef: {
+                                            qDef: { qFieldDefs: [champ] },
+                                            qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 1, qHeight: 1 }],
+                                        },
+                                    },
+                                }, doc);
+                                const ret = lo.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
+                                const loId = String(ret.qGenericId ?? ret.qId ?? "");
+                                try {
+                                    await rpc("SearchListObjectFor", { qPath: "/qListObjectDef", qMatch: terme }, ret.qHandle);
+                                    await sleep(settleMs);
+                                    const lay = await rpc("GetLayout", {}, ret.qHandle);
+                                    const nb = ((lay.qLayout as { qListObject?: { qSize?: { qcy?: number } } }).qListObject?.qSize?.qcy) ?? 0;
+                                    trace.push("recherche " + champ + " → " + nb + " valeur(s)");
+                                    if (nb > 0) {
+                                        await rpc("AcceptListObjectSearch", {
+                                            qPath: "/qListObjectDef",
+                                            qToggleMode: false,
+                                            qSoftLock: true,
+                                        }, ret.qHandle);
+                                        // L'Engine doit finir d'évaluer la sélection avant que
+                                        // le cube suivant soit calculé, sinon il est construit
+                                        // sur l'état précédent (= catalogue entier).
+                                        await sleep(settleMs);
+                                    }
+                                    return nb;
+                                } finally {
+                                    if (loId) { try { await rpc("DestroySessionObject", { qId: loId }, doc); } catch { /* noop */ } }
                                 }
-                            }
-                            trace.push("groupes=" + JSON.stringify([...parChamp].map(([c, v]) => c + ":" + v.length)));
+                            };
 
-                            // Priorité au champ libellé (une recherche texte), sinon le code.
-                            const champChoisi = (champLibelle && parChamp.has(champLibelle)) ? champLibelle
-                                : parChamp.has(champCode) ? champCode
-                                    : [...parChamp.keys()][0] ?? null;
+                            await rpc("ClearAll", { qLockedAlso: false }, doc);
+                            await sleep(settleMs);
+
+                            // Le libellé d'abord (cas courant), le code centrale ensuite.
+                            let champChoisi: string | null = null;
+                            if (champLibelle && (await chercherEtSelectionner(champLibelle)) > 0) {
+                                champChoisi = champLibelle;
+                            } else if ((await chercherEtSelectionner(champCode)) > 0) {
+                                champChoisi = champCode;
+                            }
                             if (!champChoisi) {
                                 ws.close();
-                                return resolve({ ok: true, rows: [], champUtilise: null, total: 0, trace });
+                                return resolve({ ok: true, rows: [], champUtilise: null, total: 0, lues: 0, rejetees: 0, trace });
                             }
-                            const valeurs = [...new Set(parChamp.get(champChoisi) ?? [])].slice(0, maxFieldMatches);
 
-                            // ─── 3. Sélection des valeurs trouvées ───────────────────
-                            const gf = await rpc("GetField", { qFieldName: champChoisi }, doc);
-                            const fh = (gf.qReturn as { qHandle: number }).qHandle;
-                            await rpc("Clear", {}, fh);
-                            await rpc("SelectValues", {
-                                qFieldValues: valeurs.map((v) => ({ qText: v })),
-                                qToggleMode: false,
-                                qSoftLock: true,
-                            }, fh);
-                            trace.push("selection " + champChoisi + " = " + valeurs.length + " valeurs");
+                            // Trace des sélections réellement actives : si elle est vide, la
+                            // sélection n'a pas pris côté Engine et le cube ci-dessous
+                            // renverra tout le catalogue (le garde-fou de l'étape 4 le
+                            // rattrape, mais c'est ici qu'on voit pourquoi).
+                            try {
+                                const cs = await rpc("CreateSessionObject", {
+                                    qProp: {
+                                        qInfo: { qType: "cf-search-sel" },
+                                        qSelectionObjectDef: {},
+                                    },
+                                }, doc);
+                                const csl = await rpc("GetLayout", {}, (cs.qReturn as { qHandle: number }).qHandle);
+                                const sel = (((csl.qLayout as { qSelectionObject?: { qSelections?: Array<{ qField?: string; qSelectedCount?: number; qTotal?: number }> } })
+                                    .qSelectionObject?.qSelections) ?? [])
+                                    .map((s) => `${s.qField}:${s.qSelectedCount}/${s.qTotal}`);
+                                trace.push("sélections actives=" + JSON.stringify(sel));
+                            } catch (e) {
+                                trace.push("sélections actives: lecture impossible (" + String((e as Error)?.message || e) + ")");
+                            }
 
-                            // ─── 4. Liste des articles correspondants ────────────────
+                            // ─── 3. Liste des articles correspondants ────────────────
                             // Cube sans mesure : uniquement l'identité de l'article. Les
                             // métriques réseau sont extraites juste après par
                             // fetchNetworkMetricsPlaywright (qui produit aussi le mensuel).
@@ -256,7 +305,10 @@ export async function searchQlikArticles(
                             if (champLibelle) dims.push({ qDef: { qFieldDefs: [champLibelle] } });
                             if (champFournisseur) dims.push({ qDef: { qFieldDefs: [champFournisseur] } });
                             const largeur = dims.length;
-                            const hauteur = Math.min(limite, Math.floor(9000 / Math.max(largeur, 1)));
+                            // On lit large puis on dédoublonne : un article référencé chez
+                            // plusieurs fournisseurs produit autant de lignes que de
+                            // fournisseurs, il ne doit pas consommer plusieurs places.
+                            const hauteur = Math.min(1000, Math.floor(9000 / Math.max(largeur, 1)));
 
                             const cube = await rpc("CreateSessionObject", {
                                 qProp: {
@@ -278,19 +330,60 @@ export async function searchQlikArticles(
                                 };
                             }).qHyperCube;
                             const matrix = hc.qDataPages?.[0]?.qMatrix ?? [];
-                            const rows: Array<[string, string, string]> = [];
+
+                            // ─── 4. Garde-fou : le résultat DOIT correspondre au terme ──
+                            // Si la sélection Qlik n'a pas pris (droits, modèle de données,
+                            // évaluation en retard), le cube renvoie le début du catalogue.
+                            // On revérifie donc chaque ligne côté client : mots tous présents
+                            // dans le libellé, ou code correspondant au terme. Mieux vaut
+                            // zéro résultat qu'une liste sans rapport avec la recherche.
+                            const normaliser = (s: string) => s
+                                .toLowerCase()
+                                .normalize("NFD")
+                                .replace(/[\u0300-\u036f]/g, "")
+                                .replace(/[^a-z0-9]+/g, " ")
+                                .trim();
+                            const mots = normaliser(terme).split(" ").filter(Boolean);
+                            const termeCode = terme.trim().toLowerCase();
+                            const correspond = (code: string, libelle: string): boolean => {
+                                if (mots.length === 0) return true;
+                                const c = code.toLowerCase();
+                                if (c === termeCode || c.startsWith(termeCode)) return true;
+                                if (!libelle) return champChoisi === champCode;
+                                const l = normaliser(libelle);
+                                return mots.every((m) => l.includes(m));
+                            };
+
+                            const parCode = new Map<string, [string, string, string]>();
+                            let rejetees = 0;
                             for (const r of matrix) {
                                 const code = String(r[0]?.qText ?? "").trim();
                                 if (!code || code === "-") continue;
-                                const libelle = champLibelle ? String(r[1]?.qText ?? "").trim() : "";
+                                const libelleBrut = champLibelle ? String(r[1]?.qText ?? "").trim() : "";
                                 const idxFou = champLibelle ? 2 : 1;
-                                const fournisseur = champFournisseur ? String(r[idxFou]?.qText ?? "").trim() : "";
-                                rows.push([code, libelle === "-" ? "" : libelle, fournisseur === "-" ? "" : fournisseur]);
+                                const fournisseurBrut = champFournisseur ? String(r[idxFou]?.qText ?? "").trim() : "";
+                                const libelle = libelleBrut === "-" ? "" : libelleBrut;
+                                const fournisseur = fournisseurBrut === "-" ? "" : fournisseurBrut;
+                                if (!correspond(code, libelle)) { rejetees++; continue; }
+                                const existant = parCode.get(code);
+                                if (!existant) { parCode.set(code, [code, libelle, fournisseur]); continue; }
+                                // Complète les champs manquants d'une ligne déjà vue.
+                                if (!existant[1] && libelle) existant[1] = libelle;
+                                if (!existant[2] && fournisseur) existant[2] = fournisseur;
                             }
-                            trace.push("articles=" + rows.length + "/" + hc.qSize.qcy);
+                            const uniques = [...parCode.values()];
+                            const rows = uniques.slice(0, limite);
+                            trace.push(
+                                "cube=" + hc.qSize.qcy + " lignes lues=" + matrix.length +
+                                " rejetées(hors terme)=" + rejetees +
+                                " articles uniques=" + uniques.length + " retenus=" + rows.length,
+                            );
 
                             ws.close();
-                            resolve({ ok: true, rows, champUtilise: champChoisi, total: hc.qSize.qcy, trace });
+                            resolve({
+                                ok: true, rows, champUtilise: champChoisi, total: uniques.length,
+                                lues: matrix.length, rejetees, trace,
+                            });
                         } catch (e) {
                             try { ws.close(); } catch { /* noop */ }
                             resolve({ ok: false, error: String((e as Error)?.message || e), trace });
@@ -303,7 +396,7 @@ export async function searchQlikArticles(
                 token: csrfToken,
                 terme: cleaned,
                 limite: limit,
-                maxFieldMatches: MAX_FIELD_MATCHES,
+                settleMs,
                 champLibelleForce: (process.env.QLIK_FIELD_ARTICLE_LIBELLE ?? "").trim(),
                 champFournisseurForce: (process.env.QLIK_FIELD_FOURNISSEUR ?? "").trim(),
             },
@@ -318,10 +411,22 @@ export async function searchQlikArticles(
         console.log(
             `[qlik-search] "${cleaned}" → ${matches.length} article(s) (total Qlik ${result.total ?? 0}, champ=${result.champUtilise}) en ${Date.now() - started} ms`,
         );
+        // Toutes les lignes écartées = Qlik a bien répondu mais sans appliquer la
+        // sélection. On le dit au lieu d'afficher un « aucun résultat » trompeur.
+        const filtreNonApplique = matches.length === 0 && (result.rejetees ?? 0) > 0;
+        if (filtreNonApplique) {
+            console.warn(
+                `[qlik-search] filtre non appliqué : ${result.rejetees} ligne(s) lues sans rapport avec "${cleaned}" — vérifier le champ ${result.champUtilise} et les traces ci-dessus`,
+            );
+        }
+
         return {
             matches,
             champUtilise: result.champUtilise ?? null,
             tronque: (result.total ?? 0) > matches.length,
+            avertissement: filtreNonApplique
+                ? "Qlik a répondu sans appliquer le filtre de recherche : les articles renvoyés ne correspondaient pas au terme et ont été écartés. Voir les logs [qlik-search]."
+                : null,
         };
     } finally {
         await ctx.close();

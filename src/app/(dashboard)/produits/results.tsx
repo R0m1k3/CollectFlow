@@ -159,10 +159,15 @@ export function ProduitResults({ query }: { query: string }) {
 
             {source === "qlik" && qlikError && (
                 <div
-                    className="rounded-xl p-3 text-[12px]"
+                    className="rounded-xl p-3 text-[12px] flex items-start gap-2"
                     style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
                 >
-                    Articles trouvés, mais l&apos;extraction des mesures réseau a échoué : {qlikError}
+                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" style={{ color: "var(--accent-error)" }} />
+                    <span>
+                        {rows.length === 0
+                            ? qlikError
+                            : `Articles trouvés, mais l'extraction des mesures réseau a échoué : ${qlikError}`}
+                    </span>
                 </div>
             )}
 

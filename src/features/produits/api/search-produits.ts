@@ -116,7 +116,10 @@ async function executerRecherche(term: string): Promise<ProduitRechercheResultat
         return {
             rows: [],
             source: "qlik",
-            qlikError: null,
+            // `avertissement` n'est renseigné que si Qlik a répondu sans appliquer
+            // le filtre : l'utilisateur doit savoir que ce n'est pas « pas de
+            // produit » mais « recherche non appliquée ».
+            qlikError: qlik.avertissement,
             tronque: false,
             champUtilise: qlik.champUtilise,
             locauxHorsReseau: locaux,
