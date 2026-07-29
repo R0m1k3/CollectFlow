@@ -22,10 +22,14 @@ La page `/produits` ne cherche **plus** dans le catalogue FF Nancy en premier :
 le réseau référence bien plus de produits que Nancy, et ce sont précisément
 ceux-là qu'on veut voir.
 
-1. `searchQlikArticles()` — recherche globale Engine (`SearchResults`) restreinte
-   aux champs article (code + libellé, détectés dynamiquement via `FieldList`).
-   Les valeurs trouvées sont sélectionnées dans leur champ, ce qui restreint la
-   dimension « Article Code » aux articles correspondants.
+1. `searchQlikArticles()` — recherche de list object sur le champ libellé
+   article. `SearchListObjectFor` applique un **OU** entre les mots (« tapis
+   anti » ramenait 17 696 libellés sur l'app FF, et sélectionner ces 17 696
+   valeurs faisait abandonner le cube en `code 15 — Request aborted`). On
+   cherche donc mot par mot pour retenir le plus sélectif, on filtre en **ET**
+   côté client, puis on sélectionne les valeurs retenues par numéro d'élément
+   (`SelectListObjectValues`). La sélection restreint la dimension « Article
+   Code » aux articles correspondants.
 2. `fetchNetworkMetricsPlaywright()` — mesures réseau + détail mensuel sur la
    fenêtre 12 mois glissants (mois en cours exclu), puis `upsertNetworkMetrics()`
    pour que la fiche produit soit immédiatement servie depuis le cache.
@@ -35,9 +39,12 @@ ceux-là qu'on veut voir.
 Repli : si Qlik est injoignable, la recherche retombe sur `pgSearchProduits()` et
 la réponse le signale (`source: "db"`). Résultats mis en cache mémoire 10 min.
 
-Les noms des champs libellé / fournisseur varient d'une app Qlik à l'autre : ils
-sont détectés par heuristique, et l'inventaire complet des champs est loggué
-(`[qlik-search] champs disponibles=…`). Si la détection tombe à côté, forcer :
+Champs de l'app FF (« Magasins Vision Consolidée ») : le code est `Article Code`,
+le libellé `Article` (repli `article_libelle_ticket`, qui est le libellé ticket
+tronqué), le fournisseur `Fournisseur` (repli `code_fournisseur`, qui ne porte
+que le code). Ces préférences sont dans `CHAMPS_LIBELLE_PREFERES` /
+`CHAMPS_FOURNISSEUR_PREFERES`, complétées par une heuristique pour les autres
+apps. Si la détection tombe à côté, forcer :
 
 ```
 QLIK_FIELD_ARTICLE_LIBELLE=<nom exact du champ libellé>

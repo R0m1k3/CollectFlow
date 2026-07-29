@@ -77,7 +77,12 @@ export async function rechercherProduits(
     const p = executerRecherche(cleaned).finally(() => enCours.delete(key));
     enCours.set(key, p);
     const result = await p;
-    cache.set(key, { at: Date.now(), result });
+    // On ne met en cache qu'un résultat Qlik exploitable : mémoriser un repli
+    // catalogue (panne Qlik passagère) le figerait pour 10 minutes alors qu'un
+    // simple « Relancer » aurait suffi.
+    if (result.source === "qlik" && !result.qlikError) {
+        cache.set(key, { at: Date.now(), result });
+    }
     return result;
 }
 
@@ -239,6 +244,9 @@ function messageQlikLisible(message: string): string {
     const lower = message.toLowerCase();
     if (lower.includes("out of memory") || lower.includes("not enough memory") || lower.includes('"code":6') || lower.includes('"code":3002')) {
         return "Serveur Qlik saturé : mémoire insuffisante pour charger l'application. Réessayez plus tard.";
+    }
+    if (/"code"\s*:\s*15\b/.test(message) || lower.includes("request aborted")) {
+        return "Qlik a interrompu la requête (recherche trop large pour le moteur). Ajoutez un mot plus précis, puis relancez.";
     }
     if (lower.includes("identifiants qlik manquants") || lower.includes("qlik_user")) {
         return "Identifiants Qlik non configurés (Paramètres → Qlik).";
