@@ -35,6 +35,17 @@ ceux-là qu'on veut voir.
 Repli : si Qlik est injoignable, la recherche retombe sur `pgSearchProduits()` et
 la réponse le signale (`source: "db"`). Résultats mis en cache mémoire 10 min.
 
+Les noms des champs libellé / fournisseur varient d'une app Qlik à l'autre : ils
+sont détectés par heuristique, et l'inventaire complet des champs est loggué
+(`[qlik-search] champs disponibles=…`). Si la détection tombe à côté, forcer :
+
+```
+QLIK_FIELD_ARTICLE_LIBELLE=<nom exact du champ libellé>
+QLIK_FIELD_FOURNISSEUR=<nom exact du champ fournisseur>
+```
+
+Sans champ libellé exploitable, la recherche fonctionne encore par code centrale.
+
 ## Tendance réseau = 12 mois glissants stricts
 
 `computeNetworkTrend()` reconstruit sa fenêtre à partir de la date du jour :

@@ -128,8 +128,9 @@ export async function searchQlikArticles(
         if (!csrfToken) throw new Error("[qlik-search] qlik-csrf-token introuvable (client Qlik non chargé ?)");
 
         const result = (await page.evaluate(
-            ({ app, dim, token, terme, limite, maxFieldMatches }: {
+            ({ app, dim, token, terme, limite, maxFieldMatches, champLibelleForce, champFournisseurForce }: {
                 app: string; dim: string; token: string; terme: string; limite: number; maxFieldMatches: number;
+                champLibelleForce: string; champFournisseurForce: string;
             }) =>
                 new Promise<InPageSearchResult>((resolve) => {
                     const loc = (window as unknown as { location: Location }).location;
@@ -182,12 +183,20 @@ export async function searchQlikArticles(
                             const champCode = champs.find((c) => c === "Article Code")
                                 ?? champs.find((c) => has(c, /article/i) && has(c, /code/i))
                                 ?? "Article Code";
-                            const champLibelle = champs.find((c) => has(c, /article/i) && has(c, /(libell|designation|désignation|denomination|dénomination)/i))
+                            // Les noms exacts varient selon l'app Qlik : détection par
+                            // heuristique, surchargeable par variable d'environnement si
+                            // l'app expose un intitulé inattendu (cf. les logs [qlik-search]).
+                            const champLibelle = (champLibelleForce && champs.includes(champLibelleForce) ? champLibelleForce : null)
+                                ?? champs.find((c) => has(c, /article/i) && has(c, /(libell|designation|désignation|denomination|dénomination)/i))
                                 ?? champs.find((c) => has(c, /(libell|designation|désignation)/i) && !has(c, /(magasin|region|région|famille|rayon|fournisseur)/i))
                                 ?? null;
-                            const champFournisseur = champs.find((c) => has(c, /fournisseur/i))
+                            const champFournisseur = (champFournisseurForce && champs.includes(champFournisseurForce) ? champFournisseurForce : null)
+                                ?? champs.find((c) => has(c, /fournisseur/i))
                                 ?? champs.find((c) => has(c, /(fabricant|supplier)/i))
                                 ?? null;
+                            // Inventaire complet en trace : sans accès Qlik depuis le poste
+                            // de dev, c'est le seul moyen de régler les surcharges ci-dessus.
+                            trace.push("champs disponibles=" + JSON.stringify(champs));
                             trace.push("code=" + champCode + " libelle=" + champLibelle + " fournisseur=" + champFournisseur);
 
                             // ─── 2. Recherche globale Qlik ───────────────────────────
@@ -295,6 +304,8 @@ export async function searchQlikArticles(
                 terme: cleaned,
                 limite: limit,
                 maxFieldMatches: MAX_FIELD_MATCHES,
+                champLibelleForce: (process.env.QLIK_FIELD_ARTICLE_LIBELLE ?? "").trim(),
+                champFournisseurForce: (process.env.QLIK_FIELD_FOURNISSEUR ?? "").trim(),
             },
         )) as InPageSearchResult;
 
