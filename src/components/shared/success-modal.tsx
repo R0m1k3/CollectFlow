@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { CheckCircle2, X } from "lucide-react";
+import React, { useCallback, useEffect, useState } from "react";
+import { AlertCircle, CheckCircle2, X } from "lucide-react";
 
 interface SuccessModalProps {
     isOpen: boolean;
@@ -9,35 +9,57 @@ interface SuccessModalProps {
     title: string;
     message: string;
     duration?: number;
+    /**
+     * `error` change l'icône, l'accent et **désactive la fermeture automatique** :
+     * un message d'échec doit rester à l'écran le temps d'être lu, et il ne doit
+     * pas s'afficher sous une coche verte de succès.
+     */
+    variant?: "success" | "error";
+    /** Action secondaire optionnelle (ex. « Recharger la page »). */
+    action?: { label: string; onClick: () => void };
 }
+
+/** Durée de l'animation de sortie, alignée sur les classes `animate-out`. */
+const EXIT_MS = 200;
 
 export function SuccessModal({
     isOpen,
     onClose,
     title,
     message,
-    duration = 3000
+    duration = 3000,
+    variant = "success",
+    action,
 }: SuccessModalProps) {
-    const [isVisible, setIsVisible] = useState(false);
+    // Seul l'état de SORTIE est porté par un state : l'entrée est jouée par CSS
+    // au montage (`animate-in`), ce qui évite un setState synchrone dans l'effet.
+    const [closing, setClosing] = useState(false);
+    const isError = variant === "error";
+
+    const handleClose = useCallback(() => {
+        setClosing(true);
+        setTimeout(() => {
+            setClosing(false);
+            onClose();
+        }, EXIT_MS);
+    }, [onClose]);
 
     useEffect(() => {
-        if (isOpen) {
-            setIsVisible(true);
-            const timer = setTimeout(() => handleClose(), duration);
-            return () => clearTimeout(timer);
-        }
-    }, [isOpen, duration]);
+        // Une erreur ne disparaît pas toute seule : l'utilisateur la ferme.
+        if (!isOpen || isError) return;
+        const timer = setTimeout(() => handleClose(), duration);
+        return () => clearTimeout(timer);
+    }, [isOpen, duration, isError, handleClose]);
 
-    const handleClose = () => {
-        setIsVisible(false);
-        setTimeout(onClose, 250);
-    };
+    if (!isOpen) return null;
 
-    if (!isOpen && !isVisible) return null;
+    const state = closing ? "closed" : "open";
+    const Icon = isError ? AlertCircle : CheckCircle2;
 
     return (
         <div
-            className={`fixed inset-0 z-[100] flex items-center justify-center p-4 transition-all duration-250 ${isVisible ? "opacity-100 backdrop-blur-sm" : "opacity-0"}`}
+            data-state={state}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 backdrop-blur-sm duration-200 data-[state=open]:animate-in data-[state=open]:fade-in data-[state=closed]:animate-out data-[state=closed]:fade-out"
         >
             {/* Backdrop */}
             <div
@@ -48,11 +70,19 @@ export function SuccessModal({
 
             {/* Panel */}
             <div
-                className={`relative w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl transition-all duration-250 ${isVisible ? "scale-100 translate-y-0" : "scale-95 translate-y-4"}`}
+                data-state={state}
+                className="relative w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl duration-200 data-[state=open]:animate-in data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:zoom-out-95"
                 style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }}
             >
                 {/* Accent bar */}
-                <div className="absolute top-0 left-0 w-full h-0.5" style={{ background: "linear-gradient(to right, var(--accent), var(--accent-success))" }} />
+                <div
+                    className="absolute top-0 left-0 w-full h-0.5"
+                    style={{
+                        background: isError
+                            ? "var(--accent-error)"
+                            : "linear-gradient(to right, var(--accent), var(--accent-success))",
+                    }}
+                />
 
                 {/* Close button */}
                 <button
@@ -64,8 +94,15 @@ export function SuccessModal({
 
                 <div className="p-8 flex flex-col items-center text-center">
                     {/* Icon */}
-                    <div className="w-16 h-16 rounded-2xl bg-[var(--accent-bg)] border border-[var(--accent-border)] flex items-center justify-center mb-5">
-                        <CheckCircle2 className="w-8 h-8 text-[var(--accent)]" />
+                    <div
+                        className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5"
+                        style={
+                            isError
+                                ? { background: "var(--accent-error-bg)", border: "1px solid var(--accent-error)" }
+                                : { background: "var(--accent-bg)", border: "1px solid var(--accent-border)" }
+                        }
+                    >
+                        <Icon className="w-8 h-8" style={{ color: isError ? "var(--accent-error)" : "var(--accent)" }} />
                     </div>
 
                     <h3 className="text-lg font-bold text-[var(--text-primary)] mb-2 tracking-tight">
@@ -75,11 +112,16 @@ export function SuccessModal({
                         {message}
                     </p>
 
+                    {action && (
+                        <button onClick={action.onClick} className="apple-btn-primary mt-7 w-full justify-center">
+                            {action.label}
+                        </button>
+                    )}
                     <button
                         onClick={handleClose}
-                        className="apple-btn-primary mt-7 w-full justify-center"
+                        className={`${action ? "apple-btn-secondary mt-2" : "apple-btn-primary mt-7"} w-full justify-center`}
                     >
-                        Continuer
+                        {action ? "Plus tard" : "Continuer"}
                     </button>
                 </div>
             </div>

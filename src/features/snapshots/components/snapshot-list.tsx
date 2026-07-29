@@ -15,6 +15,7 @@ import {
     Loader2,
 } from "lucide-react";
 import { SuccessModal } from "@/components/shared/success-modal";
+import { isStaleServerActionError, STALE_ACTION_MESSAGE } from "@/lib/stale-action";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 
 const formatDate = (date: Date) => {
@@ -36,11 +37,33 @@ export function SnapshotList({ type }: SnapshotListProps) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isDeleting, setIsDeleting] = useState<number | null>(null);
-    const [modal, setModal] = useState<{ isOpen: boolean, title: string, message: string }>({
+    const [modal, setModal] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+        variant?: "success" | "error";
+        action?: { label: string; onClick: () => void };
+    }>({
         isOpen: false,
         title: "",
         message: ""
     });
+
+    /**
+     * Onglet resté ouvert pendant un déploiement : les identifiants de Server
+     * Action ont changé côté serveur. On propose le rechargement au lieu
+     * d'afficher une erreur technique incompréhensible.
+     */
+    const modalErreur = (err: unknown, titre: string, message: string) =>
+        isStaleServerActionError(err)
+            ? {
+                isOpen: true,
+                title: "Page à recharger",
+                message: STALE_ACTION_MESSAGE,
+                variant: "error" as const,
+                action: { label: "Recharger la page", onClick: () => window.location.reload() },
+            }
+            : { isOpen: true, title: titre, message, variant: "error" as const };
 
     const [confirmModal, setConfirmModal] = useState<{
         isOpen: boolean;
@@ -59,7 +82,7 @@ export function SnapshotList({ type }: SnapshotListProps) {
             const data = await getSnapshots(type);
             setSnapshots(data);
         } catch (err) {
-            setError("Impossible de charger les données.");
+            setError(isStaleServerActionError(err) ? STALE_ACTION_MESSAGE : "Impossible de charger les données.");
         } finally {
             setLoading(false);
         }
@@ -83,10 +106,10 @@ export function SnapshotList({ type }: SnapshotListProps) {
                         setSnapshots(prev => prev.filter(s => s.id !== id));
                         setModal({ isOpen: true, title: "Action Réussie", message: "L'élément a été supprimé de votre historique." });
                     } else {
-                        setModal({ isOpen: true, title: "Erreur", message: "Impossible de supprimer l'élément." });
+                        setModal({ isOpen: true, title: "Erreur", message: "Impossible de supprimer l'élément.", variant: "error" });
                     }
                 } catch (err) {
-                    setModal({ isOpen: true, title: "Erreur Technique", message: "Une erreur est survenue lors de la suppression." });
+                    setModal(modalErreur(err, "Erreur Technique", "Une erreur est survenue lors de la suppression."));
                 } finally {
                     setIsDeleting(null);
                 }
@@ -215,6 +238,8 @@ export function SnapshotList({ type }: SnapshotListProps) {
                 onClose={() => setModal(prev => ({ ...prev, isOpen: false }))}
                 title={modal.title}
                 message={modal.message}
+                variant={modal.variant}
+                action={modal.action}
             />
 
             <ConfirmModal
