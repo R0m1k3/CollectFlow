@@ -58,7 +58,6 @@ la main tout de suite, `GET` renvoie l'avancement puis le résultat (polling cli
 toutes les 2 s). Une requête HTTP maintenue pendant toute l'extraction se faisait
 couper par le reverse proxy, qui répond une page HTML — le client échouait sur
 « Unexpected token '<' … is not valid JSON ». Même schéma que `POST /api/qlik/sync`.
-Deux recherches simultanées au maximum (le serveur Qlik sature vite).
 
 Repli : si Qlik est injoignable, la recherche retombe sur `pgSearchProduits()` et
 la réponse le signale (`source: "db"`). Un résultat Qlik exploitable est mis en
