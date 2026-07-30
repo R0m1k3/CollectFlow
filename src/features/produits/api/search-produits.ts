@@ -28,6 +28,17 @@ import type { ProduitRechercheResultat, ProduitRechercheRow } from "@/features/p
 /** Durée de validité d'un résultat de recherche en cache mémoire. */
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
+/** Durée de conservation d'un job terminé (le client a le temps de le relire). */
+const JOB_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Nombre maximum de recherches Qlik simultanées.
+ *
+ * Le serveur Qlik sature vite (« Out of memory », « Request aborted ») : on
+ * plafonne plutôt que de lui envoyer N extractions en parallèle.
+ */
+const MAX_RECHERCHES_SIMULTANEES = 2;
+
 /**
  * Cache mémoire des recherches. Une recherche coûte deux allers-retours Qlik
  * (plusieurs secondes chacun) : sans ce cache, un retour arrière du navigateur
@@ -35,58 +46,157 @@ const CACHE_TTL_MS = 10 * 60 * 1000;
  */
 const cache = new Map<string, { at: number; result: ProduitRechercheResultat }>();
 
-/** Recherches en cours, pour ne pas lancer deux extractions identiques en parallèle. */
-const enCours = new Map<string, Promise<ProduitRechercheResultat>>();
+/**
+ * Jobs de recherche, indexés par terme normalisé.
+ *
+ * Une recherche dure de quelques secondes à plusieurs minutes (deux allers-retours
+ * Qlik dont une extraction mensuelle). Une requête HTTP maintenue aussi longtemps
+ * se fait couper par le reverse proxy, qui répond une page d'erreur HTML — le
+ * client recevait alors « Unexpected token '<' … is not valid JSON ». Le travail
+ * tourne donc en tâche de fond et le client interroge l'état.
+ */
+const jobs = new Map<string, RechercheJob>();
+
+export interface RechercheJob {
+    jobId: string;
+    terme: string;
+    status: "running" | "success" | "error";
+    /** Étape en cours, affichée pendant l'attente. */
+    etape: string;
+    startedAt: string;
+    finishedAt?: string;
+    error?: string;
+    result?: ProduitRechercheResultat;
+}
+
+/** État renvoyé au client : le job, ou `idle` si aucune recherche connue. */
+export type RechercheEtat = RechercheJob | { status: "idle"; terme: string };
 
 function cacheKey(term: string): string {
     return term.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 /** Purge les entrées expirées (le volume reste faible, un balayage suffit). */
-function purgeCache(): void {
+function purge(): void {
     const now = Date.now();
     for (const [k, v] of cache) {
         if (now - v.at > CACHE_TTL_MS) cache.delete(k);
     }
+    for (const [k, j] of jobs) {
+        if (j.status !== "running" && j.finishedAt && now - Date.parse(j.finishedAt) > JOB_TTL_MS) jobs.delete(k);
+    }
 }
 
-export async function rechercherProduits(
+function jobsEnCours(): number {
+    let n = 0;
+    for (const j of jobs.values()) if (j.status === "running") n++;
+    return n;
+}
+
+function jobTermine(terme: string, result: ProduitRechercheResultat): RechercheJob {
+    return {
+        jobId: `cache_${cacheKey(terme)}`,
+        terme,
+        status: "success",
+        etape: "Terminé",
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        result,
+    };
+}
+
+/**
+ * Démarre (ou réutilise) une recherche et rend la main **immédiatement**.
+ *
+ * - résultat déjà en cache et pas de `force` → job `success` directement ;
+ * - recherche déjà en cours sur le même terme → on renvoie ce job ;
+ * - sinon on lance le travail en tâche de fond.
+ */
+export function demarrerRecherche(
     term: string,
     options: { force?: boolean } = {},
-): Promise<ProduitRechercheResultat> {
+): RechercheJob {
     const cleaned = term.trim();
-    if (cleaned.length < 3) {
-        return {
-            rows: [], source: "qlik", qlikError: null, tronque: false,
-            champUtilise: null, locauxHorsReseau: [], dureeMs: 0,
-        };
-    }
-
     const key = cacheKey(cleaned);
-    purgeCache();
+    purge();
+
     if (!options.force) {
         const hit = cache.get(key);
         if (hit) {
             console.log(`[produits/search] "${cleaned}" — servi depuis le cache mémoire`);
-            return hit.result;
+            return jobTermine(cleaned, hit.result);
         }
-        const running = enCours.get(key);
-        if (running) return running;
     }
 
-    const p = executerRecherche(cleaned).finally(() => enCours.delete(key));
-    enCours.set(key, p);
-    const result = await p;
-    // On ne met en cache qu'un résultat Qlik exploitable : mémoriser un repli
-    // catalogue (panne Qlik passagère) le figerait pour 10 minutes alors qu'un
-    // simple « Relancer » aurait suffi.
-    if (result.source === "qlik" && !result.qlikError) {
-        cache.set(key, { at: Date.now(), result });
+    const existant = jobs.get(key);
+    if (existant && existant.status === "running") return existant;
+    if (existant && !options.force && existant.status === "success" && existant.result) return existant;
+
+    if (jobsEnCours() >= MAX_RECHERCHES_SIMULTANEES) {
+        return {
+            jobId: `refus_${Date.now().toString(36)}`,
+            terme: cleaned,
+            status: "error",
+            etape: "Refusé",
+            startedAt: new Date().toISOString(),
+            finishedAt: new Date().toISOString(),
+            error: "Trop de recherches Qlik en cours. Réessayez dans quelques instants.",
+        };
     }
-    return result;
+
+    const job: RechercheJob = {
+        jobId: `rech_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        terme: cleaned,
+        status: "running",
+        etape: "Recherche des articles dans Qlik…",
+        startedAt: new Date().toISOString(),
+    };
+    jobs.set(key, job);
+    console.log(`[produits/search] job=${job.jobId} démarré pour "${cleaned}"`);
+
+    // Fire-and-forget : le client suivra l'avancement via `etatRecherche`.
+    void executerRecherche(cleaned, (etape) => { job.etape = etape; })
+        .then((result) => {
+            job.result = result;
+            job.status = "success";
+            job.etape = "Terminé";
+            job.finishedAt = new Date().toISOString();
+            // On ne met en cache qu'un résultat Qlik exploitable : mémoriser un
+            // repli catalogue (panne Qlik passagère) le figerait 10 minutes
+            // alors qu'un simple « Relancer » aurait suffi.
+            if (result.source === "qlik" && !result.qlikError) {
+                cache.set(key, { at: Date.now(), result });
+            }
+            console.log(`[produits/search] job=${job.jobId} terminé — ${result.rows.length} produit(s) en ${result.dureeMs} ms`);
+        })
+        .catch((e) => {
+            const message = e instanceof Error ? e.message : String(e);
+            job.status = "error";
+            job.etape = "Échec";
+            job.error = messageQlikLisible(message);
+            job.finishedAt = new Date().toISOString();
+            console.error(`[produits/search] job=${job.jobId} échec :`, message.slice(0, 300));
+        });
+
+    return job;
 }
 
-async function executerRecherche(term: string): Promise<ProduitRechercheResultat> {
+/** État courant de la recherche pour ce terme (pour le polling client). */
+export function etatRecherche(term: string): RechercheEtat {
+    const cleaned = term.trim();
+    const key = cacheKey(cleaned);
+    purge();
+    const job = jobs.get(key);
+    if (job) return job;
+    const hit = cache.get(key);
+    if (hit) return jobTermine(cleaned, hit.result);
+    return { status: "idle", terme: cleaned };
+}
+
+async function executerRecherche(
+    term: string,
+    onEtape: (etape: string) => void = () => {},
+): Promise<ProduitRechercheResultat> {
     const started = Date.now();
 
     // La recherche catalogue local tourne en parallèle : elle sert à la fois de
@@ -99,6 +209,7 @@ async function executerRecherche(term: string): Promise<ProduitRechercheResultat
 
     let qlik;
     try {
+        onEtape("Recherche des articles dans Qlik…");
         qlik = await searchQlikArticles(term, QLIK_SEARCH_MAX_RESULTS);
     } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
@@ -140,6 +251,7 @@ async function executerRecherche(term: string): Promise<ProduitRechercheResultat
     let metrics = new Map<string, NetworkMetric>();
     let metricsError: string | null = null;
     try {
+        onEtape(`Extraction des ventes réseau de ${codes.length} article${codes.length > 1 ? "s" : ""} sur 12 mois…`);
         metrics = await fetchNetworkMetricsPlaywright(codes, undefined, dateFilter);
         // Le libellé / fournisseur ne sortent que de la recherche : on les
         // attache ici pour qu'ils soient persistés avec les mesures.
@@ -163,6 +275,7 @@ async function executerRecherche(term: string): Promise<ProduitRechercheResultat
         console.error("[produits/search] extraction des métriques réseau échouée:", metricsError);
     }
 
+    onEtape("Rapprochement avec notre catalogue…");
     const catalogue = await pgGetProduitsByCodeCentrale(codes);
     const locaux = await localPromise;
 

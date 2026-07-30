@@ -15,12 +15,55 @@ const fmtEur = (v: number) =>
 const fmtEur2 = (v: number) =>
     new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 2 }).format(v);
 
+/** Intervalle d'interrogation de l'état du job de recherche. */
+const POLL_MS = 2000;
+
+/** Réponse du job de recherche, telle que la renvoie l'API. */
+interface JobRecherche {
+    status: "idle" | "running" | "success" | "error";
+    etape?: string;
+    error?: string;
+    result?: ProduitRechercheResultat;
+}
+
+/**
+ * Lit une réponse HTTP en **ne présumant pas** qu'elle est du JSON.
+ *
+ * Un reverse proxy qui coupe la requête répond une page HTML : `res.json()`
+ * échouait alors sur « Unexpected token '<' … is not valid JSON », message
+ * inexploitable pour l'utilisateur. On traduit ici le statut HTTP.
+ */
+async function lireJson(res: Response): Promise<Record<string, unknown>> {
+    const texte = await res.text();
+    let data: Record<string, unknown> | null = null;
+    try {
+        data = texte ? (JSON.parse(texte) as Record<string, unknown>) : null;
+    } catch {
+        data = null;
+    }
+    if (data == null) {
+        if (res.status === 504 || res.status === 408) {
+            throw new Error("Le serveur a mis trop de temps à répondre (délai dépassé côté proxy). Réessayez.");
+        }
+        if (res.status === 502 || res.status === 503) {
+            throw new Error("Application indisponible ou en cours de redémarrage. Réessayez dans un instant.");
+        }
+        if (res.status === 401 || res.status === 403) {
+            throw new Error("Session expirée. Rechargez la page pour vous reconnecter.");
+        }
+        throw new Error(`Réponse inattendue du serveur (HTTP ${res.status}).`);
+    }
+    if (!res.ok) throw new Error(String(data.error ?? `HTTP ${res.status}`));
+    return data;
+}
+
 /**
  * Résultats de recherche produit.
  *
- * La recherche interroge **Qlik d'abord** (`/api/produits/search`) : plusieurs
- * secondes, parfois plus. On la lance donc côté client avec un état de
- * chargement explicite, plutôt que de bloquer le rendu serveur de la page.
+ * La recherche interroge **Qlik d'abord** et peut dépasser la minute : elle est
+ * lancée par un `POST` qui rend la main tout de suite, puis on interroge son
+ * avancement toutes les 2 s. Une requête HTTP maintenue pendant toute
+ * l'extraction se faisait couper par le reverse proxy.
  */
 export function ProduitResults({ query }: { query: string }) {
     // `relance` mémorise la dernière demande explicite de rafraîchissement, pour
@@ -30,6 +73,7 @@ export function ProduitResults({ query }: { query: string }) {
         cle: string;
         data: ProduitRechercheResultat | null;
         error: string | null;
+        etape: string | null;
     } | null>(null);
 
     const force = relance.n > 0 && relance.q === query;
@@ -39,28 +83,64 @@ export function ProduitResults({ query }: { query: string }) {
     // L'état de chargement est **dérivé** (résultat pas encore aligné sur la
     // requête courante) plutôt que posé en début d'effet : appeler setState
     // synchronement dans un effet provoque un rendu en cascade.
-    const loading = !tropCourt && resultat?.cle !== cle;
+    const enAttente = resultat?.cle !== cle || (!resultat?.data && !resultat?.error);
+    const loading = !tropCourt && enAttente;
 
     useEffect(() => {
         if (tropCourt) return;
         let annule = false;
-        const url = `/api/produits/search?q=${encodeURIComponent(query)}${force ? "&force=1" : ""}`;
-        fetch(url, { cache: "no-store" })
-            .then(async (res) => {
-                const json = await res.json();
-                if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-                return json as ProduitRechercheResultat;
-            })
-            .then((data) => { if (!annule) setResultat({ cle, data, error: null }); })
-            .catch((e) => {
-                if (!annule) setResultat({ cle, data: null, error: e instanceof Error ? e.message : String(e) });
-            });
-        return () => { annule = true; };
+        let timer: ReturnType<typeof setTimeout> | undefined;
+
+        const url = (methode: "POST" | "GET") =>
+            `/api/produits/search?q=${encodeURIComponent(query)}${methode === "POST" && force ? "&force=1" : ""}`;
+
+        const appliquer = (job: JobRecherche): boolean => {
+            if (annule) return true;
+            if (job.status === "success" && job.result) {
+                setResultat({ cle, data: job.result, error: null, etape: null });
+                return true;
+            }
+            if (job.status === "error") {
+                setResultat({ cle, data: null, error: job.error ?? "La recherche a échoué.", etape: null });
+                return true;
+            }
+            // `idle` = le process a redémarré et a perdu le job : on relance.
+            setResultat({ cle, data: null, error: null, etape: job.etape ?? null });
+            return false;
+        };
+
+        const poll = async () => {
+            try {
+                const job = (await lireJson(await fetch(url("GET"), { cache: "no-store" }))) as unknown as JobRecherche;
+                if (job.status === "idle") {
+                    await demarrer();
+                    return;
+                }
+                if (!appliquer(job) && !annule) timer = setTimeout(() => void poll(), POLL_MS);
+            } catch (e) {
+                if (!annule) setResultat({ cle, data: null, error: e instanceof Error ? e.message : String(e), etape: null });
+            }
+        };
+
+        const demarrer = async () => {
+            try {
+                const job = (await lireJson(
+                    await fetch(url("POST"), { method: "POST", cache: "no-store" }),
+                )) as unknown as JobRecherche;
+                if (!appliquer(job) && !annule) timer = setTimeout(() => void poll(), POLL_MS);
+            } catch (e) {
+                if (!annule) setResultat({ cle, data: null, error: e instanceof Error ? e.message : String(e), etape: null });
+            }
+        };
+
+        void demarrer();
+        return () => { annule = true; if (timer) clearTimeout(timer); };
     }, [cle, query, force, tropCourt]);
 
     const relancer = () => setRelance((r) => ({ n: r.n + 1, q: query }));
     const data = resultat?.cle === cle ? resultat.data : null;
     const error = resultat?.cle === cle ? resultat.error : null;
+    const etape = resultat?.cle === cle ? resultat.etape : null;
 
     if (!query) {
         return (
@@ -89,11 +169,11 @@ export function ProduitResults({ query }: { query: string }) {
             >
                 <Loader2 className="w-6 h-6 mx-auto mb-3 animate-spin" style={{ color: "var(--accent)" }} />
                 <p className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>
-                    Interrogation de Qlik Sense…
+                    {etape ?? "Interrogation de Qlik Sense…"}
                 </p>
                 <p className="text-[12px] mt-1" style={{ color: "var(--text-muted)" }}>
                     Recherche des articles du réseau puis extraction de leurs ventes sur 12 mois glissants.
-                    Cela peut prendre jusqu&apos;à une minute.
+                    Cela peut prendre plus d&apos;une minute — vous pouvez laisser la page ouverte.
                 </p>
             </div>
         );

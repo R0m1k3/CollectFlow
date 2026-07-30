@@ -36,8 +36,17 @@ ceux-là qu'on veut voir.
 3. `pgGetProduitsByCodeCentrale()` — rapprochement avec le catalogue Nancy.
    Un code absent = produit réseau que nous ne référençons pas (`?cc=` sur la fiche).
 
+L'API est **asynchrone** : `POST /api/produits/search?q=…` démarre un job et rend
+la main tout de suite, `GET` renvoie l'avancement puis le résultat (polling client
+toutes les 2 s). Une requête HTTP maintenue pendant toute l'extraction se faisait
+couper par le reverse proxy, qui répond une page HTML — le client échouait sur
+« Unexpected token '<' … is not valid JSON ». Même schéma que `POST /api/qlik/sync`.
+Deux recherches simultanées au maximum (le serveur Qlik sature vite).
+
 Repli : si Qlik est injoignable, la recherche retombe sur `pgSearchProduits()` et
-la réponse le signale (`source: "db"`). Résultats mis en cache mémoire 10 min.
+la réponse le signale (`source: "db"`). Un résultat Qlik exploitable est mis en
+cache mémoire 10 min ; un repli ne l'est pas, sinon une panne passagère resterait
+figée.
 
 Champs de l'app FF (« Magasins Vision Consolidée ») : le code est `Article Code`,
 le libellé `Article` (repli `article_libelle_ticket`, qui est le libellé ticket
