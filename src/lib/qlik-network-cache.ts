@@ -101,8 +101,11 @@ export async function upsertNetworkMetrics(metrics: NetworkMetric[]): Promise<nu
                     caParMagasinReseau: sql`excluded.ca_par_magasin_reseau`,
                     margePctReseau: sql`excluded.marge_pct_reseau`,
                     periode: sql`excluded.periode`,
-                    qteByMonth: sql`excluded.qte_by_month`,
-                    metricsByMonth: sql`excluded.metrics_by_month`,
+                    // Le détail mensuel n'est produit que par l'extraction complète
+                    // (dimension Mois). La recherche produit, elle, n'a que les
+                    // agrégats : elle ne doit pas effacer un mensuel déjà extrait.
+                    qteByMonth: sql`COALESCE(excluded.qte_by_month, ${qlikNetworkMetrics.qteByMonth})`,
+                    metricsByMonth: sql`COALESCE(excluded.metrics_by_month, ${qlikNetworkMetrics.metricsByMonth})`,
                     // Seule la recherche produit connaît le libellé / le fournisseur
                     // réseau : une sync fournisseur ne doit pas les effacer.
                     libelleReseau: sql`COALESCE(excluded.libelle_reseau, ${qlikNetworkMetrics.libelleReseau})`,

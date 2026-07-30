@@ -30,11 +30,28 @@ ceux-là qu'on veut voir.
    côté client, puis on sélectionne les valeurs retenues par numéro d'élément
    (`SelectListObjectValues`). La sélection restreint la dimension « Article
    Code » aux articles correspondants.
-2. `fetchNetworkMetricsPlaywright()` — mesures réseau + détail mensuel sur la
-   fenêtre 12 mois glissants (mois en cours exclu), puis `upsertNetworkMetrics()`
-   pour que la fiche produit soit immédiatement servie depuis le cache.
-3. `pgGetProduitsByCodeCentrale()` — rapprochement avec le catalogue Nancy.
-   Un code absent = produit réseau que nous ne référençons pas (`?cc=` sur la fiche).
+2. Les **mesures réseau sortent du même cube**, dans la **même session Qlik** :
+   fenêtre 12 mois glissants sélectionnée sur le champ `Date`, master measures
+   résolues par titre, cube trié par quantité réseau décroissante (les meilleures
+   ventes en tête, donc pas besoin de lire tout l'ensemble sélectionné).
+   Elles sont ensuite persistées par `upsertNetworkMetrics()`.
+
+   ⚠️ Ne **jamais** relancer `fetchNetworkMetricsPlaywright()` pendant une
+   recherche : deux sessions concurrentes sur la même app, dont une avec une
+   grosse sélection, et l'Engine coupe les requêtes (`code 15`). C'est ce qui
+   faisait échouer la recherche alors que la sync de la Grille — seule sur le
+   serveur — fonctionnait. Le détail mensuel vient donc du cache, et la fiche
+   produit garde son bouton « Actualiser depuis Qlik » pour l'extraire à la
+   demande sur un seul code.
+3. `pgGetProduitsByCodeCentrale()` — rapprochement avec le catalogue Nancy, sur
+   **deux clés candidates** : la dimension « Article Code » et le champ
+   `article_no_centrale`, qui n'ont pas le même format sur l'app FF. Un code
+   absent = produit réseau que nous ne référençons pas (`?cc=` sur la fiche).
+
+Plafonds mesurés en production : sélectionner les 13 446 libellés contenant
+« tapis » prenait 81 s puis 486 s avant d'abandonner. La sélection est donc
+plafonnée à **300 valeurs** (`MAX_VALEURS_SELECTION`) et une seule recherche
+tourne à la fois.
 
 L'API est **asynchrone** : `POST /api/produits/search?q=…` démarre un job et rend
 la main tout de suite, `GET` renvoie l'avancement puis le résultat (polling client

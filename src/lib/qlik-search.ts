@@ -37,15 +37,35 @@
 import "server-only";
 import { chromium, type Browser } from "playwright-core";
 import { getQlikConfig, qlikNtlmSession, type QlikConfig } from "@/lib/qlik-client";
+import { buildGridNetworkQlikDateFilter, envMonthsBack, QLIK_MONTHS_BACK_DEFAULT } from "@/lib/qlik-date-range";
 
-/** Un article trouvé côté Qlik. Seul `codeCentrale` est garanti. */
+/**
+ * Un article trouvé côté Qlik, **avec ses mesures réseau sur 12 mois glissants**.
+ *
+ * Les mesures sortent du même cube que l'identité : une seule session Qlik pour
+ * toute la recherche. Les extraire dans une seconde session concurrente faisait
+ * abandonner le moteur (`code 15 — Request aborted`).
+ */
 export interface QlikArticleMatch {
-    /** Valeur de la dimension « Article Code » = code centrale FF (`articles.artcentrale`). */
+    /** Valeur de la dimension « Article Code » — clé de jointure de la Grille. */
     codeCentrale: string;
+    /**
+     * Champ `article_no_centrale` quand l'app l'expose : second candidat pour la
+     * jointure avec `articles.artcentrale`, les deux ne portant pas toujours le
+     * même format.
+     */
+    codeCentraleAlt: string;
     /** Libellé réseau, si l'app expose un champ libellé article. */
     libelle: string;
     /** Fournisseur réseau, si l'app expose un champ fournisseur. */
     fournisseur: string;
+    /** CA réseau sur la fenêtre 12 mois glissants. */
+    caReseau: number;
+    qteReseau: number;
+    nbMagasinsReseau: number;
+    caParMagasinReseau: number;
+    /** Taux de marge réseau, ratio brut Qlik (0.32 = 32 %). */
+    margePctReseau: number;
 }
 
 export interface QlikSearchOutcome {
@@ -60,6 +80,8 @@ export interface QlikSearchOutcome {
      * fonctionnement nominal.
      */
     avertissement: string | null;
+    /** Fenêtre couverte par les mesures (`YYYY-MM_YYYY-MM`). */
+    periode: string | null;
 }
 
 /**
@@ -83,6 +105,13 @@ const CHAMPS_LIBELLE_PREFERES = ["Article", "article_libelle_ticket"];
 /** Champs candidats pour le fournisseur, par ordre de préférence (nom avant code). */
 const CHAMPS_FOURNISSEUR_PREFERES = ["Fournisseur", "code_fournisseur"];
 
+/**
+ * Champ portant le code centrale « brut » de l'article, quand il existe.
+ * Second candidat de jointure avec `articles.artcentrale` : sur l'app FF, la
+ * dimension « Article Code » ne renvoie pas le même format.
+ */
+const CHAMP_CODE_CENTRALE_ALT = "article_no_centrale";
+
 let browserPromise: Promise<Browser> | null = null;
 
 async function getBrowser(): Promise<Browser> {
@@ -100,7 +129,8 @@ async function getBrowser(): Promise<Browser> {
 interface InPageSearchResult {
     ok: boolean;
     error?: string;
-    rows?: Array<[string, string, string]>;
+    /** [code, codeAlt, libellé, fournisseur, ca, qte, nbMag, caMag, margePct] */
+    rows?: Array<[string, string, string, string, number, number, number, number, number]>;
     champUtilise?: string | null;
     /** Nombre d'articles uniques correspondant au terme (avant plafonnement). */
     total?: number;
@@ -128,7 +158,7 @@ export async function searchQlikArticles(
     cfg: QlikConfig = getQlikConfig(),
 ): Promise<QlikSearchOutcome> {
     const cleaned = term.trim();
-    if (cleaned.length < 3) return { matches: [], champUtilise: null, tronque: false, avertissement: null };
+    if (cleaned.length < 3) return { matches: [], champUtilise: null, tronque: false, avertissement: null, periode: null };
     if (!cfg.appNetwork) throw new Error("[qlik-search] QLIK_APP_NETWORK manquant");
     if (!cfg.user || !cfg.password) throw new Error("[qlik-search] identifiants Qlik manquants");
 
@@ -137,6 +167,11 @@ export async function searchQlikArticles(
     // que l'extraction (`QLIK_SETTLE_MS`) : sans elle, l'objet créé juste après
     // est calculé sur l'état de sélection précédent.
     const settleMs = Math.min(2000, Math.max(0, Number(process.env.QLIK_SETTLE_MS ?? "250") || 250));
+    // Même fenêtre que la Grille : 12 mois complets glissants, mois courant exclu.
+    const dateFilter = buildGridNetworkQlikDateFilter(
+        new Date(),
+        envMonthsBack("QLIK_SYNC_MONTHS_BACK", QLIK_MONTHS_BACK_DEFAULT),
+    );
     const sess = await qlikNtlmSession(cfg);
     const [cookieName, ...rest] = sess.cookie.split("=");
     const cookieValue = rest.join("=");
@@ -171,16 +206,28 @@ export async function searchQlikArticles(
         if (!csrfToken) throw new Error("[qlik-search] qlik-csrf-token introuvable (client Qlik non chargé ?)");
 
         const result = (await page.evaluate(
-            ({ app, dim, token, terme, limite, settleMs, champsLibellePreferes, champsFournisseurPreferes, champLibelleForce, champFournisseurForce }: {
+            ({ app, dim, token, terme, limite, settleMs, serialsDate, mCa, mQte, mNbMag, mCaMag, mMarge,
+               champCodeAlt, champsLibellePreferes, champsFournisseurPreferes, champLibelleForce, champFournisseurForce }: {
                 app: string; dim: string; token: string; terme: string; limite: number; settleMs: number;
+                serialsDate: number[];
+                mCa: string; mQte: string; mNbMag: string; mCaMag: string; mMarge: string;
+                champCodeAlt: string;
                 champsLibellePreferes: string[]; champsFournisseurPreferes: string[];
                 champLibelleForce: string; champFournisseurForce: string;
             }) =>
                 new Promise<InPageSearchResult>((resolve) => {
                     /** Valeurs lues au maximum dans le champ recherché (2 pages Engine). */
                     const MAX_VALEURS_LUES = 10000;
-                    /** Valeurs sélectionnées au maximum — au-delà, le cube abandonne (code 15). */
-                    const MAX_VALEURS_SELECTION = 1000;
+                    /**
+                     * Valeurs sélectionnées au maximum.
+                     *
+                     * Mesuré en production : sélectionner les 13 446 libellés contenant
+                     * « tapis » a mis 81 s puis 486 s, et faisait abandonner le cube
+                     * (code 15). Le cube étant trié par quantité réseau décroissante et
+                     * l'affichage plafonné à quelques dizaines de lignes, 300 libellés
+                     * suffisent largement.
+                     */
+                    const MAX_VALEURS_SELECTION = 300;
                     const PAGE_VALEURS = 5000;
 
                     const loc = (window as unknown as { location: Location }).location;
@@ -393,37 +440,106 @@ export async function searchQlikArticles(
                                 trace.push("sélections actives: lecture impossible (" + String((e as Error)?.message || e) + ")");
                             }
 
-                            // ─── 3. Liste des articles correspondants ────────────────
-                            // Cube sans mesure : uniquement l'identité de l'article. Les
-                            // métriques réseau sont extraites juste après par
-                            // fetchNetworkMetricsPlaywright (qui produit aussi le mensuel).
-                            const champLibelleAffiche = champChoisi === champCode ? candidatsLibelle[0] ?? null : champChoisi;
-                            const dims: Array<{ qLibraryId?: string; qDef?: { qFieldDefs: string[] } }> = [{ qLibraryId: dim }];
-                            if (champLibelleAffiche) dims.push({ qDef: { qFieldDefs: [champLibelleAffiche] } });
-                            if (champFournisseur) dims.push({ qDef: { qFieldDefs: [champFournisseur] } });
-                            const largeur = dims.length;
-                            // On lit large puis on dédoublonne : un article référencé chez
-                            // plusieurs fournisseurs produit autant de lignes que de
-                            // fournisseurs, il ne doit pas consommer plusieurs places.
-                            const hauteur = Math.min(1000, Math.floor(9000 / Math.max(largeur, 1)));
+                            // ─── 3. Fenêtre 12 mois glissants ────────────────────────
+                            // Sélectionnée APRÈS les libellés : restreindre les dates avant
+                            // la recherche masquerait les articles non vendus sur la période.
+                            if (serialsDate.length > 0) {
+                                try {
+                                    const gd = await rpc("GetField", { qFieldName: "Date" }, doc);
+                                    const dh = (gd.qReturn as { qHandle: number }).qHandle;
+                                    for (let i = 0; i < serialsDate.length; i += 500) {
+                                        const lot = serialsDate.slice(i, i + 500);
+                                        await rpcRetry("SelectValues", {
+                                            qFieldValues: lot.map((v) => ({ qNum: v, qText: String(v) })),
+                                            qToggleMode: i > 0,
+                                            qSoftLock: true,
+                                        }, dh);
+                                    }
+                                    await sleep(settleMs);
+                                    trace.push("fenêtre Date sélectionnée (" + serialsDate.length + " jours)");
+                                } catch (e) {
+                                    trace.push("sélection Date impossible, mesures sur toute la période : " + String((e as Error)?.message || e));
+                                }
+                            }
 
-                            const cube = await rpcRetry("CreateSessionObject", {
+                            // ─── 4. Identité + mesures réseau, dans UN SEUL cube ─────
+                            //
+                            // Les mesures sont dans le même cube que l'identité, et donc
+                            // dans la même session Qlik : une seconde session concurrente
+                            // pour les extraire faisait abandonner le moteur (code 15).
+                            //
+                            // Les master measures sont résolues par TITRE : le qLibraryId
+                            // fiable est `qInfo.qId`, qui n'est pas le GUID du QRS — même
+                            // approche que l'extraction de la Grille.
+                            const norm = (x: string) => x.replace(/\s+/g, " ").trim().toLowerCase();
+                            const ml = await rpcRetry("CreateSessionObject", {
+                                qProp: { qInfo: { qType: "MeasureList" }, qMeasureListDef: { qType: "measure", qData: { title: "/qMetaDef/title" } } },
+                            }, doc);
+                            const mll = await rpcRetry("GetLayout", {}, (ml.qReturn as { qHandle: number }).qHandle);
+                            const items = (((mll.qLayout as { qMeasureList?: { qItems?: Array<{ qInfo: { qId: string }; qMeta?: { title?: string }; qData?: { title?: string } }> } }).qMeasureList?.qItems) ?? []);
+                            const parTitre = new Map<string, string>();
+                            for (const it of items) {
+                                const t = it.qMeta?.title ?? it.qData?.title ?? "";
+                                if (t) parTitre.set(norm(t), it.qInfo.qId);
+                            }
+                            const mesure = (titre: string, repli: string) => parTitre.get(norm(titre)) ?? repli;
+                            const idCa = mesure("CA N", mCa);
+                            const idQte = mesure("Quantité N", mQte);
+                            const idNbMag = mesure("Magasin Ventes Nb N", mNbMag);
+                            const idCaMag = mesure("CA par Magasin N", mCaMag);
+                            const idMarge = mesure("Marge % N", mMarge);
+
+                            const champLibelleAffiche = champChoisi === champCode ? candidatsLibelle[0] ?? null : champChoisi;
+                            const champAlt = champs.includes(champCodeAlt) ? champCodeAlt : null;
+                            const dims: Array<{ qLibraryId?: string; qDef?: { qFieldDefs: string[] } }> = [{ qLibraryId: dim }];
+                            const idxAlt = champAlt ? dims.push({ qDef: { qFieldDefs: [champAlt] } }) - 1 : -1;
+                            const idxLibelle = champLibelleAffiche ? dims.push({ qDef: { qFieldDefs: [champLibelleAffiche] } }) - 1 : -1;
+                            const idxFournisseur = champFournisseur ? dims.push({ qDef: { qFieldDefs: [champFournisseur] } }) - 1 : -1;
+
+                            const nbDims = dims.length;
+                            // Colonnes mesures, dans l'ordre : CA, Qté, NbMag, CA/mag, Marge %.
+                            const idxQteCol = nbDims + 1;
+                            const largeur = nbDims + 5;
+                            // Cube trié par quantité réseau décroissante : la première page
+                            // contient donc directement les meilleures ventes du réseau, et
+                            // on n'a pas besoin de lire tout l'ensemble sélectionné.
+                            const hauteur = Math.max(50, Math.min(400, Math.floor(9000 / largeur)));
+
+                            const defCube = (trie: boolean) => ({
                                 qProp: {
                                     qInfo: { qType: "cf-search" },
                                     qHyperCubeDef: {
                                         qDimensions: dims.map((d) => ({ ...d, qNullSuppression: true })),
-                                        qMeasures: [],
+                                        qMeasures: [
+                                            { qLibraryId: idCa },
+                                            trie ? { qLibraryId: idQte, qSortBy: { qSortByNumeric: -1 } } : { qLibraryId: idQte },
+                                            { qLibraryId: idNbMag },
+                                            { qLibraryId: idCaMag },
+                                            { qLibraryId: idMarge },
+                                        ],
+                                        ...(trie ? { qInterColumnSortOrder: [idxQteCol, 0] } : {}),
                                         qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: largeur, qHeight: hauteur }],
+                                        qSuppressZero: false,
                                         qSuppressMissing: true,
                                     },
                                 },
-                            }, doc);
+                            });
+                            let cube: { [k: string]: unknown };
+                            try {
+                                cube = await rpcRetry("CreateSessionObject", defCube(true), doc);
+                            } catch (e) {
+                                // Le tri par mesure est un confort (meilleures ventes en
+                                // tête) : si l'Engine refuse cette forme, on repart sans.
+                                if (estCode15(e)) throw e;
+                                trace.push("tri par quantité refusé, cube non trié : " + String((e as Error)?.message || e));
+                                cube = await rpcRetry("CreateSessionObject", defCube(false), doc);
+                            }
                             const ch = (cube.qReturn as { qHandle: number }).qHandle;
                             const layout = await rpcRetry("GetLayout", {}, ch);
                             const hc = (layout.qLayout as {
                                 qHyperCube: {
                                     qSize: { qcy: number };
-                                    qDataPages?: Array<{ qMatrix?: Array<Array<{ qText?: string }>> }>;
+                                    qDataPages?: Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }>;
                                 };
                             }).qHyperCube;
                             const matrix = hc.qDataPages?.[0]?.qMatrix ?? [];
@@ -439,21 +555,34 @@ export async function searchQlikArticles(
                                 return mots.every((m) => l.includes(m));
                             };
 
-                            const parCode = new Map<string, [string, string, string]>();
+                            type Ligne = [string, string, string, string, number, number, number, number, number];
+                            const texte = (r: Array<{ qText?: string }>, i: number) => {
+                                if (i < 0) return "";
+                                const v = String(r[i]?.qText ?? "").trim();
+                                return v === "-" ? "" : v;
+                            };
+                            const parCode = new Map<string, Ligne>();
                             let rejetees = 0;
                             for (const r of matrix) {
                                 const code = String(r[0]?.qText ?? "").trim();
                                 if (!code || code === "-") continue;
-                                const libelleBrut = champLibelleAffiche ? String(r[1]?.qText ?? "").trim() : "";
-                                const idxFou = champLibelleAffiche ? 2 : 1;
-                                const fournisseurBrut = champFournisseur ? String(r[idxFou]?.qText ?? "").trim() : "";
-                                const libelle = libelleBrut === "-" ? "" : libelleBrut;
-                                const fournisseur = fournisseurBrut === "-" ? "" : fournisseurBrut;
+                                const codeAlt = texte(r, idxAlt);
+                                const libelle = texte(r, idxLibelle);
+                                const fournisseur = texte(r, idxFournisseur);
                                 if (!correspond(code, libelle)) { rejetees++; continue; }
+                                const nombre = (i: number) => Number(r[nbDims + i]?.qNum) || 0;
+                                const ligne: Ligne = [
+                                    code, codeAlt, libelle, fournisseur,
+                                    nombre(0), nombre(1), nombre(2), nombre(3), nombre(4),
+                                ];
                                 const existant = parCode.get(code);
-                                if (!existant) { parCode.set(code, [code, libelle, fournisseur]); continue; }
-                                if (!existant[1] && libelle) existant[1] = libelle;
-                                if (!existant[2] && fournisseur) existant[2] = fournisseur;
+                                if (!existant) { parCode.set(code, ligne); continue; }
+                                // Même article chez plusieurs fournisseurs : une seule ligne.
+                                // Les mesures sont identiques (elles ne dépendent pas de la
+                                // dimension fournisseur), on complète juste les libellés.
+                                if (!existant[1] && codeAlt) existant[1] = codeAlt;
+                                if (!existant[2] && libelle) existant[2] = libelle;
+                                if (!existant[3] && fournisseur) existant[3] = fournisseur;
                             }
                             const uniques = [...parCode.values()];
                             const rows = uniques.slice(0, limite);
@@ -462,6 +591,9 @@ export async function searchQlikArticles(
                                 " rejetées(hors terme)=" + rejetees +
                                 " articles uniques=" + uniques.length + " retenus=" + rows.length,
                             );
+                            if (rows.length > 0) {
+                                trace.push("échantillon=" + JSON.stringify(rows.slice(0, 3)));
+                            }
 
                             ws.close();
                             resolve({
@@ -481,6 +613,13 @@ export async function searchQlikArticles(
                 terme: cleaned,
                 limite: limit,
                 settleMs,
+                serialsDate: dateFilter.dailySerials,
+                mCa: cfg.measCaId,
+                mQte: cfg.measQteId,
+                mNbMag: cfg.measNbMagId,
+                mCaMag: cfg.measCaMagId,
+                mMarge: cfg.measMargePctId,
+                champCodeAlt: CHAMP_CODE_CENTRALE_ALT,
                 champsLibellePreferes: CHAMPS_LIBELLE_PREFERES,
                 champsFournisseurPreferes: CHAMPS_FOURNISSEUR_PREFERES,
                 champLibelleForce: (process.env.QLIK_FIELD_ARTICLE_LIBELLE ?? "").trim(),
@@ -491,9 +630,12 @@ export async function searchQlikArticles(
         for (const t of result.trace ?? []) console.log(`[qlik-search] ${t}`);
         if (!result.ok) throw new Error(`[qlik-search] ${result.error}`);
 
-        const matches: QlikArticleMatch[] = (result.rows ?? []).map(([codeCentrale, libelle, fournisseur]) => ({
-            codeCentrale, libelle, fournisseur,
-        }));
+        const matches: QlikArticleMatch[] = (result.rows ?? []).map(
+            ([codeCentrale, codeCentraleAlt, libelle, fournisseur, caReseau, qteReseau, nbMagasinsReseau, caParMagasinReseau, margePctReseau]) => ({
+                codeCentrale, codeCentraleAlt, libelle, fournisseur,
+                caReseau, qteReseau, nbMagasinsReseau, caParMagasinReseau, margePctReseau,
+            }),
+        );
         console.log(
             `[qlik-search] "${cleaned}" → ${matches.length} article(s) (total ${result.total ?? 0}, champ=${result.champUtilise}) en ${Date.now() - started} ms`,
         );
@@ -514,6 +656,7 @@ export async function searchQlikArticles(
             champUtilise: result.champUtilise ?? null,
             tronque: (result.total ?? 0) > matches.length,
             avertissement,
+            periode: dateFilter.label,
         };
     } finally {
         await ctx.close();

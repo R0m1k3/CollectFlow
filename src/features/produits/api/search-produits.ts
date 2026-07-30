@@ -1,10 +1,12 @@
 import "server-only";
 
 import { searchQlikArticles, QLIK_SEARCH_MAX_RESULTS } from "@/lib/qlik-search";
-import { fetchNetworkMetricsPlaywright } from "@/lib/qlik-playwright";
 import type { NetworkMetric } from "@/lib/qlik-client";
-import { upsertNetworkMetrics } from "@/lib/qlik-network-cache";
-import { buildGridNetworkQlikDateFilter, envMonthsBack, QLIK_MONTHS_BACK_DEFAULT } from "@/lib/qlik-date-range";
+import {
+    getNetworkMetricsByCodeCentrale,
+    upsertNetworkMetrics,
+    type NetworkMetricCached,
+} from "@/lib/qlik-network-cache";
 import { pgGetProduitsByCodeCentrale, pgSearchProduits, type PgProduitSearchRow } from "@/lib/pg-ff-client";
 import { NB_MAGASINS_RESEAU } from "@/features/grid/lib/network-trend";
 import { normalizeMargePct } from "@/features/produits/lib/compare-reseau";
@@ -14,11 +16,15 @@ import type { ProduitRechercheResultat, ProduitRechercheRow } from "@/features/p
  * CollectFlow — Recherche produit **Qlik d'abord**, base FF Nancy ensuite.
  *
  * Déroulé :
- *   1. Qlik Sense : quels articles du réseau correspondent au terme ?
- *      (`searchQlikArticles` — libellé ou code centrale)
- *   2. Qlik Sense : métriques réseau 12 mois glissants de ces articles
- *      (`fetchNetworkMetricsPlaywright` — CA, qté, nb magasins, marge, mensuel)
- *   3. Base FF Nancy : lesquels référençons-nous ? (`pgGetProduitsByCodeCentrale`)
+ *   1. Qlik Sense, **une seule session** : les articles correspondant au terme ET
+ *      leurs mesures réseau sur 12 mois glissants (`searchQlikArticles`).
+ *   2. Base FF Nancy : lesquels référençons-nous ? (`pgGetProduitsByCodeCentrale`)
+ *   3. Cache `qlik_network_metrics` : détail mensuel quand une sync l'a déjà
+ *      extrait (le cube de recherche est agrégé, il ne le fournit pas).
+ *
+ * Une seconde session Qlik pour les mesures faisait abandonner le moteur
+ * (`code 15 — Request aborted`) : deux sessions concurrentes sur la même app,
+ * dont une avec une grosse sélection, et l'Engine coupe les requêtes.
  *
  * Si Qlik est injoignable, on se rabat sur la recherche catalogue local pour ne
  * pas laisser l'utilisateur sans résultat — la réponse le signale explicitement
@@ -37,7 +43,7 @@ const JOB_TTL_MS = 5 * 60 * 1000;
  * Le serveur Qlik sature vite (« Out of memory », « Request aborted ») : on
  * plafonne plutôt que de lui envoyer N extractions en parallèle.
  */
-const MAX_RECHERCHES_SIMULTANEES = 2;
+const MAX_RECHERCHES_SIMULTANEES = 1;
 
 /**
  * Cache mémoire des recherches. Une recherche coûte deux allers-retours Qlik
@@ -243,48 +249,53 @@ async function executerRecherche(
         };
     }
 
-    // Métriques réseau + détail mensuel sur la fenêtre 12 mois glissants (mois
-    // courant exclu) — même extracteur que la sync fournisseur, donc mêmes
-    // chiffres que la Grille.
-    const monthsBack = envMonthsBack("QLIK_SYNC_MONTHS_BACK", QLIK_MONTHS_BACK_DEFAULT);
-    const dateFilter = buildGridNetworkQlikDateFilter(new Date(), monthsBack);
-    let metrics = new Map<string, NetworkMetric>();
-    let metricsError: string | null = null;
+    // Les mesures réseau sortent DÉJÀ du cube de recherche (même session Qlik).
+    // Les extraire dans une seconde session concurrente faisait abandonner le
+    // moteur (`code 15 — Request aborted`) : c'est ce qui faisait « planter » la
+    // recherche alors que la sync de la Grille, elle seule sur le serveur,
+    // fonctionnait.
+    //
+    // Reste à récupérer le détail mensuel — indisponible dans ce cube. On le lit
+    // dans le cache alimenté par les syncs fournisseur ; s'il manque, la fiche
+    // produit propose son bouton « Actualiser depuis Qlik ».
+    onEtape("Rapprochement avec notre catalogue…");
+    const [cacheReseau, catalogue, locaux] = await Promise.all([
+        getNetworkMetricsByCodeCentrale(codes).catch((e) => {
+            console.error("[produits/search] lecture du cache réseau échouée:", (e as Error).message);
+            return new Map<string, NetworkMetricCached>();
+        }),
+        // Deux clés candidates : la dimension « Article Code » et le champ
+        // `article_no_centrale`. Sur l'app FF elles n'ont pas le même format et
+        // une seule joint avec `articles.artcentrale`.
+        pgGetProduitsByCodeCentrale([...codes, ...qlik.matches.map((m) => m.codeCentraleAlt).filter(Boolean)]),
+        localPromise,
+    ]);
+
+    // On persiste les mesures fraîches : la fiche produit ouverte depuis un
+    // résultat les affiche aussitôt, sans re-extraction. Le détail mensuel n'est
+    // pas fourni ici et n'est donc pas écrasé (upsert en COALESCE).
     try {
-        onEtape(`Extraction des ventes réseau de ${codes.length} article${codes.length > 1 ? "s" : ""} sur 12 mois…`);
-        metrics = await fetchNetworkMetricsPlaywright(codes, undefined, dateFilter);
-        // Le libellé / fournisseur ne sortent que de la recherche : on les
-        // attache ici pour qu'ils soient persistés avec les mesures.
-        for (const m of qlik.matches) {
-            const metric = metrics.get(m.codeCentrale);
-            if (!metric) continue;
-            if (m.libelle) metric.libelleReseau = m.libelle;
-            if (m.fournisseur) metric.fournisseurReseau = m.fournisseur;
-        }
-        // On alimente le cache `qlik_network_metrics` au passage : la fiche
-        // produit ouverte depuis un résultat affichera les données réseau tout
-        // de suite, sans re-extraction.
-        if (metrics.size > 0) {
-            const n = await upsertNetworkMetrics([...metrics.values()]);
-            console.log(`[produits/search] ${n} ligne(s) réseau mises en cache`);
-        }
+        const aPersister: NetworkMetric[] = qlik.matches.map((m) => ({
+            codeCentrale: m.codeCentrale,
+            caReseau: m.caReseau,
+            qteReseau: m.qteReseau,
+            nbMagasinsReseau: m.nbMagasinsReseau,
+            caParMagasinReseau: m.caParMagasinReseau,
+            margePctReseau: m.margePctReseau,
+            periode: qlik.periode ?? undefined,
+            libelleReseau: m.libelle || undefined,
+            fournisseurReseau: m.fournisseur || undefined,
+        }));
+        const n = await upsertNetworkMetrics(aPersister);
+        console.log(`[produits/search] ${n} ligne(s) réseau mises en cache`);
     } catch (e) {
-        // Les identités trouvées restent affichables sans les mesures : mieux
-        // vaut une liste sans chiffres réseau qu'une page d'erreur.
-        metricsError = e instanceof Error ? e.message : String(e);
-        console.error("[produits/search] extraction des métriques réseau échouée:", metricsError);
+        console.error("[produits/search] mise en cache des mesures échouée:", (e as Error).message);
     }
 
-    onEtape("Rapprochement avec notre catalogue…");
-    const catalogue = await pgGetProduitsByCodeCentrale(codes);
-    const locaux = await localPromise;
-
     const rows: ProduitRechercheRow[] = qlik.matches.map((m) => {
-        const net = metrics.get(m.codeCentrale);
-        const local = catalogue.get(m.codeCentrale);
-        const qteReseau = net?.qteReseau ?? 0;
-        const caReseau = net?.caReseau ?? 0;
-        const nbMag = net?.nbMagasinsReseau ?? 0;
+        const local = catalogue.get(m.codeCentrale) ?? (m.codeCentraleAlt ? catalogue.get(m.codeCentraleAlt) : undefined);
+        const cache = cacheReseau.get(m.codeCentrale);
+        const nbMag = m.nbMagasinsReseau;
         return {
             codeCentrale: m.codeCentrale,
             libelle: local?.libelle1 || m.libelle || m.codeCentrale,
@@ -293,16 +304,17 @@ async function executerRecherche(
             codein: local?.codein ?? null,
             nomenclature: local?.nomenclature ?? "",
             stockLocal: local ? Number(local.stock_total) || 0 : null,
-            qteReseau,
-            caReseau,
+            qteReseau: m.qteReseau,
+            caReseau: m.caReseau,
             nbMagasinsReseau: nbMag,
             tauxPresence: nbMag / NB_MAGASINS_RESEAU,
-            qteParMagasinReseau: nbMag > 0 ? qteReseau / nbMag : 0,
-            caParMagasinReseau: net?.caParMagasinReseau ?? 0,
-            prixMoyenReseau: qteReseau > 0 ? caReseau / qteReseau : null,
-            margePctReseau: normalizeMargePct(net?.margePctReseau),
-            qteByMonth: net?.qteByMonth ?? null,
-            periode: net?.periode ?? dateFilter.label,
+            qteParMagasinReseau: nbMag > 0 ? m.qteReseau / nbMag : 0,
+            caParMagasinReseau: m.caParMagasinReseau,
+            prixMoyenReseau: m.qteReseau > 0 ? m.caReseau / m.qteReseau : null,
+            margePctReseau: normalizeMargePct(m.margePctReseau),
+            // Le mensuel ne vient que du cache : le cube de recherche est agrégé.
+            qteByMonth: cache?.qteByMonth ?? null,
+            periode: qlik.periode,
         };
     });
 
@@ -310,13 +322,27 @@ async function executerRecherche(
     // arbitrer, un produit que le réseau ne vend pas n'intéresse personne.
     rows.sort((a, b) => b.qteReseau - a.qteReseau || a.libelle.localeCompare(b.libelle, "fr"));
 
-    const codesTrouves = new Set(codes);
+    // Les produits Nancy déjà couverts par un résultat réseau ne doivent pas
+    // réapparaître dans la liste secondaire. On compare sur les deux clés
+    // candidates, la jointure pouvant se faire par l'une ou par l'autre.
+    const codesTrouves = new Set<string>(codes);
+    for (const m of qlik.matches) if (m.codeCentraleAlt) codesTrouves.add(m.codeCentraleAlt);
     const locauxHorsReseau = locaux.filter((l) => !l.code_centrale || !codesTrouves.has(l.code_centrale));
+
+    // Diagnostic de la jointure : 0 rapprochement sur 40 codes signale un format
+    // de clé différent entre Qlik et `articles.artcentrale`.
+    if (catalogue.size === 0 && codes.length > 0) {
+        console.warn(
+            `[produits/search] aucun des ${codes.length} codes Qlik ne joint avec articles.artcentrale — ` +
+            `échantillon Article Code=${JSON.stringify(codes.slice(0, 3))} ` +
+            `article_no_centrale=${JSON.stringify(qlik.matches.slice(0, 3).map((m) => m.codeCentraleAlt))}`,
+        );
+    }
 
     return {
         rows,
         source: "qlik",
-        qlikError: metricsError ? messageQlikLisible(metricsError) : null,
+        qlikError: qlik.avertissement,
         tronque: qlik.tronque,
         champUtilise: qlik.champUtilise,
         locauxHorsReseau,
