@@ -108,6 +108,30 @@ au prix d'une extraction plus lente.
 ⚠️ Les données déjà en cache gardent leurs zéros : il faut relancer la sync Qlik
 pour les corriger.
 
+## Coût de `SelectValues` sur « Article Code »
+
+Mesuré en production : **8 à 100 s par appel**, quasi indépendamment du nombre de
+valeurs — le moteur balaie un symbole de plus d'un million d'entrées. Avec 7 200
+codes en lots de 300, cela faisait 24 appels, ~15 min de sync, et la session Qlik
+mourait avant la fin (`Socket closed`, puis `Execution context was destroyed`).
+
+La dimension Mois livrant déjà tous les mois d'un coup, rien n'oblige à découper
+les codes : le chemin mensuel fait donc **une seule sélection pour tous les codes**
+et **un seul cube paginé** (la lecture des pages coûte ~50 ms). Repli automatique
+sur les lots si l'Engine refuse. Même principe pour `rattraperMoisVides()` : une
+sélection de codes, puis seule la fenêtre de dates change d'un mois à l'autre.
+
+La sonde de diagnostic de fin de sync a été retirée : elle refaisait une sélection
+complète des codes et des 365 jours pour rien.
+
+### Résultat partiel plutôt que rien
+
+Le script in-page pousse un point de contrôle (`cfCheckpoint`) après chaque passe.
+Si la session meurt en cours de route, l'extraction repart de ce point au lieu de
+tout perdre : les codes déjà traités ont des données **complètes** (la dimension
+Mois livre tous leurs mois d'un coup), seul le reliquat manque. Le log signale
+alors `⚠ résultat PARTIEL` — relancer la sync complète le reste.
+
 ## Tendance réseau = 12 mois glissants stricts
 
 `computeNetworkTrend()` reconstruit sa fenêtre à partir de la date du jour :

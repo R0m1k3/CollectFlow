@@ -52,6 +52,8 @@ interface InPageResult {
     batches?: number;
     code15Retries?: number;
     fallbackCount?: number;
+    /** true si le résultat vient d'un point de contrôle (extraction interrompue). */
+    partiel?: boolean;
 }
 
 function envNumber(name: string, defaultValue: number, min: number, max: number): number {
@@ -149,6 +151,7 @@ export async function fetchNetworkMetricsPlaywright(
         console.log(`[qlik-pw] page chargée, attente du qlik-csrf-token…`);
         await Promise.race([tokenReady, page.waitForTimeout(15000)]);
         if (!csrfToken) throw new Error("[qlik-pw] qlik-csrf-token introuvable (client Qlik non chargé ?)");
+        const jeton: string = csrfToken;
         console.log(`[qlik-pw] csrf-token capturé, ouverture du websocket Engine in-page…`);
 
         // Pré-calcul des mois côté Node (pour pouvoir logger X/Y et propager au script in-page).
@@ -160,7 +163,18 @@ export async function fetchNetworkMetricsPlaywright(
             serials: m.dailySerials, // ~30 valeurs → SelectValues en une fois
         }));
 
-        const result = (await page.evaluate(
+        // Point de contrôle : le script in-page pousse ses résultats intermédiaires
+        // à chaque passe. Si la session Qlik meurt en cours de route (« Socket
+        // closed », « Execution context was destroyed »), on repart de là au lieu
+        // de tout perdre — les codes déjà traités ont des données complètes, la
+        // dimension Mois livrant tous leurs mois d'un coup.
+        let checkpoint: { rows?: Array<Array<string | number>>; monthly?: InPageResult["monthly"] } | null = null;
+        await page.exposeFunction("cfCheckpoint", (payload: { rows?: Array<Array<string | number>>; monthly?: InPageResult["monthly"] }) => {
+            checkpoint = payload;
+            return true;
+        });
+
+        const evaluer = () => page.evaluate(
             ({ app, dim, mca, mqte, mnb, mcamag, mmarge, codes, token, monthlyPayload, noDateMode, qlikSettleMs, qlikCode15MaxAttempts, qlikArticleBatchFallbacks, selectAllCodes, monthDim, moisDimId, mqteComp, yearN }: {
                 app: string; dim: string; mca: string; mqte: string; mnb: string; mcamag: string; mmarge: string;
                 codes: string[]; token: string;
@@ -185,7 +199,6 @@ export async function fetchNetworkMetricsPlaywright(
                         const i = ++id; pend.set(i, { res, rej });
                         ws.send(JSON.stringify({ jsonrpc: "2.0", id: i, handle, method, params }));
                     });
-                    const fail = (error: string) => resolve({ ok: false, error });
                     const ready = new Promise<void>((res, rej) => {
                         ws.onmessage = (ev: MessageEvent) => {
                             const m = JSON.parse(ev.data as string);
@@ -242,6 +255,13 @@ export async function fetchNetworkMetricsPlaywright(
                         }
                         throw lastErr;
                     };
+
+                    // Accumulateurs déclarés au niveau de l'IIFE (et non dans le `try`) :
+                    // le `catch` doit pouvoir remonter ce qui a déjà été extrait.
+                    const out: Array<Array<string | number>> = [];
+                    // Quantité réseau par code central et par mois (label "YYYY-MM").
+                    // Accumulée en parallèle du total, sans toucher l'agrégation existante.
+                    const monthlyByCode: Record<string, Record<string, { qte: number; ca?: number; nbMag?: number; caMag?: number; margePct?: number }>> = {};
 
                     (async () => {
                         try {
@@ -310,10 +330,8 @@ export async function fetchNetworkMetricsPlaywright(
                             // (un objet par lot) puis DestroySessionObject — corrige "Request aborted" (code 15)
                             // causé par la réutilisation du même objet sur des centaines de recalculs.
 
-                            const out: Array<Array<string | number>> = [];
-                            // Quantité réseau par code central et par mois (label "YYYY-MM").
-                            // Accumulée en parallèle du total, sans toucher l'agrégation existante.
-                            const monthlyByCode: Record<string, Record<string, { qte: number; ca?: number; nbMag?: number; caMag?: number; margePct?: number }>> = {};
+                            // (déclaré au niveau de l'IIFE — voir plus haut)
+                            // (monthlyByCode est déclaré au niveau de l'IIFE — voir plus haut)
                             const accMonthly = (batchRows: Array<Array<string | number>>, monthLabel: string) => {
                                 for (const r of batchRows) {
                                     const c = String(r[0] ?? "").trim();
@@ -459,6 +477,49 @@ export async function fetchNetworkMetricsPlaywright(
                             let loggedSampleRow = false;
                             const monthDimPath = async (selectYear: number | null): Promise<void> => {
                                 const isMainPass = selectYear === null;
+
+                                /** Traitement d'une ligne du cube [Article Code, Mois] — partagé par les deux chemins. */
+                                const onRowMois = (code: string, mois: string, ca: number, qte: number, nbMag: number, caMag: number, marge: number, qteComp: number) => {
+                                    if (!code || code === "-") return;
+                                    // Les totaux réseau ne viennent QUE de la passe principale
+                                    // (sinon on doublerait CA/Qté avec la passe N-1).
+                                    if (isMainPass) out.push([code, ca, qte, nbMag, caMag, marge]);
+                                    const mm = normMois(mois);
+                                    const y = parseInt(mm.slice(0, 4), 10);
+                                    if (!loggedSampleRow) {
+                                        loggedSampleRow = true;
+                                        console.log("[qlik-pw][mesures] échantillon ligne mensuelle: " + JSON.stringify({
+                                            code, mois: mm, "CA N": ca, "Quantité N (utilisée pour la courbe)": qte,
+                                            "Magasin Ventes Nb N": nbMag, "CA par Magasin N": caMag, "Marge % N": marge, "Quantité COMP": qteComp,
+                                        }));
+                                    }
+                                    (monthlyByCode[code] ??= {});
+                                    // Les 5 mesures du mois courant de la ligne. Le cube les renvoie
+                                    // déjà toutes : les conserver ne coûte aucune requête Qlik en plus.
+                                    const full = { qte, ca, nbMag, caMag, margePct: marge };
+                                    if (isMainPass && y === yearN) {
+                                        // Mois de l'année N + son comparable N-1 (COMP = même mois, N-1).
+                                        monthlyByCode[code][mm] = full;
+                                        const mmPrev = String(y - 1) + mm.slice(4); // "2026-03" → "2025-03"
+                                        // COMP ne porte QUE la quantité : les autres mesures restent
+                                        // absentes tant que la passe N-1 ne les a pas complétées.
+                                        // On n'écrit rien si COMP est vide : un mois ABSENT peut être
+                                        // rattrapé plus tard, un mois à 0 se lit comme « pas de vente »
+                                        // et masque définitivement le trou d'extraction.
+                                        if (monthlyByCode[code][mmPrev] === undefined && qteComp > 0) {
+                                            monthlyByCode[code][mmPrev] = { qte: qteComp };
+                                        }
+                                    } else if (!isMainPass) {
+                                        // Passe année sélectionnée : valeurs directes, prioritaires sur COMP.
+                                        monthlyByCode[code][mm] = full;
+                                    } else if (qte > 0 || ca > 0) {
+                                        // Passe principale, mois HORS année N : « Quantité N » n'est pas
+                                        // censée le couvrir. Écrire son 0 fabriquerait une absence de
+                                        // vente là où il n'y a qu'une mesure hors périmètre.
+                                        monthlyByCode[code][mm] = full;
+                                    }
+                                };
+
                                 if (yfh !== -1) {
                                     await rpc("Clear", {}, yfh);
                                     await sleep(qlikSettleMs);
@@ -476,6 +537,50 @@ export async function fetchNetworkMetricsPlaywright(
                                     await sleep(qlikSettleMs);
                                 }
                                 aggMonths = monthlyPayload.length;
+
+                                // ─── Chemin rapide : UNE seule sélection Article Code ────
+                                //
+                                // Mesuré en production : `SelectValues` sur « Article Code »
+                                // coûte 8 à 100 s **par appel**, quasi indépendamment du
+                                // nombre de valeurs (le moteur balaie un symbole de plus d'un
+                                // million d'entrées). Avec 7 200 codes en lots de 300, cela
+                                // faisait 24 appels, ~15 min de sync, et la session Qlik
+                                // mourait avant la fin (« Socket closed » puis « Execution
+                                // context was destroyed »).
+                                //
+                                // La dimension Mois donne déjà tous les mois d'un coup : rien
+                                // n'oblige à découper les codes. On tente donc un seul appel
+                                // pour tous les codes et un seul cube paginé — la lecture des
+                                // pages, elle, coûte ~50 ms. Repli sur les lots si l'Engine
+                                // refuse (cube trop gros, code 15, saturation mémoire).
+                                const marqueOut = out.length;
+                                if (codes.length && fh !== -1) {
+                                    const timingsAll: Record<string, number> = {};
+                                    try {
+                                        await timed("clearCodeAll", "Clear", () => rpc("Clear", {}, fh), timingsAll);
+                                        await sleep(qlikSettleMs);
+                                        await timed("selectCodeAll", "SelectValues", () => rpc("SelectValues", {
+                                            qFieldValues: codes.map((c) => ({ qText: c })),
+                                            qToggleMode: false,
+                                            qSoftLock: true,
+                                        }, fh), timingsAll);
+                                        await sleep(qlikSettleMs);
+                                        const got = await timed("cube", "all", () => fetchMonthCube(onRowMois, timingsAll), timingsAll);
+                                        aggBatches++;
+                                        console.log(
+                                            "[qlik-pw][timing] (mois) chemin rapide — " + codes.length + " codes en 1 sélection, rows=" + got.value +
+                                            " cumul=" + out.length + " timings=" + timingSummary(timingsAll),
+                                        );
+                                        return;
+                                    } catch (e) {
+                                        // Les lignes déjà lues seraient recomptées par le repli :
+                                        // on les retire (les écritures mensuelles, elles, sont
+                                        // des affectations idempotentes).
+                                        out.length = marqueOut;
+                                        console.log("[qlik-pw] (mois) chemin rapide échoué → repli par lots : " + String((e as Error)?.message || e));
+                                    }
+                                }
+
                                 // Lots plus petits = cubes plus légers (moins de pression mémoire côté
                                 // moteur Qlik, qui a tendance à saturer "Out of memory" sur les gros cubes).
                                 const fallbackSizes = [300, 150, 75];
@@ -494,49 +599,10 @@ export async function fetchNetworkMetricsPlaywright(
                                             await timed("selectCode", "SelectValues", () => rpc("SelectValues", { qFieldValues: batch.map((c) => ({ qText: c })), qToggleMode: false, qSoftLock: true }, fh), timings);
                                             await sleep(qlikSettleMs);
                                         }
-                                        const got = await timed("cube", "batch", () => fetchMonthCube((code, mois, ca, qte, nbMag, caMag, marge, qteComp) => {
-                                            if (!code || code === "-") return;
-                                            // Les totaux réseau ne viennent QUE de la passe principale
-                                            // (sinon on doublerait CA/Qté avec la passe N-1).
-                                            if (isMainPass) out.push([code, ca, qte, nbMag, caMag, marge]);
-                                            const mm = normMois(mois);
-                                            const y = parseInt(mm.slice(0, 4), 10);
-                                            if (!loggedSampleRow) {
-                                                loggedSampleRow = true;
-                                                console.log("[qlik-pw][mesures] échantillon ligne mensuelle: " + JSON.stringify({
-                                                    code, mois: mm, "CA N": ca, "Quantité N (utilisée pour la courbe)": qte,
-                                                    "Magasin Ventes Nb N": nbMag, "CA par Magasin N": caMag, "Marge % N": marge, "Quantité COMP": qteComp,
-                                                }));
-                                            }
-                                            (monthlyByCode[code] ??= {});
-                                            // Les 5 mesures du mois courant de la ligne. Le cube les renvoie
-                                            // déjà toutes : les conserver ne coûte aucune requête Qlik en plus.
-                                            const full = { qte, ca, nbMag, caMag, margePct: marge };
-                                            if (isMainPass && y === yearN) {
-                                                // Mois de l'année N + son comparable N-1 (COMP = même mois, N-1).
-                                                monthlyByCode[code][mm] = full;
-                                                const mmPrev = String(y - 1) + mm.slice(4); // "2026-03" → "2025-03"
-                                                // COMP ne porte QUE la quantité : les autres mesures restent
-                                                // absentes tant que la passe N-1 ne les a pas complétées.
-                                                // On n'écrit rien si COMP est vide : un mois ABSENT peut être
-                                                // rattrapé plus tard, un mois à 0 se lit comme « pas de vente »
-                                                // et masque définitivement le trou d'extraction.
-                                                if (monthlyByCode[code][mmPrev] === undefined && qteComp > 0) {
-                                                    monthlyByCode[code][mmPrev] = { qte: qteComp };
-                                                }
-                                            } else if (!isMainPass) {
-                                                // Passe année sélectionnée : valeurs directes, prioritaires sur COMP.
-                                                monthlyByCode[code][mm] = full;
-                                            } else if (qte > 0 || ca > 0) {
-                                                // Passe principale, mois HORS année N : « Quantité N » n'est pas
-                                                // censée le couvrir. Écrire son 0 fabriquerait une absence de
-                                                // vente là où il n'y a qu'une mesure hors périmètre.
-                                                monthlyByCode[code][mm] = full;
-                                            }
-                                        }, timings, () => { code15Retries++; }), timings);
+                                        const got = await timed("cube", "batch", () => fetchMonthCube(onRowMois, timings, () => { code15Retries++; }), timings);
                                         aggBatches++;
                                         aggCode15Retries += code15Retries;
-                                        console.log("[qlik-pw][timing] " + bp + " — rows=" + got + " cumul=" + out.length + " retries15=" + code15Retries + " timings=" + timingSummary(timings));
+                                        console.log("[qlik-pw][timing] " + bp + " — rows=" + got.value + " cumul=" + out.length + " retries15=" + code15Retries + " timings=" + timingSummary(timings));
                                         if (!codes.length) break;
                                         codeIndex += batch.length;
                                         fallbackIndex = 0;
@@ -648,12 +714,22 @@ export async function fetchNetworkMetricsPlaywright(
                                     JSON.stringify(manquants.map((m) => m.label)) + " → passe de rattrapage mois par mois",
                                 );
 
+                                // Une seule sélection Article Code pour tout le rattrapage :
+                                // `SelectValues` sur ce champ coûte des dizaines de secondes
+                                // par appel, on ne le refait pas à chaque mois.
+                                if (yfh !== -1) { try { await rpc("Clear", {}, yfh); await sleep(qlikSettleMs); } catch { /* noop */ } }
+                                if (codes.length && fh !== -1) {
+                                    await rpc("Clear", {}, fh);
+                                    await sleep(qlikSettleMs);
+                                    await rpc("SelectValues", { qFieldValues: codes.map((c) => ({ qText: c })), qToggleMode: false, qSoftLock: true }, fh);
+                                    await sleep(qlikSettleMs);
+                                }
+
                                 for (const m of manquants) {
                                     const prefix = "[qlik-pw] (rattrapage) " + m.label;
                                     try {
-                                        // Année libre : c'est la sélection de dates qui doit
-                                        // déterminer l'année vue par la mesure.
-                                        if (yfh !== -1) { await rpc("Clear", {}, yfh); await sleep(qlikSettleMs); }
+                                        // Seule la fenêtre de dates change d'un mois à l'autre :
+                                        // c'est elle qui détermine l'année vue par la mesure.
                                         await rpc("Clear", {}, dfh);
                                         await sleep(qlikSettleMs);
                                         await rpc("SelectValues", {
@@ -663,35 +739,11 @@ export async function fetchNetworkMetricsPlaywright(
                                         }, dfh);
                                         await sleep(qlikSettleMs);
 
-                                        const tailles = [300, 150, 75];
-                                        let idx = 0, tailleIdx = 0;
-                                        const total = codes.length;
-                                        while (codes.length ? idx < total : tailleIdx === 0) {
-                                            const lot = codes.length ? codes.slice(idx, Math.min(idx + tailles[tailleIdx], total)) : [];
-                                            try {
-                                                if (lot.length && fh !== -1) {
-                                                    await rpc("Clear", {}, fh);
-                                                    await sleep(qlikSettleMs);
-                                                    await rpc("SelectValues", { qFieldValues: lot.map((c) => ({ qText: c })), qToggleMode: false, qSoftLock: true }, fh);
-                                                    await sleep(qlikSettleMs);
-                                                }
-                                                const batchRows: Array<Array<string | number>> = [];
-                                                await fetchCubeForSelection(batchRows);
-                                                // Uniquement le mensuel : les totaux réseau restent ceux
-                                                // de la passe principale, sinon on les doublerait.
-                                                accMonthly(batchRows, m.label);
-                                                if (!codes.length) break;
-                                                idx += lot.length;
-                                                tailleIdx = 0;
-                                            } catch (lotErr) {
-                                                const suivante = tailles[tailleIdx + 1];
-                                                if (codes.length && isEngineCode15(lotErr) && suivante && lot.length > suivante) {
-                                                    tailleIdx += 1;
-                                                    continue;
-                                                }
-                                                throw lotErr;
-                                            }
-                                        }
+                                        const batchRows: Array<Array<string | number>> = [];
+                                        await fetchCubeForSelection(batchRows);
+                                        // Uniquement le mensuel : les totaux réseau restent ceux
+                                        // de la passe principale, sinon on les doublerait.
+                                        accMonthly(batchRows, m.label);
                                         const remplis = Object.values(monthlyByCode).filter((x) => (x[m.label]?.qte ?? 0) > 0).length;
                                         console.log(prefix + " — " + remplis + " article(s) renseigné(s)");
                                     } catch (e) {
@@ -700,10 +752,23 @@ export async function fetchNetworkMetricsPlaywright(
                                 }
                             };
 
+                            /** Pousse l'état courant vers Node (voir `cfCheckpoint`). */
+                            const pousserCheckpoint = async (etape: string) => {
+                                try {
+                                    const fn = (window as unknown as { cfCheckpoint?: (p: unknown) => Promise<unknown> }).cfCheckpoint;
+                                    if (!fn) return;
+                                    await fn({ rows: out, monthly: monthlyByCode });
+                                    console.log("[qlik-pw] point de contrôle « " + etape + " » : " + out.length + " lignes");
+                                } catch (e) {
+                                    console.log("[qlik-pw] point de contrôle « " + etape + " » ignoré : " + String((e as Error)?.message || e));
+                                }
+                            };
+
                             if (!noDateMode && monthDim) {
                                 // Découpage mensuel réel (dimension Mois) — remplace l'itération par mois.
                                 console.log("[qlik-pw] extraction via dimension Mois (" + monthlyPayload.length + " mois attendus, moisDim=" + moisDimId + ")");
                                 await monthDimPath(null);
+                                await pousserCheckpoint("passe N");
                                 // Passe complémentaire : mois de l'année N-1 absents de l'année N
                                 // (ex. août→déc), impossibles à obtenir via COMP. On sélectionne
                                 // l'année N-1 pour que les mesures "N" portent sur cette année.
@@ -717,10 +782,12 @@ export async function fetchNetworkMetricsPlaywright(
                                         console.log("[qlik-pw] (mois) passe N-1 ignorée: " + String((e2 as Error)?.message || e2));
                                     }
                                     try { await rpc("Clear", {}, yfh); } catch { /* noop */ }
+                                    await pousserCheckpoint("passe N-1");
                                 } else {
                                     console.log("[qlik-pw] (mois) champ Année introuvable → pas de passe N-1");
                                 }
                                 await rattraperMoisVides();
+                                await pousserCheckpoint("rattrapage");
                             } else if (noDateMode) {
                                 // Aucun filtre Date : extraction en un seul appel (tous les codes d'un coup).
                                 // On sélectionne uniquement Article Code ; Date reste libre.
@@ -839,42 +906,19 @@ export async function fetchNetworkMetricsPlaywright(
                                 }
                             }
 
-                            // SONDE (à la FIN pour apparaître dans la queue du log) : sélectionne ~50
-                            // codes + la fenêtre 12 mois, puis crée un petit cube [Article Code, Mois]
-                            // × Quantité N. Montre le FORMAT des valeurs "Mois" et si la quantité VARIE
-                            // par mois, pour concevoir le vrai découpage mensuel.
-                            try {
-                                const moisDimId = "pfGAwTs";
-                                const probeCodes = (codes ?? []).slice(0, 50);
-                                if (fh !== -1 && probeCodes.length) {
-                                    await rpc("Clear", {}, fh);
-                                    await rpc("SelectValues", { qFieldValues: probeCodes.map((c) => ({ qText: c })), qToggleMode: false, qSoftLock: true }, fh);
-                                }
-                                const allSerials = monthlyPayload.flatMap((m) => m.serials);
-                                if (dfh !== -1 && allSerials.length) {
-                                    await rpc("SelectValues", { qFieldValues: allSerials.map((s) => ({ qNum: s, qText: String(s) })), qToggleMode: false, qSoftLock: true }, dfh);
-                                }
-                                await sleep(qlikSettleMs);
-                                const probe = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "cf-probe" }, qHyperCubeDef: {
-                                    qDimensions: [{ qLibraryId: dim }, { qLibraryId: moisDimId }],
-                                    qMeasures: [{ qLibraryId: mqte }],
-                                    qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 3, qHeight: 40 }],
-                                } } }, doc);
-                                const pRet = probe.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
-                                const pl = await rpc("GetLayout", {}, pRet.qHandle);
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                const hc = (pl.qLayout as any)?.qHyperCube;
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                const matrix: any[] = hc?.qDataPages?.[0]?.qMatrix ?? [];
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                const sample = matrix.slice(0, 40).map((row: any[]) => [row[0]?.qText, row[1]?.qText, row[2]?.qNum]);
-                                console.log("[qlik-pw][probe] cube [Article Code, Mois] x Quantite N — size=" + (hc?.qSize?.qcy ?? "?") + " echantillon: " + JSON.stringify(sample));
-                                try { await rpc("DestroySessionObject", { qId: String(pRet.qGenericId ?? pRet.qId ?? "") }, doc); } catch { /* noop */ }
-                            } catch (e) { console.log("[qlik-pw][probe] error: " + String((e as Error)?.message || e)); }
+                            // La sonde de diagnostic du cube [Article Code, Mois] a été retirée :
+                            // elle refaisait une sélection complète des codes et des 365 jours en
+                            // fin de sync (des dizaines de secondes) alors que le découpage
+                            // mensuel est validé et en production depuis.
 
                             ws.close();
                             resolve({ ok: true, rows: out, monthly: monthlyByCode, size: out.length, months: aggMonths, batches: aggBatches, code15Retries: aggCode15Retries, fallbackCount: aggFallbackCount });
-                        } catch (e) { try { ws.close(); } catch { /* noop */ } fail(String((e as Error)?.message || e)); }
+                        } catch (e) {
+                            try { ws.close(); } catch { /* noop */ }
+                            // On remonte ce qui a été extrait : les codes déjà traités ont
+                            // toutes leurs données, seul le reliquat manque.
+                            resolve({ ok: false, error: String((e as Error)?.message || e), rows: out, monthly: monthlyByCode, size: out.length });
+                        }
                     })();
                 }),
             {
@@ -886,7 +930,7 @@ export async function fetchNetworkMetricsPlaywright(
                 mcamag: cfg.measCaMagId,
                 mmarge: cfg.measMargePctId,
                 codes: codeCentraux ?? [],
-                token: csrfToken,
+                token: jeton,
                 monthlyPayload,
                 noDateMode: !dateFilter,
                 qlikSettleMs,
@@ -898,9 +942,34 @@ export async function fetchNetworkMetricsPlaywright(
                 mqteComp: qlikMeasQteCompId,
                 yearN,
             },
-        )) as InPageResult;
+        );
 
-        if (!result.ok) throw new Error(`[qlik-pw] ${result.error}`);
+        let result: InPageResult;
+        try {
+            result = (await evaluer()) as InPageResult;
+        } catch (e) {
+            const msg = String((e as Error)?.message || e);
+            const secours = checkpoint as { rows?: Array<Array<string | number>>; monthly?: InPageResult["monthly"] } | null;
+            if (secours?.rows?.length) {
+                console.error(`[qlik-pw] extraction interrompue (${msg.slice(0, 200)}) — reprise du dernier point de contrôle : ${secours.rows.length} lignes`);
+                result = { ok: true, rows: secours.rows, monthly: secours.monthly, size: secours.rows.length, partiel: true };
+            } else {
+                throw e;
+            }
+        }
+
+        if (!result.ok) {
+            // Même logique qu'un crash : un résultat partiel vaut mieux que rien.
+            if (result.rows?.length) {
+                console.error(`[qlik-pw] extraction en échec (${String(result.error).slice(0, 200)}) — ${result.rows.length} lignes déjà extraites conservées`);
+                result = { ...result, ok: true, partiel: true };
+            } else {
+                throw new Error(`[qlik-pw] ${result.error}`);
+            }
+        }
+        if (result.partiel) {
+            console.warn("[qlik-pw] ⚠ résultat PARTIEL : certains codes n'ont pas été extraits, relancer la sync pour compléter");
+        }
 
         // Résumé timing final : synthèse compacte de la sync pour audit/debug.
         // Les logs détaillés par étape restent en place (timings batch/mois) ;
