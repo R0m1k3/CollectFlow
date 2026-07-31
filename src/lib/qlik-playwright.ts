@@ -121,8 +121,19 @@ export async function fetchNetworkMetricsPlaywright(
     // Mesure "Quantité COMP" (année N-1) pour compléter les mois de l'année précédente
     // → 12 mois glissants (Quantité N ne couvre que l'année en cours).
     const qlikMeasQteCompId = (process.env.QLIK_MEAS_QTE_COMP_ID ?? "96862880-76cd-4957-bf25-b96901f2ac5f").trim();
+    // Agrégations directes des champs de faits. Les master measures « N » ignorent
+    // la sélection Date (mesures « cumul année en cours ») : elles ne peuvent pas
+    // produire une fenêtre 12 mois glissants. Surchargeables si le modèle change.
+    const qlikUseExpr = !["0", "false", "no", "off"].includes((process.env.QLIK_USE_EXPR ?? "").trim().toLowerCase());
+    const qlikExprQte = (process.env.QLIK_EXPR_QTE ?? "Sum(quantite)").trim();
+    const qlikExprCa = (process.env.QLIK_EXPR_CA ?? "Sum(ca_ht)").trim();
+    const qlikExprNbMag = (process.env.QLIK_EXPR_NBMAG ?? "Count(DISTINCT [Magasin Code])").trim();
+    const qlikExprMarge = (process.env.QLIK_EXPR_MARGE ?? "Sum(marge)").trim();
     const yearN = new Date().getFullYear();
-    console.log(`[qlik-pw] tuning settle=${qlikSettleMs}ms code15Attempts=${qlikCode15MaxAttempts} batchFallbacks=${qlikArticleBatchFallbacks.join(">")} selectAllCodes=${qlikSelectAllCodes} monthDim=${qlikMonthDim}`);
+    console.log(`[qlik-pw] tuning settle=${qlikSettleMs}ms code15Attempts=${qlikCode15MaxAttempts} batchFallbacks=${qlikArticleBatchFallbacks.join(">")} selectAllCodes=${qlikSelectAllCodes} monthDim=${qlikMonthDim} useExpr=${qlikUseExpr}`);
+    if (qlikUseExpr) {
+        console.log(`[qlik-pw] expressions mensuelles: qte="${qlikExprQte}" ca="${qlikExprCa}" nbMag="${qlikExprNbMag}" marge="${qlikExprMarge}"`);
+    }
 
     const browser = await getBrowser();
     console.log(`[qlik-pw] chromium lancé`);
@@ -175,7 +186,7 @@ export async function fetchNetworkMetricsPlaywright(
         });
 
         const evaluer = () => page.evaluate(
-            ({ app, dim, mca, mqte, mnb, mcamag, mmarge, codes, token, monthlyPayload, noDateMode, qlikSettleMs, qlikCode15MaxAttempts, qlikArticleBatchFallbacks, selectAllCodes, monthDim, moisDimId, mqteComp, yearN }: {
+            ({ app, dim, mca, mqte, mnb, mcamag, mmarge, codes, token, monthlyPayload, noDateMode, qlikSettleMs, qlikCode15MaxAttempts, qlikArticleBatchFallbacks, selectAllCodes, monthDim, moisDimId, mqteComp, yearN, useExpr, exprQte, exprCa, exprNbMag, exprMarge }: {
                 app: string; dim: string; mca: string; mqte: string; mnb: string; mcamag: string; mmarge: string;
                 codes: string[]; token: string;
                 monthlyPayload: Array<{ label: string; dateDebut: string; dateFin: string; serials: number[] }>;
@@ -188,6 +199,11 @@ export async function fetchNetworkMetricsPlaywright(
                 moisDimId: string;
                 mqteComp: string;
                 yearN: number;
+                useExpr: boolean;
+                exprQte: string;
+                exprCa: string;
+                exprNbMag: string;
+                exprMarge: string;
             }) =>
                 new Promise<InPageResult>((resolve) => {
                     const loc = (window as unknown as { location: Location }).location;
@@ -465,6 +481,168 @@ export async function fetchNetworkMetricsPlaywright(
                                     return got;
                                 } finally {
                                     await destroyCube(cube, timings);
+                                }
+                            };
+
+                            // ─── Cube mensuel par EXPRESSIONS (respecte la sélection Date) ─────
+                            //
+                            // Constat de production : les master measures « CA N » / « Quantité N »
+                            // **ignorent la sélection Date**. Vérifié arithmétiquement : avec août
+                            // 2025 seul sélectionné, le cube renvoyait 164 unités / 2 220,75 € —
+                            // soit exactement la somme de janvier à juillet 2026. Ce sont des
+                            // mesures « cumul année en cours », pas des mesures de période.
+                            //
+                            // Conséquences : les totaux réseau étaient un cumul année en cours
+                            // (mois courant partiel inclus) et non 12 mois glissants, les mois de
+                            // l'année précédente non couverts par « Quantité COMP » restaient
+                            // vides, et la passe de rattrapage y recopiait le total de période.
+                            //
+                            // Aucune sélection ne peut corriger cela : on agrège donc directement
+                            // les champs de faits, qui eux respectent les sélections.
+                            const PAGEX = 1200; // 7 colonnes × 1200 = 8400 cellules < 10000
+                            const fetchMonthCubeExpr = async (
+                                onRow: (code: string, mois: string, ca: number, qte: number, nbMag: number, marge: number, qteMaster: number) => void,
+                                timings?: Record<string, number>,
+                                onCode15Retry?: () => void,
+                            ): Promise<number> => {
+                                const { value: obj } = await timed("createCubeExpr", "CreateSessionObject", () => rpcWithRetry("createCubeExpr", "CreateSessionObject", { qProp: { qInfo: { qType: "cf-net-mois-expr" }, qHyperCubeDef: {
+                                    qDimensions: [{ qLibraryId: dim }, { qLibraryId: moisDimId }],
+                                    qMeasures: [
+                                        { qDef: { qDef: exprCa } },
+                                        { qDef: { qDef: exprQte } },
+                                        { qDef: { qDef: exprNbMag } },
+                                        { qDef: { qDef: exprMarge } },
+                                        // Master « Quantité N », uniquement pour le calibrage : sur les
+                                        // mois de l'année en cours les deux doivent coïncider.
+                                        { qLibraryId: rQte },
+                                    ],
+                                    qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 7, qHeight: PAGEX }],
+                                } } }, doc, onCode15Retry), timings);
+                                const qReturn = obj.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
+                                const cube = { handle: qReturn.qHandle, id: String(qReturn.qGenericId ?? qReturn.qId ?? "") };
+                                const oh = cube.handle;
+                                const process = (matrix: Array<Array<{ qText?: string; qNum?: number }>>): number => {
+                                    for (const r of matrix) {
+                                        onRow(
+                                            String(r[0]?.qText ?? ""), String(r[1]?.qText ?? ""),
+                                            Number(r[2]?.qNum) || 0, Number(r[3]?.qNum) || 0,
+                                            Number(r[4]?.qNum) || 0, Number(r[5]?.qNum) || 0, Number(r[6]?.qNum) || 0,
+                                        );
+                                    }
+                                    return matrix.length;
+                                };
+                                try {
+                                    const { value: layout } = await timed("layout", "GetLayout", () => rpcWithRetry("layout", "GetLayout", {}, oh, onCode15Retry), timings);
+                                    const hc = (layout.qLayout as { qHyperCube: { qSize: { qcy: number }; qDataPages?: Array<{ qArea?: { qTop?: number }; qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }> } }).qHyperCube;
+                                    const size = hc.qSize.qcy;
+                                    let got = 0, top = 0;
+                                    const firstPage = hc.qDataPages?.find((pg) => (pg.qArea?.qTop ?? 0) === 0);
+                                    if (firstPage?.qMatrix?.length) { got += process(firstPage.qMatrix); top = PAGEX; }
+                                    for (; top < size; top += PAGEX) {
+                                        const { value: d } = await timed("getCubeData", "GetHyperCubeData", () => rpcWithRetry("getCubeData", "GetHyperCubeData", { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: 7, qHeight: PAGEX }] }, oh, onCode15Retry), timings);
+                                        const matrix = (d.qDataPages as Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }>)?.[0]?.qMatrix ?? [];
+                                        if (!matrix.length) break;
+                                        got += process(matrix);
+                                        if (matrix.length < PAGEX) break;
+                                    }
+                                    return got;
+                                } finally {
+                                    await destroyCube(cube, timings);
+                                }
+                            };
+
+                            /**
+                             * Passe unique par expressions : sélectionne la fenêtre 12 mois et tous
+                             * les codes, puis lit un seul cube [Article Code, Mois].
+                             *
+                             * Renvoie false si le résultat est inexploitable (expression invalide,
+                             * champ absent) — l'appelant repart alors sur les master measures.
+                             */
+                            const moisParExpressions = async (): Promise<boolean> => {
+                                const timings: Record<string, number> = {};
+                                const marqueOut = out.length;
+                                try {
+                                    if (yfh !== -1) { await rpc("Clear", {}, yfh); await sleep(qlikSettleMs); }
+                                    const allSerials = monthlyPayload.flatMap((m) => m.serials);
+                                    if (dfh !== -1 && allSerials.length) {
+                                        await rpc("Clear", {}, dfh);
+                                        await sleep(qlikSettleMs);
+                                        await timed("selectDate", "SelectValues", () => rpc("SelectValues", {
+                                            qFieldValues: allSerials.map((v) => ({ qNum: v, qText: String(v) })),
+                                            qToggleMode: false,
+                                            qSoftLock: true,
+                                        }, dfh), timings);
+                                        await sleep(qlikSettleMs);
+                                    }
+                                    if (codes.length && fh !== -1) {
+                                        await timed("clearCode", "Clear", () => rpc("Clear", {}, fh), timings);
+                                        await sleep(qlikSettleMs);
+                                        await timed("selectCodeAll", "SelectValues", () => rpc("SelectValues", {
+                                            qFieldValues: codes.map((c) => ({ qText: c })),
+                                            qToggleMode: false,
+                                            qSoftLock: true,
+                                        }, fh), timings);
+                                        await sleep(qlikSettleMs);
+                                    }
+
+                                    // Seuls les mois de la fenêtre nous intéressent ; la dimension
+                                    // Mois peut en exposer d'autres si une sélection déborde.
+                                    const moisFenetre = new Set(monthlyPayload.map((m) => m.label));
+                                    let totalQte = 0;
+                                    let calibrees = 0, calibrOk = 0;
+                                    let echantillon = false;
+
+                                    const got = await timed("cube", "expr", () => fetchMonthCubeExpr((code, mois, ca, qte, nbMag, marge, qteMaster) => {
+                                        if (!code || code === "-") return;
+                                        const mm = normMois(mois);
+                                        if (!moisFenetre.has(mm)) return;
+                                        if (!echantillon) {
+                                            echantillon = true;
+                                            console.log("[qlik-pw][expr] échantillon: " + JSON.stringify({ code, mois: mm, ca, qte, nbMag, marge, "Quantité N (master)": qteMaster }));
+                                        }
+                                        // Calibrage sur l'année en cours, seul périmètre où la master
+                                        // measure est censée être juste.
+                                        if (parseInt(mm.slice(0, 4), 10) === yearN && (qte > 0 || qteMaster > 0)) {
+                                            calibrees++;
+                                            if (Math.abs(qte - qteMaster) <= Math.max(1, qteMaster * 0.02)) calibrOk++;
+                                        }
+                                        totalQte += qte;
+                                        // Totaux = somme des mois de la fenêtre (et non un cumul année).
+                                        out.push([code, ca, qte, nbMag, nbMag > 0 ? ca / nbMag : 0, ca > 0 ? marge / ca : 0]);
+                                        (monthlyByCode[code] ??= {});
+                                        monthlyByCode[code][mm] = {
+                                            qte, ca, nbMag,
+                                            caMag: nbMag > 0 ? ca / nbMag : 0,
+                                            margePct: ca > 0 ? marge / ca : 0,
+                                        };
+                                    }, timings), timings);
+
+                                    aggMonths = monthlyPayload.length;
+                                    aggBatches++;
+                                    console.log(
+                                        "[qlik-pw][expr] " + got.value + " lignes, quantité totale=" + Math.round(totalQte) +
+                                        ", calibrage année " + yearN + " : " + calibrOk + "/" + calibrees + " mois conformes à « Quantité N »" +
+                                        " timings=" + timingSummary(timings),
+                                    );
+
+                                    if (totalQte <= 0) {
+                                        console.error("[qlik-pw][expr] quantité totale nulle → expressions inexploitables, repli sur les master measures");
+                                        out.length = marqueOut;
+                                        for (const k of Object.keys(monthlyByCode)) delete monthlyByCode[k];
+                                        return false;
+                                    }
+                                    if (calibrees > 20 && calibrOk / calibrees < 0.5) {
+                                        console.warn(
+                                            "[qlik-pw][expr] ⚠ calibrage faible (" + calibrOk + "/" + calibrees + ") : " + exprQte +
+                                            " diverge de « Quantité N ». Vérifier l'expression (QLIK_EXPR_QTE).",
+                                        );
+                                    }
+                                    return true;
+                                } catch (e) {
+                                    console.error("[qlik-pw][expr] échec : " + String((e as Error)?.message || e) + " → repli sur les master measures");
+                                    out.length = marqueOut;
+                                    for (const k of Object.keys(monthlyByCode)) delete monthlyByCode[k];
+                                    return false;
                                 }
                             };
 
@@ -764,8 +942,13 @@ export async function fetchNetworkMetricsPlaywright(
                                 }
                             };
 
-                            if (!noDateMode && monthDim) {
-                                // Découpage mensuel réel (dimension Mois) — remplace l'itération par mois.
+                            if (!noDateMode && monthDim && useExpr && (await moisParExpressions())) {
+                                // Chemin nominal : un seul cube, tous les mois de la fenêtre, des
+                                // mesures qui respectent la sélection Date. Ni passe N-1 ni
+                                // rattrapage nécessaires — c'est justement ce qu'ils compensaient.
+                                await pousserCheckpoint("expressions");
+                            } else if (!noDateMode && monthDim) {
+                                // Repli : master measures « année en cours » + passe N-1 + rattrapage.
                                 console.log("[qlik-pw] extraction via dimension Mois (" + monthlyPayload.length + " mois attendus, moisDim=" + moisDimId + ")");
                                 await monthDimPath(null);
                                 await pousserCheckpoint("passe N");
@@ -941,6 +1124,11 @@ export async function fetchNetworkMetricsPlaywright(
                 moisDimId: qlikMoisDimId,
                 mqteComp: qlikMeasQteCompId,
                 yearN,
+                useExpr: qlikUseExpr,
+                exprQte: qlikExprQte,
+                exprCa: qlikExprCa,
+                exprNbMag: qlikExprNbMag,
+                exprMarge: qlikExprMarge,
             },
         );
 

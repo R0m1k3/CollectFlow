@@ -78,7 +78,49 @@ QLIK_FIELD_FOURNISSEUR=<nom exact du champ fournisseur>
 
 Sans champ libellé exploitable, la recherche fonctionne encore par code centrale.
 
-## Mois vides de la fenêtre glissante (dimension Mois)
+## ⚠️ Les master measures « N » ignorent la sélection Date
+
+**Constat de production, vérifié arithmétiquement.** Avec août 2025 seul
+sélectionné, le cube renvoyait `qte=164` / `ca=2 220,75 €` — soit exactement la
+somme de janvier à juillet 2026. « CA N », « Quantité N » et consorts sont des
+mesures **cumul année en cours**, insensibles au champ `Date`.
+
+Trois conséquences, toutes observées :
+
+- les totaux réseau de la Grille étaient un **cumul année en cours** (mois
+  courant partiel inclus), pas 12 mois glissants ;
+- les mois de l'année précédente non couverts par « Quantité COMP » (août à
+  décembre, en juillet) restaient **vides sur tous les articles** ;
+- la passe de rattrapage y recopiait le **total de période**, d'où cinq mois
+  identiques à 164 dans `qteByMonth`.
+
+Aucune sélection ne corrige cela. Le chemin nominal agrège donc **directement les
+champs de faits**, qui respectent les sélections :
+
+| Rôle | Expression (surchargeable) |
+|------|----------------------------|
+| Quantité | `QLIK_EXPR_QTE` — défaut `Sum(quantite)` |
+| CA | `QLIK_EXPR_CA` — défaut `Sum(ca_ht)` |
+| Magasins | `QLIK_EXPR_NBMAG` — défaut `Count(DISTINCT [Magasin Code])` |
+| Marge | `QLIK_EXPR_MARGE` — défaut `Sum(marge)` |
+
+Un seul cube `[Article Code, Mois]` couvre les 12 mois : ni passe N-1 ni
+rattrapage — c'est exactement ce qu'ils compensaient. Les totaux deviennent la
+**somme des 12 mois de la fenêtre**.
+
+Garde-fous : « Quantité N » est incluse dans le cube pour **calibrage**, et le
+log compare les deux sur les mois de l'année en cours, seul périmètre où la
+master measure est juste :
+
+```
+[qlik-pw][expr] 485210 lignes, quantité totale=…, calibrage année 2026 : 4812/4830 mois conformes à « Quantité N »
+```
+
+Un calibrage faible signale une expression à ajuster (filtre `flag_type_mvt`,
+`ca_ttc` plutôt que `ca_ht`…). Quantité totale nulle ou erreur Engine → repli
+automatique sur l'ancien chemin. `QLIK_USE_EXPR=0` le force.
+
+## Mois vides de la fenêtre glissante (chemin de repli)
 
 Les mesures « N » de l'app sont bornées à une année civile. Quand la fenêtre
 12 mois glissants chevauche deux années (le cas 11 mois sur 12), le chemin
