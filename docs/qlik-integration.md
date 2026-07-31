@@ -140,6 +140,39 @@ jointure avec `articles.artcentrale`.
 
 Lecture seule : sélections en soft lock, objets de session détruits.
 
+### La sélection Date filtre-t-elle seulement quelque chose ?
+
+Question restée sans réponse tant que seules des mesures **insensibles à la
+sélection** étaient utilisées : rien ne prouvait que `Date` bornait quoi que ce
+soit. Le chemin par expressions le vérifie désormais avant d'extraire, avec un
+total de contrôle (`Sum(quantite)` sans dimension) :
+
+```
+[qlik-pw][expr] contrôle Sum(quantite) sans filtre date = 12345678
+[qlik-pw][expr]   champ « Date » → 0 (0% du total sans filtre)
+[qlik-pw][expr]   champ « Date calendrier » → 3456789 (28% du total sans filtre)
+[qlik-pw][expr] champ date retenu : « Date calendrier »
+```
+
+Un champ n'est retenu que s'il donne un total **non nul et strictement inférieur**
+au total sans filtre — 0 % signifie que la sélection ne matche rien, 100 % qu'elle
+n'a aucun effet. Candidats essayés dans l'ordre : `QLIK_DATE_FIELD` (si défini),
+`Date`, `Date calendrier`, `Date_Key` (celui-ci sélectionné au format `AAAAMMJJ`).
+
+Si aucun ne filtre, l'extraction le dit et repart sur l'ancien chemin plutôt que
+de produire une fenêtre fausse.
+
+## La passe de rattrapage a été supprimée
+
+Elle ré-extrayait un mois vide en ne sélectionnant que ses dates. Les master
+measures ignorant la sélection Date, le cube lui renvoyait le **total de période**
+qu'elle recopiait dans chaque mois manquant : d'où les plateaux identiques d'août
+à décembre (87 648 douze mois de suite sur un article) et les tendances
+« −162 % » entièrement fabriquées.
+
+Un mois qu'on ne sait pas extraire doit rester **absent**, jamais rempli d'une
+valeur plausible.
+
 ## Mois vides de la fenêtre glissante (chemin de repli)
 
 Les mesures « N » de l'app sont bornées à une année civile. Quand la fenêtre

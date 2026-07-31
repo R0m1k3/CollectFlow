@@ -129,10 +129,19 @@ export async function fetchNetworkMetricsPlaywright(
     const qlikExprCa = (process.env.QLIK_EXPR_CA ?? "Sum(ca_ht)").trim();
     const qlikExprNbMag = (process.env.QLIK_EXPR_NBMAG ?? "Count(DISTINCT [Magasin Code])").trim();
     const qlikExprMarge = (process.env.QLIK_EXPR_MARGE ?? "Sum(marge)").trim();
+    // Champs date candidats, essayés dans l'ordre. Un champ n'est retenu que s'il
+    // FILTRE réellement les faits (total non nul et strictement inférieur au total
+    // sans filtre) : personne n'avait pu le vérifier tant que seules des mesures
+    // insensibles à la sélection étaient utilisées.
+    const qlikDateFields = [
+        (process.env.QLIK_DATE_FIELD ?? "").trim(),
+        "Date", "Date calendrier", "Date_Key",
+    ].filter((c, i, arr) => c && arr.indexOf(c) === i);
     const yearN = new Date().getFullYear();
     console.log(`[qlik-pw] tuning settle=${qlikSettleMs}ms code15Attempts=${qlikCode15MaxAttempts} batchFallbacks=${qlikArticleBatchFallbacks.join(">")} selectAllCodes=${qlikSelectAllCodes} monthDim=${qlikMonthDim} useExpr=${qlikUseExpr}`);
     if (qlikUseExpr) {
         console.log(`[qlik-pw] expressions mensuelles: qte="${qlikExprQte}" ca="${qlikExprCa}" nbMag="${qlikExprNbMag}" marge="${qlikExprMarge}"`);
+        console.log(`[qlik-pw] champs date candidats: ${JSON.stringify(qlikDateFields)}`);
     }
 
     const browser = await getBrowser();
@@ -172,6 +181,13 @@ export async function fetchNetworkMetricsPlaywright(
             dateDebut: m.dateDebut,
             dateFin: m.dateFin,
             serials: m.dailySerials, // ~30 valeurs → SelectValues en une fois
+            // Même fenêtre au format entier AAAAMMJJ : certains modèles Qlik
+            // n'exposent la date que par une clé numérique (`Date_Key`), pas par
+            // un champ date sérialisé.
+            ymd: m.dailySerials.map((serial) => {
+                const d = new Date(Date.UTC(1899, 11, 30) + serial * 86_400_000);
+                return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
+            }),
         }));
 
         // Point de contrôle : le script in-page pousse ses résultats intermédiaires
@@ -186,10 +202,10 @@ export async function fetchNetworkMetricsPlaywright(
         });
 
         const evaluer = () => page.evaluate(
-            ({ app, dim, mca, mqte, mnb, mcamag, mmarge, codes, token, monthlyPayload, noDateMode, qlikSettleMs, qlikCode15MaxAttempts, qlikArticleBatchFallbacks, selectAllCodes, monthDim, moisDimId, mqteComp, yearN, useExpr, exprQte, exprCa, exprNbMag, exprMarge }: {
+            ({ app, dim, mca, mqte, mnb, mcamag, mmarge, codes, token, monthlyPayload, noDateMode, qlikSettleMs, qlikCode15MaxAttempts, qlikArticleBatchFallbacks, selectAllCodes, monthDim, moisDimId, mqteComp, yearN, useExpr, exprQte, exprCa, exprNbMag, exprMarge, champsDateCandidats }: {
                 app: string; dim: string; mca: string; mqte: string; mnb: string; mcamag: string; mmarge: string;
                 codes: string[]; token: string;
-                monthlyPayload: Array<{ label: string; dateDebut: string; dateFin: string; serials: number[] }>;
+                monthlyPayload: Array<{ label: string; dateDebut: string; dateFin: string; serials: number[]; ymd: number[] }>;
                 noDateMode: boolean;
                 qlikSettleMs: number;
                 qlikCode15MaxAttempts: number;
@@ -204,6 +220,7 @@ export async function fetchNetworkMetricsPlaywright(
                 exprCa: string;
                 exprNbMag: string;
                 exprMarge: string;
+                champsDateCandidats: string[];
             }) =>
                 new Promise<InPageResult>((resolve) => {
                     const loc = (window as unknown as { location: Location }).location;
@@ -558,22 +575,62 @@ export async function fetchNetworkMetricsPlaywright(
                              * Renvoie false si le résultat est inexploitable (expression invalide,
                              * champ absent) — l'appelant repart alors sur les master measures.
                              */
+                            /**
+                             * Total de contrôle : un cube 1 cellule, sans dimension, sur
+                             * l'expression quantité. Sert à savoir si une sélection de dates
+                             * FILTRE réellement les faits — ce que les master measures, qui
+                             * l'ignorent, ne permettaient pas de vérifier.
+                             */
+                            const totalDeControle = async (): Promise<number> => {
+                                const o = await rpc("CreateSessionObject", { qProp: {
+                                    qInfo: { qType: "cf-ctrl" },
+                                    qHyperCubeDef: {
+                                        qDimensions: [],
+                                        qMeasures: [{ qDef: { qDef: exprQte } }],
+                                        qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 1, qHeight: 1 }],
+                                    },
+                                } }, doc);
+                                const ret = o.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
+                                try {
+                                    const lay = await rpc("GetLayout", {}, ret.qHandle);
+                                    const cell = (lay.qLayout as { qHyperCube?: { qDataPages?: Array<{ qMatrix?: Array<Array<{ qNum?: number; qText?: string }>> }> } })
+                                        .qHyperCube?.qDataPages?.[0]?.qMatrix?.[0]?.[0];
+                                    return Number(cell?.qNum) || 0;
+                                } finally {
+                                    const id = String(ret.qGenericId ?? ret.qId ?? "");
+                                    if (id) { try { await rpc("DestroySessionObject", { qId: id }, doc); } catch { /* noop */ } }
+                                }
+                            };
+
+                            /** Sélectionne la fenêtre sur un champ date candidat. Renvoie false si le champ n'existe pas. */
+                            const selectionnerFenetreSur = async (champ: string, valeurs: number[]): Promise<boolean> => {
+                                let h: number;
+                                try {
+                                    const gf = await rpc("GetField", { qFieldName: champ }, doc);
+                                    h = (gf.qReturn as { qHandle: number }).qHandle;
+                                    if (typeof h !== "number" || h < 0) return false;
+                                } catch { return false; }
+                                await rpc("Clear", {}, h);
+                                await sleep(qlikSettleMs);
+                                for (let i = 0; i < valeurs.length; i += 500) {
+                                    await rpc("SelectValues", {
+                                        qFieldValues: valeurs.slice(i, i + 500).map((v) => ({ qNum: v, qText: String(v) })),
+                                        qToggleMode: i > 0,
+                                        qSoftLock: true,
+                                    }, h);
+                                }
+                                await sleep(qlikSettleMs);
+                                return true;
+                            };
+
                             const moisParExpressions = async (): Promise<boolean> => {
                                 const timings: Record<string, number> = {};
                                 const marqueOut = out.length;
                                 try {
                                     if (yfh !== -1) { await rpc("Clear", {}, yfh); await sleep(qlikSettleMs); }
-                                    const allSerials = monthlyPayload.flatMap((m) => m.serials);
-                                    if (dfh !== -1 && allSerials.length) {
-                                        await rpc("Clear", {}, dfh);
-                                        await sleep(qlikSettleMs);
-                                        await timed("selectDate", "SelectValues", () => rpc("SelectValues", {
-                                            qFieldValues: allSerials.map((v) => ({ qNum: v, qText: String(v) })),
-                                            qToggleMode: false,
-                                            qSoftLock: true,
-                                        }, dfh), timings);
-                                        await sleep(qlikSettleMs);
-                                    }
+
+                                    // Les codes d'abord : les totaux de contrôle portent alors sur
+                                    // le même périmètre que l'extraction.
                                     if (codes.length && fh !== -1) {
                                         await timed("clearCode", "Clear", () => rpc("Clear", {}, fh), timings);
                                         await sleep(qlikSettleMs);
@@ -585,21 +642,68 @@ export async function fetchNetworkMetricsPlaywright(
                                         await sleep(qlikSettleMs);
                                     }
 
+                                    // ─── Quel champ date filtre RÉELLEMENT les faits ? ───────
+                                    //
+                                    // Les master measures ignorant la sélection Date, personne
+                                    // n'avait jamais pu vérifier que « Date » filtrait quoi que
+                                    // ce soit. Un champ valide doit donner un total non nul ET
+                                    // strictement inférieur au total sans filtre.
+                                    const sansFiltre = await totalDeControle();
+                                    console.log("[qlik-pw][expr] contrôle " + exprQte + " sans filtre date = " + Math.round(sansFiltre));
+                                    if (sansFiltre <= 0) {
+                                        console.error("[qlik-pw][expr] " + exprQte + " renvoie 0 même sans filtre → expression ou champ invalide (QLIK_EXPR_QTE)");
+                                        return false;
+                                    }
+
+                                    const allSerials = monthlyPayload.flatMap((m) => m.serials);
+                                    const allYmd = monthlyPayload.flatMap((m) => m.ymd);
+                                    let champDate: string | null = null;
+                                    for (const cand of champsDateCandidats) {
+                                        const valeurs = /key/i.test(cand) ? allYmd : allSerials;
+                                        if (!(await selectionnerFenetreSur(cand, valeurs))) {
+                                            console.log("[qlik-pw][expr]   champ « " + cand + " » : inexistant");
+                                            continue;
+                                        }
+                                        const filtre = await totalDeControle();
+                                        const ratio = sansFiltre > 0 ? filtre / sansFiltre : 0;
+                                        console.log(
+                                            "[qlik-pw][expr]   champ « " + cand + " » → " + Math.round(filtre) +
+                                            " (" + Math.round(ratio * 100) + "% du total sans filtre)",
+                                        );
+                                        if (filtre > 0 && ratio < 0.995) { champDate = cand; break; }
+                                    }
+                                    if (!champDate) {
+                                        console.error(
+                                            "[qlik-pw][expr] aucun champ date ne filtre les faits (essayés : " +
+                                            JSON.stringify(champsDateCandidats) + ") → impossible de borner la fenêtre 12 mois. " +
+                                            "Forcer le bon champ avec QLIK_DATE_FIELD.",
+                                        );
+                                        return false;
+                                    }
+                                    console.log("[qlik-pw][expr] champ date retenu : « " + champDate + " »");
+
                                     // Seuls les mois de la fenêtre nous intéressent ; la dimension
                                     // Mois peut en exposer d'autres si une sélection déborde.
                                     const moisFenetre = new Set(monthlyPayload.map((m) => m.label));
                                     let totalQte = 0;
                                     let calibrees = 0, calibrOk = 0;
+                                    let horsFenetre = 0;
                                     let echantillon = false;
 
                                     const got = await timed("cube", "expr", () => fetchMonthCubeExpr((code, mois, ca, qte, nbMag, marge, qteMaster) => {
                                         if (!code || code === "-") return;
                                         const mm = normMois(mois);
-                                        if (!moisFenetre.has(mm)) return;
                                         if (!echantillon) {
                                             echantillon = true;
-                                            console.log("[qlik-pw][expr] échantillon: " + JSON.stringify({ code, mois: mm, ca, qte, nbMag, marge, "Quantité N (master)": qteMaster }));
+                                            // Échantillon AVANT filtrage : si le mois ne tombe pas dans
+                                            // la fenêtre, c'est le format de la dimension Mois qui est
+                                            // en cause, pas les mesures.
+                                            console.log("[qlik-pw][expr] échantillon brut: " + JSON.stringify({
+                                                code, moisBrut: mois, moisNormalise: mm, dansLaFenetre: moisFenetre.has(mm),
+                                                ca, qte, nbMag, marge, "Quantité N (master)": qteMaster,
+                                            }));
                                         }
+                                        if (!moisFenetre.has(mm)) { horsFenetre++; return; }
                                         // Calibrage sur l'année en cours, seul périmètre où la master
                                         // measure est censée être juste.
                                         if (parseInt(mm.slice(0, 4), 10) === yearN && (qte > 0 || qteMaster > 0)) {
@@ -620,13 +724,17 @@ export async function fetchNetworkMetricsPlaywright(
                                     aggMonths = monthlyPayload.length;
                                     aggBatches++;
                                     console.log(
-                                        "[qlik-pw][expr] " + got.value + " lignes, quantité totale=" + Math.round(totalQte) +
+                                        "[qlik-pw][expr] " + got.value + " lignes (" + horsFenetre + " hors fenêtre), quantité totale=" + Math.round(totalQte) +
                                         ", calibrage année " + yearN + " : " + calibrOk + "/" + calibrees + " mois conformes à « Quantité N »" +
                                         " timings=" + timingSummary(timings),
                                     );
 
                                     if (totalQte <= 0) {
-                                        console.error("[qlik-pw][expr] quantité totale nulle → expressions inexploitables, repli sur les master measures");
+                                        console.error(
+                                            "[qlik-pw][expr] quantité totale nulle sur la fenêtre alors que le contrôle global valait " +
+                                            Math.round(sansFiltre) + " — " + horsFenetre + " ligne(s) écartées comme hors fenêtre. " +
+                                            "Si ce nombre est élevé, c'est le format de la dimension Mois qui ne correspond pas aux libellés attendus.",
+                                        );
                                         out.length = marqueOut;
                                         for (const k of Object.keys(monthlyByCode)) delete monthlyByCode[k];
                                         return false;
@@ -864,71 +972,16 @@ export async function fetchNetworkMetricsPlaywright(
                                 }
                             };
 
-                            /**
-                             * Rattrapage des mois RESTÉS VIDES pour tous les articles.
-                             *
-                             * Les mesures « N » de l'app sont bornées à une année : quand la
-                             * fenêtre 12 mois glissants chevauche deux années civiles, les mois
-                             * de l'année précédente non couverts par « Quantité COMP » ressortent
-                             * vides — cinq mois d'affilée à 0 sur TOUS les articles, ce qui n'a
-                             * aucun sens métier.
-                             *
-                             * La parade fiable est de ne sélectionner QUE les dates du mois
-                             * concerné : la mesure se résout alors sur la bonne année, quelle que
-                             * soit la façon dont son set analysis est écrit. On ne le fait que
-                             * pour les mois réellement vides — au pire quelques cubes de plus.
-                             */
-                            const rattraperMoisVides = async (): Promise<void> => {
-                                const moisRenseignes = new Set<string>();
-                                for (const parMois of Object.values(monthlyByCode)) {
-                                    for (const [mois, v] of Object.entries(parMois)) {
-                                        if ((v?.qte ?? 0) > 0) moisRenseignes.add(mois);
-                                    }
-                                }
-                                const manquants = monthlyPayload.filter((m) => !moisRenseignes.has(m.label));
-                                if (manquants.length === 0) return;
-                                console.log(
-                                    "[qlik-pw] (mois) " + manquants.length + " mois vide(s) sur tous les articles : " +
-                                    JSON.stringify(manquants.map((m) => m.label)) + " → passe de rattrapage mois par mois",
-                                );
-
-                                // Une seule sélection Article Code pour tout le rattrapage :
-                                // `SelectValues` sur ce champ coûte des dizaines de secondes
-                                // par appel, on ne le refait pas à chaque mois.
-                                if (yfh !== -1) { try { await rpc("Clear", {}, yfh); await sleep(qlikSettleMs); } catch { /* noop */ } }
-                                if (codes.length && fh !== -1) {
-                                    await rpc("Clear", {}, fh);
-                                    await sleep(qlikSettleMs);
-                                    await rpc("SelectValues", { qFieldValues: codes.map((c) => ({ qText: c })), qToggleMode: false, qSoftLock: true }, fh);
-                                    await sleep(qlikSettleMs);
-                                }
-
-                                for (const m of manquants) {
-                                    const prefix = "[qlik-pw] (rattrapage) " + m.label;
-                                    try {
-                                        // Seule la fenêtre de dates change d'un mois à l'autre :
-                                        // c'est elle qui détermine l'année vue par la mesure.
-                                        await rpc("Clear", {}, dfh);
-                                        await sleep(qlikSettleMs);
-                                        await rpc("SelectValues", {
-                                            qFieldValues: m.serials.map((s2) => ({ qNum: s2, qText: String(s2) })),
-                                            qToggleMode: false,
-                                            qSoftLock: true,
-                                        }, dfh);
-                                        await sleep(qlikSettleMs);
-
-                                        const batchRows: Array<Array<string | number>> = [];
-                                        await fetchCubeForSelection(batchRows);
-                                        // Uniquement le mensuel : les totaux réseau restent ceux
-                                        // de la passe principale, sinon on les doublerait.
-                                        accMonthly(batchRows, m.label);
-                                        const remplis = Object.values(monthlyByCode).filter((x) => (x[m.label]?.qte ?? 0) > 0).length;
-                                        console.log(prefix + " — " + remplis + " article(s) renseigné(s)");
-                                    } catch (e) {
-                                        console.error(prefix + " — échec : " + String((e as Error)?.message || e));
-                                    }
-                                }
-                            };
+                            // La passe de « rattrapage des mois vides » a été SUPPRIMÉE.
+                            //
+                            // Elle ré-extrayait un mois vide en ne sélectionnant que ses dates.
+                            // Or les master measures ignorent la sélection Date : le cube lui
+                            // renvoyait le total de période, qu'elle recopiait dans chacun des
+                            // mois manquants. D'où les plateaux identiques d'août à décembre
+                            // (87 648 sur douze mois pour un article, etc.) et les tendances
+                            // « -162 % » qu'ils fabriquaient.
+                            //
+                            // Un mois qu'on ne sait pas extraire doit rester ABSENT.
 
                             /** Pousse l'état courant vers Node (voir `cfCheckpoint`). */
                             const pousserCheckpoint = async (etape: string) => {
@@ -969,8 +1022,7 @@ export async function fetchNetworkMetricsPlaywright(
                                 } else {
                                     console.log("[qlik-pw] (mois) champ Année introuvable → pas de passe N-1");
                                 }
-                                await rattraperMoisVides();
-                                await pousserCheckpoint("rattrapage");
+                                await pousserCheckpoint("passes master");
                             } else if (noDateMode) {
                                 // Aucun filtre Date : extraction en un seul appel (tous les codes d'un coup).
                                 // On sélectionne uniquement Article Code ; Date reste libre.
@@ -1129,6 +1181,7 @@ export async function fetchNetworkMetricsPlaywright(
                 exprCa: qlikExprCa,
                 exprNbMag: qlikExprNbMag,
                 exprMarge: qlikExprMarge,
+                champsDateCandidats: qlikDateFields,
             },
         );
 
