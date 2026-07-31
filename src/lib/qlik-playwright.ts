@@ -562,7 +562,17 @@ export async function fetchNetworkMetricsPlaywright(
                                 onRow: (code: string, mois: string, ca: number, qte: number, nbMag: number, marge: number, qteMaster: number) => void,
                                 timings?: Record<string, number>,
                                 onCode15Retry?: () => void,
+                                /**
+                                 * Inclure la master « Quantité N » (colonne de calibrage) ?
+                                 *
+                                 * ⚠️ Elle ne coûte rien quand elle vit, mais **annule tout le cube**
+                                 * quand elle est morte : mesuré en production, 4 expressions valides
+                                 * à 6 mois chacune et le cube complet à **0 ligne** après 25 s de
+                                 * calcul. L'appelant ne l'ajoute donc qu'après l'avoir sondée.
+                                 */
+                                avecMaster = true,
                             ): Promise<number> => {
+                                const largeur = avecMaster ? 7 : 6;
                                 const { value: obj } = await timed("createCubeExpr", "CreateSessionObject", () => rpcWithRetry("createCubeExpr", "CreateSessionObject", { qProp: { qInfo: { qType: "cf-net-mois-expr" }, qHyperCubeDef: {
                                     qDimensions: [{ qLibraryId: dim }, { qLibraryId: moisDimId }],
                                     qMeasures: [
@@ -572,9 +582,9 @@ export async function fetchNetworkMetricsPlaywright(
                                         { qDef: { qDef: eMarge } },
                                         // Master « Quantité N », uniquement pour le calibrage : sur les
                                         // mois de l'année en cours les deux doivent coïncider.
-                                        { qLibraryId: rQte },
+                                        ...(avecMaster ? [{ qLibraryId: rQte }] : []),
                                     ],
-                                    qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 7, qHeight: PAGEX }],
+                                    qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: largeur, qHeight: PAGEX }],
                                 } } }, doc, onCode15Retry), timings);
                                 const qReturn = obj.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
                                 const cube = { handle: qReturn.qHandle, id: String(qReturn.qGenericId ?? qReturn.qId ?? "") };
@@ -584,7 +594,8 @@ export async function fetchNetworkMetricsPlaywright(
                                         onRow(
                                             String(r[0]?.qText ?? ""), String(r[1]?.qText ?? ""),
                                             Number(r[2]?.qNum) || 0, Number(r[3]?.qNum) || 0,
-                                            Number(r[4]?.qNum) || 0, Number(r[5]?.qNum) || 0, Number(r[6]?.qNum) || 0,
+                                            Number(r[4]?.qNum) || 0, Number(r[5]?.qNum) || 0,
+                                            avecMaster ? Number(r[6]?.qNum) || 0 : 0,
                                         );
                                     }
                                     return matrix.length;
@@ -597,7 +608,7 @@ export async function fetchNetworkMetricsPlaywright(
                                     const firstPage = hc.qDataPages?.find((pg) => (pg.qArea?.qTop ?? 0) === 0);
                                     if (firstPage?.qMatrix?.length) { got += process(firstPage.qMatrix); top = PAGEX; }
                                     for (; top < size; top += PAGEX) {
-                                        const { value: d } = await timed("getCubeData", "GetHyperCubeData", () => rpcWithRetry("getCubeData", "GetHyperCubeData", { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: 7, qHeight: PAGEX }] }, oh, onCode15Retry), timings);
+                                        const { value: d } = await timed("getCubeData", "GetHyperCubeData", () => rpcWithRetry("getCubeData", "GetHyperCubeData", { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: largeur, qHeight: PAGEX }] }, oh, onCode15Retry), timings);
                                         const matrix = (d.qDataPages as Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }>)?.[0]?.qMatrix ?? [];
                                         if (!matrix.length) break;
                                         got += process(matrix);
@@ -906,7 +917,28 @@ export async function fetchNetworkMetricsPlaywright(
                                 return false;
                             };
 
-                            const choisirPeriode = async (): Promise<number> => {
+                            /**
+                             * Choisit la valeur de `Période` sous laquelle l'extraction aura lieu.
+                             *
+                             * ⚠️ Correction majeure. La version précédente mesurait la couverture
+                             * d'une `Période` **sans sélection d'année**, puis effaçait `Période`
+                             * si aucune valeur ne couvrait les 12 mois. Or :
+                             *
+                             *  - sans `Période`, `Type_Cal` ne résout rien : « Quantité N » est
+                             *    morte partout (mesuré : couverture 0/12). Les passes annuelles
+                             *    renvoyaient bien 270 056 lignes, mais **toutes mesures nulles** —
+                             *    d'où « 0 point mensuel ajouté » et le refus final ;
+                             *  - « Année à date » ne vaut « janvier → aujourd'hui » que pour
+                             *    l'année EN COURS. Avec `Année=2025` sélectionnée, la même valeur
+                             *    donne l'année 2025 COMPLÈTE — c'est exactement ce que montre
+                             *    l'app : « Période d'analyse : Du 02/01/2025 au 31/12/2025 ».
+                             *
+                             * La couverture d'une `Période` ne veut donc rien dire hors du contexte
+                             * d'année dans lequel elle sera utilisée. On la mesure désormais comme
+                             * l'**union des passes annuelles** — 2025 puis 2026 — c'est-à-dire
+                             * exactement ce que fera `monthDimPath`.
+                             */
+                            const choisirPeriode = async (annees: number[]): Promise<number> => {
                                 const fenetre = new Set(monthlyPayload.map((m) => m.label));
                                 let lo: { qHandle: number; qGenericId?: string; qId?: string } | null = null;
                                 try {
@@ -953,16 +985,43 @@ export async function fetchNetworkMetricsPlaywright(
                                         }
                                     };
 
+                                    /**
+                                     * Couverture d'une `Période` telle qu'elle sera RÉELLEMENT
+                                     * exploitée : une passe par année, comme `monthDimPath`, puis
+                                     * union. C'est le seul chiffre qui a un sens ici — mesurer
+                                     * sans année revient à juger « Année à date » sur la seule
+                                     * année en cours (6/12) et à la rejeter à tort.
+                                     */
+                                    const mesurerCouvertureUnion = async (): Promise<string[]> => {
+                                        if (yfh === -1) return mesurerCouverture();
+                                        const union = new Set<string>();
+                                        for (const annee of annees) {
+                                            await rpc("Clear", {}, yfh);
+                                            await sleep(qlikSettleMs);
+                                            await rpc("SelectValues", {
+                                                qFieldValues: [{ qNum: annee, qText: String(annee) }],
+                                                qToggleMode: false,
+                                                qSoftLock: true,
+                                            }, yfh);
+                                            await sleep(qlikSettleMs);
+                                            const mois = await mesurerCouverture();
+                                            diag("      Année=" + annee + " → " + mois.length + " mois " + JSON.stringify(mois));
+                                            for (const m of mois) union.add(m);
+                                        }
+                                        // L'année ne doit pas rester sélectionnée : chaque passe
+                                        // pose la sienne.
+                                        await rpc("Clear", {}, yfh);
+                                        await sleep(qlikSettleMs);
+                                        return [...union].sort();
+                                    };
+
                                     // CANDIDAT ZÉRO : aucune sélection de « Période ».
                                     //
-                                    // L'app pose une valeur par défaut à l'ouverture (observé :
-                                    // « Période:1/4 » alors que nous n'avions rien sélectionné).
-                                    // C'est cette valeur héritée qui bornait les mesures — et c'est
-                                    // sans elle qu'un utilisateur voit 2024, 2025 et 2026 mois par
-                                    // mois dans l'app. On teste donc l'état libre EN PREMIER.
+                                    // Conservé pour le diagnostic, mais on sait maintenant qu'il
+                                    // renvoie 0/12 : sans `Période`, `Type_Cal` ne résout rien.
                                     await rpc("ClearField", { qFieldName: "Période" }, doc).catch(() => rpc("Clear", {}, lo!.qHandle));
                                     await sleep(qlikSettleMs);
-                                    const sansSelection = await mesurerCouverture();
+                                    const sansSelection = await mesurerCouvertureUnion();
                                     diag("  SANS sélection de Période → " + sansSelection.length + "/" + fenetre.size + " mois " + JSON.stringify(sansSelection));
                                     if (sansSelection.length >= fenetre.size) {
                                         diag("Période laissée LIBRE : les mesures couvrent déjà les " + fenetre.size + " mois");
@@ -979,8 +1038,8 @@ export async function fetchNetworkMetricsPlaywright(
                                         }, lo.qHandle);
                                         await sleep(qlikSettleMs);
 
-                                        const couverts = await mesurerCouverture();
-                                        diag("  Période « " + v.texte + " » → " + couverts.length + "/" + fenetre.size + " mois de la fenêtre " + JSON.stringify(couverts));
+                                        const couverts = await mesurerCouvertureUnion();
+                                        diag("  Période « " + v.texte + " » → " + couverts.length + "/" + fenetre.size + " mois de la fenêtre (union des années) " + JSON.stringify(couverts));
                                         if (!meilleure || couverts.length > meilleure.couverts.length) {
                                             meilleure = { texte: v.texte, elem: v.elem, couverts };
                                         }
@@ -989,20 +1048,23 @@ export async function fetchNetworkMetricsPlaywright(
 
                                     const couverture = meilleure ? meilleure.couverts.length : 0;
 
-                                    // Une `Période` partielle est PIRE que pas de sélection : elle
-                                    // restreint les faits au contexte choisi (« Année à date » ne
-                                    // porte que 2026-01→06) et ampute d'autant l'agrégation
-                                    // directe, qui elle sait lire tout l'historique. On ne garde
-                                    // donc la sélection QUE si elle couvre toute la fenêtre.
-                                    if (!meilleure || couverture < fenetre.size) {
+                                    // On garde la MEILLEURE valeur, même partielle.
+                                    //
+                                    // L'inverse a été essayé et s'est retourné contre nous :
+                                    // effacer `Période` ne « libère » pas les faits, elle rend les
+                                    // master measures muettes (0/12 mesuré). Une couverture
+                                    // partielle reste strictement meilleure que rien ; seul un
+                                    // zéro absolu justifie d'effacer et de tenter l'agrégation
+                                    // directe.
+                                    if (!meilleure || couverture === 0) {
                                         await rpc("ClearField", { qFieldName: "Période" }, doc)
                                             .catch(() => rpc("Clear", {}, lo!.qHandle));
                                         await sleep(qlikSettleMs);
                                         diag(
-                                            "aucune valeur de « Période » ne couvre les " + fenetre.size + " mois (meilleure = " +
-                                            couverture + ") → sélection Période EFFACÉE pour ne pas amputer les faits",
+                                            "aucune valeur de « Période » ne rend le moindre mois vivant → sélection Période " +
+                                            "effacée, repli sur l'agrégation directe des faits",
                                         );
-                                        return couverture;
+                                        return 0;
                                     }
 
                                     await rpc("SelectListObjectValues", {
@@ -1012,7 +1074,10 @@ export async function fetchNetworkMetricsPlaywright(
                                         qSoftLock: true,
                                     }, lo.qHandle);
                                     await sleep(qlikSettleMs);
-                                    diag("Période retenue : « " + meilleure.texte + " » (" + couverture + "/" + fenetre.size + " mois)");
+                                    diag(
+                                        "Période retenue : « " + meilleure.texte + " » (" + couverture + "/" + fenetre.size +
+                                        " mois en union des années" + (couverture < fenetre.size ? " — meilleure disponible" : "") + ")",
+                                    );
                                     return couverture;
                                 } catch (e) {
                                     diag("choix de « Période » impossible : " + String((e as Error)?.message || e));
@@ -1068,6 +1133,70 @@ export async function fetchNetworkMetricsPlaywright(
                                 } catch (e) {
                                     diag("  mesure « " + nom + " » = " + expr + " → ERREUR " + String((e as Error)?.message || e));
                                     return "0";
+                                } finally {
+                                    const id = String(ret?.qGenericId ?? ret?.qId ?? "");
+                                    if (id) { try { await rpc("DestroySessionObject", { qId: id }, doc); } catch { /* noop */ } }
+                                }
+                            };
+
+                            /**
+                             * La master « Quantité N » produit-elle la moindre ligne sur `[Mois]`
+                             * dans l'état de sélection courant ? Même sonde que
+                             * `validerExpression`, mais par `qLibraryId`.
+                             */
+                            const masterQteVivante = async (): Promise<boolean> => {
+                                let ret: { qHandle: number; qGenericId?: string; qId?: string } | null = null;
+                                try {
+                                    const o = await rpc("CreateSessionObject", { qProp: {
+                                        qInfo: { qType: "cf-test-master" },
+                                        qHyperCubeDef: {
+                                            qDimensions: [{ qLibraryId: moisDimId }],
+                                            qMeasures: [{ qLibraryId: rQte }],
+                                            qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 2, qHeight: 30 }],
+                                        },
+                                    } }, doc);
+                                    ret = o.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
+                                    const lay = await rpc("GetLayout", {}, ret.qHandle);
+                                    const hc = (lay.qLayout as { qHyperCube?: { qDataPages?: Array<{ qMatrix?: Array<Array<{ qNum?: number }>> }> } }).qHyperCube;
+                                    let total = 0;
+                                    for (const r of hc?.qDataPages?.[0]?.qMatrix ?? []) total += Number(r[1]?.qNum) || 0;
+                                    diag("  master « Quantité N » (calibrage) → total=" + Math.round(total));
+                                    return total > 0;
+                                } catch (e) {
+                                    diag("  master « Quantité N » → ERREUR " + String((e as Error)?.message || e));
+                                    return false;
+                                } finally {
+                                    const id = String(ret?.qGenericId ?? ret?.qId ?? "");
+                                    if (id) { try { await rpc("DestroySessionObject", { qId: id }, doc); } catch { /* noop */ } }
+                                }
+                            };
+
+                            /**
+                             * Somme de `expr` VENTILÉE par la dimension Mois.
+                             *
+                             * Comparée au total sans dimension, elle dit si la dimension Mois
+                             * démultiplie les faits à travers le pont de périodes — auquel cas
+                             * l'agrégation directe est inexploitable.
+                             */
+                            const totalVentileParMois = async (expr: string): Promise<number> => {
+                                let ret: { qHandle: number; qGenericId?: string; qId?: string } | null = null;
+                                try {
+                                    const o = await rpc("CreateSessionObject", { qProp: {
+                                        qInfo: { qType: "cf-ventil-mois" },
+                                        qHyperCubeDef: {
+                                            qDimensions: [{ qLibraryId: moisDimId }],
+                                            qMeasures: [{ qDef: { qDef: expr } }],
+                                            qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 2, qHeight: 200 }],
+                                        },
+                                    } }, doc);
+                                    ret = o.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
+                                    const lay = await rpc("GetLayout", {}, ret.qHandle);
+                                    const hc = (lay.qLayout as { qHyperCube?: { qDataPages?: Array<{ qMatrix?: Array<Array<{ qNum?: number }>> }> } }).qHyperCube;
+                                    let total = 0;
+                                    for (const r of hc?.qDataPages?.[0]?.qMatrix ?? []) total += Number(r[1]?.qNum) || 0;
+                                    return total;
+                                } catch {
+                                    return 0;
                                 } finally {
                                     const id = String(ret?.qGenericId ?? ret?.qId ?? "");
                                     if (id) { try { await rpc("DestroySessionObject", { qId: id }, doc); } catch { /* noop */ } }
@@ -1168,6 +1297,34 @@ export async function fetchNetworkMetricsPlaywright(
                                     const vNbMag = await validerExpression("magasins", exprNbMag);
                                     const vMarge = await validerExpression("marge", exprMarge);
 
+                                    // La master « Quantité N » n'est là que pour le calibrage, mais
+                                    // une master morte suffit à vider tout l'hypercube. On la sonde
+                                    // donc comme les autres, et on l'omet plutôt que de perdre
+                                    // l'extraction entière pour une colonne de contrôle.
+                                    const avecMaster = await masterQteVivante();
+                                    if (!avecMaster) {
+                                        diag("  master « Quantité N » morte sous cette sélection → colonne de calibrage retirée du cube");
+                                    }
+
+                                    // ─── La dimension Mois démultiplie-t-elle les faits ? ────
+                                    //
+                                    // Le pont de périodes rattache une même ligne de fait à
+                                    // plusieurs contextes. Ventilé par `Mois`, `Sum(quantite)` peut
+                                    // donc dépasser le total sans dimension — mesuré : 179 574 616
+                                    // contre 33 945 285, soit ×5,3. Écrire cela dans le cache
+                                    // donnerait des ventes réseau cinq fois trop hautes : on refuse.
+                                    const totalVentile = await totalVentileParMois(vQte);
+                                    if (totalVentile > totalFenetre * 1.05) {
+                                        diag(
+                                            "ÉCHEC : ventilée par Mois, « " + vQte + " » totalise " + Math.round(totalVentile) +
+                                            " contre " + Math.round(totalFenetre) + " sans dimension (×" +
+                                            (totalFenetre > 0 ? (totalVentile / totalFenetre).toFixed(1) : "?") +
+                                            "). La dimension Mois passe par le pont de périodes et démultiplie les faits — " +
+                                            "l'agrégation directe donnerait des ventes réseau fausses, elle est refusée.",
+                                        );
+                                        return false;
+                                    }
+
                                     // Seuls les mois de la fenêtre nous intéressent ; la dimension
                                     // Mois peut en exposer d'autres si une sélection déborde.
                                     let totalQte = 0;
@@ -1191,7 +1348,7 @@ export async function fetchNetworkMetricsPlaywright(
                                         if (!moisFenetre.has(mm)) { horsFenetre++; return; }
                                         // Calibrage sur l'année en cours, seul périmètre où la master
                                         // measure est censée être juste.
-                                        if (parseInt(mm.slice(0, 4), 10) === yearN && (qte > 0 || qteMaster > 0)) {
+                                        if (avecMaster && parseInt(mm.slice(0, 4), 10) === yearN && (qte > 0 || qteMaster > 0)) {
                                             calibrees++;
                                             if (Math.abs(qte - qteMaster) <= Math.max(1, qteMaster * 0.02)) calibrOk++;
                                         }
@@ -1213,7 +1370,7 @@ export async function fetchNetworkMetricsPlaywright(
                                             caMag: nbMag > 0 ? ca / nbMag : 0,
                                             margePct: caCumule > 0 ? margeMontant / caCumule : 0,
                                         };
-                                    }, timings), timings);
+                                    }, timings, undefined, avecMaster), timings);
 
                                     aggMonths = monthlyPayload.length;
                                     aggBatches++;
@@ -1334,6 +1491,11 @@ export async function fetchNetworkMetricsPlaywright(
                                     // fenêtre est extraite directement par sa propre passe, ce qui
                                     // donne les 5 mesures et non la seule quantité.
                                     void y; void qteComp;
+                                    // Une passe ultérieure ne doit JAMAIS écraser un mois servi par
+                                    // un zéro : hors de son année, la passe voit la combinaison
+                                    // (article, mois) mais toutes ses mesures sont nulles.
+                                    const precedent = monthlyByCode[code][mm];
+                                    if (precedent && (precedent.qte ?? 0) > 0 && qte <= 0) return;
                                     monthlyByCode[code][mm] = full;
                                 };
 
@@ -1540,6 +1702,12 @@ export async function fetchNetworkMetricsPlaywright(
                                 // retombe sur la sélection par codes (cf. selectionnerParFournisseur).
                                 parFournisseur = await selectionnerParFournisseur();
 
+                                const attendus = monthlyPayload.map((m) => m.label);
+                                // Années de la fenêtre, la PLUS RÉCENTE D'ABORD — c'est l'usage de
+                                // l'app (« je sélectionne 2026 »), et cela met les mois les plus
+                                // utiles en tête des points de contrôle.
+                                const annees = [...new Set(attendus.map((m) => Number(m.slice(0, 4))))].sort((a, b) => b - a);
+
                                 // ÉTAPE 1 — caler le champ `Période` du modèle sur la fenêtre.
                                 //
                                 // Toutes les mesures de l'app sont bornées par `Type_Cal`
@@ -1548,23 +1716,23 @@ export async function fetchNetworkMetricsPlaywright(
                                 // quels mois sont atteignables. Sous la période par défaut,
                                 // « Quantité N » ne couvre que l'année en cours : d'où les mois
                                 // d'août à décembre vides quelle que soit la sélection de dates.
-                                const couvertureMaster = await choisirPeriode();
+                                const couvertureMaster = await choisirPeriode(annees);
 
                                 // ÉTAPE 2 — extraire, puis REFUSER tout résultat incomplet.
                                 //
                                 // Un cache partiel est pire que pas de cache : il se lit comme des
                                 // ventes nulles. Les deux chemins sont donc validés sur le même
                                 // critère — les 12 mois de la fenêtre, ou rien.
-                                const attendus = monthlyPayload.map((m) => m.label);
-                                const couvre12 = () => {
+                                const moisManquants = () => {
                                     const vus = new Set<string>();
                                     for (const parMois of Object.values(monthlyByCode)) {
                                         for (const [mois, v] of Object.entries(parMois)) {
                                             if ((v?.qte ?? 0) > 0) vus.add(mois);
                                         }
                                     }
-                                    return attendus.every((m) => vus.has(m));
+                                    return attendus.filter((m) => !vus.has(m));
                                 };
+                                const couvre12 = () => moisManquants().length === 0;
 
                                 // ÉTAPE 2 — extraire ANNÉE PAR ANNÉE, comme dans l'app.
                                 //
@@ -1574,26 +1742,34 @@ export async function fetchNetworkMetricsPlaywright(
                                 // d'enchaîner les années couvertes par la fenêtre — ici 2025 puis
                                 // 2026 — pour reconstituer les 12 mois glissants.
                                 //
-                                // Ce mécanisme existait déjà (« passe N-1 ») mais restait sans
-                                // effet : la sélection `Période` héritée de l'ouverture de l'app
-                                // épinglait le contexte sur l'année en cours et annulait la
-                                // sélection d'année. `choisirPeriode()` l'a effacée juste avant.
-                                const annees = [...new Set(attendus.map((m) => Number(m.slice(0, 4))))].sort();
-                                diag("extraction année par année : " + JSON.stringify(annees) + " (Période libre)");
+                                // Chaque passe est faite SOUS la `Période` retenue : c'est elle qui
+                                // donne son sens à `Type_Cal='N'`. Avec `Année=2025`, « Année à
+                                // date » vaut l'année 2025 entière (elle est passée) ; avec
+                                // `Année=2026`, elle s'arrête au mois courant. L'union des deux
+                                // passes reconstitue donc bien les 12 mois glissants.
+                                diag("extraction année par année : " + JSON.stringify(annees));
 
                                 let extraitParAnnee = false;
                                 if (monthDim) {
                                     try {
                                         for (const annee of annees) {
-                                            const avant = Object.values(monthlyByCode).reduce((n, m) => n + Object.keys(m).length, 0);
+                                            const manquantsAvant = moisManquants();
                                             await monthDimPath(annee);
-                                            const apres = Object.values(monthlyByCode).reduce((n, m) => n + Object.keys(m).length, 0);
-                                            diag("  année " + annee + " → " + (apres - avant) + " points mensuels ajoutés");
+                                            const manquantsApres = moisManquants();
+                                            const gagnes = manquantsAvant.filter((m) => !manquantsApres.includes(m));
+                                            diag(
+                                                "  année " + annee + " → mois de la fenêtre désormais servis : " + JSON.stringify(gagnes) +
+                                                " ; encore manquants : " + JSON.stringify(manquantsApres),
+                                            );
                                             await pousserCheckpoint("année " + annee);
+                                            if (manquantsApres.length === 0) break; // fenêtre complète, inutile de continuer
                                         }
                                         extraitParAnnee = couvre12();
                                         if (!extraitParAnnee) {
-                                            diag("l'extraction année par année ne couvre pas les 12 mois — essai de l'agrégation directe");
+                                            diag(
+                                                "l'extraction année par année ne couvre pas les 12 mois (manquants : " +
+                                                JSON.stringify(moisManquants()) + ") — essai de l'agrégation directe",
+                                            );
                                         }
                                     } catch (e) {
                                         diag("extraction année par année interrompue : " + String((e as Error)?.message || e));
@@ -1604,8 +1780,9 @@ export async function fetchNetworkMetricsPlaywright(
                                     if (!(monthDim && useExpr && (await moisParExpressions()))) {
                                         throw new Error(
                                             "extraction 12 mois refusée : ni l'extraction année par année " +
-                                            "(Période libre, couverture master = " + couvertureMaster + "/" + attendus.length + ") " +
-                                            "ni l'agrégation directe des faits n'ont couvert la fenêtre",
+                                            "(couverture master annoncée = " + couvertureMaster + "/" + attendus.length + ") " +
+                                            "ni l'agrégation directe des faits n'ont couvert la fenêtre — mois manquants : " +
+                                            JSON.stringify(moisManquants()),
                                         );
                                     }
                                     await pousserCheckpoint("expressions vérifiées");
@@ -1614,7 +1791,8 @@ export async function fetchNetworkMetricsPlaywright(
                                 if (!couvre12()) {
                                     throw new Error(
                                         "extraction 12 mois refusée : la fenêtre " + JSON.stringify(attendus) +
-                                        " n'est pas entièrement couverte — cache laissé inchangé",
+                                        " n'est pas entièrement couverte (manquants : " + JSON.stringify(moisManquants()) +
+                                        ") — cache laissé inchangé",
                                     );
                                 }
                             } else if (noDateMode) {
