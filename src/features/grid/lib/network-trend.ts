@@ -60,14 +60,15 @@ export const TREND_COLOR: Record<NetworkTrend["direction"], string> = {
  * présent dans le cache est donc **ignoré** — sinon la pente est faussée par un
  * mois tronqué.
  *
- * Un mois **absent** du cache n'est PAS supposé nul : l'extraction ne couvre pas
- * toujours les 12 mois (les mesures Qlik « N » ne savent pas remonter au-delà de
- * l'année en cours). La sync écrit un zéro **explicite** sur chaque mois qu'elle
- * a réellement couvert sans vente ; la tendance ne retient donc que les mois
- * présents comme clés, et ignore purement et simplement les autres.
+ * Une série n'est affichée que si les **12 clés sont explicitement présentes**.
+ * L'extracteur Qlik écrit lui-même les mois sans faits à 0 après avoir validé
+ * la fenêtre et l'égalité avec le total Qlik. Une ancienne extraction partielle
+ * ne peut donc plus être présentée comme une tendance réelle.
  *
- * Sans cette distinction, un article vendu seulement depuis mai voyait sa
- * tendance calculée sur deux points — « +4 100 % · Forte hausse ».
+ * Cette exigence du « tout ou rien » évite deux écueils observés en production :
+ * une tendance calculée sur deux points (« +4 100 % · Forte hausse » pour un
+ * article vendu depuis mai), et des mois non extraits comptés comme des mois
+ * sans vente.
  *
  * Utilise tous les points (robuste au bruit d'un mois isolé). L'indicateur `pct` est la
  * variation modélisée sur la période (pente × durée) rapportée à la moyenne.
@@ -79,16 +80,14 @@ export function computeNetworkTrend(
 ): NetworkTrend {
     const empty: NetworkTrend = { values: [], labels: [], direction: "flat", pct: null, hasData: false };
     if (!qteByMonth) return empty;
-    const presents = Object.keys(qteByMonth).sort(); // "YYYY-MM" trie chronologiquement
-    if (presents.length === 0) return empty;
+    const labels = buildRolling12QlikMonths(now);
+    const complet = labels.every((label) =>
+        Object.prototype.hasOwnProperty.call(qteByMonth, label) &&
+        Number.isFinite(Number(qteByMonth[label])),
+    );
+    if (!complet) return empty;
 
-    const fenetre = buildRolling12QlikMonths(now);
-    // Seuls les mois RÉELLEMENT extraits comptent : ceux que la sync n'a pas
-    // couverts sont absents des clés et sont écartés, plutôt que comptés à zéro.
-    const labels = fenetre.filter((m) => qteByMonth[m] != null);
-    if (labels.length === 0) return empty;
-
-    const values = labels.map((l) => Number(qteByMonth[l]) || 0);
+    const values = labels.map((l) => Number(qteByMonth[l]));
     const n = values.length;
     let pct: number | null = null;
     let direction: NetworkTrend["direction"] = "flat";
