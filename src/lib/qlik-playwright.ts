@@ -631,6 +631,101 @@ export async function fetchNetworkMetricsPlaywright(
                                 return h;
                             };
 
+                            /**
+                             * Sélectionne les 12 mois via la dimension maître « Mois ».
+                             *
+                             * Dans l'app Magasins Vision Consolidée, les champs Date exposés
+                             * existent mais sont dissociés des faits de vente : leur sélection
+                             * laisse Sum(quantite) à 100 %. La dimension maître utilisée par le
+                             * cube, elle, porte les vraies valeurs associées. Un list object
+                             * permet de sélectionner ses qElemNumber sans connaître le nom du
+                             * champ sous-jacent ni le format dual exact.
+                             */
+                            const selectionnerFenetreViaDimensionMois = async (
+                                moisAttendus: Set<string>,
+                            ): Promise<{ total: number; trouves: string[] } | null> => {
+                                let objet: { handle: number; id: string } | null = null;
+                                try {
+                                    const cree = await rpcWithRetry("createMonthList", "CreateSessionObject", {
+                                        qProp: {
+                                            qInfo: { qType: "cf-month-list" },
+                                            qListObjectDef: {
+                                                qLibraryId: moisDimId,
+                                                qShowAlternatives: true,
+                                                qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 1, qHeight: 100 }],
+                                            },
+                                        },
+                                    }, doc);
+                                    const ret = cree.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
+                                    objet = {
+                                        handle: ret.qHandle,
+                                        id: String(ret.qGenericId ?? ret.qId ?? ""),
+                                    };
+
+                                    const layout = await rpcWithRetry("layoutMonthList", "GetLayout", {}, objet.handle);
+                                    const lo = (layout.qLayout as {
+                                        qListObject?: {
+                                            qSize?: { qcy?: number };
+                                            qDataPages?: Array<{
+                                                qArea?: { qTop?: number };
+                                                qMatrix?: Array<Array<{ qText?: string; qElemNumber?: number }>>;
+                                            }>;
+                                        };
+                                    }).qListObject;
+                                    const size = Number(lo?.qSize?.qcy) || 0;
+                                    const cellules: Array<{ qText?: string; qElemNumber?: number }> = [];
+                                    for (const page of lo?.qDataPages ?? []) {
+                                        for (const row of page.qMatrix ?? []) if (row[0]) cellules.push(row[0]);
+                                    }
+                                    for (let top = cellules.length; top < size; top += 500) {
+                                        const data = await rpcWithRetry("monthListData", "GetListObjectData", {
+                                            qPath: "/qListObjectDef",
+                                            qPages: [{ qTop: top, qLeft: 0, qWidth: 1, qHeight: Math.min(500, size - top) }],
+                                        }, objet.handle);
+                                        const matrix = (data.qDataPages as Array<{
+                                            qMatrix?: Array<Array<{ qText?: string; qElemNumber?: number }>>;
+                                        }>)?.[0]?.qMatrix ?? [];
+                                        for (const row of matrix) if (row[0]) cellules.push(row[0]);
+                                        if (matrix.length === 0) break;
+                                    }
+
+                                    const parMois = new Map<string, number>();
+                                    for (const cellule of cellules) {
+                                        const mois = normMois(String(cellule.qText ?? "").trim());
+                                        const elem = Number(cellule.qElemNumber);
+                                        if (moisAttendus.has(mois) && Number.isInteger(elem) && elem >= 0) {
+                                            parMois.set(mois, elem);
+                                        }
+                                    }
+                                    const trouves = [...parMois.keys()].sort();
+                                    console.log(
+                                        "[qlik-pw][expr] dimension Mois : " + trouves.length + "/" + moisAttendus.size +
+                                        " valeurs trouvées " + JSON.stringify(trouves),
+                                    );
+                                    if (trouves.length !== moisAttendus.size) return null;
+
+                                    const selection = await rpcWithRetry("selectMonthList", "SelectListObjectValues", {
+                                        qPath: "/qListObjectDef",
+                                        qValues: [...parMois.values()],
+                                        qToggleMode: false,
+                                        qSoftLock: true,
+                                    }, objet.handle);
+                                    console.log("[qlik-pw][expr] sélection dimension Mois → " + JSON.stringify(selection.qReturn));
+                                    await sleep(qlikSettleMs);
+                                    const total = await totalDeControle();
+                                    return { total, trouves };
+                                } catch (e) {
+                                    console.log("[qlik-pw][expr] sélection dimension Mois impossible : " + String((e as Error)?.message || e));
+                                    return null;
+                                } finally {
+                                    if (objet?.id) {
+                                        try {
+                                            await rpc("DestroySessionObject", { qId: objet.id }, doc);
+                                        } catch { /* objet limité à la session */ }
+                                    }
+                                }
+                            };
+
                             const moisParExpressions = async (): Promise<boolean> => {
                                 const timings: Record<string, number> = {};
                                 const marqueOut = out.length;
@@ -642,11 +737,11 @@ export async function fetchNetworkMetricsPlaywright(
                                     if (codes.length && fh !== -1) {
                                         await timed("clearCode", "Clear", () => rpc("Clear", {}, fh), timings);
                                         await sleep(qlikSettleMs);
-                                        await timed("selectCodeAll", "SelectValues", () => rpc("SelectValues", {
+                                        await timed("selectCodeAll", "SelectValues", () => rpcWithRetry("selectCodeAll", "SelectValues", {
                                             qFieldValues: codes.map((c) => ({ qText: c })),
                                             qToggleMode: false,
                                             qSoftLock: true,
-                                        }, fh), timings);
+                                        }, fh, () => { aggCode15Retries++; }), timings);
                                         await sleep(qlikSettleMs);
                                     }
 
@@ -665,6 +760,7 @@ export async function fetchNetworkMetricsPlaywright(
 
                                     const allSerials = monthlyPayload.flatMap((m) => m.serials);
                                     const allYmd = monthlyPayload.flatMap((m) => m.ymd);
+                                    const moisFenetre = new Set(monthlyPayload.map((m) => m.label));
                                     let champDate: string | null = null;
                                     let totalFenetre = 0;
                                     for (const cand of champsDateCandidats) {
@@ -691,10 +787,23 @@ export async function fetchNetworkMetricsPlaywright(
                                         await sleep(qlikSettleMs);
                                     }
                                     if (!champDate) {
+                                        const selectionMois = await selectionnerFenetreViaDimensionMois(moisFenetre);
+                                        const ratio = selectionMois && sansFiltre > 0 ? selectionMois.total / sansFiltre : 0;
+                                        if (selectionMois) {
+                                            console.log(
+                                                "[qlik-pw][expr]   dimension « Mois » → " + Math.round(selectionMois.total) +
+                                                " (" + Math.round(ratio * 100) + "% du total sans filtre)",
+                                            );
+                                        }
+                                        if (selectionMois && selectionMois.total > 0 && ratio < 0.995) {
+                                            champDate = "dimension Mois";
+                                            totalFenetre = selectionMois.total;
+                                        }
+                                    }
+                                    if (!champDate) {
                                         console.error(
-                                            "[qlik-pw][expr] aucun champ date ne filtre les faits (essayés : " +
-                                            JSON.stringify(champsDateCandidats) + ") → impossible de borner la fenêtre 12 mois. " +
-                                            "Forcer le bon champ avec QLIK_DATE_FIELD.",
+                                            "[qlik-pw][expr] ni les champs date ni la dimension Mois ne filtrent les faits " +
+                                            "(champs essayés : " + JSON.stringify(champsDateCandidats) + ") → impossible de borner la fenêtre 12 mois.",
                                         );
                                         return false;
                                     }
@@ -702,7 +811,6 @@ export async function fetchNetworkMetricsPlaywright(
 
                                     // Seuls les mois de la fenêtre nous intéressent ; la dimension
                                     // Mois peut en exposer d'autres si une sélection déborde.
-                                    const moisFenetre = new Set(monthlyPayload.map((m) => m.label));
                                     let totalQte = 0;
                                     let calibrees = 0, calibrOk = 0;
                                     let horsFenetre = 0;

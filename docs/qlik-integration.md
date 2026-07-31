@@ -108,6 +108,14 @@ Un seul cube `[Article Code, Mois]` couvre les 12 mois : ni passe N-1 ni
 rattrapage — c'est exactement ce qu'ils compensaient. Les totaux deviennent la
 **somme des 12 mois de la fenêtre**.
 
+Sur l'app de production, les champs `Date`, `Date calendrier` et `Date_Key`
+existent mais leur sélection ne réduit pas `Sum(quantite)` : ils restent à
+100 % du total historique. L'extracteur essaie d'abord ces champs puis utilise
+la dimension maître `Mois` comme chemin fiable. Il crée un list object, retrouve
+les 12 valeurs `YYYY-MM`, les sélectionne par `qElemNumber`, puis exécute le
+cube mensuel. Cette méthode ne dépend ni du champ sous-jacent ni de son format
+dual et conserve le chemin rapide (une sélection articles + un cube paginé).
+
 Garde-fous : « Quantité N » est incluse dans le cube pour **calibrage**, et le
 log compare les deux sur les mois de l'année en cours, seul périmètre où la
 master measure est juste :
@@ -174,7 +182,7 @@ n'a aucun effet. Candidats essayés dans l'ordre : `QLIK_DATE_FIELD` (si défini
 Si aucun ne filtre, l'extraction échoue explicitement plutôt que de produire une
 fenêtre fausse. Chaque sélection d'un candidat rejeté est effacée avant l'essai
 suivant ; autrement un premier candidat à zéro contaminait tous les contrôles
-suivants.
+suivants. Avant cet échec, la dimension maître `Mois` est testée elle aussi.
 
 ## La passe de rattrapage a été supprimée
 
