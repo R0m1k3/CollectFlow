@@ -103,24 +103,47 @@ Tout ce qu'on observait en découle :
 | Janvier→juillet de l'année précédente renseignés | Ce sont les mois que « Quantité COMP » sait atteindre |
 | `Sum(quantite)` brut inexploitable | Il additionne les lignes N **et** COMP : il double compte |
 
-La solution n'est donc pas de contourner le modèle mais de **le piloter** :
-`choisirPeriode()` essaie chaque valeur de `Période`, mesure sur un cube
-`[Mois] × Quantité N` combien de mois de la fenêtre elle rend réellement
-disponibles, et garde la meilleure. Aucun libellé n'est deviné — c'est la
-couverture mesurée qui décide :
+### Mesuré : aucune `Période` ne porte 12 mois glissants
+
+`choisirPeriode()` essaie chaque valeur et mesure la couverture réelle sur un
+cube `[Mois] × Quantité N`. Résultat en production :
 
 ```
-[qlik-pw][diag] valeurs de « Période » : ["Année en cours","12 mois glissants","Mois","Semaine"]
-[qlik-pw][diag]   Période « Année en cours » → 7/12 mois de la fenêtre [...]
-[qlik-pw][diag]   Période « 12 mois glissants » → 12/12 mois de la fenêtre [...]
-[qlik-pw][diag] Période retenue : « 12 mois glissants » (12/12 mois)
+valeurs de « Période » : ["juin 2026","Année à date","Mois à date","Semaine 2026/30"]
+  « juin 2026 »       → 1/12   ["2026-06"]
+  « Année à date »    → 6/12   ["2026-01".."2026-06"]
+  « Mois à date »     → 0/12
+  « Semaine 2026/30 » → 0/12
 ```
 
-Si aucune valeur ne couvre les 12 mois, l'extraction le dit et les mois manquants
-restent **absents** du cache — jamais remplis d'une valeur plausible.
+Ce ne sont pas des types de période mais **4 contextes relatifs à aujourd'hui**.
+Aucun ne porte 12 mois glissants : les master measures ne pourront **jamais**
+couvrir la fenêtre. Ce n'est plus une hypothèse, c'est une mesure.
 
-`QLIK_USE_EXPR=1` réactive l'ancien essai par agrégation directe des faits ; il
-est désactivé par défaut puisque `Sum(quantite)` double compte.
+Conséquence directe : **l'agrégation directe des faits est obligatoire**, et une
+`Période` partielle est pire que pas de sélection — « Année à date » restreint les
+faits à 2026-01→06 et amputerait d'autant l'agrégation, qui sait lire tout
+l'historique. `choisirPeriode()` **efface** donc la sélection quand la couverture
+est incomplète, et ne la garde que si elle couvre les 12 mois.
+
+### Chaque expression est validée séparément
+
+Une seule mesure invalide suffit à faire renvoyer **zéro ligne** à tout un
+hypercube, sans qu'aucun message ne dise laquelle : observé en production, le
+cube à 5 mesures calculait 26 s puis rendait 0 ligne, alors que `Sum(quantite)`
+seul donnait 35 424 324.
+
+`validerExpression()` teste donc chaque expression isolément sur un petit cube
+`[Mois]` avant de construire le gros :
+
+```
+[qlik-pw][diag] validation des expressions, une par une :
+[qlik-pw][diag]   mesure « quantité » = Sum(quantite) → 12 mois, total=33945285
+[qlik-pw][diag]   mesure « magasins » = Count(DISTINCT [Magasin Code]) → INVALIDE (cube vide)
+```
+
+Une expression invalide est remplacée par la colonne neutre `0` : le cube reste
+exploitable et le log nomme la coupable. Seule la quantité est bloquante.
 
 ## ⚠️ Les master measures « N » ignorent la sélection Date
 

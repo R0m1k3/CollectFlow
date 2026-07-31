@@ -529,6 +529,10 @@ export async function fetchNetworkMetricsPlaywright(
                             // les champs de faits, qui eux respectent les sélections.
                             const PAGEX = 1200; // 7 colonnes × 1200 = 8400 cellules < 10000
                             const fetchMonthCubeExpr = async (
+                                eCa: string,
+                                eQte: string,
+                                eNbMag: string,
+                                eMarge: string,
                                 onRow: (code: string, mois: string, ca: number, qte: number, nbMag: number, marge: number, qteMaster: number) => void,
                                 timings?: Record<string, number>,
                                 onCode15Retry?: () => void,
@@ -536,10 +540,10 @@ export async function fetchNetworkMetricsPlaywright(
                                 const { value: obj } = await timed("createCubeExpr", "CreateSessionObject", () => rpcWithRetry("createCubeExpr", "CreateSessionObject", { qProp: { qInfo: { qType: "cf-net-mois-expr" }, qHyperCubeDef: {
                                     qDimensions: [{ qLibraryId: dim }, { qLibraryId: moisDimId }],
                                     qMeasures: [
-                                        { qDef: { qDef: exprCa } },
-                                        { qDef: { qDef: exprQte } },
-                                        { qDef: { qDef: exprNbMag } },
-                                        { qDef: { qDef: exprMarge } },
+                                        { qDef: { qDef: eCa } },
+                                        { qDef: { qDef: eQte } },
+                                        { qDef: { qDef: eNbMag } },
+                                        { qDef: { qDef: eMarge } },
                                         // Master « Quantité N », uniquement pour le calibrage : sur les
                                         // mois de l'année en cours les deux doivent coïncider.
                                         { qLibraryId: rQte },
@@ -829,10 +833,24 @@ export async function fetchNetworkMetricsPlaywright(
                                         if (couverts.length >= fenetre.size) break; // couverture complète, inutile de continuer
                                     }
 
-                                    if (!meilleure || meilleure.couverts.length === 0) {
-                                        diag("aucune valeur de « Période » ne couvre la fenêtre — extraction sur la période par défaut");
-                                        return 0;
+                                    const couverture = meilleure ? meilleure.couverts.length : 0;
+
+                                    // Une `Période` partielle est PIRE que pas de sélection : elle
+                                    // restreint les faits au contexte choisi (« Année à date » ne
+                                    // porte que 2026-01→06) et ampute d'autant l'agrégation
+                                    // directe, qui elle sait lire tout l'historique. On ne garde
+                                    // donc la sélection QUE si elle couvre toute la fenêtre.
+                                    if (!meilleure || couverture < fenetre.size) {
+                                        await rpc("ClearField", { qFieldName: "Période" }, doc)
+                                            .catch(() => rpc("Clear", {}, lo!.qHandle));
+                                        await sleep(qlikSettleMs);
+                                        diag(
+                                            "aucune valeur de « Période » ne couvre les " + fenetre.size + " mois (meilleure = " +
+                                            couverture + ") → sélection Période EFFACÉE pour ne pas amputer les faits",
+                                        );
+                                        return couverture;
                                     }
+
                                     await rpc("SelectListObjectValues", {
                                         qPath: "/qListObjectDef",
                                         qValues: [meilleure.elem],
@@ -840,14 +858,8 @@ export async function fetchNetworkMetricsPlaywright(
                                         qSoftLock: true,
                                     }, lo.qHandle);
                                     await sleep(qlikSettleMs);
-                                    diag("Période retenue : « " + meilleure.texte + " » (" + meilleure.couverts.length + "/" + fenetre.size + " mois)");
-                                    if (meilleure.couverts.length < fenetre.size) {
-                                        diag(
-                                            "⚠ couverture incomplète : les mois manquants resteront ABSENTS du cache. " +
-                                            "Aucune valeur de « Période » ne porte 12 mois glissants dans cette app.",
-                                        );
-                                    }
-                                    return meilleure.couverts.length;
+                                    diag("Période retenue : « " + meilleure.texte + " » (" + couverture + "/" + fenetre.size + " mois)");
+                                    return couverture;
                                 } catch (e) {
                                     diag("choix de « Période » impossible : " + String((e as Error)?.message || e));
                                     return 0;
@@ -855,6 +867,56 @@ export async function fetchNetworkMetricsPlaywright(
                                     // Le list object est conservé jusqu'au bout : le détruire
                                     // annulerait la sélection qu'il porte.
                                     void lo;
+                                }
+                            };
+
+                            /**
+                             * Teste UNE expression isolément sur un petit cube `[Mois]`.
+                             *
+                             * Une seule mesure invalide suffit à faire renvoyer **zéro ligne** à
+                             * tout un hypercube — observé en production : le cube à 5 mesures
+                             * calculait 26 s puis rendait 0 ligne, alors que `Sum(quantite)` seul
+                             * donnait 35 424 324. Impossible de savoir laquelle sans les isoler.
+                             *
+                             * Renvoie l'expression si elle produit des lignes, sinon `"0"` — une
+                             * colonne neutre qui préserve les indices sans casser le cube.
+                             */
+                            const validerExpression = async (nom: string, expr: string): Promise<string> => {
+                                let ret: { qHandle: number; qGenericId?: string; qId?: string } | null = null;
+                                try {
+                                    const o = await rpc("CreateSessionObject", { qProp: {
+                                        qInfo: { qType: "cf-test-expr" },
+                                        qHyperCubeDef: {
+                                            qDimensions: [{ qLibraryId: moisDimId }],
+                                            qMeasures: [{ qDef: { qDef: expr } }],
+                                            qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 2, qHeight: 30 }],
+                                        },
+                                    } }, doc);
+                                    ret = o.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
+                                    const lay = await rpc("GetLayout", {}, ret.qHandle);
+                                    const hc = (lay.qLayout as { qHyperCube?: { qSize?: { qcy?: number }; qError?: unknown; qDataPages?: Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }> } }).qHyperCube;
+                                    const matrix = hc?.qDataPages?.[0]?.qMatrix ?? [];
+                                    const lignes = Number(hc?.qSize?.qcy) || 0;
+                                    let total = 0;
+                                    let texteErreur = "";
+                                    for (const r of matrix) {
+                                        total += Number(r[1]?.qNum) || 0;
+                                        const t = String(r[1]?.qText ?? "");
+                                        if (!texteErreur && /error|erreur|garbage|^-$/i.test(t)) texteErreur = t;
+                                    }
+                                    if (hc?.qError) texteErreur = texteErreur || JSON.stringify(hc.qError);
+                                    if (lignes === 0 || texteErreur) {
+                                        diag("  mesure « " + nom + " » = " + expr + " → INVALIDE (" + (texteErreur || "cube vide") + ")");
+                                        return "0";
+                                    }
+                                    diag("  mesure « " + nom + " » = " + expr + " → " + lignes + " mois, total=" + Math.round(total));
+                                    return expr;
+                                } catch (e) {
+                                    diag("  mesure « " + nom + " » = " + expr + " → ERREUR " + String((e as Error)?.message || e));
+                                    return "0";
+                                } finally {
+                                    const id = String(ret?.qGenericId ?? ret?.qId ?? "");
+                                    if (id) { try { await rpc("DestroySessionObject", { qId: id }, doc); } catch { /* noop */ } }
                                 }
                             };
 
@@ -937,6 +999,19 @@ export async function fetchNetworkMetricsPlaywright(
                                     }
                                     diag("champ date retenu : « " + champDate + " »");
 
+                                    // Chaque expression est validée SÉPARÉMENT : une seule mesure
+                                    // invalide fait rendre zéro ligne à tout l'hypercube, sans
+                                    // qu'aucun message ne dise laquelle.
+                                    diag("validation des expressions, une par une :");
+                                    const vQte = await validerExpression("quantité", exprQte);
+                                    if (vQte === "0") {
+                                        diag("ÉCHEC : l'expression quantité est inutilisable, rien à extraire");
+                                        return false;
+                                    }
+                                    const vCa = await validerExpression("CA", exprCa);
+                                    const vNbMag = await validerExpression("magasins", exprNbMag);
+                                    const vMarge = await validerExpression("marge", exprMarge);
+
                                     // Seuls les mois de la fenêtre nous intéressent ; la dimension
                                     // Mois peut en exposer d'autres si une sélection déborde.
                                     let totalQte = 0;
@@ -944,7 +1019,7 @@ export async function fetchNetworkMetricsPlaywright(
                                     let horsFenetre = 0;
                                     let echantillon = false;
 
-                                    const got = await timed("cube", "expr", () => fetchMonthCubeExpr((code, mois, ca, qte, nbMag, marge, qteMaster) => {
+                                    const got = await timed("cube", "expr", () => fetchMonthCubeExpr(vCa, vQte, vNbMag, vMarge, (code, mois, ca, qte, nbMag, marge, qteMaster) => {
                                         if (!code || code === "-") return;
                                         const mm = normMois(mois);
                                         if (!echantillon) {
