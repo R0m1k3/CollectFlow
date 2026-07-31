@@ -78,6 +78,50 @@ QLIK_FIELD_FOURNISSEUR=<nom exact du champ fournisseur>
 
 Sans champ libellé exploitable, la recherche fonctionne encore par code centrale.
 
+## Le modèle est piloté par `Période` / `Type_Cal` — pas par `Date`
+
+**C'est l'explication de fond**, obtenue en dumpant les expressions réelles :
+
+```
+« Quantité N »          = Sum({<Type_Cal={'N'}>} quantite)
+« CA N »                = Sum({<Type_Cal={'N'}>} $(vCA_vat))
+« Quantité COMP »       = Sum({<Type_Cal={'$(vPeriod_comp)'}$(vConstantCOMP)>} quantite)
+« Magasin Ventes Nb N » = Count({<Type_Cal={'N'}>} Distinct ventes_code_site)
+```
+
+L'app n'est pas un modèle « faits + calendrier » classique. Un **pont de périodes**
+duplique les lignes de faits : `Type_Cal='N'` marque celles de la période
+analysée, `'COMP'` celles de la période de comparaison. Et c'est le champ
+**`Période`** (4 valeurs, une sélectionnée) qui décide de quelle période il s'agit.
+
+Tout ce qu'on observait en découle :
+
+| Symptôme | Cause |
+|---|---|
+| Sélectionner `Date` ne change rien (100 % du total avant/après) | Le périmètre vient du pont de périodes, pas du champ date |
+| Août→décembre vides sur tous les articles | « Quantité N » ne couvre que la période courante (janvier→juillet) |
+| Janvier→juillet de l'année précédente renseignés | Ce sont les mois que « Quantité COMP » sait atteindre |
+| `Sum(quantite)` brut inexploitable | Il additionne les lignes N **et** COMP : il double compte |
+
+La solution n'est donc pas de contourner le modèle mais de **le piloter** :
+`choisirPeriode()` essaie chaque valeur de `Période`, mesure sur un cube
+`[Mois] × Quantité N` combien de mois de la fenêtre elle rend réellement
+disponibles, et garde la meilleure. Aucun libellé n'est deviné — c'est la
+couverture mesurée qui décide :
+
+```
+[qlik-pw][diag] valeurs de « Période » : ["Année en cours","12 mois glissants","Mois","Semaine"]
+[qlik-pw][diag]   Période « Année en cours » → 7/12 mois de la fenêtre [...]
+[qlik-pw][diag]   Période « 12 mois glissants » → 12/12 mois de la fenêtre [...]
+[qlik-pw][diag] Période retenue : « 12 mois glissants » (12/12 mois)
+```
+
+Si aucune valeur ne couvre les 12 mois, l'extraction le dit et les mois manquants
+restent **absents** du cache — jamais remplis d'une valeur plausible.
+
+`QLIK_USE_EXPR=1` réactive l'ancien essai par agrégation directe des faits ; il
+est désactivé par défaut puisque `Sum(quantite)` double compte.
+
 ## ⚠️ Les master measures « N » ignorent la sélection Date
 
 **Constat de production, vérifié arithmétiquement.** Avec août 2025 seul

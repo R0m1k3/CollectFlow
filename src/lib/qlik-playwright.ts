@@ -14,7 +14,7 @@
 
 import "server-only";
 import { chromium, type Browser } from "playwright-core";
-import { getQlikConfig, qlikNtlmSession, type QlikConfig, type NetworkMetric } from "@/lib/qlik-client";
+import { getQlikConfig, qlikNtlmSession, type QlikConfig, type NetworkMetric, type QlikMonthMetrics } from "@/lib/qlik-client";
 import { buildGridNetworkQlikDateFilter, getMonthRanges, type QlikDateFilter } from "@/lib/qlik-date-range";
 
 let browserPromise: Promise<Browser> | null = null;
@@ -46,7 +46,6 @@ interface InPageResult {
     monthly?: Record<string, Record<string, { qte: number; ca?: number; nbMag?: number; caMag?: number; margePct?: number }>>;
     size?: number;
     error?: string;
-    diag?: Record<string, unknown>;
     // Compteurs agrégés pour le résumé timing final côté Node (cf. qlik-playwright).
     months?: number;
     batches?: number;
@@ -54,6 +53,8 @@ interface InPageResult {
     fallbackCount?: number;
     /** true si le résultat vient d'un point de contrôle (extraction interrompue). */
     partiel?: boolean;
+    /** Diagnostics clés du chemin par expressions, répétés en fin de sync. */
+    diagExpr?: string[];
 }
 
 function envNumber(name: string, defaultValue: number, min: number, max: number): number {
@@ -124,7 +125,11 @@ export async function fetchNetworkMetricsPlaywright(
     // Agrégations directes des champs de faits. Les master measures « N » ignorent
     // la sélection Date (mesures « cumul année en cours ») : elles ne peuvent pas
     // produire une fenêtre 12 mois glissants. Surchargeables si le modèle change.
-    const qlikUseExpr = !["0", "false", "no", "off"].includes((process.env.QLIK_USE_EXPR ?? "").trim().toLowerCase());
+    // Désactivé par défaut : `Sum(quantite)` ignore `Type_Cal` et additionne donc
+    // les lignes de la période courante ET celles de la période de comparaison —
+    // il double compte. Les master measures, elles, portent le bon filtre ; il
+    // suffit de caler `Période` (cf. `choisirPeriode`). Réactivable pour essai.
+    const qlikUseExpr = ["1", "true", "yes", "on"].includes((process.env.QLIK_USE_EXPR ?? "").trim().toLowerCase());
     const qlikExprQte = (process.env.QLIK_EXPR_QTE ?? "Sum(quantite)").trim();
     const qlikExprCa = (process.env.QLIK_EXPR_CA ?? "Sum(ca_ht)").trim();
     const qlikExprNbMag = (process.env.QLIK_EXPR_NBMAG ?? "Count(DISTINCT [Magasin Code])").trim();
@@ -295,6 +300,11 @@ export async function fetchNetworkMetricsPlaywright(
                     // Quantité réseau par code central et par mois (label "YYYY-MM").
                     // Accumulée en parallèle du total, sans toucher l'agrégation existante.
                     const monthlyByCode: Record<string, Record<string, { qte: number; ca?: number; nbMag?: number; caMag?: number; margePct?: number }>> = {};
+                    // Diagnostics clés, RÉPÉTÉS en fin de sync : le log d'une sync fait
+                    // des milliers de lignes de timings, et ce qui explique un échec se
+                    // trouve tout au début — là où personne ne va le chercher.
+                    const diagnostics: string[] = [];
+                    const diag = (msg: string) => { diagnostics.push(msg); console.log("[qlik-pw][expr] " + msg); };
 
                     (async () => {
                         try {
@@ -623,6 +633,127 @@ export async function fetchNetworkMetricsPlaywright(
                                 return true;
                             };
 
+                            /**
+                             * Cale le champ `Période` du modèle sur la fenêtre 12 mois glissants.
+                             *
+                             * L'app n'est pas un modèle « faits + calendrier » classique : TOUTES
+                             * ses mesures sont bornées par un type de calendrier —
+                             *
+                             *   « Quantité N »    = Sum({<Type_Cal={'N'}>} quantite)
+                             *   « Quantité COMP » = Sum({<Type_Cal={'$(vPeriod_comp)'}…>} quantite)
+                             *
+                             * `Type_Cal` marque les lignes de la période analysée (`N`) et celles
+                             * de la période de comparaison (`COMP`), et c'est le champ `Période`
+                             * (4 valeurs, une sélectionnée) qui décide de quelle période il s'agit.
+                             *
+                             * Cela explique tout ce qu'on observait :
+                             *  - sélectionner `Date` ne change RIEN (le périmètre vient du pont de
+                             *    périodes, pas du champ date) — mesuré : 100 % du total avant comme
+                             *    après ;
+                             *  - « Quantité N » ne renvoie que les mois de la période courante
+                             *    (janvier→juillet avec « année en cours »), d'où août→décembre
+                             *    vides ;
+                             *  - « Quantité COMP » ne couvre que les mois ayant un comparable dans
+                             *    cette période, d'où janvier→juillet de l'année précédente ;
+                             *  - `Sum(quantite)` brut mélange les lignes N et COMP : il double
+                             *    compte, et ne peut pas se substituer aux mesures.
+                             *
+                             * La solution n'est donc pas de contourner le modèle mais de le
+                             * piloter : on essaie chaque valeur de `Période`, on mesure combien de
+                             * mois de la fenêtre elle rend réellement disponibles, et on garde la
+                             * meilleure. Aucun libellé n'est deviné — c'est la couverture mesurée
+                             * qui décide.
+                             */
+                            const choisirPeriode = async (): Promise<string | null> => {
+                                const fenetre = new Set(monthlyPayload.map((m) => m.label));
+                                let lo: { qHandle: number; qGenericId?: string; qId?: string } | null = null;
+                                try {
+                                    const obj = await rpc("CreateSessionObject", { qProp: {
+                                        qInfo: { qType: "cf-periodes" },
+                                        qListObjectDef: {
+                                            qDef: { qFieldDefs: ["Période"] },
+                                            qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 1, qHeight: 50 }],
+                                        },
+                                    } }, doc);
+                                    lo = obj.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
+                                    const lay = await rpc("GetLayout", {}, lo.qHandle);
+                                    const matrix = ((lay.qLayout as { qListObject?: { qDataPages?: Array<{ qMatrix?: Array<Array<{ qText?: string; qElemNumber?: number }>> }> } })
+                                        .qListObject?.qDataPages?.[0]?.qMatrix) ?? [];
+                                    const valeurs = matrix
+                                        .map((r) => ({ texte: String(r[0]?.qText ?? ""), elem: r[0]?.qElemNumber ?? -1 }))
+                                        .filter((v) => v.texte && v.elem >= 0);
+                                    diag("valeurs de « Période » : " + JSON.stringify(valeurs.map((v) => v.texte)));
+                                    if (valeurs.length === 0) return null;
+
+                                    let meilleure: { texte: string; elem: number; couverts: string[] } | null = null;
+                                    for (const v of valeurs) {
+                                        await rpc("SelectListObjectValues", {
+                                            qPath: "/qListObjectDef",
+                                            qValues: [v.elem],
+                                            qToggleMode: false,
+                                            qSoftLock: true,
+                                        }, lo.qHandle);
+                                        await sleep(qlikSettleMs);
+
+                                        // Cube [Mois] × « Quantité N » : quels mois cette période rend-elle vivants ?
+                                        const sonde = await rpc("CreateSessionObject", { qProp: {
+                                            qInfo: { qType: "cf-periode-sonde" },
+                                            qHyperCubeDef: {
+                                                qDimensions: [{ qLibraryId: moisDimId }],
+                                                qMeasures: [{ qLibraryId: rQte }],
+                                                qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 2, qHeight: 60 }],
+                                            },
+                                        } }, doc);
+                                        const sRet = sonde.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
+                                        let couverts: string[] = [];
+                                        try {
+                                            const sl = await rpc("GetLayout", {}, sRet.qHandle);
+                                            const sm = ((sl.qLayout as { qHyperCube?: { qDataPages?: Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }> } })
+                                                .qHyperCube?.qDataPages?.[0]?.qMatrix) ?? [];
+                                            couverts = sm
+                                                .filter((r) => (Number(r[1]?.qNum) || 0) > 0)
+                                                .map((r) => normMois(String(r[0]?.qText ?? "")))
+                                                .filter((m) => fenetre.has(m));
+                                        } finally {
+                                            const sid = String(sRet.qGenericId ?? sRet.qId ?? "");
+                                            if (sid) { try { await rpc("DestroySessionObject", { qId: sid }, doc); } catch { /* noop */ } }
+                                        }
+                                        diag("  Période « " + v.texte + " » → " + couverts.length + "/" + fenetre.size + " mois de la fenêtre " + JSON.stringify(couverts.sort()));
+                                        if (!meilleure || couverts.length > meilleure.couverts.length) {
+                                            meilleure = { texte: v.texte, elem: v.elem, couverts };
+                                        }
+                                        if (couverts.length >= fenetre.size) break; // couverture complète, inutile de continuer
+                                    }
+
+                                    if (!meilleure || meilleure.couverts.length === 0) {
+                                        diag("aucune valeur de « Période » ne couvre la fenêtre — extraction sur la période par défaut");
+                                        return null;
+                                    }
+                                    await rpc("SelectListObjectValues", {
+                                        qPath: "/qListObjectDef",
+                                        qValues: [meilleure.elem],
+                                        qToggleMode: false,
+                                        qSoftLock: true,
+                                    }, lo.qHandle);
+                                    await sleep(qlikSettleMs);
+                                    diag("Période retenue : « " + meilleure.texte + " » (" + meilleure.couverts.length + "/" + fenetre.size + " mois)");
+                                    if (meilleure.couverts.length < fenetre.size) {
+                                        diag(
+                                            "⚠ couverture incomplète : les mois manquants resteront ABSENTS du cache. " +
+                                            "Aucune valeur de « Période » ne porte 12 mois glissants dans cette app.",
+                                        );
+                                    }
+                                    return meilleure.texte;
+                                } catch (e) {
+                                    diag("choix de « Période » impossible : " + String((e as Error)?.message || e));
+                                    return null;
+                                } finally {
+                                    // Le list object est conservé jusqu'au bout : le détruire
+                                    // annulerait la sélection qu'il porte.
+                                    void lo;
+                                }
+                            };
+
                             const moisParExpressions = async (): Promise<boolean> => {
                                 const timings: Record<string, number> = {};
                                 const marqueOut = out.length;
@@ -649,9 +780,9 @@ export async function fetchNetworkMetricsPlaywright(
                                     // ce soit. Un champ valide doit donner un total non nul ET
                                     // strictement inférieur au total sans filtre.
                                     const sansFiltre = await totalDeControle();
-                                    console.log("[qlik-pw][expr] contrôle " + exprQte + " sans filtre date = " + Math.round(sansFiltre));
+                                    diag("contrôle « " + exprQte + " » sans filtre date = " + Math.round(sansFiltre));
                                     if (sansFiltre <= 0) {
-                                        console.error("[qlik-pw][expr] " + exprQte + " renvoie 0 même sans filtre → expression ou champ invalide (QLIK_EXPR_QTE)");
+                                        diag("ÉCHEC : « " + exprQte + " » renvoie 0 même sans filtre → expression ou champ invalide (corriger QLIK_EXPR_QTE)");
                                         return false;
                                     }
 
@@ -661,26 +792,23 @@ export async function fetchNetworkMetricsPlaywright(
                                     for (const cand of champsDateCandidats) {
                                         const valeurs = /key/i.test(cand) ? allYmd : allSerials;
                                         if (!(await selectionnerFenetreSur(cand, valeurs))) {
-                                            console.log("[qlik-pw][expr]   champ « " + cand + " » : inexistant");
+                                            diag("  champ « " + cand + " » : inexistant");
                                             continue;
                                         }
                                         const filtre = await totalDeControle();
                                         const ratio = sansFiltre > 0 ? filtre / sansFiltre : 0;
-                                        console.log(
-                                            "[qlik-pw][expr]   champ « " + cand + " » → " + Math.round(filtre) +
-                                            " (" + Math.round(ratio * 100) + "% du total sans filtre)",
-                                        );
+                                        diag("  champ « " + cand + " » → " + Math.round(filtre) + " (" + Math.round(ratio * 100) + "% du total sans filtre)");
                                         if (filtre > 0 && ratio < 0.995) { champDate = cand; break; }
                                     }
                                     if (!champDate) {
-                                        console.error(
-                                            "[qlik-pw][expr] aucun champ date ne filtre les faits (essayés : " +
-                                            JSON.stringify(champsDateCandidats) + ") → impossible de borner la fenêtre 12 mois. " +
-                                            "Forcer le bon champ avec QLIK_DATE_FIELD.",
+                                        diag(
+                                            "ÉCHEC : aucun champ date ne filtre les faits (essayés : " +
+                                            JSON.stringify(champsDateCandidats) + "). 0% = la sélection ne matche rien, " +
+                                            "100% = elle n'a aucun effet. Forcer le bon champ avec QLIK_DATE_FIELD.",
                                         );
                                         return false;
                                     }
-                                    console.log("[qlik-pw][expr] champ date retenu : « " + champDate + " »");
+                                    diag("champ date retenu : « " + champDate + " »");
 
                                     // Seuls les mois de la fenêtre nous intéressent ; la dimension
                                     // Mois peut en exposer d'autres si une sélection déborde.
@@ -698,7 +826,7 @@ export async function fetchNetworkMetricsPlaywright(
                                             // Échantillon AVANT filtrage : si le mois ne tombe pas dans
                                             // la fenêtre, c'est le format de la dimension Mois qui est
                                             // en cause, pas les mesures.
-                                            console.log("[qlik-pw][expr] échantillon brut: " + JSON.stringify({
+                                            diag("échantillon brut: " + JSON.stringify({
                                                 code, moisBrut: mois, moisNormalise: mm, dansLaFenetre: moisFenetre.has(mm),
                                                 ca, qte, nbMag, marge, "Quantité N (master)": qteMaster,
                                             }));
@@ -723,15 +851,15 @@ export async function fetchNetworkMetricsPlaywright(
 
                                     aggMonths = monthlyPayload.length;
                                     aggBatches++;
-                                    console.log(
-                                        "[qlik-pw][expr] " + got.value + " lignes (" + horsFenetre + " hors fenêtre), quantité totale=" + Math.round(totalQte) +
-                                        ", calibrage année " + yearN + " : " + calibrOk + "/" + calibrees + " mois conformes à « Quantité N »" +
-                                        " timings=" + timingSummary(timings),
+                                    diag(
+                                        got.value + " lignes (" + horsFenetre + " hors fenêtre), quantité totale=" + Math.round(totalQte) +
+                                        ", calibrage année " + yearN + " : " + calibrOk + "/" + calibrees + " mois conformes à « Quantité N »",
                                     );
+                                    console.log("[qlik-pw][expr] timings=" + timingSummary(timings));
 
                                     if (totalQte <= 0) {
-                                        console.error(
-                                            "[qlik-pw][expr] quantité totale nulle sur la fenêtre alors que le contrôle global valait " +
+                                        diag(
+                                            "ÉCHEC : quantité totale nulle sur la fenêtre alors que le contrôle global valait " +
                                             Math.round(sansFiltre) + " — " + horsFenetre + " ligne(s) écartées comme hors fenêtre. " +
                                             "Si ce nombre est élevé, c'est le format de la dimension Mois qui ne correspond pas aux libellés attendus.",
                                         );
@@ -747,7 +875,7 @@ export async function fetchNetworkMetricsPlaywright(
                                     }
                                     return true;
                                 } catch (e) {
-                                    console.error("[qlik-pw][expr] échec : " + String((e as Error)?.message || e) + " → repli sur les master measures");
+                                    diag("ÉCHEC : " + String((e as Error)?.message || e) + " → repli sur les master measures");
                                     out.length = marqueOut;
                                     for (const k of Object.keys(monthlyByCode)) delete monthlyByCode[k];
                                     return false;
@@ -995,10 +1123,18 @@ export async function fetchNetworkMetricsPlaywright(
                                 }
                             };
 
+                            if (!noDateMode && monthDim) {
+                                // ÉTAPE 1, avant toute extraction : caler le champ `Période` du
+                                // modèle sur la fenêtre. Toutes les mesures de l'app étant bornées
+                                // par `Type_Cal` (lui-même piloté par `Période`), c'est cette
+                                // sélection — et elle seule — qui détermine les mois accessibles.
+                                await choisirPeriode();
+                            }
+
                             if (!noDateMode && monthDim && useExpr && (await moisParExpressions())) {
-                                // Chemin nominal : un seul cube, tous les mois de la fenêtre, des
-                                // mesures qui respectent la sélection Date. Ni passe N-1 ni
-                                // rattrapage nécessaires — c'est justement ce qu'ils compensaient.
+                                // Chemin alternatif : agrégation directe des faits. Conservé
+                                // derrière QLIK_USE_EXPR mais désormais secondaire — `Sum(quantite)`
+                                // mélange les lignes N et COMP du pont de périodes et double compte.
                                 await pousserCheckpoint("expressions");
                             } else if (!noDateMode && monthDim) {
                                 // Repli : master measures « année en cours » + passe N-1 + rattrapage.
@@ -1147,12 +1283,12 @@ export async function fetchNetworkMetricsPlaywright(
                             // mensuel est validé et en production depuis.
 
                             ws.close();
-                            resolve({ ok: true, rows: out, monthly: monthlyByCode, size: out.length, months: aggMonths, batches: aggBatches, code15Retries: aggCode15Retries, fallbackCount: aggFallbackCount });
+                            resolve({ ok: true, rows: out, monthly: monthlyByCode, size: out.length, months: aggMonths, batches: aggBatches, code15Retries: aggCode15Retries, fallbackCount: aggFallbackCount, diagExpr: diagnostics });
                         } catch (e) {
                             try { ws.close(); } catch { /* noop */ }
                             // On remonte ce qui a été extrait : les codes déjà traités ont
                             // toutes leurs données, seul le reliquat manque.
-                            resolve({ ok: false, error: String((e as Error)?.message || e), rows: out, monthly: monthlyByCode, size: out.length });
+                            resolve({ ok: false, error: String((e as Error)?.message || e), rows: out, monthly: monthlyByCode, size: out.length, diagExpr: diagnostics });
                         }
                     })();
                 }),
@@ -1216,6 +1352,10 @@ export async function fetchNetworkMetricsPlaywright(
         // Les logs détaillés par étape restent en place (timings batch/mois) ;
         // ici on consolide les compteurs agrégés et la durée totale.
         const totalMs = Date.now() - totalStart;
+        if (result.diagExpr?.length) {
+            console.log("[qlik-pw][diag] ─── diagnostic du chemin par expressions ───");
+            for (const d of result.diagExpr) console.log("[qlik-pw][diag] " + d);
+        }
         console.log(
             `[qlik-pw][summary] rows=${result.size ?? 0} months=${result.months ?? 0} batches=${result.batches ?? 0} code15Retries=${result.code15Retries ?? 0} fallbackCount=${result.fallbackCount ?? 0} totalMs=${totalMs}`,
         );
@@ -1262,15 +1402,33 @@ export async function fetchNetworkMetricsPlaywright(
         //                     colonne « Tendance / Réseau » de la Grille. Inchangé.
         //   - `metricsByMonth` : toutes les mesures du mois, pour la fiche produit.
         const monthly = result.monthly ?? {};
+
+        // Mois RÉELLEMENT couverts par l'extraction = union des mois vus sur
+        // l'ensemble des codes. Distinguer « couvert, zéro vente » de « non
+        // extrait » est indispensable : sans cela, un article vendu seulement
+        // depuis mai voyait sa tendance calculée sur deux points (« +4 100 % »),
+        // et un mois non extrait passait pour une absence de vente.
+        const couverts = new Set<string>();
+        for (const parMois of Object.values(monthly)) {
+            for (const mois of Object.keys(parMois)) couverts.add(mois);
+        }
+        const moisCouverts = [...couverts].sort();
+        console.log(`[qlik-pw] mois couverts par l'extraction (${moisCouverts.length}) : ${JSON.stringify(moisCouverts)}`);
+
         for (const [code, metric] of out) {
-            const mm = monthly[code];
-            if (!mm || Object.keys(mm).length === 0) continue;
+            const mm = monthly[code] ?? {};
             const qteByMonth: Record<string, number> = {};
-            for (const [mois, v] of Object.entries(mm)) {
+            const metricsByMonth: Record<string, QlikMonthMetrics> = {};
+            for (const mois of moisCouverts) {
+                const v = mm[mois];
+                // Zéro EXPLICITE sur un mois couvert sans vente : c'est une
+                // information, au même titre qu'une vente. Un mois non couvert
+                // reste absent et sera ignoré par la tendance.
                 qteByMonth[mois] = Number(v?.qte) || 0;
+                metricsByMonth[mois] = v ?? { qte: 0 };
             }
             metric.qteByMonth = qteByMonth;
-            metric.metricsByMonth = mm;
+            metric.metricsByMonth = metricsByMonth;
         }
         // Diagnostic CONCLUSIF : combien de codes ont des mois qui VARIENT vs identiques.
         // Si presque tous varient → la mesure respecte le mois (feature OK).

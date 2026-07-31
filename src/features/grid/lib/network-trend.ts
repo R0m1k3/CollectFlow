@@ -56,16 +56,18 @@ export const TREND_COLOR: Record<NetworkTrend["direction"], string> = {
  *
  * La fenêtre est reconstruite à partir de la date du jour (et non des clés
  * présentes dans `qteByMonth`) : c'est le seul moyen de garantir une tendance
- * réellement glissante. Deux conséquences voulues :
- *   - un mois en cours (partiel) ou un mois plus vieux que 12 mois présent dans
- *     le cache est **ignoré** — sinon la pente est faussée par un mois tronqué ;
- *   - un mois de la fenêtre **absent** du cache vaut 0 : côté Qlik, un produit
- *     non vendu sur un mois ne produit tout simplement pas de ligne.
+ * réellement glissante. Un mois en cours (partiel), ou plus vieux que 12 mois,
+ * présent dans le cache est donc **ignoré** — sinon la pente est faussée par un
+ * mois tronqué.
  *
- * Seule exception au remplissage par zéro : les mois **antérieurs au premier
- * mois réellement extrait**. Ils traduisent une extraction plus courte que 12
- * mois (`QLIK_SYNC_MONTHS_BACK`), pas une absence de ventes — les inventer à 0
- * simulerait une croissance qui n'existe pas.
+ * Un mois **absent** du cache n'est PAS supposé nul : l'extraction ne couvre pas
+ * toujours les 12 mois (les mesures Qlik « N » ne savent pas remonter au-delà de
+ * l'année en cours). La sync écrit un zéro **explicite** sur chaque mois qu'elle
+ * a réellement couvert sans vente ; la tendance ne retient donc que les mois
+ * présents comme clés, et ignore purement et simplement les autres.
+ *
+ * Sans cette distinction, un article vendu seulement depuis mai voyait sa
+ * tendance calculée sur deux points — « +4 100 % · Forte hausse ».
  *
  * Utilise tous les points (robuste au bruit d'un mois isolé). L'indicateur `pct` est la
  * variation modélisée sur la période (pente × durée) rapportée à la moyenne.
@@ -81,11 +83,10 @@ export function computeNetworkTrend(
     if (presents.length === 0) return empty;
 
     const fenetre = buildRolling12QlikMonths(now);
-    // Aucun mois extrait ne tombe dans la fenêtre glissante (cache périmé) :
-    // rien de fiable à tracer.
-    const premierMoisExtrait = presents[0];
-    const labels = fenetre.filter((m) => m >= premierMoisExtrait);
-    if (labels.length === 0 || !labels.some((m) => qteByMonth[m] != null)) return empty;
+    // Seuls les mois RÉELLEMENT extraits comptent : ceux que la sync n'a pas
+    // couverts sont absents des clés et sont écartés, plutôt que comptés à zéro.
+    const labels = fenetre.filter((m) => qteByMonth[m] != null);
+    if (labels.length === 0) return empty;
 
     const values = labels.map((l) => Number(qteByMonth[l]) || 0);
     const n = values.length;
