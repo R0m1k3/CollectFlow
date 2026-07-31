@@ -90,6 +90,19 @@ export async function fetchNetworkMetricsPlaywright(
     codeCentraux?: string[],
     cfg: QlikConfig = getQlikConfig(),
     dateFilter: QlikDateFilter | null = buildGridNetworkQlikDateFilter(),
+    /**
+     * Code fournisseur FF (ex. `J009`), tel qu'il figure dans la base SQL / l'API.
+     *
+     * Quand il est fourni, on sélectionne LE fournisseur côté Qlik au lieu des
+     * dizaines de milliers de codes articles : `SelectValues` sur « Article Code »
+     * coûte 8 à 100 s par appel quel que soit le nombre de valeurs (le moteur
+     * balaie un symbole de plus d'un million d'entrées), et il faut le refaire à
+     * chaque passe annuelle.
+     *
+     * La bascule n'est retenue que si la sélection fournisseur **couvre** les
+     * codes demandés — sinon on revient à la sélection par codes.
+     */
+    fournisseur?: string,
 ): Promise<Map<string, NetworkMetric>> {
     if (!cfg.appNetwork) throw new Error("[qlik-pw] QLIK_APP_NETWORK manquant");
     if (!cfg.user || !cfg.password) throw new Error("[qlik-pw] identifiants Qlik manquants");
@@ -139,6 +152,16 @@ export async function fetchNetworkMetricsPlaywright(
     // FILTRE réellement les faits (total non nul et strictement inférieur au total
     // sans filtre) : personne n'avait pu le vérifier tant que seules des mesures
     // insensibles à la sélection étaient utilisées.
+    // Champs Qlik susceptibles de porter le CODE fournisseur (et non son libellé) :
+    // c'est `code_fournisseur` qui remontait des valeurs de la forme « F005 »,
+    // « A0491 » — même format que les codes de la base FF.
+    const qlikSupplierFields = [
+        (process.env.QLIK_FIELD_CODE_FOURNISSEUR ?? "").trim(),
+        "code_fournisseur", "Fournisseur", "fournisseur_code_centrale",
+    ].filter((c, i, arr) => c && arr.indexOf(c) === i);
+    /** Part des codes demandés que la sélection fournisseur doit couvrir pour être retenue. */
+    const qlikSupplierMinCoverage = Math.min(1, Math.max(0.5, Number(process.env.QLIK_SUPPLIER_MIN_COVERAGE ?? "0.99") || 0.99));
+
     const qlikDateFields = [
         (process.env.QLIK_DATE_FIELD ?? "").trim(),
         "Date", "Date calendrier", "Date_Key",
@@ -208,7 +231,7 @@ export async function fetchNetworkMetricsPlaywright(
         });
 
         const evaluer = () => page.evaluate(
-            ({ app, dim, mca, mqte, mnb, mcamag, mmarge, codes, token, monthlyPayload, noDateMode, qlikSettleMs, qlikCode15MaxAttempts, qlikArticleBatchFallbacks, selectAllCodes, monthDim, moisDimId, mqteComp, yearN, useExpr, exprQte, exprCa, exprNbMag, exprMarge, champsDateCandidats }: {
+            ({ app, dim, mca, mqte, mnb, mcamag, mmarge, codes, token, monthlyPayload, noDateMode, qlikSettleMs, qlikCode15MaxAttempts, qlikArticleBatchFallbacks, selectAllCodes, monthDim, moisDimId, mqteComp, yearN, useExpr, exprQte, exprCa, exprNbMag, exprMarge, champsDateCandidats, fournisseurCode, champsFournisseurCandidats, couvertureFournisseurMin }: {
                 app: string; dim: string; mca: string; mqte: string; mnb: string; mcamag: string; mmarge: string;
                 codes: string[]; token: string;
                 monthlyPayload: Array<{ label: string; dateDebut: string; dateFin: string; serials: number[]; ymd: number[] }>;
@@ -227,6 +250,9 @@ export async function fetchNetworkMetricsPlaywright(
                 exprNbMag: string;
                 exprMarge: string;
                 champsDateCandidats: string[];
+                fournisseurCode: string;
+                champsFournisseurCandidats: string[];
+                couvertureFournisseurMin: number;
             }) =>
                 new Promise<InPageResult>((resolve) => {
                     const loc = (window as unknown as { location: Location }).location;
@@ -772,6 +798,114 @@ export async function fetchNetworkMetricsPlaywright(
                              * meilleure. Aucun libellé n'est deviné — c'est la couverture mesurée
                              * qui décide.
                              */
+                            /**
+                             * Vrai quand le périmètre articles est posé par une sélection
+                             * fournisseur : dans ce cas, plus aucun `SelectValues` sur
+                             * « Article Code » n'est émis (ni par passe annuelle, ni par
+                             * l'agrégation directe) — c'est tout l'intérêt de la bascule.
+                             */
+                            let parFournisseur = false;
+
+                            /**
+                             * Sélectionne LE fournisseur plutôt que ses dizaines de milliers de
+                             * codes articles.
+                             *
+                             * `SelectValues` sur « Article Code » coûte 8 à 100 s **par appel**,
+                             * quasi indépendamment du nombre de valeurs — le moteur balaie un
+                             * symbole de plus d'un million d'entrées — et il faut le refaire à
+                             * chaque passe annuelle. Une valeur de fournisseur produit le même
+                             * périmètre en un appel trivial.
+                             *
+                             * La bascule n'est retenue QUE si la sélection couvre les codes
+                             * demandés : un article rattaché à plusieurs fournisseurs, ou un
+                             * référencement Qlik différent du référencement FF, doit faire
+                             * revenir à la sélection par codes plutôt que perdre des articles.
+                             */
+                            const selectionnerParFournisseur = async (): Promise<boolean> => {
+                                if (!fournisseurCode || codes.length === 0) return false;
+                                const attendus = new Set(codes.map((c) => c.trim()));
+
+                                /** Codes articles visibles sous la sélection courante. */
+                                const lireCodesVisibles = async (): Promise<Set<string>> => {
+                                    const vus = new Set<string>();
+                                    const o = await rpc("CreateSessionObject", { qProp: {
+                                        qInfo: { qType: "cf-codes-fou" },
+                                        qHyperCubeDef: {
+                                            qDimensions: [{ qLibraryId: dim, qNullSuppression: true }],
+                                            qMeasures: [],
+                                            qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 1, qHeight: 5000 }],
+                                        },
+                                    } }, doc);
+                                    const ret = o.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
+                                    try {
+                                        const lay = await rpc("GetLayout", {}, ret.qHandle);
+                                        const hc = (lay.qLayout as { qHyperCube?: { qSize?: { qcy?: number }; qDataPages?: Array<{ qMatrix?: Array<Array<{ qText?: string }>> }> } }).qHyperCube;
+                                        const total = Number(hc?.qSize?.qcy) || 0;
+                                        for (const r of hc?.qDataPages?.[0]?.qMatrix ?? []) {
+                                            const c = String(r[0]?.qText ?? "").trim();
+                                            if (c && c !== "-") vus.add(c);
+                                        }
+                                        for (let top = vus.size ? 5000 : 0; top < total; top += 5000) {
+                                            const d = await rpc("GetHyperCubeData", {
+                                                qPath: "/qHyperCubeDef",
+                                                qPages: [{ qTop: top, qLeft: 0, qWidth: 1, qHeight: Math.min(5000, total - top) }],
+                                            }, ret.qHandle);
+                                            const matrix = (d.qDataPages as Array<{ qMatrix?: Array<Array<{ qText?: string }>> }>)?.[0]?.qMatrix ?? [];
+                                            if (matrix.length === 0) break;
+                                            for (const r of matrix) {
+                                                const c = String(r[0]?.qText ?? "").trim();
+                                                if (c && c !== "-") vus.add(c);
+                                            }
+                                        }
+                                        return vus;
+                                    } finally {
+                                        const id = String(ret.qGenericId ?? ret.qId ?? "");
+                                        if (id) { try { await rpc("DestroySessionObject", { qId: id }, doc); } catch { /* noop */ } }
+                                    }
+                                };
+
+                                for (const champ of champsFournisseurCandidats) {
+                                    let h = -1;
+                                    try {
+                                        const gf = await rpc("GetField", { qFieldName: champ }, doc);
+                                        h = (gf.qReturn as { qHandle: number }).qHandle;
+                                        if (typeof h !== "number" || h < 0) continue;
+                                    } catch { continue; }
+
+                                    await rpc("Clear", {}, h);
+                                    await sleep(qlikSettleMs);
+                                    const sel = await rpc("SelectValues", {
+                                        qFieldValues: [{ qText: fournisseurCode }],
+                                        qToggleMode: false,
+                                        qSoftLock: true,
+                                    }, h);
+                                    await sleep(qlikSettleMs);
+                                    if (sel.qReturn === false) {
+                                        diag("  champ « " + champ + " » : valeur « " + fournisseurCode + " » inconnue");
+                                        await rpc("Clear", {}, h);
+                                        continue;
+                                    }
+
+                                    const visibles = await lireCodesVisibles();
+                                    let couverts = 0;
+                                    for (const c of attendus) if (visibles.has(c)) couverts++;
+                                    const couverture = attendus.size > 0 ? couverts / attendus.size : 0;
+                                    diag(
+                                        "  champ « " + champ + " » = « " + fournisseurCode + " » → " + visibles.size +
+                                        " articles Qlik, couvre " + couverts + "/" + attendus.size +
+                                        " codes demandés (" + Math.round(couverture * 100) + "%)",
+                                    );
+                                    if (couverture >= couvertureFournisseurMin) {
+                                        diag("sélection PAR FOURNISSEUR retenue sur « " + champ + " » — " + attendus.size + " SelectValues économisés par passe");
+                                        return true;
+                                    }
+                                    await rpc("Clear", {}, h);
+                                    await sleep(qlikSettleMs);
+                                }
+                                diag("aucun champ fournisseur ne couvre les codes demandés → sélection par codes articles");
+                                return false;
+                            };
+
                             const choisirPeriode = async (): Promise<number> => {
                                 const fenetre = new Set(monthlyPayload.map((m) => m.label));
                                 let lo: { qHandle: number; qGenericId?: string; qId?: string } | null = null;
@@ -947,8 +1081,10 @@ export async function fetchNetworkMetricsPlaywright(
                                     if (yfh !== -1) { await rpc("Clear", {}, yfh); await sleep(qlikSettleMs); }
 
                                     // Les codes d'abord : les totaux de contrôle portent alors sur
-                                    // le même périmètre que l'extraction.
-                                    if (codes.length && fh !== -1) {
+                                    // le même périmètre que l'extraction. Sauf si le fournisseur
+                                    // pose déjà ce périmètre — le re-sélectionner par codes ne
+                                    // changerait rien au résultat et coûterait une minute.
+                                    if (codes.length && fh !== -1 && !parFournisseur) {
                                         await timed("clearCode", "Clear", () => rpc("Clear", {}, fh), timings);
                                         await sleep(qlikSettleMs);
                                         await timed("selectCodeAll", "SelectValues", () => rpcWithRetry("selectCodeAll", "SelectValues", {
@@ -1232,21 +1368,28 @@ export async function fetchNetworkMetricsPlaywright(
                                 // pages, elle, coûte ~50 ms. Repli sur les lots si l'Engine
                                 // refuse (cube trop gros, code 15, saturation mémoire).
                                 const marqueOut = out.length;
-                                if (codes.length && fh !== -1) {
+                                if ((codes.length || parFournisseur) && fh !== -1) {
                                     const timingsAll: Record<string, number> = {};
                                     try {
-                                        await timed("clearCodeAll", "Clear", () => rpc("Clear", {}, fh), timingsAll);
-                                        await sleep(qlikSettleMs);
-                                        await timed("selectCodeAll", "SelectValues", () => rpc("SelectValues", {
-                                            qFieldValues: codes.map((c) => ({ qText: c })),
-                                            qToggleMode: false,
-                                            qSoftLock: true,
-                                        }, fh), timingsAll);
-                                        await sleep(qlikSettleMs);
+                                        // Le périmètre fournisseur est posé une fois pour toutes
+                                        // avant la première passe : il survit aux sélections
+                                        // Année/Date, qui portent sur d'autres champs.
+                                        if (!parFournisseur) {
+                                            await timed("clearCodeAll", "Clear", () => rpc("Clear", {}, fh), timingsAll);
+                                            await sleep(qlikSettleMs);
+                                            await timed("selectCodeAll", "SelectValues", () => rpc("SelectValues", {
+                                                qFieldValues: codes.map((c) => ({ qText: c })),
+                                                qToggleMode: false,
+                                                qSoftLock: true,
+                                            }, fh), timingsAll);
+                                            await sleep(qlikSettleMs);
+                                        }
                                         const got = await timed("cube", "all", () => fetchMonthCube(onRowMois, timingsAll), timingsAll);
                                         aggBatches++;
                                         console.log(
-                                            "[qlik-pw][timing] (mois) chemin rapide — " + codes.length + " codes en 1 sélection, rows=" + got.value +
+                                            "[qlik-pw][timing] (mois) chemin rapide — " +
+                                            (parFournisseur ? "périmètre fournisseur (0 sélection code)" : codes.length + " codes en 1 sélection") +
+                                            ", rows=" + got.value +
                                             " cumul=" + out.length + " timings=" + timingSummary(timingsAll),
                                         );
                                         return;
@@ -1388,6 +1531,15 @@ export async function fetchNetworkMetricsPlaywright(
                             };
 
                             if (!noDateMode) {
+                                // ÉTAPE 0 — poser le périmètre articles, une fois pour toutes.
+                                //
+                                // Le code fournisseur FF (base SQL / API) existe aussi dans Qlik :
+                                // une seule valeur y désigne le même périmètre que les dizaines de
+                                // milliers de codes articles qu'on envoyait jusqu'ici. La bascule
+                                // n'est retenue que si la couverture mesurée le justifie, sinon on
+                                // retombe sur la sélection par codes (cf. selectionnerParFournisseur).
+                                parFournisseur = await selectionnerParFournisseur();
+
                                 // ÉTAPE 1 — caler le champ `Période` du modèle sur la fenêtre.
                                 //
                                 // Toutes les mesures de l'app sont bornées par `Type_Cal`
@@ -1624,6 +1776,9 @@ export async function fetchNetworkMetricsPlaywright(
                 exprNbMag: qlikExprNbMag,
                 exprMarge: qlikExprMarge,
                 champsDateCandidats: qlikDateFields,
+                fournisseurCode: (fournisseur ?? "").trim(),
+                champsFournisseurCandidats: qlikSupplierFields,
+                couvertureFournisseurMin: qlikSupplierMinCoverage,
             },
         );
 

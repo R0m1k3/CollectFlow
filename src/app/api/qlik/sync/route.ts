@@ -241,7 +241,11 @@ async function runJob(job: QlikSyncJob): Promise<void> {
         console.log(
             `[api/qlik/sync] job=${job.jobId} → extraction Qlik pour ${codes.length} codes — 12 mois complets ${dateFilter.label} (${dateFilter.dateDebut} → ${dateFilter.dateFin})…`,
         );
-        const metrics = await fetchNetworkMetricsPlaywright(codes, undefined, dateFilter);
+        // Le code fournisseur est transmis en plus des codes : s'il désigne dans
+        // Qlik le même périmètre (couverture vérifiée côté extracteur), une seule
+        // sélection remplace les dizaines de milliers de `SelectValues` par code.
+        // Les codes restent le repli et le contrôle de couverture.
+        const metrics = await fetchNetworkMetricsPlaywright(codes, undefined, dateFilter, job.fournisseur);
         job.fetched = metrics.size;
         console.log(`[api/qlik/sync] job=${job.jobId} ← Qlik a renvoyé ${metrics.size} produits réseau`);
         const count = await upsertNetworkMetrics([...metrics.values()]);

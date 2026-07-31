@@ -330,6 +330,38 @@ sélection de codes, puis seule la fenêtre de dates change d'un mois à l'autre
 La sonde de diagnostic de fin de sync a été retirée : elle refaisait une sélection
 complète des codes et des 365 jours pour rien.
 
+### Sélection PAR FOURNISSEUR (ÉTAPE 0)
+
+Le code fournisseur FF présent en base SQL / API (ex. `J009`) existe aussi dans
+Qlik. Une valeur y désigne le même périmètre que les dizaines de milliers de codes
+articles — pour un fournisseur de 41 569 références, c'est **un** `SelectValues`
+trivial au lieu d'un appel de 8 à 100 s **répété à chaque passe annuelle**.
+
+`selectionnerParFournisseur()` (in-page, avant `choisirPeriode()`) :
+
+1. essaie chaque champ candidat — `QLIK_FIELD_CODE_FOURNISSEUR`, puis
+   `code_fournisseur`, `Fournisseur`, `fournisseur_code_centrale` ;
+2. `SelectValues` le code fournisseur (soft lock) ; une valeur inconnue passe au
+   champ suivant ;
+3. **vérifie la couverture** : lit les Article Code visibles sous cette sélection
+   (cube paginé) et compare aux codes demandés ;
+4. ne retient la bascule que si la couverture atteint `QLIK_SUPPLIER_MIN_COVERAGE`
+   (défaut **0.99**, borné à [0.5, 1]). Sinon la sélection est annulée et on
+   revient à la sélection par codes.
+
+Ce contrôle est indispensable : un article rattaché à plusieurs fournisseurs, ou
+un référencement Qlik différent du référencement FF, doit faire **revenir aux
+codes** plutôt que perdre silencieusement des articles.
+
+Quand la bascule est retenue (`parFournisseur = true`), plus **aucun**
+`SelectValues` sur « Article Code » n'est émis — ni par les passes annuelles, ni
+par l'agrégation directe par expressions. Le périmètre fournisseur survit aux
+sélections `Année` et `Date`, qui portent sur d'autres champs. Le repli par lots
+de codes reste disponible si l'Engine refuse un cube.
+
+En mode produit (sync d'un seul code centrale), aucun fournisseur n'est transmis :
+la sélection reste par code.
+
 ### Aucun résultat partiel dans le cache
 
 Le script in-page conserve des points de contrôle à des fins de diagnostic, mais
@@ -396,6 +428,9 @@ QLIK_DIM_CODE_ARTICLE_ID=fcd239e5-288b-4830-a047-0e3d7665d971
 QLIK_MEAS_CA_ID=43a76088-86fa-402e-a80e-0efd7701b3e1
 QLIK_MEAS_QTE_ID=7b40caf1-be4b-4811-8d45-50acde33e715
 QLIK_MEAS_NBMAG_ID=8b63fae5-db2f-4e4c-8618-f3e9d60b6b3b
+# Sélection par fournisseur (facultatif — auto-détection sinon) :
+QLIK_FIELD_CODE_FOURNISSEUR=      # champ Qlik portant le code fournisseur FF
+QLIK_SUPPLIER_MIN_COVERAGE=0.99   # couverture minimale exigée pour basculer
 ```
 
 ## RESTE À FAIRE
