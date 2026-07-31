@@ -94,11 +94,9 @@ export interface NetworkMetric {
     /**
      * Détail mensuel complet : { "YYYY-MM": { qte, ca, nbMag, caMag, margePct } }.
      *
-     * Le cube mensuel Qlik renvoie déjà ces 5 mesures par (Article Code, Mois) —
-     * les conserver ne coûte aucune requête supplémentaire. Seule `qte` est
-     * garantie : les mois N-1 dérivés de « Quantité COMP » n'ont que la quantité
-     * tant que la passe complémentaire N-1 ne les a pas complétés (elle est
-     * sautée si le champ Qlik `Année` est absent).
+     * Le cube mensuel Qlik renvoie déjà ces 5 mesures par (Article Code, Mois).
+     * Lors d'une synchronisation datée validée, les 12 mois complets sont
+     * toujours présents ; un mois sans fait est explicitement représenté à 0.
      */
     metricsByMonth?: Record<string, QlikMonthMetrics>;
     /**

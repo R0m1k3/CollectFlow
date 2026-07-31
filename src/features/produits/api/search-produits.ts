@@ -8,7 +8,7 @@ import {
     type NetworkMetricCached,
 } from "@/lib/qlik-network-cache";
 import { pgGetProduitsByCodeCentrale, pgSearchProduits, type PgProduitSearchRow } from "@/lib/pg-ff-client";
-import { NB_MAGASINS_RESEAU } from "@/features/grid/lib/network-trend";
+import { buildRolling12QlikMonths, NB_MAGASINS_RESEAU } from "@/features/grid/lib/network-trend";
 import { normalizeMargePct } from "@/features/produits/lib/compare-reseau";
 import type { ProduitRechercheResultat, ProduitRechercheRow } from "@/features/produits/types";
 
@@ -36,6 +36,19 @@ const CACHE_TTL_MS = 10 * 60 * 1000;
 
 /** Durée de conservation d'un job terminé (le client a le temps de le relire). */
 const JOB_TTL_MS = 5 * 60 * 1000;
+
+/** Un cache réseau n'est fiable que s'il porte explicitement les 12 mois attendus. */
+function cacheReseauComplet(
+    cache: NetworkMetricCached | undefined,
+    periode: string | null,
+    now: Date = new Date(),
+): cache is NetworkMetricCached {
+    if (!cache?.qteByMonth || !periode || cache.periode !== periode) return false;
+    return buildRolling12QlikMonths(now).every((mois) =>
+        Object.prototype.hasOwnProperty.call(cache.qteByMonth, mois) &&
+        Number.isFinite(Number(cache.qteByMonth[mois])),
+    );
+}
 
 /**
  * Nombre maximum de recherches Qlik simultanées.
@@ -271,21 +284,29 @@ async function executerRecherche(
         localPromise,
     ]);
 
-    // On persiste les mesures fraîches : la fiche produit ouverte depuis un
-    // résultat les affiche aussitôt, sans re-extraction. Le détail mensuel n'est
-    // pas fourni ici et n'est donc pas écrasé (upsert en COALESCE).
+    // Le cube de recherche utilise encore les master measures annuelles pour
+    // classer rapidement les résultats. Il ne doit jamais écraser une extraction
+    // 12 mois déjà vérifiée : dans ce cas on republie les valeurs du cache avec
+    // leur mensuel. Sans cache complet, les valeurs de découverte restent
+    // temporaires jusqu'au bouton « Actualiser depuis Qlik ».
     try {
-        const aPersister: NetworkMetric[] = qlik.matches.map((m) => ({
-            codeCentrale: m.codeCentrale,
-            caReseau: m.caReseau,
-            qteReseau: m.qteReseau,
-            nbMagasinsReseau: m.nbMagasinsReseau,
-            caParMagasinReseau: m.caParMagasinReseau,
-            margePctReseau: m.margePctReseau,
-            periode: qlik.periode ?? undefined,
-            libelleReseau: m.libelle || undefined,
-            fournisseurReseau: m.fournisseur || undefined,
-        }));
+        const aPersister: NetworkMetric[] = qlik.matches.map((m) => {
+            const cache = cacheReseau.get(m.codeCentrale);
+            const fiable = cacheReseauComplet(cache, qlik.periode);
+            return {
+                codeCentrale: m.codeCentrale,
+                caReseau: fiable ? cache.caReseau : m.caReseau,
+                qteReseau: fiable ? cache.qteReseau : m.qteReseau,
+                nbMagasinsReseau: fiable ? cache.nbMagasinsReseau : m.nbMagasinsReseau,
+                caParMagasinReseau: fiable ? cache.caParMagasinReseau : m.caParMagasinReseau,
+                margePctReseau: fiable ? cache.margePctReseau : m.margePctReseau,
+                periode: fiable ? cache.periode ?? undefined : qlik.periode ?? undefined,
+                qteByMonth: fiable ? cache.qteByMonth ?? undefined : undefined,
+                metricsByMonth: fiable ? cache.metricsByMonth ?? undefined : undefined,
+                libelleReseau: m.libelle || undefined,
+                fournisseurReseau: m.fournisseur || undefined,
+            };
+        });
         const n = await upsertNetworkMetrics(aPersister);
         console.log(`[produits/search] ${n} ligne(s) réseau mises en cache`);
     } catch (e) {
@@ -295,7 +316,12 @@ async function executerRecherche(
     const rows: ProduitRechercheRow[] = qlik.matches.map((m) => {
         const local = catalogue.get(m.codeCentrale) ?? (m.codeCentraleAlt ? catalogue.get(m.codeCentraleAlt) : undefined);
         const cache = cacheReseau.get(m.codeCentrale);
-        const nbMag = m.nbMagasinsReseau;
+        const fiable = cacheReseauComplet(cache, qlik.periode);
+        const qteReseau = fiable ? cache.qteReseau : m.qteReseau;
+        const caReseau = fiable ? cache.caReseau : m.caReseau;
+        const nbMag = fiable ? cache.nbMagasinsReseau : m.nbMagasinsReseau;
+        const caParMagasin = fiable ? cache.caParMagasinReseau : m.caParMagasinReseau;
+        const margePct = fiable ? cache.margePctReseau : m.margePctReseau;
         return {
             codeCentrale: m.codeCentrale,
             libelle: local?.libelle1 || m.libelle || m.codeCentrale,
@@ -304,16 +330,16 @@ async function executerRecherche(
             codein: local?.codein ?? null,
             nomenclature: local?.nomenclature ?? "",
             stockLocal: local ? Number(local.stock_total) || 0 : null,
-            qteReseau: m.qteReseau,
-            caReseau: m.caReseau,
+            qteReseau,
+            caReseau,
             nbMagasinsReseau: nbMag,
             tauxPresence: nbMag / NB_MAGASINS_RESEAU,
-            qteParMagasinReseau: nbMag > 0 ? m.qteReseau / nbMag : 0,
-            caParMagasinReseau: m.caParMagasinReseau,
-            prixMoyenReseau: m.qteReseau > 0 ? m.caReseau / m.qteReseau : null,
-            margePctReseau: normalizeMargePct(m.margePctReseau),
+            qteParMagasinReseau: nbMag > 0 ? qteReseau / nbMag : 0,
+            caParMagasinReseau: caParMagasin,
+            prixMoyenReseau: qteReseau > 0 ? caReseau / qteReseau : null,
+            margePctReseau: normalizeMargePct(margePct),
             // Le mensuel ne vient que du cache : le cube de recherche est agrégé.
-            qteByMonth: cache?.qteByMonth ?? null,
+            qteByMonth: fiable ? cache.qteByMonth : null,
             periode: qlik.periode,
         };
     });

@@ -144,8 +144,14 @@ export function buildGridNetworkQlikDateFilter(
     // Début : `months` mois avant le mois courant (1er du mois)
     const startMonth = new Date(now.getFullYear(), now.getMonth() - months, 1);
 
-    const dateDebut = startMonth.toISOString().slice(0, 10);
-    const dateFin = endMonth.toISOString().slice(0, 10);
+    // Ne jamais utiliser `toISOString()` ici : minuit local en Europe/Paris
+    // devient la veille en UTC et transformait par exemple 2025-07-01 en
+    // 2025-06-30, soit une extraction de 13 mois. Les bornes sont des dates
+    // calendaires Qlik, on les formate donc avec les composantes locales.
+    const localIso = (d: Date): string =>
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const dateDebut = localIso(startMonth);
+    const dateFin = localIso(endMonth);
 
     const qStart = isoDateToQlikSerial(dateDebut);
     const qEnd = isoDateToQlikSerial(dateFin);

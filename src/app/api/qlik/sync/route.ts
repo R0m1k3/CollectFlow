@@ -5,10 +5,7 @@ import { upsertNetworkMetrics } from "@/lib/qlik-network-cache";
 import { pgGetArticlesByFournisseur } from "@/lib/pg-ff-client";
 import {
     buildGridNetworkQlikDateFilter,
-    envMonthsBack,
     QLIK_MONTHS_BACK_DEFAULT,
-    QLIK_MONTHS_BACK_MAX,
-    QLIK_MONTHS_BACK_MIN,
 } from "@/lib/qlik-date-range";
 
 // Tâche d'extraction Qlik potentiellement très longue (hypercube paginé).
@@ -235,16 +232,14 @@ async function runJob(job: QlikSyncJob): Promise<void> {
             return;
         }
 
-        // Fenêtre temporelle alignée sur la grille, éventuellement raccourcie via
-        // QLIK_SYNC_MONTHS_BACK (1..12, défaut 12). On logue la valeur effective
-        // pour audit.
-        const monthsBack = envMonthsBack("QLIK_SYNC_MONTHS_BACK", QLIK_MONTHS_BACK_DEFAULT);
-        const dateFilter = buildGridNetworkQlikDateFilter(new Date(), monthsBack);
+        // Contrat métier strict : toujours 12 mois complets glissants.
+        // Une variable d'environnement ne doit pas pouvoir raccourcir la série.
+        const dateFilter = buildGridNetworkQlikDateFilter(new Date(), QLIK_MONTHS_BACK_DEFAULT);
         job.periode = dateFilter.label;
         job.dateDebut = dateFilter.dateDebut;
         job.dateFin = dateFilter.dateFin;
         console.log(
-            `[api/qlik/sync] job=${job.jobId} → extraction Qlik pour ${codes.length} codes — fenêtre ${dateFilter.label} (${dateFilter.dateDebut} → ${dateFilter.dateFin}, QLIK_SYNC_MONTHS_BACK=${monthsBack}, bornes ${QLIK_MONTHS_BACK_MIN}..${QLIK_MONTHS_BACK_MAX})…`,
+            `[api/qlik/sync] job=${job.jobId} → extraction Qlik pour ${codes.length} codes — 12 mois complets ${dateFilter.label} (${dateFilter.dateDebut} → ${dateFilter.dateFin})…`,
         );
         const metrics = await fetchNetworkMetricsPlaywright(codes, undefined, dateFilter);
         job.fetched = metrics.size;
@@ -289,8 +284,7 @@ async function runProductJob(job: QlikSyncJob): Promise<void> {
         const code = job.codeCentrale!;
         job.requested = 1;
 
-        const monthsBack = envMonthsBack("QLIK_SYNC_MONTHS_BACK", QLIK_MONTHS_BACK_DEFAULT);
-        const dateFilter = buildGridNetworkQlikDateFilter(new Date(), monthsBack);
+        const dateFilter = buildGridNetworkQlikDateFilter(new Date(), QLIK_MONTHS_BACK_DEFAULT);
         job.periode = dateFilter.label;
         job.dateDebut = dateFilter.dateDebut;
         job.dateFin = dateFilter.dateFin;

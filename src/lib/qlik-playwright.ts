@@ -602,14 +602,22 @@ export async function fetchNetworkMetricsPlaywright(
                                 }
                             };
 
-                            /** Sélectionne la fenêtre sur un champ date candidat. Renvoie false si le champ n'existe pas. */
-                            const selectionnerFenetreSur = async (champ: string, valeurs: number[]): Promise<boolean> => {
+                            /**
+                             * Sélectionne la fenêtre sur un champ date candidat.
+                             *
+                             * Renvoie le handle pour que l'appelant puisse impérativement
+                             * effacer une sélection rejetée avant d'essayer le candidat
+                             * suivant. Sans ce Clear, un premier champ qui ne matche aucune
+                             * date maintient l'ensemble courant à zéro et condamne tous les
+                             * essais suivants à renvoyer zéro eux aussi.
+                             */
+                            const selectionnerFenetreSur = async (champ: string, valeurs: number[]): Promise<number | null> => {
                                 let h: number;
                                 try {
                                     const gf = await rpc("GetField", { qFieldName: champ }, doc);
                                     h = (gf.qReturn as { qHandle: number }).qHandle;
-                                    if (typeof h !== "number" || h < 0) return false;
-                                } catch { return false; }
+                                    if (typeof h !== "number" || h < 0) return null;
+                                } catch { return null; }
                                 await rpc("Clear", {}, h);
                                 await sleep(qlikSettleMs);
                                 for (let i = 0; i < valeurs.length; i += 500) {
@@ -620,7 +628,7 @@ export async function fetchNetworkMetricsPlaywright(
                                     }, h);
                                 }
                                 await sleep(qlikSettleMs);
-                                return true;
+                                return h;
                             };
 
                             const moisParExpressions = async (): Promise<boolean> => {
@@ -658,9 +666,11 @@ export async function fetchNetworkMetricsPlaywright(
                                     const allSerials = monthlyPayload.flatMap((m) => m.serials);
                                     const allYmd = monthlyPayload.flatMap((m) => m.ymd);
                                     let champDate: string | null = null;
+                                    let totalFenetre = 0;
                                     for (const cand of champsDateCandidats) {
                                         const valeurs = /key/i.test(cand) ? allYmd : allSerials;
-                                        if (!(await selectionnerFenetreSur(cand, valeurs))) {
+                                        const handleCand = await selectionnerFenetreSur(cand, valeurs);
+                                        if (handleCand == null) {
                                             console.log("[qlik-pw][expr]   champ « " + cand + " » : inexistant");
                                             continue;
                                         }
@@ -670,7 +680,15 @@ export async function fetchNetworkMetricsPlaywright(
                                             "[qlik-pw][expr]   champ « " + cand + " » → " + Math.round(filtre) +
                                             " (" + Math.round(ratio * 100) + "% du total sans filtre)",
                                         );
-                                        if (filtre > 0 && ratio < 0.995) { champDate = cand; break; }
+                                        if (filtre > 0 && ratio < 0.995) {
+                                            champDate = cand;
+                                            totalFenetre = filtre;
+                                            break;
+                                        }
+                                        // Un candidat rejeté ne doit jamais polluer l'essai
+                                        // suivant (cas observé : Date=0 puis tous les autres=0).
+                                        await rpc("Clear", {}, handleCand);
+                                        await sleep(qlikSettleMs);
                                     }
                                     if (!champDate) {
                                         console.error(
@@ -714,10 +732,19 @@ export async function fetchNetworkMetricsPlaywright(
                                         // Totaux = somme des mois de la fenêtre (et non un cumul année).
                                         out.push([code, ca, qte, nbMag, nbMag > 0 ? ca / nbMag : 0, ca > 0 ? marge / ca : 0]);
                                         (monthlyByCode[code] ??= {});
+                                        // Agrège au lieu d'écraser : protège contre deux valeurs
+                                        // brutes de la dimension Mois qui se normaliseraient vers
+                                        // la même clé YYYY-MM.
+                                        const precedent = monthlyByCode[code][mm];
+                                        const qteCumulee = (precedent?.qte ?? 0) + qte;
+                                        const caCumule = (precedent?.ca ?? 0) + ca;
+                                        const margeMontant = ((precedent?.margePct ?? 0) * (precedent?.ca ?? 0)) + marge;
                                         monthlyByCode[code][mm] = {
-                                            qte, ca, nbMag,
+                                            qte: qteCumulee,
+                                            ca: caCumule,
+                                            nbMag: Math.max(precedent?.nbMag ?? 0, nbMag),
                                             caMag: nbMag > 0 ? ca / nbMag : 0,
-                                            margePct: ca > 0 ? marge / ca : 0,
+                                            margePct: caCumule > 0 ? margeMontant / caCumule : 0,
                                         };
                                     }, timings), timings);
 
@@ -738,6 +765,51 @@ export async function fetchNetworkMetricsPlaywright(
                                         out.length = marqueOut;
                                         for (const k of Object.keys(monthlyByCode)) delete monthlyByCode[k];
                                         return false;
+                                    }
+                                    // Contrôle global indépendant : le cube sans dimension,
+                                    // calculé sur exactement les mêmes sélections, doit être
+                                    // égal à la somme de toutes les lignes mensuelles paginées.
+                                    const ecartGlobal = Math.abs(totalQte - totalFenetre);
+                                    const toleranceGlobale = Math.max(0.001, Math.abs(totalFenetre) * 1e-9);
+                                    if (ecartGlobal > toleranceGlobale) {
+                                        console.error(
+                                            "[qlik-pw][expr] INTÉGRITÉ REFUSÉE : somme mensuelle=" + totalQte +
+                                            " mais total Qlik fenêtre=" + totalFenetre + " (écart=" + ecartGlobal + ")",
+                                        );
+                                        out.length = marqueOut;
+                                        for (const k of Object.keys(monthlyByCode)) delete monthlyByCode[k];
+                                        return false;
+                                    }
+
+                                    // Contrôle et normalisation PAR ARTICLE. Chaque article
+                                    // retourné possède ensuite exactement les 12 clés de la
+                                    // fenêtre ; une clé absente du cube Qlik signifie qu'aucun
+                                    // fait n'existe pour ce mois, donc une vraie valeur 0.
+                                    const totauxParCode: Record<string, number> = {};
+                                    for (let i = marqueOut; i < out.length; i++) {
+                                        const ligne = out[i];
+                                        const code = String(ligne[0] ?? "").trim();
+                                        if (code) totauxParCode[code] = (totauxParCode[code] ?? 0) + (Number(ligne[2]) || 0);
+                                    }
+                                    for (const [code, mois] of Object.entries(monthlyByCode)) {
+                                        for (const label of moisFenetre) {
+                                            mois[label] ??= { qte: 0, ca: 0, nbMag: 0, caMag: 0, margePct: 0 };
+                                        }
+                                        // Ne conserve aucune clé hors de la fenêtre glissante.
+                                        for (const label of Object.keys(mois)) {
+                                            if (!moisFenetre.has(label)) delete mois[label];
+                                        }
+                                        const somme12 = Array.from(moisFenetre).reduce((s, label) => s + (Number(mois[label]?.qte) || 0), 0);
+                                        const totalArticle = totauxParCode[code] ?? 0;
+                                        if (Math.abs(somme12 - totalArticle) > Math.max(0.001, Math.abs(totalArticle) * 1e-9)) {
+                                            console.error(
+                                                "[qlik-pw][expr] INTÉGRITÉ ARTICLE REFUSÉE code=" + code +
+                                                " somme12=" + somme12 + " total=" + totalArticle,
+                                            );
+                                            out.length = marqueOut;
+                                            for (const k of Object.keys(monthlyByCode)) delete monthlyByCode[k];
+                                            return false;
+                                        }
                                     }
                                     if (calibrees > 20 && calibrOk / calibrees < 0.5) {
                                         console.warn(
@@ -995,11 +1067,22 @@ export async function fetchNetworkMetricsPlaywright(
                                 }
                             };
 
-                            if (!noDateMode && monthDim && useExpr && (await moisParExpressions())) {
-                                // Chemin nominal : un seul cube, tous les mois de la fenêtre, des
-                                // mesures qui respectent la sélection Date. Ni passe N-1 ni
-                                // rattrapage nécessaires — c'est justement ce qu'ils compensaient.
-                                await pousserCheckpoint("expressions");
+                            if (!noDateMode) {
+                                // Une synchronisation datée n'est valide qu'avec les expressions
+                                // de faits, la dimension Mois et les contrôles d'intégrité.
+                                // Les master measures « N » sont annuelles et ne peuvent jamais
+                                // constituer un repli fiable pour 12 mois glissants.
+                                if (!monthDim || !useExpr) {
+                                    throw new Error(
+                                        "extraction 12 mois impossible : QLIK_MONTH_DIM et QLIK_USE_EXPR doivent être activés",
+                                    );
+                                }
+                                if (!(await moisParExpressions())) {
+                                    throw new Error(
+                                        "extraction 12 mois refusée : champ Date/expression invalide ou somme mensuelle différente du total Qlik",
+                                    );
+                                }
+                                await pousserCheckpoint("expressions vérifiées");
                             } else if (!noDateMode && monthDim) {
                                 // Repli : master measures « année en cours » + passe N-1 + rattrapage.
                                 console.log("[qlik-pw] extraction via dimension Mois (" + monthlyPayload.length + " mois attendus, moisDim=" + moisDimId + ")");
@@ -1190,6 +1273,12 @@ export async function fetchNetworkMetricsPlaywright(
             result = (await evaluer()) as InPageResult;
         } catch (e) {
             const msg = String((e as Error)?.message || e);
+            // Une fenêtre 12 mois n'est publiable que si l'extraction est
+            // complète et a passé tous les contrôles. Conserver un checkpoint
+            // partiel fabriquerait précisément des graphiques à 2 ou 3 mois.
+            if (dateFilter) {
+                throw new Error(`[qlik-pw] extraction 12 mois interrompue, cache inchangé : ${msg}`);
+            }
             const secours = checkpoint as { rows?: Array<Array<string | number>>; monthly?: InPageResult["monthly"] } | null;
             if (secours?.rows?.length) {
                 console.error(`[qlik-pw] extraction interrompue (${msg.slice(0, 200)}) — reprise du dernier point de contrôle : ${secours.rows.length} lignes`);
@@ -1200,6 +1289,9 @@ export async function fetchNetworkMetricsPlaywright(
         }
 
         if (!result.ok) {
+            if (dateFilter) {
+                throw new Error(`[qlik-pw] extraction 12 mois refusée, cache inchangé : ${result.error}`);
+            }
             // Même logique qu'un crash : un résultat partiel vaut mieux que rien.
             if (result.rows?.length) {
                 console.error(`[qlik-pw] extraction en échec (${String(result.error).slice(0, 200)}) — ${result.rows.length} lignes déjà extraites conservées`);
@@ -1209,6 +1301,9 @@ export async function fetchNetworkMetricsPlaywright(
             }
         }
         if (result.partiel) {
+            if (dateFilter) {
+                throw new Error("[qlik-pw] extraction 12 mois partielle refusée, cache inchangé");
+            }
             console.warn("[qlik-pw] ⚠ résultat PARTIEL : certains codes n'ont pas été extraits, relancer la sync pour compléter");
         }
 

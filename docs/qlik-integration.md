@@ -117,8 +117,20 @@ master measure est juste :
 ```
 
 Un calibrage faible signale une expression à ajuster (filtre `flag_type_mvt`,
-`ca_ttc` plutôt que `ca_ht`…). Quantité totale nulle ou erreur Engine → repli
-automatique sur l'ancien chemin. `QLIK_USE_EXPR=0` le force.
+`ca_ttc` plutôt que `ca_ht`…). Il n'existe plus de repli automatique vers les
+master measures annuelles : quantité totale nulle, champ Date invalide, erreur
+Engine ou somme incohérente font échouer la synchronisation et laissent le cache
+précédent intact.
+
+Après sélection de la fenêtre, l'extracteur vérifie deux invariants avant tout
+upsert :
+
+1. la somme de toutes les lignes `[Article Code, Mois]` est égale au total Qlik
+   sans dimension calculé avec les mêmes sélections ;
+2. pour chaque article, la quantité réseau totale est exactement la somme de ses
+   12 mois. Les mois sans ligne de faits sont alors seulement matérialisés à `0`.
+
+Une extraction interrompue ou partielle n'est jamais publiée.
 
 ### Valider les expressions sur le vrai serveur
 
@@ -159,8 +171,10 @@ au total sans filtre — 0 % signifie que la sélection ne matche rien, 100 % qu
 n'a aucun effet. Candidats essayés dans l'ordre : `QLIK_DATE_FIELD` (si défini),
 `Date`, `Date calendrier`, `Date_Key` (celui-ci sélectionné au format `AAAAMMJJ`).
 
-Si aucun ne filtre, l'extraction le dit et repart sur l'ancien chemin plutôt que
-de produire une fenêtre fausse.
+Si aucun ne filtre, l'extraction échoue explicitement plutôt que de produire une
+fenêtre fausse. Chaque sélection d'un candidat rejeté est effacée avant l'essai
+suivant ; autrement un premier candidat à zéro contaminait tous les contrôles
+suivants.
 
 ## La passe de rattrapage a été supprimée
 
@@ -173,7 +187,7 @@ qu'elle recopiait dans chaque mois manquant : d'où les plateaux identiques d'ao
 Un mois qu'on ne sait pas extraire doit rester **absent**, jamais rempli d'une
 valeur plausible.
 
-## Mois vides de la fenêtre glissante (chemin de repli)
+## Mois vides de la fenêtre glissante
 
 Les mesures « N » de l'app sont bornées à une année civile. Quand la fenêtre
 12 mois glissants chevauche deux années (le cas 11 mois sur 12), le chemin
@@ -183,22 +197,15 @@ que sur une seule année : les mois de l'année précédente ressortent vides.
 cours — d'où, en juillet 2026, un trou observé d'août à décembre 2025 sur
 **tous** les articles.
 
-Trois garde-fous, dans `qlik-playwright.ts` :
+Le chemin daté repose uniquement sur les expressions de faits et un cube unique
+`[Article Code, Mois]`. Après validation de la fenêtre et du total, chaque
+article reçoit exactement les 12 clés attendues. Une clé absente du cube signifie
+alors réellement « aucun fait sur ce mois » et vaut `0`; avant cette validation,
+aucun zéro n'est inventé.
 
-1. La passe principale n'écrit plus de `0` pour un mois hors année N, et
-   « Quantité COMP » n'écrit rien quand elle est vide. Un mois **absent** peut
-   être rattrapé ; un mois **à 0** se lit comme « pas de vente » et masque le trou.
-2. `rattraperMoisVides()` : après les passes N et N-1, tout mois vide pour
-   **tous** les articles est ré-extrait en ne sélectionnant **que ses dates** —
-   la mesure se résout alors sur la bonne année, quelle que soit l'écriture de
-   son set analysis.
-3. Les expressions des master measures sont dumpées au log
-   (`[qlik-pw][dump] expression « Quantité N » = …`) : c'est la seule façon de
-   savoir comment la mesure est bornée.
-
-Contournement immédiat sans redéploiement : `QLIK_MONTH_DIM=0` repasse sur
-l'itération mois par mois (une sélection de dates par mois, donc pas de trou),
-au prix d'une extraction plus lente.
+`QLIK_MONTH_DIM=0` ou `QLIK_USE_EXPR=0` désactive désormais un prérequis et fait
+échouer la synchronisation datée : ces options ne peuvent plus réactiver un
+chemin connu comme incorrect.
 
 ⚠️ Les données déjà en cache gardent leurs zéros : il faut relancer la sync Qlik
 pour les corriger.
@@ -219,21 +226,19 @@ sélection de codes, puis seule la fenêtre de dates change d'un mois à l'autre
 La sonde de diagnostic de fin de sync a été retirée : elle refaisait une sélection
 complète des codes et des 365 jours pour rien.
 
-### Résultat partiel plutôt que rien
+### Aucun résultat partiel dans le cache
 
-Le script in-page pousse un point de contrôle (`cfCheckpoint`) après chaque passe.
-Si la session meurt en cours de route, l'extraction repart de ce point au lieu de
-tout perdre : les codes déjà traités ont des données **complètes** (la dimension
-Mois livre tous leurs mois d'un coup), seul le reliquat manque. Le log signale
-alors `⚠ résultat PARTIEL` — relancer la sync complète le reste.
+Le script in-page conserve des points de contrôle à des fins de diagnostic, mais
+une synchronisation datée interrompue est refusée intégralement. Le cache garde
+sa dernière version complète jusqu'à la réussite d'une nouvelle extraction.
 
 ## Tendance réseau = 12 mois glissants stricts
 
 `computeNetworkTrend()` reconstruit sa fenêtre à partir de la date du jour :
 12 mois complets, **mois en cours exclu** (partiel, il tirait la pente vers le bas).
-Les mois de la fenêtre absents du cache valent 0 (produit non vendu) ; ceux
-antérieurs au premier mois réellement extrait sont écartés au lieu d'être
-inventés à 0 (extraction plus courte que 12 mois).
+La tendance n'est affichée que si les 12 clés sont explicitement présentes dans
+le cache. Les anciennes séries partielles de deux ou trois mois sont donc
+refusées au lieu d'être présentées comme une tendance.
 
 Retirés : ranking (champs/query/colonnes), analyse IA (routes `/api/ai/*`, `bulk-ai-analyzer`,
 dossier `ai-copilot`), score (`score-engine.ts`, colonne score).

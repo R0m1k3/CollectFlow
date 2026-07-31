@@ -37,7 +37,7 @@
 import "server-only";
 import { chromium, type Browser } from "playwright-core";
 import { getQlikConfig, qlikNtlmSession, type QlikConfig } from "@/lib/qlik-client";
-import { buildGridNetworkQlikDateFilter, envMonthsBack, QLIK_MONTHS_BACK_DEFAULT } from "@/lib/qlik-date-range";
+import { buildGridNetworkQlikDateFilter, QLIK_MONTHS_BACK_DEFAULT } from "@/lib/qlik-date-range";
 
 /**
  * Un article trouvé côté Qlik, **avec ses mesures réseau sur 12 mois glissants**.
@@ -170,7 +170,7 @@ export async function searchQlikArticles(
     // Même fenêtre que la Grille : 12 mois complets glissants, mois courant exclu.
     const dateFilter = buildGridNetworkQlikDateFilter(
         new Date(),
-        envMonthsBack("QLIK_SYNC_MONTHS_BACK", QLIK_MONTHS_BACK_DEFAULT),
+        QLIK_MONTHS_BACK_DEFAULT,
     );
     const sess = await qlikNtlmSession(cfg);
     const [cookieName, ...rest] = sess.cookie.split("=");
