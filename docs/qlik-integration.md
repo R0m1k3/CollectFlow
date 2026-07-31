@@ -120,6 +120,26 @@ Un calibrage faible signale une expression à ajuster (filtre `flag_type_mvt`,
 `ca_ttc` plutôt que `ca_ht`…). Quantité totale nulle ou erreur Engine → repli
 automatique sur l'ancien chemin. `QLIK_USE_EXPR=0` le force.
 
+### Valider les expressions sur le vrai serveur
+
+`scripts/qlik-validate.mjs` répond aux deux questions ouvertes en une exécution,
+**depuis un réseau qui atteint Qlik** (le serveur est filtré par IP : injoignable
+depuis l'extérieur, la passerelle d'egress tombe en `connection timeout`) :
+
+```
+docker exec -e QLIK_PWD='<mot de passe>' -it <conteneur> node scripts/qlik-validate.mjs
+```
+
+Il affiche les expressions réelles des master measures, puis un tableau mois par
+mois comparant `Sum(quantite)` / `Sum(ca_ht)` / `Sum(ca_ttc)` /
+`Count(DISTINCT [Magasin Code])` aux mesures « N » — sur les mois de l'année en
+cours (où elles doivent coïncider) comme sur ceux de l'année précédente (où les
+mesures « N » sont censées être à 0). Il affiche enfin `Article Code`,
+`article_no_centrale` et `article_codein` côte à côte, pour trancher la clé de
+jointure avec `articles.artcentrale`.
+
+Lecture seule : sélections en soft lock, objets de session détruits.
+
 ## Mois vides de la fenêtre glissante (chemin de repli)
 
 Les mesures « N » de l'app sont bornées à une année civile. Quand la fenêtre
