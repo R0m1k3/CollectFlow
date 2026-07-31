@@ -268,9 +268,9 @@ export async function fetchNetworkMetricsPlaywright(
 
                             // Résoudre les master measures par TITRE (le qLibraryId fiable = qInfo.qId, ≠ GUID QRS).
                             const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
-                            const ml = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "MeasureList" }, qMeasureListDef: { qType: "measure", qData: { title: "/qMetaDef/title" } } } }, doc);
+                            const ml = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "MeasureList" }, qMeasureListDef: { qType: "measure", qData: { title: "/qMetaDef/title", expr: "/qMeasure/qDef" } } } }, doc);
                             const mll = await rpc("GetLayout", {}, (ml.qReturn as { qHandle: number }).qHandle);
-                            const items = (((mll.qLayout as { qMeasureList?: { qItems?: Array<{ qInfo: { qId: string }; qMeta?: { title?: string }; qData?: { title?: string } }> } }).qMeasureList?.qItems) ?? []);
+                            const items = (((mll.qLayout as { qMeasureList?: { qItems?: Array<{ qInfo: { qId: string }; qMeta?: { title?: string }; qData?: { title?: string; expr?: string } }> } }).qMeasureList?.qItems) ?? []);
                             const byTitle = new Map<string, string>();
                             for (const it of items) { const t = it.qMeta?.title ?? it.qData?.title ?? ""; if (t) byTitle.set(norm(t), it.qInfo.qId); }
                             const pickMeasure = (title: string, fallback: string) => byTitle.get(norm(title)) ?? fallback;
@@ -290,7 +290,16 @@ export async function fetchNetworkMetricsPlaywright(
                             // DUMP diagnostic : inventaire des mesures + dimensions (titre + id) pour
                             // identifier une mesure "Quantité" NON annuelle et/ou une dimension "Mois/Période"
                             // permettant un vrai découpage mensuel du réseau.
+                            // L'EXPRESSION est indispensable au diagnostic : c'est elle qui dit
+                            // si la mesure est bornée à une année (et comment), donc pourquoi des
+                            // mois de la fenêtre glissante peuvent ressortir vides.
                             console.log("[qlik-pw][dump] MESURES (" + items.length + "): " + JSON.stringify(items.map((it) => ({ t: it.qMeta?.title ?? it.qData?.title ?? "", id: it.qInfo.qId }))));
+                            for (const it of items) {
+                                const titre = it.qMeta?.title ?? it.qData?.title ?? "";
+                                if (/^(CA N|Quantité N|Magasin Ventes Nb N|CA par Magasin N|Marge % N|Quantité COMP)$/i.test(titre.trim())) {
+                                    console.log("[qlik-pw][dump] expression « " + titre + " » = " + (it.qData?.expr ?? "?"));
+                                }
+                            }
                             try {
                                 const dl = await rpc("CreateSessionObject", { qProp: { qInfo: { qType: "DimensionList" }, qDimensionListDef: { qType: "dimension", qData: { title: "/qMetaDef/title" } } } }, doc);
                                 const dll = await rpc("GetLayout", {}, (dl.qReturn as { qHandle: number }).qHandle);
@@ -509,9 +518,19 @@ export async function fetchNetworkMetricsPlaywright(
                                                 const mmPrev = String(y - 1) + mm.slice(4); // "2026-03" → "2025-03"
                                                 // COMP ne porte QUE la quantité : les autres mesures restent
                                                 // absentes tant que la passe N-1 ne les a pas complétées.
-                                                if (monthlyByCode[code][mmPrev] === undefined) monthlyByCode[code][mmPrev] = { qte: qteComp };
-                                            } else {
+                                                // On n'écrit rien si COMP est vide : un mois ABSENT peut être
+                                                // rattrapé plus tard, un mois à 0 se lit comme « pas de vente »
+                                                // et masque définitivement le trou d'extraction.
+                                                if (monthlyByCode[code][mmPrev] === undefined && qteComp > 0) {
+                                                    monthlyByCode[code][mmPrev] = { qte: qteComp };
+                                                }
+                                            } else if (!isMainPass) {
                                                 // Passe année sélectionnée : valeurs directes, prioritaires sur COMP.
+                                                monthlyByCode[code][mm] = full;
+                                            } else if (qte > 0 || ca > 0) {
+                                                // Passe principale, mois HORS année N : « Quantité N » n'est pas
+                                                // censée le couvrir. Écrire son 0 fabriquerait une absence de
+                                                // vente là où il n'y a qu'une mesure hors périmètre.
                                                 monthlyByCode[code][mm] = full;
                                             }
                                         }, timings, () => { code15Retries++; }), timings);
@@ -601,6 +620,86 @@ export async function fetchNetworkMetricsPlaywright(
                                 }
                             };
 
+                            /**
+                             * Rattrapage des mois RESTÉS VIDES pour tous les articles.
+                             *
+                             * Les mesures « N » de l'app sont bornées à une année : quand la
+                             * fenêtre 12 mois glissants chevauche deux années civiles, les mois
+                             * de l'année précédente non couverts par « Quantité COMP » ressortent
+                             * vides — cinq mois d'affilée à 0 sur TOUS les articles, ce qui n'a
+                             * aucun sens métier.
+                             *
+                             * La parade fiable est de ne sélectionner QUE les dates du mois
+                             * concerné : la mesure se résout alors sur la bonne année, quelle que
+                             * soit la façon dont son set analysis est écrit. On ne le fait que
+                             * pour les mois réellement vides — au pire quelques cubes de plus.
+                             */
+                            const rattraperMoisVides = async (): Promise<void> => {
+                                const moisRenseignes = new Set<string>();
+                                for (const parMois of Object.values(monthlyByCode)) {
+                                    for (const [mois, v] of Object.entries(parMois)) {
+                                        if ((v?.qte ?? 0) > 0) moisRenseignes.add(mois);
+                                    }
+                                }
+                                const manquants = monthlyPayload.filter((m) => !moisRenseignes.has(m.label));
+                                if (manquants.length === 0) return;
+                                console.log(
+                                    "[qlik-pw] (mois) " + manquants.length + " mois vide(s) sur tous les articles : " +
+                                    JSON.stringify(manquants.map((m) => m.label)) + " → passe de rattrapage mois par mois",
+                                );
+
+                                for (const m of manquants) {
+                                    const prefix = "[qlik-pw] (rattrapage) " + m.label;
+                                    try {
+                                        // Année libre : c'est la sélection de dates qui doit
+                                        // déterminer l'année vue par la mesure.
+                                        if (yfh !== -1) { await rpc("Clear", {}, yfh); await sleep(qlikSettleMs); }
+                                        await rpc("Clear", {}, dfh);
+                                        await sleep(qlikSettleMs);
+                                        await rpc("SelectValues", {
+                                            qFieldValues: m.serials.map((s2) => ({ qNum: s2, qText: String(s2) })),
+                                            qToggleMode: false,
+                                            qSoftLock: true,
+                                        }, dfh);
+                                        await sleep(qlikSettleMs);
+
+                                        const tailles = [300, 150, 75];
+                                        let idx = 0, tailleIdx = 0;
+                                        const total = codes.length;
+                                        while (codes.length ? idx < total : tailleIdx === 0) {
+                                            const lot = codes.length ? codes.slice(idx, Math.min(idx + tailles[tailleIdx], total)) : [];
+                                            try {
+                                                if (lot.length && fh !== -1) {
+                                                    await rpc("Clear", {}, fh);
+                                                    await sleep(qlikSettleMs);
+                                                    await rpc("SelectValues", { qFieldValues: lot.map((c) => ({ qText: c })), qToggleMode: false, qSoftLock: true }, fh);
+                                                    await sleep(qlikSettleMs);
+                                                }
+                                                const batchRows: Array<Array<string | number>> = [];
+                                                await fetchCubeForSelection(batchRows);
+                                                // Uniquement le mensuel : les totaux réseau restent ceux
+                                                // de la passe principale, sinon on les doublerait.
+                                                accMonthly(batchRows, m.label);
+                                                if (!codes.length) break;
+                                                idx += lot.length;
+                                                tailleIdx = 0;
+                                            } catch (lotErr) {
+                                                const suivante = tailles[tailleIdx + 1];
+                                                if (codes.length && isEngineCode15(lotErr) && suivante && lot.length > suivante) {
+                                                    tailleIdx += 1;
+                                                    continue;
+                                                }
+                                                throw lotErr;
+                                            }
+                                        }
+                                        const remplis = Object.values(monthlyByCode).filter((x) => (x[m.label]?.qte ?? 0) > 0).length;
+                                        console.log(prefix + " — " + remplis + " article(s) renseigné(s)");
+                                    } catch (e) {
+                                        console.error(prefix + " — échec : " + String((e as Error)?.message || e));
+                                    }
+                                }
+                            };
+
                             if (!noDateMode && monthDim) {
                                 // Découpage mensuel réel (dimension Mois) — remplace l'itération par mois.
                                 console.log("[qlik-pw] extraction via dimension Mois (" + monthlyPayload.length + " mois attendus, moisDim=" + moisDimId + ")");
@@ -621,6 +720,7 @@ export async function fetchNetworkMetricsPlaywright(
                                 } else {
                                     console.log("[qlik-pw] (mois) champ Année introuvable → pas de passe N-1");
                                 }
+                                await rattraperMoisVides();
                             } else if (noDateMode) {
                                 // Aucun filtre Date : extraction en un seul appel (tous les codes d'un coup).
                                 // On sélectionne uniquement Article Code ; Date reste libre.

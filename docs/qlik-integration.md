@@ -78,6 +78,36 @@ QLIK_FIELD_FOURNISSEUR=<nom exact du champ fournisseur>
 
 Sans champ libellé exploitable, la recherche fonctionne encore par code centrale.
 
+## Mois vides de la fenêtre glissante (dimension Mois)
+
+Les mesures « N » de l'app sont bornées à une année civile. Quand la fenêtre
+12 mois glissants chevauche deux années (le cas 11 mois sur 12), le chemin
+« dimension Mois » sélectionne les 365 jours d'un coup et la mesure ne se résout
+que sur une seule année : les mois de l'année précédente ressortent vides.
+« Quantité COMP » ne rattrape que les mois ayant un comparable dans l'année en
+cours — d'où, en juillet 2026, un trou observé d'août à décembre 2025 sur
+**tous** les articles.
+
+Trois garde-fous, dans `qlik-playwright.ts` :
+
+1. La passe principale n'écrit plus de `0` pour un mois hors année N, et
+   « Quantité COMP » n'écrit rien quand elle est vide. Un mois **absent** peut
+   être rattrapé ; un mois **à 0** se lit comme « pas de vente » et masque le trou.
+2. `rattraperMoisVides()` : après les passes N et N-1, tout mois vide pour
+   **tous** les articles est ré-extrait en ne sélectionnant **que ses dates** —
+   la mesure se résout alors sur la bonne année, quelle que soit l'écriture de
+   son set analysis.
+3. Les expressions des master measures sont dumpées au log
+   (`[qlik-pw][dump] expression « Quantité N » = …`) : c'est la seule façon de
+   savoir comment la mesure est bornée.
+
+Contournement immédiat sans redéploiement : `QLIK_MONTH_DIM=0` repasse sur
+l'itération mois par mois (une sélection de dates par mois, donc pas de trou),
+au prix d'une extraction plus lente.
+
+⚠️ Les données déjà en cache gardent leurs zéros : il faut relancer la sync Qlik
+pour les corriger.
+
 ## Tendance réseau = 12 mois glissants stricts
 
 `computeNetworkTrend()` reconstruit sa fenêtre à partir de la date du jour :
