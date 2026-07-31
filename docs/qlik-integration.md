@@ -103,7 +103,36 @@ Tout ce qu'on observait en découle :
 | Janvier→juillet de l'année précédente renseignés | Ce sont les mois que « Quantité COMP » sait atteindre |
 | `Sum(quantite)` brut inexploitable | Il additionne les lignes N **et** COMP : il double compte |
 
-### Mesuré : aucune `Période` ne porte 12 mois glissants
+### La bonne méthode : effacer `Période`, puis extraire ANNÉE par ANNÉE
+
+C'est ce que fait un utilisateur dans l'app : il sélectionne **2026** et obtient
+l'année plus sa comparaison N-1 ; il sélectionne 2025 et obtient 2025. Les
+données de 2024, 2025 et 2026 sont toutes accessibles mois par mois. `Type_Cal='N'`
+désigne simplement **l'année sélectionnée**.
+
+Il suffit donc d'enchaîner les années couvertes par la fenêtre (2025 puis 2026)
+pour reconstituer les 12 mois glissants — chaque passe donnant les 5 mesures, et
+non la seule quantité comme « Quantité COMP ».
+
+Ce mécanisme existait déjà dans le code (« passe N-1 ») mais restait **sans
+effet** :
+
+```
+[qlik-pw] (mois) passe N-1 terminée : 299905 → 299905 points mensuels
+                                       ^^^^^^^^^^^^^^ aucun gain
+```
+
+La sélection `Période` **héritée de l'ouverture de l'app** (observé
+« Période:1/4 » alors que rien n'avait été sélectionné) épinglait le contexte sur
+l'année en cours et annulait la sélection d'année. `choisirPeriode()` teste donc
+en **premier** l'état sans aucune sélection de `Période`, et l'efface dès que la
+couverture est incomplète.
+
+Chaque passe n'écrit que les mois **de la fenêtre**, et les totaux s'additionnent
+sur ces mois : deux années ne peuvent pas se doubler puisqu'elles ne partagent
+aucun mois.
+
+### Mesuré : aucune valeur de `Période` ne porte à elle seule 12 mois
 
 `choisirPeriode()` essaie chaque valeur et mesure la couverture réelle sur un
 cube `[Mois] × Quantité N`. Résultat en production :

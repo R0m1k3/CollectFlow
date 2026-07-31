@@ -793,6 +793,48 @@ export async function fetchNetworkMetricsPlaywright(
                                     diag("valeurs de « Période » : " + JSON.stringify(valeurs.map((v) => v.texte)));
                                     if (valeurs.length === 0) return 0;
 
+                                    /** Couverture réelle : quels mois de la fenêtre « Quantité N » rend-elle vivants ? */
+                                    const mesurerCouverture = async (): Promise<string[]> => {
+                                        const sonde = await rpc("CreateSessionObject", { qProp: {
+                                            qInfo: { qType: "cf-periode-sonde" },
+                                            qHyperCubeDef: {
+                                                qDimensions: [{ qLibraryId: moisDimId }],
+                                                qMeasures: [{ qLibraryId: rQte }],
+                                                qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 2, qHeight: 60 }],
+                                            },
+                                        } }, doc);
+                                        const sRet = sonde.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
+                                        try {
+                                            const sl = await rpc("GetLayout", {}, sRet.qHandle);
+                                            const sm = ((sl.qLayout as { qHyperCube?: { qDataPages?: Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }> } })
+                                                .qHyperCube?.qDataPages?.[0]?.qMatrix) ?? [];
+                                            return sm
+                                                .filter((r) => (Number(r[1]?.qNum) || 0) > 0)
+                                                .map((r) => normMois(String(r[0]?.qText ?? "")))
+                                                .filter((m) => fenetre.has(m))
+                                                .sort();
+                                        } finally {
+                                            const sid = String(sRet.qGenericId ?? sRet.qId ?? "");
+                                            if (sid) { try { await rpc("DestroySessionObject", { qId: sid }, doc); } catch { /* noop */ } }
+                                        }
+                                    };
+
+                                    // CANDIDAT ZÉRO : aucune sélection de « Période ».
+                                    //
+                                    // L'app pose une valeur par défaut à l'ouverture (observé :
+                                    // « Période:1/4 » alors que nous n'avions rien sélectionné).
+                                    // C'est cette valeur héritée qui bornait les mesures — et c'est
+                                    // sans elle qu'un utilisateur voit 2024, 2025 et 2026 mois par
+                                    // mois dans l'app. On teste donc l'état libre EN PREMIER.
+                                    await rpc("ClearField", { qFieldName: "Période" }, doc).catch(() => rpc("Clear", {}, lo!.qHandle));
+                                    await sleep(qlikSettleMs);
+                                    const sansSelection = await mesurerCouverture();
+                                    diag("  SANS sélection de Période → " + sansSelection.length + "/" + fenetre.size + " mois " + JSON.stringify(sansSelection));
+                                    if (sansSelection.length >= fenetre.size) {
+                                        diag("Période laissée LIBRE : les mesures couvrent déjà les " + fenetre.size + " mois");
+                                        return sansSelection.length;
+                                    }
+
                                     let meilleure: { texte: string; elem: number; couverts: string[] } | null = null;
                                     for (const v of valeurs) {
                                         await rpc("SelectListObjectValues", {
@@ -803,30 +845,8 @@ export async function fetchNetworkMetricsPlaywright(
                                         }, lo.qHandle);
                                         await sleep(qlikSettleMs);
 
-                                        // Cube [Mois] × « Quantité N » : quels mois cette période rend-elle vivants ?
-                                        const sonde = await rpc("CreateSessionObject", { qProp: {
-                                            qInfo: { qType: "cf-periode-sonde" },
-                                            qHyperCubeDef: {
-                                                qDimensions: [{ qLibraryId: moisDimId }],
-                                                qMeasures: [{ qLibraryId: rQte }],
-                                                qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 2, qHeight: 60 }],
-                                            },
-                                        } }, doc);
-                                        const sRet = sonde.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
-                                        let couverts: string[] = [];
-                                        try {
-                                            const sl = await rpc("GetLayout", {}, sRet.qHandle);
-                                            const sm = ((sl.qLayout as { qHyperCube?: { qDataPages?: Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }> } })
-                                                .qHyperCube?.qDataPages?.[0]?.qMatrix) ?? [];
-                                            couverts = sm
-                                                .filter((r) => (Number(r[1]?.qNum) || 0) > 0)
-                                                .map((r) => normMois(String(r[0]?.qText ?? "")))
-                                                .filter((m) => fenetre.has(m));
-                                        } finally {
-                                            const sid = String(sRet.qGenericId ?? sRet.qId ?? "");
-                                            if (sid) { try { await rpc("DestroySessionObject", { qId: sid }, doc); } catch { /* noop */ } }
-                                        }
-                                        diag("  Période « " + v.texte + " » → " + couverts.length + "/" + fenetre.size + " mois de la fenêtre " + JSON.stringify(couverts.sort()));
+                                        const couverts = await mesurerCouverture();
+                                        diag("  Période « " + v.texte + " » → " + couverts.length + "/" + fenetre.size + " mois de la fenêtre " + JSON.stringify(couverts));
                                         if (!meilleure || couverts.length > meilleure.couverts.length) {
                                             meilleure = { texte: v.texte, elem: v.elem, couverts };
                                         }
@@ -1144,16 +1164,24 @@ export async function fetchNetworkMetricsPlaywright(
                             // récupérer directement ses mois (seul moyen d'obtenir août→déc N-1, que
                             // COMP ne peut pas fournir puisque l'année N ne va pas jusque-là).
                             let loggedSampleRow = false;
-                            const monthDimPath = async (selectYear: number | null): Promise<void> => {
-                                const isMainPass = selectYear === null;
+                            const monthDimPath = async (selectYear: number): Promise<void> => {
+                                const moisFenetre = new Set(monthlyPayload.map((m) => m.label));
 
-                                /** Traitement d'une ligne du cube [Article Code, Mois] — partagé par les deux chemins. */
+                                /**
+                                 * Traitement d'une ligne du cube [Article Code, Mois].
+                                 *
+                                 * Une passe = UNE année explicitement sélectionnée, exactement ce
+                                 * que fait un utilisateur dans l'app (« je sélectionne 2026 et
+                                 * j'obtiens N + la comparaison N-1 »). Chaque passe n'écrit que
+                                 * les mois DE LA FENÊTRE, et les totaux s'additionnent sur ces
+                                 * mois-là : deux années différentes ne peuvent donc pas se
+                                 * doubler, puisqu'elles ne partagent aucun mois.
+                                 */
                                 const onRowMois = (code: string, mois: string, ca: number, qte: number, nbMag: number, caMag: number, marge: number, qteComp: number) => {
                                     if (!code || code === "-") return;
-                                    // Les totaux réseau ne viennent QUE de la passe principale
-                                    // (sinon on doublerait CA/Qté avec la passe N-1).
-                                    if (isMainPass) out.push([code, ca, qte, nbMag, caMag, marge]);
                                     const mm = normMois(mois);
+                                    if (!moisFenetre.has(mm)) return;
+                                    out.push([code, ca, qte, nbMag, caMag, marge]);
                                     const y = parseInt(mm.slice(0, 4), 10);
                                     if (!loggedSampleRow) {
                                         loggedSampleRow = true;
@@ -1166,38 +1194,19 @@ export async function fetchNetworkMetricsPlaywright(
                                     // Les 5 mesures du mois courant de la ligne. Le cube les renvoie
                                     // déjà toutes : les conserver ne coûte aucune requête Qlik en plus.
                                     const full = { qte, ca, nbMag, caMag, margePct: marge };
-                                    if (isMainPass && y === yearN) {
-                                        // Mois de l'année N + son comparable N-1 (COMP = même mois, N-1).
-                                        monthlyByCode[code][mm] = full;
-                                        const mmPrev = String(y - 1) + mm.slice(4); // "2026-03" → "2025-03"
-                                        // COMP ne porte QUE la quantité : les autres mesures restent
-                                        // absentes tant que la passe N-1 ne les a pas complétées.
-                                        // On n'écrit rien si COMP est vide : un mois ABSENT peut être
-                                        // rattrapé plus tard, un mois à 0 se lit comme « pas de vente »
-                                        // et masque définitivement le trou d'extraction.
-                                        if (monthlyByCode[code][mmPrev] === undefined && qteComp > 0) {
-                                            monthlyByCode[code][mmPrev] = { qte: qteComp };
-                                        }
-                                    } else if (!isMainPass) {
-                                        // Passe année sélectionnée : valeurs directes, prioritaires sur COMP.
-                                        monthlyByCode[code][mm] = full;
-                                    } else if (qte > 0 || ca > 0) {
-                                        // Passe principale, mois HORS année N : « Quantité N » n'est pas
-                                        // censée le couvrir. Écrire son 0 fabriquerait une absence de
-                                        // vente là où il n'y a qu'une mesure hors périmètre.
-                                        monthlyByCode[code][mm] = full;
-                                    }
+                                    // « Quantité COMP » n'est plus nécessaire : chaque année de la
+                                    // fenêtre est extraite directement par sa propre passe, ce qui
+                                    // donne les 5 mesures et non la seule quantité.
+                                    void y; void qteComp;
+                                    monthlyByCode[code][mm] = full;
                                 };
 
-                                if (yfh !== -1) {
-                                    await rpc("Clear", {}, yfh);
-                                    await sleep(qlikSettleMs);
-                                    if (selectYear !== null) {
-                                        const ysel = await rpc("SelectValues", { qFieldValues: [{ qNum: selectYear, qText: String(selectYear) }], qToggleMode: false, qSoftLock: true }, yfh);
-                                        console.log("[qlik-pw] (mois) sélection Année=" + selectYear + " → " + JSON.stringify(ysel.qReturn));
-                                        await sleep(qlikSettleMs);
-                                    }
-                                }
+                                if (yfh === -1) throw new Error("champ « Année » introuvable : impossible d'extraire année par année");
+                                await rpc("Clear", {}, yfh);
+                                await sleep(qlikSettleMs);
+                                const ysel = await rpc("SelectValues", { qFieldValues: [{ qNum: selectYear, qText: String(selectYear) }], qToggleMode: false, qSoftLock: true }, yfh);
+                                console.log("[qlik-pw] (mois) sélection Année=" + selectYear + " → " + JSON.stringify(ysel.qReturn));
+                                await sleep(qlikSettleMs);
                                 const allSerials = monthlyPayload.flatMap((m) => m.serials);
                                 if (dfh !== -1 && allSerials.length) {
                                     await rpc("Clear", {}, dfh);
@@ -1405,22 +1414,49 @@ export async function fetchNetworkMetricsPlaywright(
                                     return attendus.every((m) => vus.has(m));
                                 };
 
-                                if (couvertureMaster >= attendus.length && monthDim) {
-                                    // Une valeur de `Période` couvre les 12 mois : les master
-                                    // measures sont alors exactes sur toute la fenêtre.
-                                    diag("extraction par master measures (Période couvrant " + couvertureMaster + " mois)");
-                                    await monthDimPath(null);
-                                    await pousserCheckpoint("master measures");
-                                } else if (monthDim && useExpr && (await moisParExpressions())) {
-                                    // Aucune période ne couvre 12 mois : on retombe sur
-                                    // l'agrégation directe des faits.
+                                // ÉTAPE 2 — extraire ANNÉE PAR ANNÉE, comme dans l'app.
+                                //
+                                // Dans l'interface, on sélectionne « 2026 » et on obtient l'année
+                                // plus sa comparaison N-1. C'est le mécanisme natif du modèle :
+                                // `Type_Cal='N'` désigne l'année sélectionnée. Il suffit donc
+                                // d'enchaîner les années couvertes par la fenêtre — ici 2025 puis
+                                // 2026 — pour reconstituer les 12 mois glissants.
+                                //
+                                // Ce mécanisme existait déjà (« passe N-1 ») mais restait sans
+                                // effet : la sélection `Période` héritée de l'ouverture de l'app
+                                // épinglait le contexte sur l'année en cours et annulait la
+                                // sélection d'année. `choisirPeriode()` l'a effacée juste avant.
+                                const annees = [...new Set(attendus.map((m) => Number(m.slice(0, 4))))].sort();
+                                diag("extraction année par année : " + JSON.stringify(annees) + " (Période libre)");
+
+                                let extraitParAnnee = false;
+                                if (monthDim) {
+                                    try {
+                                        for (const annee of annees) {
+                                            const avant = Object.values(monthlyByCode).reduce((n, m) => n + Object.keys(m).length, 0);
+                                            await monthDimPath(annee);
+                                            const apres = Object.values(monthlyByCode).reduce((n, m) => n + Object.keys(m).length, 0);
+                                            diag("  année " + annee + " → " + (apres - avant) + " points mensuels ajoutés");
+                                            await pousserCheckpoint("année " + annee);
+                                        }
+                                        extraitParAnnee = couvre12();
+                                        if (!extraitParAnnee) {
+                                            diag("l'extraction année par année ne couvre pas les 12 mois — essai de l'agrégation directe");
+                                        }
+                                    } catch (e) {
+                                        diag("extraction année par année interrompue : " + String((e as Error)?.message || e));
+                                    }
+                                }
+
+                                if (!extraitParAnnee) {
+                                    if (!(monthDim && useExpr && (await moisParExpressions()))) {
+                                        throw new Error(
+                                            "extraction 12 mois refusée : ni l'extraction année par année " +
+                                            "(Période libre, couverture master = " + couvertureMaster + "/" + attendus.length + ") " +
+                                            "ni l'agrégation directe des faits n'ont couvert la fenêtre",
+                                        );
+                                    }
                                     await pousserCheckpoint("expressions vérifiées");
-                                } else {
-                                    throw new Error(
-                                        "extraction 12 mois refusée : aucune valeur de « Période » ne couvre la fenêtre " +
-                                        "(meilleure = " + couvertureMaster + "/" + attendus.length + " mois) et l'agrégation " +
-                                        "directe des faits n'a pas validé ses contrôles",
-                                    );
                                 }
 
                                 if (!couvre12()) {
