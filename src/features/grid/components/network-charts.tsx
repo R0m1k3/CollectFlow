@@ -107,6 +107,7 @@ export function NetworkLineChart({
     perStore?: number[] | null;
 }) {
     const [survol, setSurvol] = useState<number | null>(null);
+    const [vue, setVue] = useState<"graphique" | "tableau">("graphique");
     const n = values.length;
     const memeTaille = (s?: number[] | null) => Array.isArray(s) && s.length === n && n > 0;
     const avecParMag = memeTaille(perStore);
@@ -160,11 +161,37 @@ export function NetworkLineChart({
     const basPlots = curseur - ecart;
 
     return (
-        <div className="mt-3 w-full overflow-x-auto">
+        <div className="mt-3 w-full">
+            {/* Bascule : la même surface sert au dessin ou aux chiffres. */}
+            <div className="flex justify-end mb-1.5">
+                <div className="inline-flex rounded-lg p-0.5" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
+                    {(["graphique", "tableau"] as const).map((v) => (
+                        <button
+                            key={v}
+                            type="button"
+                            onClick={() => setVue(v)}
+                            className="px-2.5 py-0.5 text-[10px] font-semibold rounded-md transition-colors capitalize"
+                            style={vue === v
+                                ? { background: "var(--bg-surface)", color: "var(--text-primary)" }
+                                : { color: "var(--text-muted)" }}
+                            aria-pressed={vue === v}
+                        >
+                            {v}
+                        </button>
+                    ))}
+                </div>
+            </div>
+            {vue === "graphique" ? (
+            <div className="overflow-x-auto">
             <svg
                 viewBox={`0 0 ${W} ${H}`}
-                className="w-full"
-                style={{ minWidth: 420 }}
+                width="100%"
+                height={H}
+                preserveAspectRatio="xMidYMid meet"
+                // `display:block` : un SVG en ligne traîne l'espace sous la ligne de
+                // base (6 px mesurés), et la carte changeait de hauteur en basculant
+                // vers le tableau.
+                style={{ minWidth: 460, display: "block" }}
                 role="img"
                 aria-label={"Ventes réseau mensuelles : " + disposees.map((f) => f.titre).join(", ")}
                 onMouseLeave={() => setSurvol(null)}
@@ -266,6 +293,45 @@ export function NetworkLineChart({
                     </text>
                 ))}
 
+                {/* Infobulle DANS le dessin.
+                    Elle vivait sous le SVG, en HTML : selon la longueur des valeurs elle
+                    passait sur deux lignes et la carte changeait de hauteur en cours de
+                    survol. Ici la géométrie est figée par le viewBox — la carte ne bouge
+                    plus jamais. `pointerEvents=none` laisse passer le survol vers les
+                    cibles en dessous. */}
+                {survol != null && (() => {
+                    const largeur = 158;
+                    const hauteur = 16 + disposees.length * 13 + 8;
+                    // La bulle bascule à gauche du réticule quand elle déborderait à droite.
+                    const gauche = x(survol) + 10 + largeur > W - 4;
+                    const bx = gauche ? x(survol) - 10 - largeur : x(survol) + 10;
+                    return (
+                        <g pointerEvents="none">
+                            <rect
+                                x={bx} y={4} width={largeur} height={hauteur} rx={8}
+                                fill="var(--bg-elevated)" stroke="var(--border)" strokeWidth={1}
+                            />
+                            <text x={bx + 9} y={17} fontSize={9.5} fontWeight={700} fill="var(--text-primary)">
+                                {fmtMonthShort(labels[survol])}
+                            </text>
+                            {disposees.map((f, k) => (
+                                <g key={`bulle-${f.titre}`}>
+                                    <rect x={bx + 9} y={26 + k * 13} width={8} height={3} rx={1.5} fill={f.couleur} />
+                                    <text x={bx + 22} y={30 + k * 13} fontSize={9} fill="var(--text-secondary)">
+                                        {f.titre}
+                                    </text>
+                                    <text
+                                        x={bx + largeur - 9} y={30 + k * 13}
+                                        textAnchor="end" fontSize={9} fontWeight={700} fill="var(--text-primary)"
+                                    >
+                                        {fmt(f.valeurs[survol], f.decimales ?? 0)}
+                                    </text>
+                                </g>
+                            ))}
+                        </g>
+                    );
+                })()}
+
                 {/* Zones de survol : larges cibles, une par mois */}
                 {labels.map((lab, i) => (
                     <rect
@@ -279,58 +345,42 @@ export function NetworkLineChart({
                     />
                 ))}
             </svg>
-
-            {/* Lecture du mois survolé, en encre neutre : la couleur reste aux repères */}
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] min-h-[16px]" style={{ color: "var(--text-secondary)" }}>
-                {survol != null ? (
-                    <>
-                        <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{fmtMonthShort(labels[survol])}</span>
-                        {disposees.map((f) => (
-                            <span key={`tt-${f.titre}`} className="flex items-center gap-1.5">
-                                <span className="inline-block w-2.5 h-[3px] rounded-full" style={{ background: f.couleur }} />
-                                {f.titre}
-                                <span className="font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>
-                                    {fmt(f.valeurs[survol], f.decimales ?? 0)}
-                                </span>
-                            </span>
-                        ))}
-                    </>
-                ) : (
-                    <span style={{ color: "var(--text-muted)" }}>Survolez un mois pour le détail.</span>
-                )}
             </div>
-
-            {/* Vue tableau : l'équivalent accessible, et le recours quand une teinte
-                passe sous le seuil de contraste. Aucune valeur n'est réservée au survol. */}
-            <details className="mt-2">
-                <summary className="text-[11px] cursor-pointer select-none" style={{ color: "var(--text-muted)" }}>
-                    Voir les valeurs mois par mois
-                </summary>
-                <div className="mt-1.5 overflow-x-auto">
-                    <table className="w-full text-[11px] tabular-nums" style={{ borderCollapse: "collapse" }}>
-                        <thead>
-                            <tr style={{ color: "var(--text-muted)" }}>
-                                <th className="text-left font-medium py-1 pr-2">Mois</th>
+            ) : (
+            /* Vue tableau : même panneau, MÊME HAUTEUR.
+                Un dépliant aurait fait grandir la carte à l'ouverture — exactement ce
+                qu'on venait de corriger sur le survol. Le tableau occupe donc la place
+                du graphique et défile à l'intérieur : la carte garde sa taille, et
+                aucune valeur n'est réservée au survol. */
+            <div style={{ height: H }} className="overflow-y-auto overflow-x-auto">
+                <table className="w-full text-[11px] tabular-nums" style={{ borderCollapse: "collapse" }}>
+                    <thead className="sticky top-0" style={{ background: "var(--bg-surface)" }}>
+                        <tr style={{ color: "var(--text-muted)" }}>
+                            <th className="text-left font-medium py-1 pr-2">Mois</th>
+                            {disposees.map((f) => (
+                                <th key={`th-${f.titre}`} className="text-right font-medium py-1 pl-2 whitespace-nowrap">
+                                    {f.titre}
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {labels.map((lab, i) => (
+                            <tr key={`tr-${lab}`} style={{ borderTop: "1px solid var(--border)" }}>
+                                <td className="py-1 pr-2 whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
+                                    {fmtMonthShort(lab)}
+                                </td>
                                 {disposees.map((f) => (
-                                    <th key={`th-${f.titre}`} className="text-right font-medium py-1 pl-2">{f.titre}</th>
+                                    <td key={`td-${f.titre}-${lab}`} className="text-right py-1 pl-2" style={{ color: "var(--text-primary)" }}>
+                                        {fmt(f.valeurs[i], f.decimales ?? 0)}
+                                    </td>
                                 ))}
                             </tr>
-                        </thead>
-                        <tbody>
-                            {labels.map((lab, i) => (
-                                <tr key={`tr-${lab}`} style={{ borderTop: "1px solid var(--border)" }}>
-                                    <td className="py-1 pr-2" style={{ color: "var(--text-secondary)" }}>{fmtMonthShort(lab)}</td>
-                                    {disposees.map((f) => (
-                                        <td key={`td-${f.titre}-${lab}`} className="text-right py-1 pl-2" style={{ color: "var(--text-primary)" }}>
-                                            {fmt(f.valeurs[i], f.decimales ?? 0)}
-                                        </td>
-                                    ))}
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </details>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            )}
         </div>
     );
 }

@@ -75,6 +75,56 @@ function getQlikNetworkSortValue(value: number | null | undefined, columnId: str
 // =========================================================================
 
 // 1. Composant isolé pour la Cellule Gamme (évite le re-render des colonnes)
+/**
+ * Cellule dont la valeur se copie d'un clic.
+ *
+ * Extraite de la colonne « Code interne », qui la portait en ligne avec un
+ * `eslint-disable react-hooks/rules-of-hooks` : un `useState` dans le corps d'un
+ * `cell()` de TanStack n'est pas rendu au même endroit d'un rendu à l'autre. Un
+ * vrai composant supprime la dérogation et rend la copie réutilisable — les
+ * références et les gencodes se recopient autant que les codes internes.
+ *
+ * `stopPropagation` est indispensable : sans lui, le clic sélectionne aussi la
+ * ligne.
+ */
+const CopiableCell = React.memo(function CopiableCell({ value, titre, className, style }: {
+    value: string | null | undefined;
+    titre: string;
+    className?: string;
+    style?: React.CSSProperties;
+}) {
+    const [copied, setCopied] = useState(false);
+    const texte = (value ?? "").trim();
+
+    if (!texte) {
+        return <span className={className} style={style}>-</span>;
+    }
+
+    const handleCopy = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(texte);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    return (
+        <div
+            onClick={handleCopy}
+            className="group flex items-center gap-1.5 cursor-pointer hover:text-emerald-500 transition-colors min-w-0"
+            title={copied ? "Copié !" : titre}
+        >
+            <span className={cn("truncate", className)} style={style}>{texte}</span>
+            <span className="shrink-0 transition-all duration-200">
+                {copied ? (
+                    <Check className="w-3 h-3 text-emerald-500 animate-in zoom-in-50" />
+                ) : (
+                    <Copy className="w-3 h-3 opacity-0 group-hover:opacity-40 hover:!opacity-100" />
+                )}
+            </span>
+        </div>
+    );
+});
+
 const GammeCell = React.memo(({ row, isAdmin }: { row: ProductRow; isAdmin?: boolean }) => {
     // Abonnement ultra-ciblé : la cellule ne re-render que si SA valeur change
     const codein = row.codein;
@@ -461,63 +511,40 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
             accessorKey: "codein",
             header: "Code interne",
             size: 90,
-            cell: ({ getValue }) => {
-                const value = getValue<string>();
-                // eslint-disable-next-line react-hooks/rules-of-hooks
-                const [copied, setCopied] = useState(false);
-
-                const handleCopy = (e: React.MouseEvent) => {
-                    e.stopPropagation();
-                    navigator.clipboard.writeText(value);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000);
-                };
-
-                return (
-                    <div
-                        onClick={handleCopy}
-                        className="group flex items-center gap-1.5 cursor-pointer hover:text-emerald-500 transition-colors"
-                        title="Copier le code interne"
-                    >
-                        <span className="tabular-nums font-bold text-[12px] tracking-tight opacity-70 group-hover:opacity-100" style={{ color: "var(--text-muted)" }}>
-                            {value}
-                        </span>
-                        <div className="shrink-0 transition-all duration-200">
-                            {copied ? (
-                                <Check className="w-3 h-3 text-emerald-500 animate-in zoom-in-50" />
-                            ) : (
-                                <Copy className="w-3 h-3 opacity-0 group-hover:opacity-40 hover:!opacity-100" />
-                            )}
-                        </div>
-                    </div>
-                );
-            },
+            cell: ({ getValue }) => (
+                <CopiableCell
+                    value={getValue<string>()}
+                    titre="Copier le code interne"
+                    className="tabular-nums font-bold text-[12px] tracking-tight opacity-70 group-hover:opacity-100"
+                    style={{ color: "var(--text-muted)" }}
+                />
+            ),
         },
         {
             accessorKey: "reference",
             header: "Référence",
             size: 110,
-            cell: ({ getValue }) => {
-                const val = getValue<string>();
-                return (
-                    <span className="text-[12px] font-mono opacity-80" style={{ color: "var(--text-secondary)" }}>
-                        {val || "-"}
-                    </span>
-                );
-            },
+            cell: ({ getValue }) => (
+                <CopiableCell
+                    value={getValue<string>()}
+                    titre="Copier la référence"
+                    className="text-[12px] font-mono opacity-80 group-hover:opacity-100"
+                    style={{ color: "var(--text-secondary)" }}
+                />
+            ),
         },
         {
             accessorKey: "gtin",
             header: "EAN / GTIN",
             size: 120,
-            cell: ({ getValue }) => {
-                const val = getValue<string>();
-                return (
-                    <span className="text-[12px] font-mono tracking-tight opacity-70" style={{ color: "var(--text-secondary)" }}>
-                        {val || "-"}
-                    </span>
-                );
-            },
+            cell: ({ getValue }) => (
+                <CopiableCell
+                    value={getValue<string>()}
+                    titre="Copier l'EAN / GTIN"
+                    className="text-[12px] font-mono tracking-tight opacity-70 group-hover:opacity-100"
+                    style={{ color: "var(--text-secondary)" }}
+                />
+            ),
         },
         {
             accessorKey: "libelle1",
