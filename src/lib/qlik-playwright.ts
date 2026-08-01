@@ -345,12 +345,27 @@ export async function fetchNetworkMetricsPlaywright(
                             let dfh = -1;
                             let fh = -1;
                             let yfh = -1;
+                            /**
+                             * Handle du CHAMP « Période ».
+                             *
+                             * ⚠️ `Clear` et `SelectValues` sont des méthodes de **champ**. Les
+                             * appeler sur un objet de session renvoie
+                             * `{"code":-32601,"parameter":"Clear","message":"Method not found"}`,
+                             * ce qui a fait avorter en production la cartographie des périodes ET
+                             * le chemin d'extraction par date brute. Le list object ne sert donc
+                             * plus qu'à ÉNUMÉRER les valeurs ; les sélections passent par ici.
+                             */
+                            let pfh = -1;
                             const df = await rpc("GetField", { qFieldName: "Date" }, doc);
                             dfh = (df.qReturn as { qHandle: number }).qHandle;
                             try {
                                 const yf = await rpc("GetField", { qFieldName: "Année" }, doc);
                                 yfh = (yf.qReturn as { qHandle: number }).qHandle;
                             } catch { yfh = -1; }
+                            try {
+                                const pf = await rpc("GetField", { qFieldName: "Période" }, doc);
+                                pfh = (pf.qReturn as { qHandle: number }).qHandle;
+                            } catch { pfh = -1; }
                             if (codes.length) {
                                 const gf = await rpc("GetField", { qFieldName: "Article Code" }, doc);
                                 fh = (gf.qReturn as { qHandle: number }).qHandle;
@@ -898,6 +913,20 @@ export async function fetchNetworkMetricsPlaywright(
                                     }
 
                                     const visibles = await lireCodesVisibles();
+                                    // Un vrai périmètre fournisseur est de l'ordre de grandeur des
+                                    // codes demandés. Mesuré en production : « J009 » laissait
+                                    // 1 207 205 articles visibles, soit tout le catalogue — la
+                                    // sélection n'avait rien restreint, et la « couverture » de 97 %
+                                    // ne faisait que constater que le catalogue contient nos codes.
+                                    if (visibles.size > attendus.size * 3) {
+                                        diag(
+                                            "  champ « " + champ + " » = « " + fournisseurCode + " » → " + visibles.size +
+                                            " articles visibles pour " + attendus.size + " demandés : la sélection ne restreint rien, ignorée",
+                                        );
+                                        await rpc("Clear", {}, h);
+                                        await sleep(qlikSettleMs);
+                                        continue;
+                                    }
                                     let couverts = 0;
                                     for (const c of attendus) if (visibles.has(c)) couverts++;
                                     const couverture = attendus.size > 0 ? couverts / attendus.size : 0;
@@ -917,36 +946,35 @@ export async function fetchNetworkMetricsPlaywright(
                                 return false;
                             };
 
-                            /**
-                             * Le list object « Période », gardé vivant : le détruire annulerait la
-                             * sélection qu'il porte.
-                             */
-                            let periodeLo: { qHandle: number } | null = null;
-
                             /** Valeur de `Période` à poser avant la passe d'une année donnée. */
-                            const periodeParAnnee = new Map<number, { elem: number | null; texte: string }>();
+                            const periodeParAnnee = new Map<number, { texte: string | null }>();
 
-                            /** Pose (ou efface, si `elem` est nul) la sélection `Période`. */
-                            const appliquerPeriode = async (elem: number | null): Promise<void> => {
-                                // Effacer doit rester possible même si le list object n'a jamais pu
-                                // être créé : sinon la `Période` héritée de l'ouverture de l'app
-                                // resterait posée sans que personne ne l'ait choisie.
-                                if (elem == null) {
-                                    await rpc("ClearField", { qFieldName: "Période" }, doc)
-                                        .catch(() => (periodeLo ? rpc("Clear", {}, periodeLo.qHandle) : undefined));
+                            /**
+                             * Pose (ou efface, si `texte` est nul) la sélection `Période`.
+                             *
+                             * Passe par le HANDLE DU CHAMP, comme pour `Année` et `Date` : c'est la
+                             * seule API qui expose `Clear` et `SelectValues`. Ne propage jamais
+                             * d'erreur — une `Période` qu'on n'arrive pas à poser doit dégrader le
+                             * résultat, pas interrompre l'extraction (leçon de production : un
+                             * `Clear` en échec a fait avorter deux chemins entiers).
+                             */
+                            const appliquerPeriode = async (texte: string | null): Promise<boolean> => {
+                                if (pfh === -1) return texte == null;
+                                try {
+                                    await rpc("Clear", {}, pfh);
                                     await sleep(qlikSettleMs);
-                                    return;
-                                }
-                                if (!periodeLo) return;
-                                {
-                                    await rpc("SelectListObjectValues", {
-                                        qPath: "/qListObjectDef",
-                                        qValues: [elem],
+                                    if (texte == null) return true;
+                                    const sel = await rpc("SelectValues", {
+                                        qFieldValues: [{ qText: texte }],
                                         qToggleMode: false,
                                         qSoftLock: true,
-                                    }, periodeLo.qHandle);
+                                    }, pfh);
+                                    await sleep(qlikSettleMs);
+                                    return sel.qReturn !== false;
+                                } catch (e) {
+                                    diag("  sélection Période « " + (texte ?? "(aucune)") + " » impossible : " + String((e as Error)?.message || e));
+                                    return false;
                                 }
-                                await sleep(qlikSettleMs);
                             };
 
                             /**
@@ -1053,10 +1081,6 @@ export async function fetchNetworkMetricsPlaywright(
                                      * sans année revient à juger « Année à date » sur la seule
                                      * année en cours (6/12) et à la rejeter à tort.
                                      */
-                                    // Le list object doit survivre : le détruire annulerait la
-                                    // sélection qu'il porte. On le garde pour `appliquerPeriode`.
-                                    periodeLo = { qHandle: lo.qHandle };
-
                                     // ─── Une `Période` PAR ANNÉE ─────────────────────────────
                                     //
                                     // C'est le point que la version globale manquait : la bonne
@@ -1082,30 +1106,41 @@ export async function fetchNetworkMetricsPlaywright(
                                             await sleep(qlikSettleMs);
                                         }
 
-                                        const candidats: Array<{ texte: string; elem: number | null }> = [
-                                            { texte: "(aucune)", elem: null },
-                                            ...valeurs.map((v) => ({ texte: v.texte, elem: v.elem as number | null })),
-                                        ];
-                                        let meilleure: { texte: string; elem: number | null; servis: string[] } | null = null;
+                                        // `null` = état sans `Période`, candidat comme un autre.
+                                        const candidats: Array<string | null> = [null, ...valeurs.map((v) => v.texte)];
+                                        let meilleure: { texte: string | null; servis: string[] } | null = null;
                                         for (const c of candidats) {
-                                            await appliquerPeriode(c.elem);
-                                            const mois = await mesurerCouverture();
-                                            const servis = mois.fenetre.filter((m) => attendusAnnee.includes(m));
-                                            diag(
-                                                "    Période « " + c.texte + " » → sert " + servis.length + "/" + attendusAnnee.length +
-                                                " mois attendus " + JSON.stringify(servis) + " ; master exposée : " + resume(mois.tous),
-                                            );
+                                            const libelle = c ?? "(aucune)";
+                                            // Un candidat qui échoue ne doit pas emporter toute la
+                                            // cartographie : on le note et on passe au suivant.
+                                            let servis: string[] = [];
+                                            try {
+                                                const pose = await appliquerPeriode(c);
+                                                if (!pose && c !== null) {
+                                                    diag("    Période « " + libelle + " » → non sélectionnable, ignorée");
+                                                    continue;
+                                                }
+                                                const mois = await mesurerCouverture();
+                                                servis = mois.fenetre.filter((m) => attendusAnnee.includes(m));
+                                                diag(
+                                                    "    Période « " + libelle + " » → sert " + servis.length + "/" + attendusAnnee.length +
+                                                    " mois attendus " + JSON.stringify(servis) + " ; master exposée : " + resume(mois.tous),
+                                                );
+                                            } catch (e) {
+                                                diag("    Période « " + libelle + " » → erreur " + String((e as Error)?.message || e));
+                                                continue;
+                                            }
                                             if (!meilleure || servis.length > meilleure.servis.length) {
-                                                meilleure = { texte: c.texte, elem: c.elem, servis };
+                                                meilleure = { texte: c, servis };
                                             }
                                             if (servis.length >= attendusAnnee.length) break; // année complète
                                         }
 
                                         if (meilleure) {
-                                            periodeParAnnee.set(annee, { elem: meilleure.elem, texte: meilleure.texte });
+                                            periodeParAnnee.set(annee, { texte: meilleure.texte });
                                             for (const m of meilleure.servis) couvertsGlobal.add(m);
                                             diag(
-                                                "  → année " + annee + " sera extraite sous Période « " + meilleure.texte + " » (" +
+                                                "  → année " + annee + " sera extraite sous Période « " + (meilleure.texte ?? "(aucune)") + " » (" +
                                                 meilleure.servis.length + "/" + attendusAnnee.length + " mois)",
                                             );
                                         }
@@ -1762,8 +1797,8 @@ export async function fetchNetworkMetricsPlaywright(
                                 // une année révolue (cf. choisirPeriode).
                                 const periodeAnnee = periodeParAnnee.get(selectYear);
                                 if (periodeAnnee) {
-                                    console.log("[qlik-pw] (mois) Période « " + periodeAnnee.texte + " » pour l'année " + selectYear);
-                                    await appliquerPeriode(periodeAnnee.elem);
+                                    console.log("[qlik-pw] (mois) Période « " + (periodeAnnee.texte ?? "(aucune)") + " » pour l'année " + selectYear);
+                                    await appliquerPeriode(periodeAnnee.texte);
                                 }
 
                                 await rpc("Clear", {}, yfh);
