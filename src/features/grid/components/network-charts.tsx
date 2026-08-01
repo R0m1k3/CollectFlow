@@ -43,14 +43,25 @@ export function TrendSparkline({ trend }: { trend: NetworkTrend }) {
     );
 }
 
-/**
- * Couleur de la courbe « magasins vendeurs ».
- *
- * Indigo choisi pour ne jamais entrer en collision avec les couleurs de
- * tendance (vert / rouge / gris) portées par la courbe des quantités, et pour
- * rester lisible sur fond clair comme sur fond sombre.
- */
+/** Couleur par défaut de la courbe « magasins vendeurs » : indigo franc. */
 export const STORES_COLOR = "#6366f1";
+/** Repli chaud, quand la courbe des quantités est elle-même dans les tons froids. */
+export const STORES_COLOR_ALT = "#f59e0b";
+
+/**
+ * Couleur de la courbe « magasins » garantie DISTINCTE de celle des quantités.
+ *
+ * La courbe des quantités prend la couleur de la tendance : vert (#22c55e),
+ * rouge (#ef4444) ou gris-bleu (#94a3b8) quand elle est stable. L'indigo se
+ * détache nettement du vert et du rouge, mais il est trop proche du gris-bleu —
+ * or « stable » est le cas le plus fréquent. Dans ce cas précis on bascule sur
+ * l'ambre : gris froid contre orange chaud, impossible à confondre.
+ */
+export function storesColorFor(couleurQuantites: string): string {
+    return couleurQuantites.toLowerCase() === TREND_COLOR.flat.toLowerCase()
+        ? STORES_COLOR_ALT
+        : STORES_COLOR;
+}
 
 /**
  * Ventes réseau mensuelles, avec en option la courbe du nombre de magasins.
@@ -60,6 +71,11 @@ export const STORES_COLOR = "#6366f1";
  * serait écrasée sur l'axe et ne montrerait plus rien. Chaque série est donc
  * normalisée sur son propre maximum, rappelé en haut du graphique — c'est la
  * FORME des deux courbes qu'on compare, pas leurs hauteurs.
+ *
+ * Les deux séries se distinguent par TROIS canaux, et pas seulement la couleur
+ * (qui ne suffit ni en impression noir et blanc, ni pour un daltonien) : teinte
+ * garantie différente (`storesColorFor`), trait pointillé contre trait plein, et
+ * points évidés contre points pleins.
  *
  * Lecture : quantités qui montent avec les magasins = élargissement de la
  * diffusion ; quantités qui montent à magasins constants = vraie accélération
@@ -89,6 +105,7 @@ export function NetworkLineChart({
     const yS = (v: number) => padT + plotH - (v / maxS) * plotH;
     const linePts = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
     const areaPts = `${padL},${padT + plotH} ${linePts} ${(padL + plotW).toFixed(1)},${(padT + plotH).toFixed(1)}`;
+    const storesColor = storesColorFor(color);
     const storePts = avecMagasins
         ? stores!.map((v, i) => `${x(i).toFixed(1)},${yS(v).toFixed(1)}`).join(" ")
         : "";
@@ -101,7 +118,7 @@ export function NetworkLineChart({
                         Quantités vendues <span className="tabular-nums" style={{ color: "var(--text-muted)" }}>(max {maxV.toLocaleString("fr-FR")})</span>
                     </span>
                     <span className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                        <span className="inline-block w-3 h-[3px] rounded-full" style={{ background: STORES_COLOR }} />
+                        <span className="inline-block w-3 h-[3px] rounded-full" style={{ background: storesColor }} />
                         Magasins vendeurs <span className="tabular-nums" style={{ color: "var(--text-muted)" }}>(max {maxS.toLocaleString("fr-FR")})</span>
                     </span>
                 </div>
@@ -122,15 +139,24 @@ export function NetworkLineChart({
                     <polyline
                         points={storePts}
                         fill="none"
-                        stroke={STORES_COLOR}
+                        stroke={storesColor}
                         strokeWidth={1.75}
                         strokeDasharray="4 3"
                         strokeLinejoin="round"
                         strokeLinecap="round"
                     />
                 )}
+                {/* points évidés : distincts des points pleins des quantités, même sans couleur */}
                 {avecMagasins && stores!.map((v, i) => (
-                    <circle key={`mag-${labels[i]}`} cx={x(i)} cy={yS(v)} r={2.2} fill={STORES_COLOR} />
+                    <circle
+                        key={`mag-${labels[i]}`}
+                        cx={x(i)}
+                        cy={yS(v)}
+                        r={2.4}
+                        fill="var(--bg-surface)"
+                        stroke={storesColor}
+                        strokeWidth={1.4}
+                    />
                 ))}
                 {/* courbe */}
                 {n > 1 && <polyline points={linePts} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />}
@@ -147,7 +173,7 @@ export function NetworkLineChart({
                         </text>
                         {/* nb de magasins sous l'axe, juste au-dessus du mois */}
                         {avecMagasins && (
-                            <text x={x(i)} y={H - 20} textAnchor="middle" fontSize={8} fontWeight={600} fill={STORES_COLOR}>
+                            <text x={x(i)} y={H - 20} textAnchor="middle" fontSize={8} fontWeight={600} fill={storesColor}>
                                 {Math.round(stores![i]).toLocaleString("fr-FR")}
                             </text>
                         )}
