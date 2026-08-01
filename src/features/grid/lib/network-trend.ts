@@ -15,10 +15,20 @@ export const NB_MAGASINS_RESEAU = 270;
 export type NetworkTrend = {
     values: number[];   // quantités mensuelles, ordre chronologique
     labels: string[];   // "YYYY-MM"
+    /**
+     * Quantité moyenne par magasin vendeur, mois par mois. `null` si le nombre
+     * de magasins n'est pas connu sur les 12 mois.
+     */
+    perStore: number[] | null;
+    /**
+     * `true` si la tendance porte sur la qté/magasin, `false` si elle a dû se
+     * rabattre sur les quantités brutes faute de nombre de magasins.
+     */
+    surQteParMagasin: boolean;
     direction: "up" | "down" | "flat";
     /** Variation des 4 derniers mois vs les 4 premiers. `null` si aucune base. */
     pct: number | null;
-    /** Aucune vente sur les 4 premiers mois, des ventes sur les 4 derniers. */
+    /** Rien sur les 4 premiers mois, des ventes sur les 4 derniers. */
     nouveau: boolean;
     hasData: boolean;
 };
@@ -96,13 +106,31 @@ export const TREND_COLOR: Record<NetworkTrend["direction"], string> = {
  * mois isolé. Sans base de comparaison (rien vendu sur les 4 premiers mois),
  * aucun pourcentage n'est inventé : le produit est signalé « nouveau ».
  *
+ * ⚠️ LA TENDANCE PORTE SUR LA QUANTITÉ PAR MAGASIN, PAS SUR LA QUANTITÉ BRUTE.
+ *
+ * La quantité brute confond deux phénomènes distincts : un produit peut vendre
+ * davantage simplement parce qu'il est référencé dans plus de magasins, sans
+ * mieux se vendre nulle part. Inversement, un produit retiré de 60 magasins peut
+ * s'effondrer en volume tout en performant mieux là où il reste.
+ *
+ * C'est donc `quantité / magasins vendeurs` qui dit si un produit marche — et
+ * c'est sur elle que l'évolution est calculée. La courbe des quantités reste
+ * affichée, mais comme contexte, pas comme indicateur.
+ *
+ * Repli : sans nombre de magasins sur les 12 mois, on retombe sur les quantités
+ * brutes et `surQteParMagasin` vaut `false`, pour que l'UI puisse le dire.
+ *
  * Direction : forte hausse >+25%, hausse >+8%, stable, baisse <−8%, forte baisse <−25%.
  */
 export function computeNetworkTrend(
     qteByMonth?: Record<string, number> | null,
+    nbMagByMonth?: Record<string, number> | null,
     now: Date = new Date(),
 ): NetworkTrend {
-    const empty: NetworkTrend = { values: [], labels: [], direction: "flat", pct: null, nouveau: false, hasData: false };
+    const empty: NetworkTrend = {
+        values: [], labels: [], perStore: null, surQteParMagasin: false,
+        direction: "flat", pct: null, nouveau: false, hasData: false,
+    };
     if (!qteByMonth) return empty;
     const labels = buildRolling12QlikMonths(now);
     const complet = labels.every((label) =>
@@ -113,10 +141,20 @@ export function computeNetworkTrend(
 
     const values = labels.map((l) => Number(qteByMonth[l]));
     const n = values.length;
+
+    // Quantité par magasin vendeur : l'indicateur qui isole la performance du
+    // produit de sa diffusion. Un mois sans magasin vendeur vaut 0 — c'est le
+    // seul choix cohérent avec une quantité elle-même nulle.
+    const magasins = computeStoresSeries(nbMagByMonth, now);
+    const perStore = magasins
+        ? values.map((v, i) => (magasins.values[i] > 0 ? v / magasins.values[i] : 0))
+        : null;
+    const serie = perStore ?? values;
+
     const taille = Math.min(TREND_WINDOW, Math.floor(n / 2));
     const moyenne = (xs: number[]) => (xs.length ? xs.reduce((s, v) => s + v, 0) / xs.length : 0);
-    const debut = moyenne(values.slice(0, taille));
-    const fin = moyenne(values.slice(n - taille));
+    const debut = moyenne(serie.slice(0, taille));
+    const fin = moyenne(serie.slice(n - taille));
 
     let pct: number | null = null;
     let nouveau = false;
@@ -134,7 +172,7 @@ export function computeNetworkTrend(
         direction = "up";
     }
 
-    return { values, labels, direction, pct, nouveau, hasData: true };
+    return { values, labels, perStore, surQteParMagasin: perStore != null, direction, pct, nouveau, hasData: true };
 }
 
 /**

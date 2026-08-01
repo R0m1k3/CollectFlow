@@ -196,7 +196,7 @@ interface CellDetailData {
 
 /** Modal : quantités vendues réseau sur les 12 derniers mois, en une seule courbe. */
 function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () => void }) {
-    const trend = computeNetworkTrend(row.qteReseauByMonth);
+    const trend = computeNetworkTrend(row.qteReseauByMonth, row.nbMagReseauByMonth);
     const { values, labels, direction, pct } = trend;
     const color = TREND_COLOR[direction];
     // Deuxième courbe : le nombre de magasins vendeurs, pour distinguer une
@@ -215,6 +215,9 @@ function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () =>
                         <> · <span className="font-bold" style={{ color }}>
                             {pct != null && <>{pct >= 0 ? "+" : ""}{Math.round(pct * 100)}% · </>}
                             {trendLabel(pct, trend.nouveau)}
+                            {trend.surQteParMagasin && (
+                                <span className="font-normal" style={{ color: "var(--text-muted)" }}> (qté/magasin)</span>
+                            )}
                         </span></>
                     )}
                 </p>
@@ -224,7 +227,7 @@ function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () =>
                     Pas encore de détail mensuel pour ce produit.<br />Relancez un Sync Qlik pour le remplir.
                 </div>
             ) : (
-                <NetworkLineChart labels={labels} values={values} color={color} stores={magasins?.values} />
+                <NetworkLineChart labels={labels} values={values} color={color} stores={magasins?.values} perStore={trend.perStore} />
             )}
         </DialogContent>
     );
@@ -564,7 +567,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
         {
             id: "tendanceReseau",
             accessorFn: (row) => {
-                const t = computeNetworkTrend(row.qteReseauByMonth);
+                const t = computeNetworkTrend(row.qteReseauByMonth, row.nbMagReseauByMonth);
                 if (!t.hasData) return Number.NEGATIVE_INFINITY;
                 // Un produit « nouveau » n'a pas de pourcentage mais c'est la plus
                 // forte progression possible : il doit remonter en tête du tri, pas
@@ -575,7 +578,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
             header: () => <div className="text-center w-full">Tendance<br/><span className="text-[9px] opacity-60">Réseau · 12 m</span></div>,
             size: 78,
             cell: ({ row }) => {
-                const trend = computeNetworkTrend(row.original.qteReseauByMonth);
+                const trend = computeNetworkTrend(row.original.qteReseauByMonth, row.original.nbMagReseauByMonth);
                 if (!trend.hasData) return <div className="text-center text-[12px]" style={{ color: "var(--text-secondary)" }}>-</div>;
                 // Cliquable → modal des ventes réseau mois par mois (12 derniers mois).
                 return (

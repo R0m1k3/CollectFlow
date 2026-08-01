@@ -49,6 +49,11 @@ export interface ProduitRechercheRow {
     margePctReseau: number | null;
     /** Quantité réseau par mois `"YYYY-MM"` — alimente la sparkline de tendance. */
     qteByMonth: Record<string, number> | null;
+    /**
+     * Magasins vendeurs par mois `"YYYY-MM"`. La tendance porte sur la
+     * qté/magasin : sans cette série, elle se rabat sur les quantités brutes.
+     */
+    nbMagByMonth: Record<string, number> | null;
     periode: string | null;
 }
 

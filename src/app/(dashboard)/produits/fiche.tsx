@@ -148,9 +148,8 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
     const serie = magasin === "TOTAL" ? fiche.mensuelTotal : (fiche.mensuelParSite[magasin] ?? {});
     const totauxAffiches = magasin === "TOTAL" ? fiche.totaux : (fiche.totauxParSite[magasin] ?? { qte: 0, ca: 0, marge: 0, tauxMarge: 0 });
 
-    const trend = useMemo(() => computeNetworkTrend(reseau?.qteByMonth ?? null), [reseau]);
-    /** Nombre de magasins vendeurs par mois — deuxième courbe de la carte tendance. */
-    const magasinsParMois = useMemo(() => {
+    /** Magasins vendeurs par mois — dénominateur de la tendance ET 3e bande du graphique. */
+    const nbMagByMonth = useMemo(() => {
         const detailMensuel = reseau?.metricsByMonth;
         if (!detailMensuel) return null;
         const parMois: Record<string, number> = {};
@@ -161,8 +160,13 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
             const nb = Number(mesures?.nbMag);
             parMois[mois] = Number.isFinite(nb) ? nb : 0;
         }
-        return computeStoresSeries(parMois);
+        return parMois;
     }, [reseau]);
+    const trend = useMemo(
+        () => computeNetworkTrend(reseau?.qteByMonth ?? null, nbMagByMonth),
+        [reseau, nbMagByMonth],
+    );
+    const magasinsParMois = useMemo(() => computeStoresSeries(nbMagByMonth), [nbMagByMonth]);
     const comparatif = useMemo(() => computeComparatif(fiche), [fiche]);
     const verdict = indiceVerdict(comparatif.indiceQte);
 
@@ -292,13 +296,14 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
                         {trend.hasData && (
                             <div className="mt-3">
                                 <div className="text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--text-muted)" }}>
-                                    Quantités vendues réseau, mois par mois
+                                    Tendance réseau — la qté/magasin d&apos;abord, les volumes en contexte
                                 </div>
                                 <NetworkLineChart
                                     labels={trend.labels}
                                     values={trend.values}
                                     color={TREND_COLOR[trend.direction]}
                                     stores={magasinsParMois?.values}
+                                    perStore={trend.perStore}
                                 />
                             </div>
                         )}

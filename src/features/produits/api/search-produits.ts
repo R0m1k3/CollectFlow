@@ -37,6 +37,25 @@ const CACHE_TTL_MS = 10 * 60 * 1000;
 /** Durée de conservation d'un job terminé (le client a le temps de le relire). */
 const JOB_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * Série « magasins vendeurs » extraite du détail mensuel du cache.
+ *
+ * Un mois PRÉSENT dans le détail est un mois extrait : sans `nbMag`, c'est
+ * qu'aucun magasin n'a vendu, donc zéro. Le traiter comme manquant amputerait la
+ * série et priverait la tendance de son dénominateur.
+ */
+function nbMagParMois(
+    metricsByMonth: Record<string, { nbMag?: number }> | null | undefined,
+): Record<string, number> | null {
+    if (!metricsByMonth) return null;
+    const parMois: Record<string, number> = {};
+    for (const mois of Object.keys(metricsByMonth)) {
+        const nb = Number(metricsByMonth[mois]?.nbMag);
+        parMois[mois] = Number.isFinite(nb) ? nb : 0;
+    }
+    return Object.keys(parMois).length > 0 ? parMois : null;
+}
+
 /** Un cache réseau n'est fiable que s'il porte explicitement les 12 mois attendus. */
 function cacheReseauComplet(
     cache: NetworkMetricCached | undefined,
@@ -341,6 +360,7 @@ async function executerRecherche(
             margePctReseau: normalizeMargePct(margePct),
             // Le mensuel ne vient que du cache : le cube de recherche est agrégé.
             qteByMonth: fiable ? cache.qteByMonth : null,
+            nbMagByMonth: fiable ? nbMagParMois(cache.metricsByMonth) : null,
             periode: qlik.periode,
         };
     });
@@ -398,6 +418,7 @@ function rowDepuisCatalogueSeul(r: PgProduitSearchRow): ProduitRechercheRow {
         prixMoyenReseau: null,
         margePctReseau: null,
         qteByMonth: null,
+        nbMagByMonth: null,
         periode: null,
     };
 }

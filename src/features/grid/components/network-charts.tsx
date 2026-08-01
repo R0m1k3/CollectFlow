@@ -50,197 +50,195 @@ export function TrendSparkline({ trend }: { trend: NetworkTrend }) {
     );
 }
 
-/** Couleur par défaut de la courbe « magasins vendeurs » : indigo franc. */
-export const STORES_COLOR = "#6366f1";
-/** Repli chaud, quand la courbe des quantités est elle-même dans les tons froids. */
-export const STORES_COLOR_ALT = "#f59e0b";
+/** Courbe des quantités vendues (contexte) — bleu ciel. */
+export const QTY_COLOR = "#0ea5e9";
+/** Courbe des magasins vendeurs (contexte) — violet. */
+export const STORES_COLOR = "#8b5cf6";
 
-/**
- * Couleur de la courbe « magasins » garantie DISTINCTE de celle des quantités.
- *
- * La courbe des quantités prend la couleur de la tendance : vert (#22c55e),
- * rouge (#ef4444) ou gris-bleu (#94a3b8) quand elle est stable. L'indigo se
- * détache nettement du vert et du rouge, mais il est trop proche du gris-bleu —
- * or « stable » est le cas le plus fréquent. Dans ce cas précis on bascule sur
- * l'ambre : gris froid contre orange chaud, impossible à confondre.
- */
-export function storesColorFor(couleurQuantites: string): string {
-    return couleurQuantites.toLowerCase() === TREND_COLOR.flat.toLowerCase()
-        ? STORES_COLOR_ALT
-        : STORES_COLOR;
+/** Une bande du graphique : une série, son échelle, son style. */
+interface Bande {
+    titre: string;
+    valeurs: number[];
+    couleur: string;
+    hauteur: number;
+    /** Aire douce sous la courbe (réservée à la bande principale). */
+    aire?: boolean;
+    /** Trait pointillé + points évidés (séries de contexte). */
+    pointille?: boolean;
+    /** Toutes les valeurs écrites, ou seulement la dernière. */
+    etiquettes: "toutes" | "derniere";
+    /** Décimales des étiquettes (la qté/magasin est souvent < 10). */
+    decimales?: number;
+    /** Suffixe de la dernière étiquette (« mag. »). */
+    suffixe?: string;
 }
 
 /**
- * Ventes réseau mensuelles, avec en option le nombre de magasins vendeurs.
+ * Ventes réseau mensuelles : jusqu'à trois bandes empilées sur le même axe.
  *
- * ⚠️ DEUX BANDES SÉPARÉES, PAS DEUX COURBES SUPERPOSÉES.
+ * ⚠️ LA BANDE PRINCIPALE EST LA QUANTITÉ PAR MAGASIN, pas la quantité brute.
+ * La quantité brute confond la performance du produit et sa diffusion : elle
+ * monte dès qu'on référence le produit ailleurs, sans qu'il se vende mieux nulle
+ * part. C'est `qté / magasins vendeurs` qui dit si un produit marche ; les deux
+ * autres bandes sont là pour expliquer ses mouvements, pas pour les juger.
  *
- * La superposition a été essayée et rejetée à l'usage : les quantités se
- * comptent en milliers, les magasins plafonnent à ~270. Sur une échelle commune
- * la courbe des magasins s'écrase sur l'axe ; sur deux échelles superposées elle
- * passe AU-DESSUS de celle des quantités, ce qui se lit spontanément comme « il
- * y a plus de magasins que de ventes » — un contresens.
+ * ⚠️ DES BANDES, PAS DES COURBES SUPERPOSÉES. Deux échelles superposées
+ * plaçaient la courbe des magasins au-dessus de celle des quantités, ce qui se
+ * lit comme « il y a plus de magasins que de ventes » — un contresens. Chaque
+ * série a sa bande, alignée sur le même axe des mois : on compare des formes,
+ * jamais des hauteurs.
  *
- * ⚠️ LA DENSITÉ EST LE VRAI ENNEMI. Une première version imprimait les 24
- * valeurs (12 quantités + 12 magasins) et titrait chaque bande dans le SVG :
- * titres par-dessus les courbes, nombres des extrémités coupés par le bord,
- * étiquettes des magasins collées au trait. Illisible. D'où :
- *  - les titres sortent du dessin (HTML au-dessus, plus aucun recouvrement) ;
- *  - la bande des magasins ne porte plus que sa dernière valeur, son niveau se
- *    lisant à la forme et au maximum rappelé dans la légende ;
- *  - les étiquettes des bords sont ancrées vers l'intérieur, jamais tronquées ;
- *  - chaque mois expose une infobulle native avec les valeurs exactes.
- *
- * Lecture : quantités qui montent avec les magasins = élargissement de la
- * diffusion ; quantités qui montent à magasins constants = vraie accélération
- * des ventes ; quantités qui baissent alors que les magasins tiennent = essoufflement.
+ * ⚠️ LA DENSITÉ EST L'ENNEMI. Une version imprimait les 24 valeurs et titrait
+ * chaque bande dans le SVG : titres par-dessus les courbes, nombres des bords
+ * tronqués, étiquettes collées au trait. D'où les titres en HTML au-dessus du
+ * dessin, les étiquettes de bord ancrées vers l'intérieur, les bandes de
+ * contexte réduites à leur dernière valeur, et une infobulle par mois qui donne
+ * les chiffres exacts sans rien encombrer.
  */
 export function NetworkLineChart({
     labels,
     values,
     color,
     stores,
+    perStore,
 }: {
     labels: string[];
     values: number[];
     color: string;
     /** Nombre de magasins vendeurs, même longueur et même ordre que `values`. */
     stores?: number[] | null;
+    /** Quantité par magasin vendeur — la vraie tendance, en bande principale. */
+    perStore?: number[] | null;
 }) {
-    const avecMagasins = Array.isArray(stores) && stores.length === values.length && stores.length > 0;
     const n = values.length;
+    const memeTaille = (s?: number[] | null) => Array.isArray(s) && s.length === n && n > 0;
+    const avecParMag = memeTaille(perStore);
+    const avecMagasins = memeTaille(stores);
+
+    const fmt = (v: number, d = 0) =>
+        v.toLocaleString("fr-FR", { minimumFractionDigits: d, maximumFractionDigits: d });
+
+    // La bande principale porte la couleur de la tendance ; les bandes de
+    // contexte ont des couleurs fixes, pour que la teinte « tendance » ne
+    // désigne jamais qu'une seule chose dans le graphique.
+    const bandes: Bande[] = avecParMag
+        ? [
+            { titre: "Qté / magasin", valeurs: perStore!, couleur: color, hauteur: 96, aire: true, etiquettes: "toutes", decimales: perStore!.some((v) => v > 0 && v < 10) ? 1 : 0 },
+            { titre: "Quantités vendues", valeurs: values, couleur: QTY_COLOR, hauteur: 74, etiquettes: "toutes" },
+        ]
+        : [
+            { titre: "Quantités vendues", valeurs: values, couleur: color, hauteur: 116, aire: true, etiquettes: "toutes" },
+        ];
+    if (avecMagasins) {
+        bandes.push({ titre: "Magasins vendeurs", valeurs: stores!, couleur: STORES_COLOR, hauteur: 42, pointille: true, etiquettes: "derniere", suffixe: " mag." });
+    }
 
     const W = 520;
-    const padL = 14, padR = 14;
-    const hautQ = 16;                      // marge haute : place aux étiquettes du sommet
-    const bandeQ = 116;
-    const ecart = avecMagasins ? 12 : 0;
-    const bandeM = avecMagasins ? 44 : 0;
-    const moisH = 18;
-    const H = hautQ + bandeQ + ecart + bandeM + moisH;
+    const padL = 14, padR = 14, moisH = 18, hautPremiere = 16, ecart = 15;
     const plotW = W - padL - padR;
-
-    // Les quantités Qlik peuvent être NÉGATIVES (retours supérieurs aux ventes
-    // sur un mois) : l'échelle part du minimum réel, sinon le point sortirait
-    // du cadre par le bas.
-    const minQ = Math.min(0, ...values);
-    const maxQ = Math.max(...values, 1);
-    const etendueQ = maxQ - minQ || 1;
-    const maxM = avecMagasins ? Math.max(...stores!, 1) : 1;
+    const H = hautPremiere + bandes.reduce((t, b) => t + b.hauteur, 0) + ecart * (bandes.length - 1) + moisH;
 
     const x = (i: number) => (n > 1 ? padL + (i / (n - 1)) * plotW : padL + plotW / 2);
-    const y = (v: number) => hautQ + bandeQ - ((v - minQ) / etendueQ) * bandeQ;
-    const yM = (v: number) => hautQ + bandeQ + ecart + bandeM - (v / maxM) * bandeM;
-    const zero = y(0);
-
-    /** Aux extrémités, on ancre l'étiquette vers l'intérieur : sinon elle sort du cadre. */
+    /** Aux extrémités on ancre vers l'intérieur : sinon l'étiquette sort du cadre. */
     const ancrage = (i: number): "start" | "middle" | "end" =>
         i === 0 ? "start" : i === n - 1 ? "end" : "middle";
 
-    const linePts = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
-    const areaPts = `${padL},${zero.toFixed(1)} ${linePts} ${(padL + plotW).toFixed(1)},${zero.toFixed(1)}`;
-    const storesColor = storesColorFor(color);
-    const storePts = avecMagasins
-        ? stores!.map((v, i) => `${x(i).toFixed(1)},${yM(v).toFixed(1)}`).join(" ")
-        : "";
-    const fmt = (v: number) => Math.round(v).toLocaleString("fr-FR");
+    // Position verticale de chaque bande, empilée de haut en bas.
+    let curseur = hautPremiere;
+    const disposees = bandes.map((b) => {
+        const haut = curseur;
+        curseur += b.hauteur + ecart;
+        // Les quantités Qlik peuvent être NÉGATIVES (retours > ventes sur un
+        // mois) : l'échelle part du minimum réel, sinon le point sort du cadre.
+        const min = Math.min(0, ...b.valeurs);
+        const max = Math.max(...b.valeurs, min + 1);
+        const etendue = max - min || 1;
+        const y = (v: number) => haut + b.hauteur - ((v - min) / etendue) * b.hauteur;
+        return { ...b, haut, max, y };
+    });
 
     return (
         <div className="mt-3 w-full overflow-x-auto">
-            {/* Titres HORS du dessin : plus rien ne recouvre les courbes. */}
+            {/* Titres HORS du dessin : plus aucun recouvrement possible. */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-1.5">
-                <span className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                    <span className="inline-block w-3 h-[3px] rounded-full" style={{ background: color }} />
-                    Quantités vendues
-                    <span className="tabular-nums" style={{ color: "var(--text-muted)" }}>· max {fmt(maxQ)}</span>
-                </span>
-                {avecMagasins && (
-                    <span className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                {disposees.map((b) => (
+                    <span key={b.titre} className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
                         <span
-                            className="inline-block w-3 h-0 rounded-full"
-                            style={{ borderTop: `3px dashed ${storesColor}` }}
+                            className="inline-block w-3"
+                            style={b.pointille
+                                ? { borderTop: `3px dashed ${b.couleur}` }
+                                : { height: 3, borderRadius: 9999, background: b.couleur }}
                         />
-                        Magasins vendeurs
-                        <span className="tabular-nums" style={{ color: "var(--text-muted)" }}>· max {fmt(maxM)}</span>
+                        {b.titre}
+                        <span className="tabular-nums" style={{ color: "var(--text-muted)" }}>· max {fmt(b.max, b.decimales ?? 0)}</span>
                     </span>
-                )}
+                ))}
             </div>
             <svg
                 viewBox={`0 0 ${W} ${H}`}
                 className="w-full"
                 style={{ minWidth: 420 }}
                 role="img"
-                aria-label={avecMagasins ? "Ventes réseau mensuelles et nombre de magasins vendeurs" : "Ventes réseau mensuelles"}
+                aria-label={"Ventes réseau mensuelles : " + disposees.map((b) => b.titre).join(", ")}
             >
-                {/* ─── Bande 1 : quantités ─────────────────────────────── */}
-                <line x1={padL} y1={zero} x2={padL + plotW} y2={zero} stroke="var(--border)" strokeWidth={1} />
-                {n > 1 && <polygon points={areaPts} fill={color} opacity={0.08} />}
-                {n > 1 && <polyline points={linePts} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />}
-                {values.map((v, i) => (
-                    <g key={`qte-${labels[i]}`}>
-                        <circle cx={x(i)} cy={y(v)} r={2.6} fill={color} />
-                        <text
-                            x={x(i)}
-                            y={v >= 0 ? y(v) - 6 : y(v) + 12}
-                            textAnchor={ancrage(i)}
-                            fontSize={8.5}
-                            fontWeight={700}
-                            fill="var(--text-primary)"
-                        >
-                            {fmt(v)}
-                        </text>
-                    </g>
-                ))}
+                {disposees.map((b) => {
+                    const pts = b.valeurs.map((v, i) => `${x(i).toFixed(1)},${b.y(v).toFixed(1)}`).join(" ");
+                    const base = b.y(Math.min(0, ...b.valeurs));
+                    return (
+                        <g key={b.titre}>
+                            <line x1={padL} y1={base} x2={padL + plotW} y2={base} stroke="var(--border)" strokeWidth={1} />
+                            {b.aire && n > 1 && (
+                                <polygon
+                                    points={`${padL},${base.toFixed(1)} ${pts} ${(padL + plotW).toFixed(1)},${base.toFixed(1)}`}
+                                    fill={b.couleur}
+                                    opacity={0.08}
+                                />
+                            )}
+                            {n > 1 && (
+                                <polyline
+                                    points={pts}
+                                    fill="none"
+                                    stroke={b.couleur}
+                                    strokeWidth={b.pointille ? 1.75 : 2}
+                                    strokeDasharray={b.pointille ? "4 3" : undefined}
+                                    strokeLinejoin="round"
+                                    strokeLinecap="round"
+                                />
+                            )}
+                            {b.valeurs.map((v, i) => (
+                                <circle
+                                    key={`${b.titre}-${labels[i]}`}
+                                    cx={x(i)}
+                                    cy={b.y(v)}
+                                    r={b.pointille ? 2.2 : 2.6}
+                                    // Points évidés sur les séries de contexte : elles restent
+                                    // distinctes même en noir et blanc.
+                                    fill={b.pointille ? "var(--bg-surface)" : b.couleur}
+                                    stroke={b.pointille ? b.couleur : undefined}
+                                    strokeWidth={b.pointille ? 1.3 : undefined}
+                                />
+                            ))}
+                            {b.valeurs.map((v, i) => {
+                                if (b.etiquettes === "derniere" && i !== n - 1) return null;
+                                return (
+                                    <text
+                                        key={`lab-${b.titre}-${labels[i]}`}
+                                        x={x(i)}
+                                        y={v >= 0 ? b.y(v) - 6 : b.y(v) + 12}
+                                        textAnchor={ancrage(i)}
+                                        fontSize={8.5}
+                                        fontWeight={700}
+                                        fill={b.etiquettes === "derniere" ? b.couleur : "var(--text-primary)"}
+                                    >
+                                        {fmt(v, b.decimales ?? 0)}{i === n - 1 ? b.suffixe ?? "" : ""}
+                                    </text>
+                                );
+                            })}
+                        </g>
+                    );
+                })}
 
-                {/* ─── Bande 2 : magasins vendeurs ─────────────────────── */}
-                {avecMagasins && (
-                    <>
-                        <line
-                            x1={padL}
-                            y1={hautQ + bandeQ + ecart + bandeM}
-                            x2={padL + plotW}
-                            y2={hautQ + bandeQ + ecart + bandeM}
-                            stroke="var(--border)"
-                            strokeWidth={1}
-                        />
-                        {n > 1 && (
-                            <polyline
-                                points={storePts}
-                                fill="none"
-                                stroke={storesColor}
-                                strokeWidth={1.75}
-                                strokeDasharray="4 3"
-                                strokeLinejoin="round"
-                                strokeLinecap="round"
-                            />
-                        )}
-                        {stores!.map((v, i) => (
-                            // Point évidé : lisible même sans couleur (impression N&B, daltonisme).
-                            <circle
-                                key={`mag-${labels[i]}`}
-                                cx={x(i)}
-                                cy={yM(v)}
-                                r={2.2}
-                                fill="var(--bg-surface)"
-                                stroke={storesColor}
-                                strokeWidth={1.3}
-                            />
-                        ))}
-                        {/* Seule la dernière valeur est écrite : le reste se lit à la forme. */}
-                        <text
-                            x={x(n - 1)}
-                            y={yM(stores![n - 1]) - 6}
-                            textAnchor="end"
-                            fontSize={8.5}
-                            fontWeight={700}
-                            fill={storesColor}
-                        >
-                            {fmt(stores![n - 1])} mag.
-                        </text>
-                    </>
-                )}
-
-                {/* ─── Axe des mois, commun aux deux bandes ────────────── */}
+                {/* Axe des mois, commun à toutes les bandes */}
                 {labels.map((lab, i) => (
                     <text key={`mois-${lab}`} x={x(i)} y={H - 5} textAnchor={ancrage(i)} fontSize={8} fill="var(--text-muted)">
                         {fmtMonthShort(lab)}
@@ -258,7 +256,8 @@ export function NetworkLineChart({
                         fill="transparent"
                     >
                         <title>
-                            {`${fmtMonthShort(lab)} · ${fmt(values[i])} vendues${avecMagasins ? ` · ${fmt(stores![i])} magasins` : ""}`}
+                            {`${fmtMonthShort(lab)} · ` +
+                                disposees.map((b) => `${b.titre} ${fmt(b.valeurs[i], b.decimales ?? 0)}`).join(" · ")}
                         </title>
                     </rect>
                 ))}

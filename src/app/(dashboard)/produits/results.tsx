@@ -313,7 +313,7 @@ function ResultTable({ rows, query }: { rows: ProduitRechercheRow[]; query: stri
                 </thead>
                 <tbody>
                     {rows.map((r) => {
-                        const trend = computeNetworkTrend(r.qteByMonth);
+                        const trend = computeNetworkTrend(r.qteByMonth, r.nbMagByMonth);
                         const href = r.codein
                             ? `/produits?codein=${encodeURIComponent(r.codein)}&q=${encodeURIComponent(query)}`
                             : `/produits?cc=${encodeURIComponent(r.codeCentrale)}&q=${encodeURIComponent(query)}`;
