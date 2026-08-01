@@ -850,6 +850,12 @@ export async function fetchNetworkMetricsPlaywright(
                             const selectionnerParFournisseur = async (): Promise<boolean> => {
                                 if (!fournisseurCode || codes.length === 0) return false;
                                 const attendus = new Set(codes.map((c) => c.trim()));
+                                /**
+                                 * Au-delà de ce nombre de codes visibles, la sélection fournisseur
+                                 * ne restreint rien (elle laisse tout le catalogue) : inutile de
+                                 * finir la lecture, la réponse est déjà connue.
+                                 */
+                                const plafond = attendus.size * 3;
 
                                 /** Codes articles visibles sous la sélection courante. */
                                 const lireCodesVisibles = async (): Promise<Set<string>> => {
@@ -882,6 +888,11 @@ export async function fetchNetworkMetricsPlaywright(
                                                 const c = String(r[0]?.qText ?? "").trim();
                                                 if (c && c !== "-") vus.add(c);
                                             }
+                                            // Inutile de lire tout le catalogue pour conclure : au-delà
+                                            // du plafond, la sélection ne restreint manifestement rien.
+                                            // Mesuré : 1 207 205 codes lus en 240 pages, ×3 champs =
+                                            // 87 s perdues avant un rejet joué d'avance.
+                                            if (vus.size > plafond) break;
                                         }
                                         return vus;
                                     } finally {
@@ -918,9 +929,9 @@ export async function fetchNetworkMetricsPlaywright(
                                     // 1 207 205 articles visibles, soit tout le catalogue — la
                                     // sélection n'avait rien restreint, et la « couverture » de 97 %
                                     // ne faisait que constater que le catalogue contient nos codes.
-                                    if (visibles.size > attendus.size * 3) {
+                                    if (visibles.size > plafond) {
                                         diag(
-                                            "  champ « " + champ + " » = « " + fournisseurCode + " » → " + visibles.size +
+                                            "  champ « " + champ + " » = « " + fournisseurCode + " » → plus de " + plafond +
                                             " articles visibles pour " + attendus.size + " demandés : la sélection ne restreint rien, ignorée",
                                         );
                                         await rpc("Clear", {}, h);
@@ -980,23 +991,26 @@ export async function fetchNetworkMetricsPlaywright(
                             /**
                              * Choisit la valeur de `Période` sous laquelle l'extraction aura lieu.
                              *
-                             * ⚠️ Correction majeure. La version précédente mesurait la couverture
-                             * d'une `Période` **sans sélection d'année**, puis effaçait `Période`
-                             * si aucune valeur ne couvrait les 12 mois. Or :
+                             * CE QUE DIT LA MESURE (production, 2026-08-01, sonde paginée) :
                              *
-                             *  - sans `Période`, `Type_Cal` ne résout rien : « Quantité N » est
-                             *    morte partout (mesuré : couverture 0/12). Les passes annuelles
-                             *    renvoyaient bien 270 056 lignes, mais **toutes mesures nulles** —
-                             *    d'où « 0 point mensuel ajouté » et le refus final ;
-                             *  - « Année à date » ne vaut « janvier → aujourd'hui » que pour
-                             *    l'année EN COURS. Avec `Année=2025` sélectionnée, la même valeur
-                             *    donne l'année 2025 COMPLÈTE — c'est exactement ce que montre
-                             *    l'app : « Période d'analyse : Du 02/01/2025 au 31/12/2025 ».
+                             *     Période « (aucune) » → master exposée : 2024-01…2026-07 (31 mois)
                              *
-                             * La couverture d'une `Période` ne veut donc rien dire hors du contexte
-                             * d'année dans lequel elle sera utilisée. On la mesure désormais comme
-                             * l'**union des passes annuelles** — 2025 puis 2026 — c'est-à-dire
-                             * exactement ce que fera `monthDimPath`.
+                             * Sans aucune `Période` sélectionnée, « Quantité N » couvre **31 mois**,
+                             * et une seule passe (`Année=2026`) sert les 12 mois de la fenêtre.
+                             * L'état libre est donc le bon — encore fallait-il pouvoir le voir.
+                             *
+                             * Deux erreurs successives l'avaient masqué, toutes deux dans l'outil
+                             * de mesure et non dans le modèle Qlik :
+                             *  1. la sonde ne lisait que les 60 premières lignes du cube `[Mois]`,
+                             *     donc jamais les mois récents → « 0/12 » pour toute valeur ;
+                             *  2. `Clear` était appelée sur le list object au lieu du champ, ce qui
+                             *     faisait avorter la cartographie entière avant son premier essai.
+                             *
+                             * D'où le principe retenu ici : **ne rien présumer, tout mesurer**. La
+                             * couverture est évaluée par année et dans le contexte exact où elle
+                             * sera exploitée (`monthDimPath` pose la même valeur), l'état sans
+                             * `Période` étant un candidat comme un autre — et, en l'occurrence, le
+                             * gagnant.
                              */
                             const choisirPeriode = async (annees: number[]): Promise<number> => {
                                 const fenetre = new Set(monthlyPayload.map((m) => m.label));
