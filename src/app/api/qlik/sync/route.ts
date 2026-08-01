@@ -7,6 +7,7 @@ import {
     buildGridNetworkQlikDateFilter,
     QLIK_MONTHS_BACK_DEFAULT,
 } from "@/lib/qlik-date-range";
+import { startCapture, stopCapture } from "@/lib/log-capture";
 
 // Tâche d'extraction Qlik potentiellement très longue (hypercube paginé).
 // On accepte quand même 5 min côté plateforme Next.js, mais on rend la main au
@@ -215,6 +216,10 @@ function filterCentralCodes(rawCodes: Array<string | null | undefined>): {
  * au fur et à mesure (compteur fetched, puis upserted, puis finishedAt).
  */
 async function runJob(job: QlikSyncJob): Promise<void> {
+    // Journal téléchargeable depuis Paramètres. Ouvert AVANT le premier log du
+    // job pour ne pas perdre l'entête (choix des champs, carte du modèle Qlik) —
+    // c'est précisément la partie qu'un terminal tronque.
+    startCapture(job.jobId, `sync fournisseur=${job.fournisseur} démarrée le ${job.startedAt}`);
     try {
         const articles = await pgGetArticlesByFournisseur(job.fournisseur);
         // Filtre strict des codes (trim, dedupe, exclusion vides/`-`/codes trop suspects).
@@ -255,6 +260,8 @@ async function runJob(job: QlikSyncJob): Promise<void> {
         job.finishedAt = new Date().toISOString();
     } catch (e) {
         applyJobError(job, e);
+    } finally {
+        await stopCapture(job.jobId, `statut final=${job.status}${job.error ? ` — ${job.error}` : ""}`);
     }
 }
 
@@ -284,6 +291,7 @@ function applyJobError(job: QlikSyncJob, e: unknown): void {
  * exactement le même extracteur, donc le même détail mensuel.
  */
 async function runProductJob(job: QlikSyncJob): Promise<void> {
+    startCapture(job.jobId, `sync produit=${job.codeCentrale} démarrée le ${job.startedAt}`);
     try {
         const code = job.codeCentrale!;
         job.requested = 1;
@@ -312,6 +320,8 @@ async function runProductJob(job: QlikSyncJob): Promise<void> {
         console.log(`[api/qlik/sync] job=${job.jobId} produit ${code} — ${count} ligne(s) upsert`);
     } catch (e) {
         applyJobError(job, e);
+    } finally {
+        await stopCapture(job.jobId, `statut final=${job.status}${job.error ? ` — ${job.error}` : ""}`);
     }
 }
 
