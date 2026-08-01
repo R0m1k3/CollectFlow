@@ -110,6 +110,33 @@ export function computeNetworkTrend(
     return { values, labels, direction, pct, hasData: true };
 }
 
+/**
+ * Série « nombre de magasins vendeurs » sur la MÊME fenêtre que
+ * `computeNetworkTrend`, pour la superposer à la courbe des quantités.
+ *
+ * Pourquoi cette deuxième courbe : une quantité qui monte parce que le produit
+ * est diffusé dans plus de magasins ne raconte pas la même histoire qu'une
+ * quantité qui monte à diffusion constante. Sans elle, la tendance seule ne
+ * permet pas de distinguer un succès produit d'un simple élargissement.
+ *
+ * Même règle du tout ou rien que la courbe des quantités : les 12 clés doivent
+ * être explicitement présentes, sinon `null` — un mois non extrait ne doit pas
+ * se lire comme « zéro magasin », ce qui simulerait un arrêt de diffusion.
+ */
+export function computeStoresSeries(
+    nbMagByMonth?: Record<string, number> | null,
+    now: Date = new Date(),
+): { values: number[]; labels: string[] } | null {
+    if (!nbMagByMonth) return null;
+    const labels = buildRolling12QlikMonths(now);
+    const complet = labels.every((label) =>
+        Object.prototype.hasOwnProperty.call(nbMagByMonth, label) &&
+        Number.isFinite(Number(nbMagByMonth[label])),
+    );
+    if (!complet) return null;
+    return { values: labels.map((l) => Number(nbMagByMonth[l])), labels };
+}
+
 /** Libellé français de la tendance : « Forte hausse », « Baisse », « Stable »… */
 export function trendLabel(pct: number | null): string {
     if (pct == null) return "Stable";

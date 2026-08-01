@@ -43,24 +43,95 @@ export function TrendSparkline({ trend }: { trend: NetworkTrend }) {
     );
 }
 
-/** Courbe unique des ventes réseau mensuelles (SVG). */
-export function NetworkLineChart({ labels, values, color }: { labels: string[]; values: number[]; color: string }) {
-    const W = 460, H = 200;
-    const padL = 10, padR = 10, padT = 22, padB = 30;
+/**
+ * Couleur de la courbe « magasins vendeurs ».
+ *
+ * Indigo choisi pour ne jamais entrer en collision avec les couleurs de
+ * tendance (vert / rouge / gris) portées par la courbe des quantités, et pour
+ * rester lisible sur fond clair comme sur fond sombre.
+ */
+export const STORES_COLOR = "#6366f1";
+
+/**
+ * Ventes réseau mensuelles, avec en option la courbe du nombre de magasins.
+ *
+ * ⚠️ DEUX ÉCHELLES INDÉPENDANTES. Les quantités se comptent en milliers, les
+ * magasins plafonnent à ~270 : sur une échelle commune la courbe des magasins
+ * serait écrasée sur l'axe et ne montrerait plus rien. Chaque série est donc
+ * normalisée sur son propre maximum, rappelé en haut du graphique — c'est la
+ * FORME des deux courbes qu'on compare, pas leurs hauteurs.
+ *
+ * Lecture : quantités qui montent avec les magasins = élargissement de la
+ * diffusion ; quantités qui montent à magasins constants = vraie accélération
+ * des ventes ; quantités qui baissent alors que les magasins tiennent = essoufflement.
+ */
+export function NetworkLineChart({
+    labels,
+    values,
+    color,
+    stores,
+}: {
+    labels: string[];
+    values: number[];
+    color: string;
+    /** Nombre de magasins vendeurs, même longueur et même ordre que `values`. */
+    stores?: number[] | null;
+}) {
+    const avecMagasins = Array.isArray(stores) && stores.length === values.length && stores.length > 0;
+    const W = 460, H = avecMagasins ? 224 : 200;
+    const padL = 10, padR = 10, padT = avecMagasins ? 40 : 22, padB = 30;
     const plotW = W - padL - padR, plotH = H - padT - padB;
     const n = values.length;
     const maxV = Math.max(...values, 1);
+    const maxS = avecMagasins ? Math.max(...stores!, 1) : 1;
     const x = (i: number) => (n > 1 ? padL + (i / (n - 1)) * plotW : padL + plotW / 2);
     const y = (v: number) => padT + plotH - (v / maxV) * plotH;
+    const yS = (v: number) => padT + plotH - (v / maxS) * plotH;
     const linePts = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
     const areaPts = `${padL},${padT + plotH} ${linePts} ${(padL + plotW).toFixed(1)},${(padT + plotH).toFixed(1)}`;
+    const storePts = avecMagasins
+        ? stores!.map((v, i) => `${x(i).toFixed(1)},${yS(v).toFixed(1)}`).join(" ")
+        : "";
     return (
         <div className="mt-3 w-full overflow-x-auto">
-            <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minWidth: 380 }} role="img" aria-label="Ventes réseau mensuelles">
+            {avecMagasins && (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-1">
+                    <span className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                        <span className="inline-block w-3 h-[3px] rounded-full" style={{ background: color }} />
+                        Quantités vendues <span className="tabular-nums" style={{ color: "var(--text-muted)" }}>(max {maxV.toLocaleString("fr-FR")})</span>
+                    </span>
+                    <span className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                        <span className="inline-block w-3 h-[3px] rounded-full" style={{ background: STORES_COLOR }} />
+                        Magasins vendeurs <span className="tabular-nums" style={{ color: "var(--text-muted)" }}>(max {maxS.toLocaleString("fr-FR")})</span>
+                    </span>
+                </div>
+            )}
+            <svg
+                viewBox={`0 0 ${W} ${H}`}
+                className="w-full"
+                style={{ minWidth: 380 }}
+                role="img"
+                aria-label={avecMagasins ? "Ventes réseau mensuelles et nombre de magasins vendeurs" : "Ventes réseau mensuelles"}
+            >
                 {/* ligne de base */}
                 <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="var(--border)" strokeWidth={1} />
                 {/* aire douce sous la courbe */}
                 {n > 1 && <polygon points={areaPts} fill={color} opacity={0.08} />}
+                {/* courbe des magasins, dessinée SOUS celle des quantités (série de contexte) */}
+                {avecMagasins && n > 1 && (
+                    <polyline
+                        points={storePts}
+                        fill="none"
+                        stroke={STORES_COLOR}
+                        strokeWidth={1.75}
+                        strokeDasharray="4 3"
+                        strokeLinejoin="round"
+                        strokeLinecap="round"
+                    />
+                )}
+                {avecMagasins && stores!.map((v, i) => (
+                    <circle key={`mag-${labels[i]}`} cx={x(i)} cy={yS(v)} r={2.2} fill={STORES_COLOR} />
+                ))}
                 {/* courbe */}
                 {n > 1 && <polyline points={linePts} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />}
                 {values.map((v, i) => (
@@ -74,6 +145,12 @@ export function NetworkLineChart({ labels, values, color }: { labels: string[]; 
                         <text x={x(i)} y={H - 10} textAnchor="middle" fontSize={8} fill="var(--text-muted)">
                             {fmtMonthShort(labels[i])}
                         </text>
+                        {/* nb de magasins sous l'axe, juste au-dessus du mois */}
+                        {avecMagasins && (
+                            <text x={x(i)} y={H - 20} textAnchor="middle" fontSize={8} fontWeight={600} fill={STORES_COLOR}>
+                                {Math.round(stores![i]).toLocaleString("fr-FR")}
+                            </text>
+                        )}
                     </g>
                 ))}
             </svg>

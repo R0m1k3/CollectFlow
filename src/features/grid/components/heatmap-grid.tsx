@@ -35,6 +35,7 @@ import {
 } from "@/features/grid/lib/months";
 import {
     computeNetworkTrend,
+    computeStoresSeries,
     trendLabel,
     TREND_COLOR,
 } from "@/features/grid/lib/network-trend";
@@ -198,6 +199,9 @@ function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () =>
     const trend = computeNetworkTrend(row.qteReseauByMonth);
     const { values, labels, direction, pct } = trend;
     const color = TREND_COLOR[direction];
+    // Deuxième courbe : le nombre de magasins vendeurs, pour distinguer une
+    // hausse due à l'élargissement de la diffusion d'une vraie accélération.
+    const magasins = computeStoresSeries(row.nbMagReseauByMonth);
     return (
         <DialogContent className="max-w-md" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }} onInteractOutside={onClose}>
             <DialogHeader>
@@ -219,7 +223,7 @@ function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () =>
                     Pas encore de détail mensuel pour ce produit.<br />Relancez un Sync Qlik pour le remplir.
                 </div>
             ) : (
-                <NetworkLineChart labels={labels} values={values} color={color} />
+                <NetworkLineChart labels={labels} values={values} color={color} stores={magasins?.values} />
             )}
         </DialogContent>
     );

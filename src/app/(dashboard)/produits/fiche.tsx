@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { HeatmapCell } from "@/features/grid/components/heatmap-cell";
 import { NetworkLineChart, DualLineChart, TrendSparkline } from "@/features/grid/components/network-charts";
-import { computeNetworkTrend, trendLabel, TREND_COLOR, NB_MAGASINS_RESEAU } from "@/features/grid/lib/network-trend";
+import { computeNetworkTrend, computeStoresSeries, trendLabel, TREND_COLOR, NB_MAGASINS_RESEAU } from "@/features/grid/lib/network-trend";
 import { formatMonthLabel, formatDate, SITE_LABELS, ffMonthToQlik } from "@/features/grid/lib/months";
 import { useQlikSyncJob } from "@/features/qlik-sync/use-qlik-sync-job";
 import { computeComparatif, indiceVerdict, normalizeMargePct } from "@/features/produits/lib/compare-reseau";
@@ -149,6 +149,17 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
     const totauxAffiches = magasin === "TOTAL" ? fiche.totaux : (fiche.totauxParSite[magasin] ?? { qte: 0, ca: 0, marge: 0, tauxMarge: 0 });
 
     const trend = useMemo(() => computeNetworkTrend(reseau?.qteByMonth ?? null), [reseau]);
+    /** Nombre de magasins vendeurs par mois — deuxième courbe de la carte tendance. */
+    const magasinsParMois = useMemo(() => {
+        const detailMensuel = reseau?.metricsByMonth;
+        if (!detailMensuel) return null;
+        const parMois: Record<string, number> = {};
+        for (const [mois, mesures] of Object.entries(detailMensuel)) {
+            const nb = Number(mesures?.nbMag);
+            if (Number.isFinite(nb)) parMois[mois] = nb;
+        }
+        return computeStoresSeries(parMois);
+    }, [reseau]);
     const comparatif = useMemo(() => computeComparatif(fiche), [fiche]);
     const verdict = indiceVerdict(comparatif.indiceQte);
 
@@ -280,7 +291,12 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
                                 <div className="text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--text-muted)" }}>
                                     Quantités vendues réseau, mois par mois
                                 </div>
-                                <NetworkLineChart labels={trend.labels} values={trend.values} color={TREND_COLOR[trend.direction]} />
+                                <NetworkLineChart
+                                    labels={trend.labels}
+                                    values={trend.values}
+                                    color={TREND_COLOR[trend.direction]}
+                                    stores={magasinsParMois?.values}
+                                />
                             </div>
                         )}
 

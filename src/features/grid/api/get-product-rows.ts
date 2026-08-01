@@ -485,6 +485,25 @@ async function reconcileSelectedStoreFromMensuelApi(
 }
 
 /**
+ * Extrait la série « nombre de magasins vendeurs » du détail mensuel complet.
+ *
+ * `metricsByMonth` porte les cinq mesures Qlik du mois ; seule `nbMag` sert à la
+ * deuxième courbe de la carte tendance. Renvoie `null` plutôt qu'un objet vide
+ * pour que l'UI distingue « pas de donnée » de « zéro magasin ».
+ */
+function nbMagParMois(
+    metricsByMonth: Record<string, { nbMag?: number }> | null | undefined,
+): Record<string, number> | null {
+    if (!metricsByMonth) return null;
+    const parMois: Record<string, number> = {};
+    for (const [mois, mesures] of Object.entries(metricsByMonth)) {
+        const nb = Number(mesures?.nbMag);
+        if (Number.isFinite(nb)) parMois[mois] = nb;
+    }
+    return Object.keys(parMois).length > 0 ? parMois : null;
+}
+
+/**
  * Enrichit les produits avec les metriques reseau Qlik (cache qlik_network_metrics),
  * jointes par code centrale. Degradation propre si la sync Qlik n'a jamais tourne
  * ou si le code centrale n'est pas encore disponible.
@@ -514,6 +533,7 @@ async function enrichWithNetworkMetrics(productMap: Map<string, ProductRow>): Pr
                 product.margePctReseau = m.margePctReseau;
                 product.tauxPresenceReseau = m.nbMagasinsReseau / NB_MAGASINS_RESEAU;
                 product.qteReseauByMonth = m.qteByMonth ?? null;
+                product.nbMagReseauByMonth = nbMagParMois(m.metricsByMonth);
                 product.networkFetchedAt = m.fetchedAt ?? undefined;
             }
         }
