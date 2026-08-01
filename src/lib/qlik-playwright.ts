@@ -928,11 +928,17 @@ export async function fetchNetworkMetricsPlaywright(
 
                             /** Pose (ou efface, si `elem` est nul) la sélection `Période`. */
                             const appliquerPeriode = async (elem: number | null): Promise<void> => {
-                                if (!periodeLo) return;
+                                // Effacer doit rester possible même si le list object n'a jamais pu
+                                // être créé : sinon la `Période` héritée de l'ouverture de l'app
+                                // resterait posée sans que personne ne l'ait choisie.
                                 if (elem == null) {
                                     await rpc("ClearField", { qFieldName: "Période" }, doc)
-                                        .catch(() => rpc("Clear", {}, periodeLo!.qHandle));
-                                } else {
+                                        .catch(() => (periodeLo ? rpc("Clear", {}, periodeLo.qHandle) : undefined));
+                                    await sleep(qlikSettleMs);
+                                    return;
+                                }
+                                if (!periodeLo) return;
+                                {
                                     await rpc("SelectListObjectValues", {
                                         qPath: "/qListObjectDef",
                                         qValues: [elem],
@@ -1235,6 +1241,216 @@ export async function fetchNetworkMetricsPlaywright(
                                 }
                             };
 
+                            /**
+                             * Cube `[Article Code] × 4 expressions`, SANS dimension Mois.
+                             *
+                             * C'est tout l'intérêt : la dimension Mois passe par le pont de
+                             * périodes et rattache une même ligne de fait à plusieurs contextes
+                             * (mesuré : ×5,3). Sans elle, `Sum(quantite)` porte une fois et une
+                             * seule sur les faits visibles — donc sur le mois sélectionné.
+                             */
+                            const fetchCodeCubeExpr = async (
+                                eCa: string, eQte: string, eNbMag: string, eMarge: string,
+                                onRow: (code: string, ca: number, qte: number, nbMag: number, marge: number) => void,
+                                timings?: Record<string, number>,
+                            ): Promise<number> => {
+                                const LARGEUR = 5;
+                                const PAGE = 1800; // 5 × 1800 = 9000 cellules < 10000
+                                const { value: obj } = await timed("createCubeCode", "CreateSessionObject", () => rpcWithRetry("createCubeCode", "CreateSessionObject", { qProp: { qInfo: { qType: "cf-net-code-expr" }, qHyperCubeDef: {
+                                    qDimensions: [{ qLibraryId: dim }],
+                                    qMeasures: [
+                                        { qDef: { qDef: eCa } },
+                                        { qDef: { qDef: eQte } },
+                                        { qDef: { qDef: eNbMag } },
+                                        { qDef: { qDef: eMarge } },
+                                    ],
+                                    qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: LARGEUR, qHeight: PAGE }],
+                                } } }, doc), timings);
+                                const qReturn = obj.qReturn as { qHandle: number; qGenericId?: string; qId?: string };
+                                const cube = { handle: qReturn.qHandle, id: String(qReturn.qGenericId ?? qReturn.qId ?? "") };
+                                const traiter = (matrix: Array<Array<{ qText?: string; qNum?: number }>>): number => {
+                                    for (const r of matrix) {
+                                        onRow(
+                                            String(r[0]?.qText ?? ""),
+                                            Number(r[1]?.qNum) || 0, Number(r[2]?.qNum) || 0,
+                                            Number(r[3]?.qNum) || 0, Number(r[4]?.qNum) || 0,
+                                        );
+                                    }
+                                    return matrix.length;
+                                };
+                                try {
+                                    const { value: layout } = await timed("layout", "GetLayout", () => rpcWithRetry("layout", "GetLayout", {}, cube.handle), timings);
+                                    const hc = (layout.qLayout as { qHyperCube: { qSize: { qcy: number }; qDataPages?: Array<{ qArea?: { qTop?: number }; qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }> } }).qHyperCube;
+                                    const size = hc.qSize.qcy;
+                                    let got = 0, top = 0;
+                                    const p0 = hc.qDataPages?.find((p) => (p.qArea?.qTop ?? 0) === 0);
+                                    if (p0?.qMatrix?.length) { got += traiter(p0.qMatrix); top = PAGE; }
+                                    for (; top < size; top += PAGE) {
+                                        const { value: d } = await timed("getCubeData", "GetHyperCubeData", () => rpcWithRetry("getCubeData", "GetHyperCubeData", { qPath: "/qHyperCubeDef", qPages: [{ qTop: top, qLeft: 0, qWidth: LARGEUR, qHeight: PAGE }] }, cube.handle), timings);
+                                        const matrix = (d.qDataPages as Array<{ qMatrix?: Array<Array<{ qText?: string; qNum?: number }>> }>)?.[0]?.qMatrix ?? [];
+                                        if (!matrix.length) break;
+                                        got += traiter(matrix);
+                                        if (matrix.length < PAGE) break;
+                                    }
+                                    return got;
+                                } finally {
+                                    await destroyCube(cube, timings);
+                                }
+                            };
+
+                            /**
+                             * EXTRACTION MOIS PAR MOIS SUR LE CHAMP DATE BRUT.
+                             *
+                             * Le chemin que rien n'avait encore essayé, et le seul qui n'emprunte
+                             * ni le pont de périodes ni les master measures :
+                             *
+                             *  - on sélectionne les jours d'UN mois sur le champ date ;
+                             *  - on lit un cube `[Article Code]` sans dimension Mois, donc sans
+                             *    démultiplication ;
+                             *  - `Type_Cal`, `Période` et `Année` sont effacés : les expressions
+                             *    brutes n'ont pas besoin du pont, elles agrègent les faits visibles.
+                             *
+                             * Il n'y a donc plus de « mois inatteignable » : chaque mois est un
+                             * filtre de dates, pas un contexte de calendrier.
+                             *
+                             * CONTRÔLE D'INTÉGRITÉ. La somme des 12 mois ne doit pas dépasser le
+                             * total sans filtre de date : si la dimension ou le champ démultipliait
+                             * les faits, elle exploserait (le pont donne ×5,3). Et chaque mois doit
+                             * être servi. Sinon rien n'est écrit.
+                             */
+                            const moisParDateBrute = async (): Promise<boolean> => {
+                                const timings: Record<string, number> = {};
+
+                                // Aucun contexte de calendrier : on veut les faits nus.
+                                if (yfh !== -1) { await rpc("Clear", {}, yfh); await sleep(qlikSettleMs); }
+                                await appliquerPeriode(null);
+                                if (dfh !== -1) { await rpc("Clear", {}, dfh); await sleep(qlikSettleMs); }
+
+                                if (codes.length && fh !== -1 && !parFournisseur) {
+                                    await timed("clearCode", "Clear", () => rpc("Clear", {}, fh), timings);
+                                    await sleep(qlikSettleMs);
+                                    await timed("selectCodeAll", "SelectValues", () => rpcWithRetry("selectCodeAll", "SelectValues", {
+                                        qFieldValues: codes.map((c) => ({ qText: c })),
+                                        qToggleMode: false,
+                                        qSoftLock: true,
+                                    }, fh, () => { aggCode15Retries++; }), timings);
+                                    await sleep(qlikSettleMs);
+                                }
+
+                                const sansFiltre = await totalDeControle();
+                                diag("[date brute] contrôle « " + exprQte + " » sans filtre date = " + Math.round(sansFiltre));
+                                if (sansFiltre <= 0) {
+                                    diag("[date brute] ÉCHEC : l'expression quantité ne renvoie rien (corriger QLIK_EXPR_QTE)");
+                                    return false;
+                                }
+
+                                // ─── Quel champ date filtre les faits ? ──────────────────
+                                //
+                                // ⚠️ On teste avec UN SEUL MOIS, pas avec la fenêtre entière.
+                                // Toute la table de faits tient dans les 12 mois (mesuré : 100 %
+                                // du total) : sélectionner la fenêtre ne réduit donc RIEN, et
+                                // l'ancien test « le total doit baisser » rejetait tous les
+                                // champs, y compris les bons.
+                                const moisTest = monthlyPayload[Math.floor(monthlyPayload.length / 2)];
+                                let champDate: string | null = null;
+                                let handleDate = -1;
+                                for (const cand of champsDateCandidats) {
+                                    const valeurs = /key/i.test(cand) ? moisTest.ymd : moisTest.serials;
+                                    const h = await selectionnerFenetreSur(cand, valeurs);
+                                    if (h == null) { diag("[date brute]   champ « " + cand + " » : inexistant"); continue; }
+                                    const t = await totalDeControle();
+                                    const part = sansFiltre > 0 ? t / sansFiltre : 0;
+                                    diag(
+                                        "[date brute]   champ « " + cand + " » sur le seul mois " + moisTest.label + " → " +
+                                        Math.round(t) + " (" + (part * 100).toFixed(1) + "% du total)",
+                                    );
+                                    // Un mois isolé doit peser une fraction du total : ni zéro
+                                    // (le champ ne touche pas les faits) ni la totalité (il ne
+                                    // filtre pas).
+                                    if (t > 0 && part < 0.5) { champDate = cand; handleDate = h; break; }
+                                    await rpc("Clear", {}, h);
+                                    await sleep(qlikSettleMs);
+                                }
+                                if (!champDate || handleDate === -1) {
+                                    diag(
+                                        "[date brute] ÉCHEC : aucun champ date ne filtre les faits mois par mois " +
+                                        "(essayés : " + JSON.stringify(champsDateCandidats) + ")",
+                                    );
+                                    return false;
+                                }
+                                diag("[date brute] champ date retenu : « " + champDate + " »");
+
+                                // À partir d'ici la série sera reconstruite entièrement : les
+                                // passes annuelles (master measures) et la série brute n'ont pas
+                                // la même sémantique, on ne les mélange pas.
+                                out.length = 0;
+                                for (const k of Object.keys(monthlyByCode)) delete monthlyByCode[k];
+
+                                const totauxMois: Record<string, number> = {};
+                                let sommeMois = 0;
+                                for (let i = 0; i < monthlyPayload.length; i++) {
+                                    const m = monthlyPayload[i];
+                                    const valeurs = /key/i.test(champDate) ? m.ymd : m.serials;
+                                    await rpc("Clear", {}, handleDate);
+                                    await sleep(qlikSettleMs);
+                                    await rpcWithRetry("selectDate", "SelectValues", {
+                                        qFieldValues: valeurs.map((v) => ({ qNum: v, qText: String(v) })),
+                                        qToggleMode: false,
+                                        qSoftLock: true,
+                                    }, handleDate, () => { aggCode15Retries++; });
+                                    await sleep(qlikSettleMs);
+
+                                    let totalDuMois = 0;
+                                    const lignes = await fetchCodeCubeExpr(exprCa, exprQte, exprNbMag, exprMarge, (code, ca, qte, nbMag, marge) => {
+                                        if (!code || code === "-") return;
+                                        if (qte === 0 && ca === 0) return;
+                                        totalDuMois += qte;
+                                        out.push([code, ca, qte, nbMag, nbMag > 0 ? ca / nbMag : 0, ca > 0 ? marge / ca : 0]);
+                                        (monthlyByCode[code] ??= {});
+                                        monthlyByCode[code][m.label] = {
+                                            qte, ca, nbMag,
+                                            caMag: nbMag > 0 ? ca / nbMag : 0,
+                                            margePct: ca > 0 ? marge / ca : 0,
+                                        };
+                                    }, timings);
+                                    totauxMois[m.label] = totalDuMois;
+                                    sommeMois += totalDuMois;
+                                    aggBatches++;
+                                    console.log(
+                                        "[qlik-pw][date brute] mois " + (i + 1) + "/" + monthlyPayload.length + " " + m.label +
+                                        " → " + lignes + " articles, quantité=" + Math.round(totalDuMois),
+                                    );
+                                    await pousserCheckpoint("date brute " + m.label);
+                                }
+                                aggMonths = monthlyPayload.length;
+
+                                diag("[date brute] quantités par mois : " + JSON.stringify(
+                                    Object.fromEntries(Object.entries(totauxMois).map(([k, v]) => [k, Math.round(v)])),
+                                ));
+
+                                // ─── Intégrité ───────────────────────────────────────────
+                                const vides = Object.entries(totauxMois).filter(([, v]) => v <= 0).map(([k]) => k);
+                                if (vides.length) {
+                                    diag("[date brute] ÉCHEC : mois sans aucune vente " + JSON.stringify(vides));
+                                    return false;
+                                }
+                                if (sommeMois > sansFiltre * 1.02) {
+                                    diag(
+                                        "[date brute] ÉCHEC : la somme des 12 mois (" + Math.round(sommeMois) +
+                                        ") dépasse le total sans filtre (" + Math.round(sansFiltre) + ") — les faits sont " +
+                                        "démultipliés, les ventes réseau seraient fausses",
+                                    );
+                                    return false;
+                                }
+                                diag(
+                                    "[date brute] OK — somme des 12 mois = " + Math.round(sommeMois) + " pour un total sans filtre de " +
+                                    Math.round(sansFiltre) + " (" + Math.round((sommeMois / sansFiltre) * 100) + "%), " +
+                                    Object.keys(monthlyByCode).length + " articles",
+                                );
+                                console.log("[qlik-pw][date brute] timings=" + timingSummary(timings));
+                                return true;
+                            };
+
                             const moisParExpressions = async (): Promise<boolean> => {
                                 const timings: Record<string, number> = {};
                                 const marqueOut = out.length;
@@ -1284,9 +1500,17 @@ export async function fetchNetworkMetricsPlaywright(
                                         const filtre = await totalDeControle();
                                         const ratio = sansFiltre > 0 ? filtre / sansFiltre : 0;
                                         diag("  champ « " + cand + " » → " + Math.round(filtre) + " (" + Math.round(ratio * 100) + "% du total sans filtre)");
-                                        if (filtre > 0 && ratio < 0.995) {
+                                        // ⚠️ 100 % ne veut PAS dire « ce champ ne filtre rien » : toute
+                                        // la table de faits tient dans les 12 mois (mesuré), donc
+                                        // sélectionner la fenêtre entière ne retire rien. Exiger une
+                                        // baisse rejetait donc les champs valides. Ici la sélection
+                                        // ne sert qu'à borner la fenêtre : un total non nul suffit,
+                                        // et on préfère simplement un champ qui filtre s'il existe.
+                                        if (filtre > 0) {
                                             champDate = cand;
                                             totalFenetre = filtre;
+                                            if (ratio < 0.995) break;
+                                            diag("    (la fenêtre couvre 100 % des faits — normal si l'app ne porte que ces 12 mois)");
                                             break;
                                         }
                                         // Un candidat rejeté ne doit jamais polluer l'essai
@@ -1815,6 +2039,27 @@ export async function fetchNetworkMetricsPlaywright(
                                         }
                                     } catch (e) {
                                         diag("extraction année par année interrompue : " + String((e as Error)?.message || e));
+                                    }
+                                }
+
+                                // REPLI 1 — mois par mois sur le champ date brut.
+                                //
+                                // Passe en premier car c'est le seul chemin sans pont de périodes :
+                                // aucun mois n'y est « inatteignable », puisqu'un mois y est un
+                                // filtre de dates et non un contexte de calendrier.
+                                if (!extraitParAnnee && useExpr) {
+                                    try {
+                                        if (await moisParDateBrute()) {
+                                            extraitParAnnee = couvre12();
+                                            if (extraitParAnnee) {
+                                                diag("extraction par date brute retenue — les " + attendus.length + " mois sont servis");
+                                                await pousserCheckpoint("date brute complète");
+                                            } else {
+                                                diag("extraction par date brute incomplète (manquants : " + JSON.stringify(moisManquants()) + ")");
+                                            }
+                                        }
+                                    } catch (e) {
+                                        diag("extraction par date brute interrompue : " + String((e as Error)?.message || e));
                                     }
                                 }
 
