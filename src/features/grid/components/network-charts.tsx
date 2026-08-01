@@ -7,6 +7,7 @@
  * produit (`/produits`). Aucun changement de comportement.
  */
 
+import { useState } from "react";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { fmtMonthShort } from "@/features/grid/lib/months";
 import { TREND_COLOR, type NetworkTrend } from "@/features/grid/lib/network-trend";
@@ -50,66 +51,62 @@ export function TrendSparkline({ trend }: { trend: NetworkTrend }) {
     );
 }
 
-/** Courbe des quantités vendues (contexte) — bleu ciel. */
-export const QTY_COLOR = "#0ea5e9";
-/** Courbe des magasins vendeurs (contexte) — violet. */
-export const STORES_COLOR = "#8b5cf6";
+/**
+ * Couleurs des séries : slots 1-3 de la palette catégorielle validée, exposés en
+ * variables CSS pour que le mode sombre soit un jeu de pas CHOISI et vérifié, et
+ * non un éclaircissement automatique (cf. `globals.css`).
+ */
+const SERIE_COULEURS = ["var(--viz-1)", "var(--viz-2)", "var(--viz-3)"] as const;
 
-/** Une bande du graphique : une série, son échelle, son style. */
-interface Bande {
+/** Une facette du graphique : une série, son échelle, son titre. */
+interface Facette {
     titre: string;
     valeurs: number[];
     couleur: string;
     hauteur: number;
-    /** Aire douce sous la courbe (réservée à la bande principale). */
+    /** Lavis sous la courbe : réservé à la facette principale. */
     aire?: boolean;
-    /** Trait pointillé + points évidés (séries de contexte). */
-    pointille?: boolean;
-    /** Toutes les valeurs écrites, ou seulement la dernière. */
-    etiquettes: "toutes" | "derniere";
-    /** Décimales des étiquettes (la qté/magasin est souvent < 10). */
     decimales?: number;
-    /** Suffixe de la dernière étiquette (« mag. »). */
-    suffixe?: string;
+    unite?: string;
 }
 
 /**
- * Ventes réseau mensuelles : jusqu'à trois bandes empilées sur le même axe.
+ * Ventes réseau mensuelles — petits multiples empilés sur un axe des mois commun.
  *
- * ⚠️ LA BANDE PRINCIPALE EST LA QUANTITÉ PAR MAGASIN, pas la quantité brute.
- * La quantité brute confond la performance du produit et sa diffusion : elle
- * monte dès qu'on référence le produit ailleurs, sans qu'il se vende mieux nulle
- * part. C'est `qté / magasins vendeurs` qui dit si un produit marche ; les deux
- * autres bandes sont là pour expliquer ses mouvements, pas pour les juger.
+ * ⚠️ PAS DE DOUBLE AXE. Superposer qté/magasin, volumes et magasins sur un même
+ * cadre demanderait deux ou trois échelles verticales : l'alignement entre elles
+ * serait arbitraire et inventerait des corrélations absentes des données. C'est
+ * l'erreur de graphique la plus commune. Trois mesures d'ordres de grandeur
+ * différents ⇒ trois facettes, une échelle chacune, le même axe horizontal.
  *
- * ⚠️ DES BANDES, PAS DES COURBES SUPERPOSÉES. Deux échelles superposées
- * plaçaient la courbe des magasins au-dessus de celle des quantités, ce qui se
- * lit comme « il y a plus de magasins que de ventes » — un contresens. Chaque
- * série a sa bande, alignée sur le même axe des mois : on compare des formes,
- * jamais des hauteurs.
+ * ⚠️ LA FACETTE PRINCIPALE EST LA QUANTITÉ PAR MAGASIN. La quantité brute confond
+ * la performance du produit et sa diffusion : elle monte dès qu'on référence le
+ * produit ailleurs, sans qu'il se vende mieux nulle part. Les deux autres
+ * facettes expliquent les mouvements de la première, elles ne les jugent pas.
  *
- * ⚠️ LA DENSITÉ EST L'ENNEMI. Une version imprimait les 24 valeurs et titrait
- * chaque bande dans le SVG : titres par-dessus les courbes, nombres des bords
- * tronqués, étiquettes collées au trait. D'où les titres en HTML au-dessus du
- * dessin, les étiquettes de bord ancrées vers l'intérieur, les bandes de
- * contexte réduites à leur dernière valeur, et une infobulle par mois qui donne
- * les chiffres exacts sans rien encombrer.
+ * ⚠️ ÉTIQUETAGE SÉLECTIF. Une valeur à côté de chaque point, c'est 36 nombres :
+ * illisible, et personne ne les lit. Seuls l'extrême et le dernier mois sont
+ * écrits ; le survol donne le mois exact et la vue tableau porte tout le reste,
+ * de sorte qu'aucune valeur n'est accessible uniquement au survol.
+ *
+ * Le texte ne porte jamais la couleur d'une série (une teinte claire est
+ * illisible en texte) : l'identité vient du repère coloré posé à côté.
  */
 export function NetworkLineChart({
     labels,
     values,
-    color,
     stores,
     perStore,
 }: {
     labels: string[];
     values: number[];
-    color: string;
-    /** Nombre de magasins vendeurs, même longueur et même ordre que `values`. */
+    /** Couleur héritée de la tendance : conservée pour l'API, plus utilisée ici —
+     *  la teinte « tendance » reste au badge d'en-tête, les séries ont la leur. */
+    color?: string;
     stores?: number[] | null;
-    /** Quantité par magasin vendeur — la vraie tendance, en bande principale. */
     perStore?: number[] | null;
 }) {
+    const [survol, setSurvol] = useState<number | null>(null);
     const n = values.length;
     const memeTaille = (s?: number[] | null) => Array.isArray(s) && s.length === n && n > 0;
     const avecParMag = memeTaille(perStore);
@@ -118,150 +115,222 @@ export function NetworkLineChart({
     const fmt = (v: number, d = 0) =>
         v.toLocaleString("fr-FR", { minimumFractionDigits: d, maximumFractionDigits: d });
 
-    // La bande principale porte la couleur de la tendance ; les bandes de
-    // contexte ont des couleurs fixes, pour que la teinte « tendance » ne
-    // désigne jamais qu'une seule chose dans le graphique.
-    const bandes: Bande[] = avecParMag
-        ? [
-            { titre: "Qté / magasin", valeurs: perStore!, couleur: color, hauteur: 96, aire: true, etiquettes: "toutes", decimales: perStore!.some((v) => v > 0 && v < 10) ? 1 : 0 },
-            { titre: "Quantités vendues", valeurs: values, couleur: QTY_COLOR, hauteur: 74, etiquettes: "toutes" },
-        ]
-        : [
-            { titre: "Quantités vendues", valeurs: values, couleur: color, hauteur: 116, aire: true, etiquettes: "toutes" },
-        ];
+    const facettes: Facette[] = [];
+    if (avecParMag) {
+        facettes.push({
+            titre: "Qté / magasin",
+            valeurs: perStore!,
+            couleur: SERIE_COULEURS[0],
+            hauteur: 92,
+            aire: true,
+            decimales: perStore!.some((v) => v > 0 && v < 10) ? 1 : 0,
+        });
+        facettes.push({ titre: "Quantités vendues", valeurs: values, couleur: SERIE_COULEURS[1], hauteur: 58 });
+    } else {
+        facettes.push({ titre: "Quantités vendues", valeurs: values, couleur: SERIE_COULEURS[0], hauteur: 110, aire: true });
+    }
     if (avecMagasins) {
-        bandes.push({ titre: "Magasins vendeurs", valeurs: stores!, couleur: STORES_COLOR, hauteur: 42, pointille: true, etiquettes: "derniere", suffixe: " mag." });
+        facettes.push({ titre: "Magasins vendeurs", valeurs: stores!, couleur: SERIE_COULEURS[2], hauteur: 46 });
     }
 
     const W = 520;
-    const padL = 14, padR = 14, moisH = 18, hautPremiere = 16, ecart = 15;
+    const padL = 16, padR = 16, axeH = 18, enteteH = 15, ecart = 12;
     const plotW = W - padL - padR;
-    const H = hautPremiere + bandes.reduce((t, b) => t + b.hauteur, 0) + ecart * (bandes.length - 1) + moisH;
+    const H = facettes.reduce((t, f) => t + enteteH + f.hauteur + ecart, 0) - ecart + axeH;
 
     const x = (i: number) => (n > 1 ? padL + (i / (n - 1)) * plotW : padL + plotW / 2);
-    /** Aux extrémités on ancre vers l'intérieur : sinon l'étiquette sort du cadre. */
+    /** Aux extrémités, l'étiquette est ancrée vers l'intérieur : sinon elle sort du cadre. */
     const ancrage = (i: number): "start" | "middle" | "end" =>
         i === 0 ? "start" : i === n - 1 ? "end" : "middle";
 
-    // Position verticale de chaque bande, empilée de haut en bas.
-    let curseur = hautPremiere;
-    const disposees = bandes.map((b) => {
-        const haut = curseur;
-        curseur += b.hauteur + ecart;
-        // Les quantités Qlik peuvent être NÉGATIVES (retours > ventes sur un
-        // mois) : l'échelle part du minimum réel, sinon le point sort du cadre.
-        const min = Math.min(0, ...b.valeurs);
-        const max = Math.max(...b.valeurs, min + 1);
+    let curseur = 0;
+    const disposees = facettes.map((f) => {
+        const hautEntete = curseur;
+        const haut = curseur + enteteH;
+        curseur = haut + f.hauteur + ecart;
+        // Les quantités Qlik peuvent être NÉGATIVES (retours > ventes sur un mois) :
+        // l'échelle part du minimum réel, sinon le point sort du cadre par le bas.
+        const min = Math.min(0, ...f.valeurs);
+        const max = Math.max(...f.valeurs, min + 1);
         const etendue = max - min || 1;
-        const y = (v: number) => haut + b.hauteur - ((v - min) / etendue) * b.hauteur;
-        return { ...b, haut, max, y };
+        const y = (v: number) => haut + f.hauteur - ((v - min) / etendue) * f.hauteur;
+        const iMax = f.valeurs.indexOf(Math.max(...f.valeurs));
+        return { ...f, hautEntete, haut, base: y(min), max, y, iMax };
     });
+    const basPlots = curseur - ecart;
 
     return (
         <div className="mt-3 w-full overflow-x-auto">
-            {/* Titres HORS du dessin : plus aucun recouvrement possible. */}
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-1.5">
-                {disposees.map((b) => (
-                    <span key={b.titre} className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                        <span
-                            className="inline-block w-3"
-                            style={b.pointille
-                                ? { borderTop: `3px dashed ${b.couleur}` }
-                                : { height: 3, borderRadius: 9999, background: b.couleur }}
-                        />
-                        {b.titre}
-                        <span className="tabular-nums" style={{ color: "var(--text-muted)" }}>· max {fmt(b.max, b.decimales ?? 0)}</span>
-                    </span>
-                ))}
-            </div>
             <svg
                 viewBox={`0 0 ${W} ${H}`}
                 className="w-full"
                 style={{ minWidth: 420 }}
                 role="img"
-                aria-label={"Ventes réseau mensuelles : " + disposees.map((b) => b.titre).join(", ")}
+                aria-label={"Ventes réseau mensuelles : " + disposees.map((f) => f.titre).join(", ")}
+                onMouseLeave={() => setSurvol(null)}
             >
-                {disposees.map((b) => {
-                    const pts = b.valeurs.map((v, i) => `${x(i).toFixed(1)},${b.y(v).toFixed(1)}`).join(" ");
-                    const base = b.y(Math.min(0, ...b.valeurs));
+                {disposees.map((f) => {
+                    const pts = f.valeurs.map((v, i) => `${x(i).toFixed(1)},${f.y(v).toFixed(1)}`).join(" ");
+                    // L'extrême et le dernier mois seulement : deux repères qui
+                    // situent la courbe, sans noyer le dessin sous les nombres.
+                    const aEtiqueter = [...new Set([f.iMax, n - 1])];
                     return (
-                        <g key={b.titre}>
-                            <line x1={padL} y1={base} x2={padL + plotW} y2={base} stroke="var(--border)" strokeWidth={1} />
-                            {b.aire && n > 1 && (
+                        <g key={f.titre}>
+                            {/* Bandeau de facette : repère coloré + titre + maximum, en encre neutre */}
+                            <rect x={padL} y={f.hautEntete + 3} width={12} height={3} rx={1.5} fill={f.couleur} />
+                            <text x={padL + 18} y={f.hautEntete + 7} fontSize={9.5} fontWeight={600} fill="var(--text-secondary)" dominantBaseline="middle">
+                                {f.titre}
+                            </text>
+                            <text x={padL + plotW} y={f.hautEntete + 7} textAnchor="end" fontSize={9} fill="var(--text-muted)" dominantBaseline="middle">
+                                max {fmt(f.max, f.decimales ?? 0)}{f.unite ?? ""}
+                            </text>
+
+                            {/* Ligne de base : filet plein, une nuance au-dessus du fond */}
+                            <line x1={padL} y1={f.base} x2={padL + plotW} y2={f.base} stroke="var(--border)" strokeWidth={1} />
+                            {f.aire && n > 1 && (
                                 <polygon
-                                    points={`${padL},${base.toFixed(1)} ${pts} ${(padL + plotW).toFixed(1)},${base.toFixed(1)}`}
-                                    fill={b.couleur}
-                                    opacity={0.08}
+                                    points={`${padL},${f.base.toFixed(1)} ${pts} ${(padL + plotW).toFixed(1)},${f.base.toFixed(1)}`}
+                                    fill={f.couleur}
+                                    opacity={0.1}
                                 />
                             )}
                             {n > 1 && (
-                                <polyline
-                                    points={pts}
-                                    fill="none"
-                                    stroke={b.couleur}
-                                    strokeWidth={b.pointille ? 1.75 : 2}
-                                    strokeDasharray={b.pointille ? "4 3" : undefined}
-                                    strokeLinejoin="round"
-                                    strokeLinecap="round"
-                                />
+                                <polyline points={pts} fill="none" stroke={f.couleur} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
                             )}
-                            {b.valeurs.map((v, i) => (
+
+                            {/* Points repères : extrême et dernier mois, cerclés de la couleur du fond */}
+                            {aEtiqueter.map((i) => (
                                 <circle
-                                    key={`${b.titre}-${labels[i]}`}
+                                    key={`pt-${f.titre}-${i}`}
                                     cx={x(i)}
-                                    cy={b.y(v)}
-                                    r={b.pointille ? 2.2 : 2.6}
-                                    // Points évidés sur les séries de contexte : elles restent
-                                    // distinctes même en noir et blanc.
-                                    fill={b.pointille ? "var(--bg-surface)" : b.couleur}
-                                    stroke={b.pointille ? b.couleur : undefined}
-                                    strokeWidth={b.pointille ? 1.3 : undefined}
+                                    cy={f.y(f.valeurs[i])}
+                                    r={4}
+                                    fill={f.couleur}
+                                    stroke="var(--bg-surface)"
+                                    strokeWidth={2}
                                 />
                             ))}
-                            {b.valeurs.map((v, i) => {
-                                if (b.etiquettes === "derniere" && i !== n - 1) return null;
+                            {aEtiqueter.map((i) => {
+                                // Un point proche du sommet verrait son étiquette empiéter sur le
+                                // bandeau de la facette (constaté au rendu : « 58 » par-dessus
+                                // « Qté / magasin »). Dans ce cas elle bascule SOUS le point.
+                                const yPoint = f.y(f.valeurs[i]);
+                                const dessus = yPoint - 8 >= f.haut + 8;
                                 return (
                                     <text
-                                        key={`lab-${b.titre}-${labels[i]}`}
+                                        key={`lab-${f.titre}-${i}`}
                                         x={x(i)}
-                                        y={v >= 0 ? b.y(v) - 6 : b.y(v) + 12}
+                                        y={dessus ? yPoint - 8 : yPoint + 13}
                                         textAnchor={ancrage(i)}
-                                        fontSize={8.5}
+                                        fontSize={9}
                                         fontWeight={700}
-                                        fill={b.etiquettes === "derniere" ? b.couleur : "var(--text-primary)"}
+                                        fill="var(--text-primary)"
                                     >
-                                        {fmt(v, b.decimales ?? 0)}{i === n - 1 ? b.suffixe ?? "" : ""}
+                                        {fmt(f.valeurs[i], f.decimales ?? 0)}
                                     </text>
                                 );
                             })}
+
+                            {/* Point mis en avant au survol */}
+                            {survol != null && (
+                                <circle
+                                    cx={x(survol)}
+                                    cy={f.y(f.valeurs[survol])}
+                                    r={3.5}
+                                    fill={f.couleur}
+                                    stroke="var(--bg-surface)"
+                                    strokeWidth={2}
+                                />
+                            )}
                         </g>
                     );
                 })}
 
-                {/* Axe des mois, commun à toutes les bandes */}
+                {/* Réticule : un seul trait vertical relie les trois facettes au même mois */}
+                {survol != null && (
+                    <line x1={x(survol)} y1={0} x2={x(survol)} y2={basPlots} stroke="var(--border-strong)" strokeWidth={1} />
+                )}
+
+                {/* Axe des mois, commun aux facettes */}
                 {labels.map((lab, i) => (
-                    <text key={`mois-${lab}`} x={x(i)} y={H - 5} textAnchor={ancrage(i)} fontSize={8} fill="var(--text-muted)">
+                    <text
+                        key={`mois-${lab}`}
+                        x={x(i)}
+                        y={H - 5}
+                        textAnchor={ancrage(i)}
+                        fontSize={8.5}
+                        fill={survol === i ? "var(--text-primary)" : "var(--text-muted)"}
+                        fontWeight={survol === i ? 700 : 400}
+                    >
                         {fmtMonthShort(lab)}
                     </text>
                 ))}
 
-                {/* Zones de survol : valeurs exactes du mois, sans encombrer le dessin. */}
+                {/* Zones de survol : larges cibles, une par mois */}
                 {labels.map((lab, i) => (
                     <rect
                         key={`survol-${lab}`}
                         x={x(i) - plotW / (2 * Math.max(1, n - 1))}
                         y={0}
                         width={plotW / Math.max(1, n - 1)}
-                        height={H - moisH}
+                        height={H}
                         fill="transparent"
-                    >
-                        <title>
-                            {`${fmtMonthShort(lab)} · ` +
-                                disposees.map((b) => `${b.titre} ${fmt(b.valeurs[i], b.decimales ?? 0)}`).join(" · ")}
-                        </title>
-                    </rect>
+                        onMouseEnter={() => setSurvol(i)}
+                    />
                 ))}
             </svg>
+
+            {/* Lecture du mois survolé, en encre neutre : la couleur reste aux repères */}
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] min-h-[16px]" style={{ color: "var(--text-secondary)" }}>
+                {survol != null ? (
+                    <>
+                        <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{fmtMonthShort(labels[survol])}</span>
+                        {disposees.map((f) => (
+                            <span key={`tt-${f.titre}`} className="flex items-center gap-1.5">
+                                <span className="inline-block w-2.5 h-[3px] rounded-full" style={{ background: f.couleur }} />
+                                {f.titre}
+                                <span className="font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>
+                                    {fmt(f.valeurs[survol], f.decimales ?? 0)}
+                                </span>
+                            </span>
+                        ))}
+                    </>
+                ) : (
+                    <span style={{ color: "var(--text-muted)" }}>Survolez un mois pour le détail.</span>
+                )}
+            </div>
+
+            {/* Vue tableau : l'équivalent accessible, et le recours quand une teinte
+                passe sous le seuil de contraste. Aucune valeur n'est réservée au survol. */}
+            <details className="mt-2">
+                <summary className="text-[11px] cursor-pointer select-none" style={{ color: "var(--text-muted)" }}>
+                    Voir les valeurs mois par mois
+                </summary>
+                <div className="mt-1.5 overflow-x-auto">
+                    <table className="w-full text-[11px] tabular-nums" style={{ borderCollapse: "collapse" }}>
+                        <thead>
+                            <tr style={{ color: "var(--text-muted)" }}>
+                                <th className="text-left font-medium py-1 pr-2">Mois</th>
+                                {disposees.map((f) => (
+                                    <th key={`th-${f.titre}`} className="text-right font-medium py-1 pl-2">{f.titre}</th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {labels.map((lab, i) => (
+                                <tr key={`tr-${lab}`} style={{ borderTop: "1px solid var(--border)" }}>
+                                    <td className="py-1 pr-2" style={{ color: "var(--text-secondary)" }}>{fmtMonthShort(lab)}</td>
+                                    {disposees.map((f) => (
+                                        <td key={`td-${f.titre}-${lab}`} className="text-right py-1 pl-2" style={{ color: "var(--text-primary)" }}>
+                                            {fmt(f.valeurs[i], f.decimales ?? 0)}
+                                        </td>
+                                    ))}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </details>
         </div>
     );
 }

@@ -13,7 +13,7 @@ import {
     RowSelectionState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, Warehouse, AlertTriangle } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, Warehouse, AlertTriangle, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -38,6 +38,7 @@ import {
     computeStoresSeries,
     trendLabel,
     TREND_COLOR,
+    NB_MAGASINS_RESEAU,
 } from "@/features/grid/lib/network-trend";
 import { TrendSparkline, NetworkLineChart } from "@/features/grid/components/network-charts";
 
@@ -194,14 +195,60 @@ interface CellDetailData {
     receptions: number | null;
 }
 
-/** Modal : quantités vendues réseau sur les 12 derniers mois, en une seule courbe. */
+/**
+ * Tuile de statistique : intitulé en phrase, valeur en chiffres proportionnels.
+ *
+ * Pas de `tabular-nums` ici : à grande taille, des chiffres de largeur égale font
+ * paraître un nombre court anormalement lâche. Les chiffres tabulaires sont
+ * réservés aux colonnes qui s'alignent verticalement (tableau, axes).
+ */
+function TuileStat({ label, valeur, indice, couleur, icone: Icone }: {
+    label: string;
+    valeur: string;
+    indice?: string;
+    couleur?: string;
+    icone?: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+}) {
+    return (
+        <div className="rounded-xl px-3 py-2.5 flex-1 min-w-[140px]" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
+            <div className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                {label}
+            </div>
+            <div className="flex items-center gap-1.5 mt-0.5">
+                {Icone && <Icone className="w-4 h-4 shrink-0" style={{ color: couleur ?? "var(--text-primary)" }} />}
+                <span className="text-[20px] font-bold leading-tight" style={{ color: couleur ?? "var(--text-primary)" }}>
+                    {valeur}
+                </span>
+            </div>
+            {indice && <div className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>{indice}</div>}
+        </div>
+    );
+}
+
+/**
+ * Carte « tendance réseau » : le verdict en tuiles, puis les trois séries
+ * mensuelles en petits multiples.
+ *
+ * La couleur de tendance (vert / rouge / gris) ne vit QUE dans la tuile de
+ * verdict, accompagnée d'une flèche et d'un libellé : un état ne se signale
+ * jamais par la couleur seule. Les courbes, elles, portent des teintes
+ * d'identité — sans quoi la même couleur voudrait dire deux choses.
+ */
 function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () => void }) {
     const trend = computeNetworkTrend(row.qteReseauByMonth, row.nbMagReseauByMonth);
     const { values, labels, direction, pct } = trend;
     const color = TREND_COLOR[direction];
-    // Deuxième courbe : le nombre de magasins vendeurs, pour distinguer une
-    // hausse due à l'élargissement de la diffusion d'une vraie accélération.
     const magasins = computeStoresSeries(row.nbMagReseauByMonth);
+    const Fleche = direction === "up" ? TrendingUp : direction === "down" ? TrendingDown : Minus;
+
+    const dernier = values.length - 1;
+    const fmt = (v: number, d = 0) => v.toLocaleString("fr-FR", { minimumFractionDigits: d, maximumFractionDigits: d });
+    const verdict = trend.nouveau
+        ? "Nouveau"
+        : pct != null
+            ? `${pct >= 0 ? "+" : ""}${Math.round(pct * 100)} %`
+            : "—";
+
     return (
         <DialogContent className="max-w-xl" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }} onInteractOutside={onClose}>
             <DialogHeader>
@@ -209,25 +256,41 @@ function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () =>
                     {row.libelle1}
                 </DialogTitle>
                 <p className="text-[12px] mt-0.5" style={{ color: "var(--text-muted)" }}>
-                    Ventes réseau · {labels.length > 0 ? `${labels.length} derniers mois` : "12 derniers mois"}
-                    {row.nbMagasinsReseau != null && <> · <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>{row.nbMagasinsReseau} magasins</span></>}
-                    {(pct != null || trend.nouveau) && (
-                        <> · <span className="font-bold" style={{ color }}>
-                            {pct != null && <>{pct >= 0 ? "+" : ""}{Math.round(pct * 100)}% · </>}
-                            {trendLabel(pct, trend.nouveau)}
-                            {trend.surQteParMagasin && (
-                                <span className="font-normal" style={{ color: "var(--text-muted)" }}> (qté/magasin)</span>
-                            )}
-                        </span></>
-                    )}
+                    Réseau · 12 mois glissants, mois en cours exclu
                 </p>
             </DialogHeader>
+
             {!trend.hasData ? (
                 <div className="mt-3 rounded-xl p-4 text-center text-[13px]" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
                     Pas encore de détail mensuel pour ce produit.<br />Relancez un Sync Qlik pour le remplir.
                 </div>
             ) : (
-                <NetworkLineChart labels={labels} values={values} color={color} stores={magasins?.values} perStore={trend.perStore} />
+                <>
+                    <div className="flex flex-wrap gap-2 mt-1">
+                        <TuileStat
+                            label="Tendance"
+                            valeur={verdict}
+                            indice={trend.surQteParMagasin
+                                ? `${trendLabel(pct, trend.nouveau)} · sur la qté/magasin`
+                                : `${trendLabel(pct, trend.nouveau)} · sur les volumes (magasins inconnus)`}
+                            couleur={color}
+                            icone={Fleche}
+                        />
+                        {trend.perStore && (
+                            <TuileStat
+                                label="Qté / magasin"
+                                valeur={fmt(trend.perStore[dernier], trend.perStore[dernier] < 10 ? 1 : 0)}
+                                indice={`dernier mois · ${fmt(trend.perStore.reduce((t, v) => t + v, 0) / trend.perStore.length, 1)} en moyenne`}
+                            />
+                        )}
+                        <TuileStat
+                            label="Magasins vendeurs"
+                            valeur={magasins ? fmt(magasins.values[dernier]) : fmt(row.nbMagasinsReseau ?? 0)}
+                            indice={`sur ${NB_MAGASINS_RESEAU} du réseau`}
+                        />
+                    </div>
+                    <NetworkLineChart labels={labels} values={values} stores={magasins?.values} perStore={trend.perStore} />
+                </>
             )}
         </DialogContent>
     );
