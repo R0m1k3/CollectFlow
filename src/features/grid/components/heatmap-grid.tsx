@@ -203,7 +203,7 @@ function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () =>
     // hausse due à l'élargissement de la diffusion d'une vraie accélération.
     const magasins = computeStoresSeries(row.nbMagReseauByMonth);
     return (
-        <DialogContent className="max-w-md" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }} onInteractOutside={onClose}>
+        <DialogContent className="max-w-xl" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }} onInteractOutside={onClose}>
             <DialogHeader>
                 <DialogTitle className="text-base leading-snug pr-6" style={{ color: "var(--text-primary)" }}>
                     {row.libelle1}
