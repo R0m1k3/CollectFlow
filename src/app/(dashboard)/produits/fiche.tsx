@@ -155,8 +155,11 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
         if (!detailMensuel) return null;
         const parMois: Record<string, number> = {};
         for (const [mois, mesures] of Object.entries(detailMensuel)) {
+            // Mois présent sans `nbMag` = mois extrait sans vente = zéro magasin
+            // (cf. get-product-rows.ts) : sinon la série est amputée et la courbe
+            // disparaît sur les anciens caches.
             const nb = Number(mesures?.nbMag);
-            if (Number.isFinite(nb)) parMois[mois] = nb;
+            parMois[mois] = Number.isFinite(nb) ? nb : 0;
         }
         return computeStoresSeries(parMois);
     }, [reseau]);
@@ -271,7 +274,7 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
                             <Stat
                                 label="Tendance 12 m"
                                 value={trend.pct != null ? `${trend.pct >= 0 ? "+" : ""}${Math.round(trend.pct * 100)} %` : "—"}
-                                hint={trendLabel(trend.pct)}
+                                hint={trendLabel(trend.pct, trend.nouveau)}
                                 color={TREND_COLOR[trend.direction]}
                             />
                         </div>

@@ -16,9 +16,20 @@ export type NetworkTrend = {
     values: number[];   // quantités mensuelles, ordre chronologique
     labels: string[];   // "YYYY-MM"
     direction: "up" | "down" | "flat";
-    pct: number | null; // variation modélisée (régression linéaire) sur 12 mois
+    /** Variation des 4 derniers mois vs les 4 premiers. `null` si aucune base. */
+    pct: number | null;
+    /** Aucune vente sur les 4 premiers mois, des ventes sur les 4 derniers. */
+    nouveau: boolean;
     hasData: boolean;
 };
+
+/**
+ * Nombre de mois comparés à chaque bout de la fenêtre.
+ *
+ * Quatre, et pas un : comparer le dernier mois au premier ferait dépendre toute
+ * la tendance de deux points, donc du hasard d'un réassort ou d'une opération.
+ */
+export const TREND_WINDOW = 4;
 
 /** Seuil de "forte" variation (±25%) pour distinguer hausse/forte hausse dans l'UI. */
 export const TREND_STRONG = 0.25;
@@ -51,8 +62,8 @@ export const TREND_COLOR: Record<NetworkTrend["direction"], string> = {
 };
 
 /**
- * Tendance réseau par RÉGRESSION LINÉAIRE (moindres carrés) sur les **12 mois
- * complets glissants, mois en cours exclu**.
+ * Tendance réseau : variation entre les **4 premiers** et les **4 derniers**
+ * mois de la fenêtre de 12 mois glissants, mois en cours exclu.
  *
  * La fenêtre est reconstruite à partir de la date du jour (et non des clés
  * présentes dans `qteByMonth`) : c'est le seul moyen de garantir une tendance
@@ -70,15 +81,28 @@ export const TREND_COLOR: Record<NetworkTrend["direction"], string> = {
  * article vendu depuis mai), et des mois non extraits comptés comme des mois
  * sans vente.
  *
- * Utilise tous les points (robuste au bruit d'un mois isolé). L'indicateur `pct` est la
- * variation modélisée sur la période (pente × durée) rapportée à la moyenne.
+ * ⚠️ CHANGEMENT D'INDICATEUR. La version précédente rapportait la pente d'une
+ * régression linéaire à la moyenne de la série. Mathématiquement défendable,
+ * mais illisible en pratique — constaté en production :
+ *
+ *  - « −124 % », alors qu'une baisse ne peut pas dépasser −100 % ;
+ *  - « +508 % » sur des dizaines de lignes d'affilée, toujours la même valeur :
+ *    c'est la signature arithmétique d'une série nulle partout sauf le dernier
+ *    mois, où le rapport pente/moyenne ne dépend même plus des quantités ;
+ *  - « +1 062 % » pour 2 unités vendues une seule fois dans l'année.
+ *
+ * On compare donc désormais deux moyennes de 4 mois, ce qui donne une variation
+ * qui se lit comme telle, plancher à −100 %, et reste insensible au bruit d'un
+ * mois isolé. Sans base de comparaison (rien vendu sur les 4 premiers mois),
+ * aucun pourcentage n'est inventé : le produit est signalé « nouveau ».
+ *
  * Direction : forte hausse >+25%, hausse >+8%, stable, baisse <−8%, forte baisse <−25%.
  */
 export function computeNetworkTrend(
     qteByMonth?: Record<string, number> | null,
     now: Date = new Date(),
 ): NetworkTrend {
-    const empty: NetworkTrend = { values: [], labels: [], direction: "flat", pct: null, hasData: false };
+    const empty: NetworkTrend = { values: [], labels: [], direction: "flat", pct: null, nouveau: false, hasData: false };
     if (!qteByMonth) return empty;
     const labels = buildRolling12QlikMonths(now);
     const complet = labels.every((label) =>
@@ -89,25 +113,28 @@ export function computeNetworkTrend(
 
     const values = labels.map((l) => Number(qteByMonth[l]));
     const n = values.length;
+    const taille = Math.min(TREND_WINDOW, Math.floor(n / 2));
+    const moyenne = (xs: number[]) => (xs.length ? xs.reduce((s, v) => s + v, 0) / xs.length : 0);
+    const debut = moyenne(values.slice(0, taille));
+    const fin = moyenne(values.slice(n - taille));
+
     let pct: number | null = null;
+    let nouveau = false;
     let direction: NetworkTrend["direction"] = "flat";
-    if (n >= 3) {
-        const mx = (n - 1) / 2;
-        const my = values.reduce((s, v) => s + v, 0) / n;
-        let num = 0, den = 0;
-        for (let i = 0; i < n; i++) { num += (i - mx) * (values[i] - my); den += (i - mx) * (i - mx); }
-        const slope = den ? num / den : 0;
-        if (my > 0) {
-            pct = (slope * (n - 1)) / my; // variation modélisée sur toute la période / moyenne
-            direction = pct > TREND_FLAT ? "up" : pct < -TREND_FLAT ? "down" : "flat";
-        } else if (slope > 0) {
-            direction = "up";
-        }
-    } else if (n === 2 && values[0] > 0) {
-        pct = (values[1] - values[0]) / values[0];
+
+    if (debut > 0) {
+        // Plancher naturel à −100 % : `fin` ne peut pas descendre sous zéro sans
+        // retours massifs, et la division par une base positive garde le sens.
+        pct = (fin - debut) / debut;
         direction = pct > TREND_FLAT ? "up" : pct < -TREND_FLAT ? "down" : "flat";
+    } else if (fin > 0) {
+        // Rien au départ, des ventes à l'arrivée : la variation relative n'existe
+        // pas (division par zéro). On le dit, au lieu d'afficher un nombre inventé.
+        nouveau = true;
+        direction = "up";
     }
-    return { values, labels, direction, pct, hasData: true };
+
+    return { values, labels, direction, pct, nouveau, hasData: true };
 }
 
 /**
@@ -138,7 +165,9 @@ export function computeStoresSeries(
 }
 
 /** Libellé français de la tendance : « Forte hausse », « Baisse », « Stable »… */
-export function trendLabel(pct: number | null): string {
+export function trendLabel(pct: number | null, nouveau = false): string {
+    // Un produit sans base de comparaison n'est pas « stable » : il est nouveau.
+    if (nouveau) return "Nouveau";
     if (pct == null) return "Stable";
     if (pct > TREND_STRONG) return "Forte hausse";
     if (pct > TREND_FLAT) return "Hausse";

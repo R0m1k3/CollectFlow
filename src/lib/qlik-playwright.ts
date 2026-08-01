@@ -2412,7 +2412,11 @@ export async function fetchNetworkMetricsPlaywright(
                 // information, au même titre qu'une vente. Un mois non couvert
                 // reste absent et sera ignoré par la tendance.
                 qteByMonth[mois] = Number(v?.qte) || 0;
-                metricsByMonth[mois] = v ?? { qte: 0 };
+                // ⚠️ Toutes les mesures à zéro, pas seulement la quantité. Écrire
+                // `{ qte: 0 }` seul laissait `nbMag` absent sur les mois sans
+                // vente : la courbe « magasins vendeurs » exigeant les 12 mois,
+                // elle disparaissait dès qu'un produit avait un mois creux.
+                metricsByMonth[mois] = v ?? { qte: 0, ca: 0, nbMag: 0, caMag: 0, margePct: 0 };
             }
             metric.qteByMonth = qteByMonth;
             metric.metricsByMonth = metricsByMonth;

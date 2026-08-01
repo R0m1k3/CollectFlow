@@ -211,9 +211,10 @@ function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () =>
                 <p className="text-[12px] mt-0.5" style={{ color: "var(--text-muted)" }}>
                     Ventes réseau · {labels.length > 0 ? `${labels.length} derniers mois` : "12 derniers mois"}
                     {row.nbMagasinsReseau != null && <> · <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>{row.nbMagasinsReseau} magasins</span></>}
-                    {pct != null && (
+                    {(pct != null || trend.nouveau) && (
                         <> · <span className="font-bold" style={{ color }}>
-                            {pct >= 0 ? "+" : ""}{Math.round(pct * 100)}% · {trendLabel(pct)}
+                            {pct != null && <>{pct >= 0 ? "+" : ""}{Math.round(pct * 100)}% · </>}
+                            {trendLabel(pct, trend.nouveau)}
                         </span></>
                     )}
                 </p>
@@ -564,7 +565,12 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
             id: "tendanceReseau",
             accessorFn: (row) => {
                 const t = computeNetworkTrend(row.qteReseauByMonth);
-                return t.hasData && t.pct != null ? t.pct : Number.NEGATIVE_INFINITY;
+                if (!t.hasData) return Number.NEGATIVE_INFINITY;
+                // Un produit « nouveau » n'a pas de pourcentage mais c'est la plus
+                // forte progression possible : il doit remonter en tête du tri, pas
+                // tomber au fond avec les lignes sans données.
+                if (t.nouveau) return Number.POSITIVE_INFINITY;
+                return t.pct ?? Number.NEGATIVE_INFINITY;
             },
             header: () => <div className="text-center w-full">Tendance<br/><span className="text-[9px] opacity-60">Réseau · 12 m</span></div>,
             size: 78,

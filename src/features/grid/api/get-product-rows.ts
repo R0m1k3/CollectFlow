@@ -496,9 +496,13 @@ function nbMagParMois(
 ): Record<string, number> | null {
     if (!metricsByMonth) return null;
     const parMois: Record<string, number> = {};
-    for (const [mois, mesures] of Object.entries(metricsByMonth)) {
-        const nb = Number(mesures?.nbMag);
-        if (Number.isFinite(nb)) parMois[mois] = nb;
+    for (const [mois] of Object.entries(metricsByMonth)) {
+        // Un mois PRÉSENT dans le détail est un mois extrait : s'il n'a pas de
+        // `nbMag`, c'est qu'aucun magasin n'a vendu, donc zéro. Le traiter comme
+        // « manquant » amputait la série et faisait disparaître toute la courbe
+        // (les anciens caches n'écrivaient `nbMag` que sur les mois avec vente).
+        const nb = Number(metricsByMonth[mois]?.nbMag);
+        parMois[mois] = Number.isFinite(nb) ? nb : 0;
     }
     return Object.keys(parMois).length > 0 ? parMois : null;
 }

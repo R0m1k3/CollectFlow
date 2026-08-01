@@ -14,7 +14,7 @@ import { TREND_COLOR, type NetworkTrend } from "@/features/grid/lib/network-tren
 /** Sparkline compacte 12 mois + flèche, teintée selon la tendance. */
 export function TrendSparkline({ trend }: { trend: NetworkTrend }) {
     if (!trend.hasData) return <div className="text-center text-[12px]" style={{ color: "var(--text-secondary)" }}>-</div>;
-    const { values, direction, pct } = trend;
+    const { values, direction, pct, nouveau } = trend;
     const color = TREND_COLOR[direction];
     const W = 46, H = 18, n = values.length;
     const max = Math.max(...values, 1), min = Math.min(...values, 0);
@@ -26,7 +26,11 @@ export function TrendSparkline({ trend }: { trend: NetworkTrend }) {
     }).join(" ");
     const Arrow = direction === "up" ? TrendingUp : direction === "down" ? TrendingDown : Minus;
     return (
-        <div className="flex flex-col items-center justify-center gap-0.5" title={pct != null ? `Tendance ${pct >= 0 ? "+" : ""}${(pct * 100).toFixed(0)}% sur 12 mois (régression) — cliquer pour le détail` : "Tendance réseau — cliquer pour le détail"}>
+        <div className="flex flex-col items-center justify-center gap-0.5" title={pct != null
+                ? `Tendance ${pct >= 0 ? "+" : ""}${(pct * 100).toFixed(0)}% : 4 derniers mois vs 4 premiers — cliquer pour le détail`
+                : nouveau
+                    ? "Nouveau : aucune vente sur les 4 premiers mois de la fenêtre — cliquer pour le détail"
+                    : "Tendance réseau — cliquer pour le détail"}>
             <div className="flex items-center gap-1">
                 <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="shrink-0" aria-hidden>
                     {n > 1 && <polyline points={pts} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />}
@@ -38,6 +42,9 @@ export function TrendSparkline({ trend }: { trend: NetworkTrend }) {
                 <span className="text-[9px] font-bold tabular-nums leading-none" style={{ color }}>
                     {pct >= 0 ? "+" : ""}{Math.round(pct * 100)}%
                 </span>
+            )}
+            {pct == null && nouveau && (
+                <span className="text-[9px] font-bold leading-none" style={{ color }}>Nouveau</span>
             )}
         </div>
     );
@@ -64,18 +71,20 @@ export function storesColorFor(couleurQuantites: string): string {
 }
 
 /**
- * Ventes réseau mensuelles, avec en option la courbe du nombre de magasins.
+ * Ventes réseau mensuelles, avec en option le nombre de magasins vendeurs.
  *
- * ⚠️ DEUX ÉCHELLES INDÉPENDANTES. Les quantités se comptent en milliers, les
- * magasins plafonnent à ~270 : sur une échelle commune la courbe des magasins
- * serait écrasée sur l'axe et ne montrerait plus rien. Chaque série est donc
- * normalisée sur son propre maximum, rappelé en haut du graphique — c'est la
- * FORME des deux courbes qu'on compare, pas leurs hauteurs.
+ * ⚠️ DEUX BANDES SÉPARÉES, PAS DEUX COURBES SUPERPOSÉES.
  *
- * Les deux séries se distinguent par TROIS canaux, et pas seulement la couleur
- * (qui ne suffit ni en impression noir et blanc, ni pour un daltonien) : teinte
- * garantie différente (`storesColorFor`), trait pointillé contre trait plein, et
- * points évidés contre points pleins.
+ * La superposition a été essayée et rejetée à l'usage : les quantités se
+ * comptent en milliers, les magasins plafonnent à ~270. Sur une échelle commune
+ * la courbe des magasins s'écrase sur l'axe ; sur deux échelles superposées elle
+ * passe AU-DESSUS de celle des quantités, ce qui se lit spontanément comme « il
+ * y a plus de magasins que de ventes » — un contresens.
+ *
+ * Les deux séries sont donc tracées dans deux bandes distinctes, alignées sur le
+ * même axe des mois. On compare ce qui est comparable — la forme de l'une avec
+ * la forme de l'autre, mois par mois — sans jamais suggérer un rapport de
+ * grandeur entre elles.
  *
  * Lecture : quantités qui montent avec les magasins = élargissement de la
  * diffusion ; quantités qui montent à magasins constants = vraie accélération
@@ -94,35 +103,41 @@ export function NetworkLineChart({
     stores?: number[] | null;
 }) {
     const avecMagasins = Array.isArray(stores) && stores.length === values.length && stores.length > 0;
-    const W = 460, H = avecMagasins ? 224 : 200;
-    const padL = 10, padR = 10, padT = avecMagasins ? 40 : 22, padB = 30;
-    const plotW = W - padL - padR, plotH = H - padT - padB;
     const n = values.length;
-    const maxV = Math.max(...values, 1);
-    const maxS = avecMagasins ? Math.max(...stores!, 1) : 1;
+
+    const W = 460;
+    const padL = 10, padR = 10, padB = 22;
+    const titreH = 12;                     // hauteur réservée au titre d'une bande
+    const bandeQ = 120;                    // bande des quantités
+    const bandeM = avecMagasins ? 46 : 0;  // bande des magasins
+    const ecart = avecMagasins ? 18 : 0;
+    const hautQ = titreH + 10;             // sommet de la bande des quantités
+    const hautM = hautQ + bandeQ + ecart + titreH;
+    const H = hautQ + bandeQ + ecart + (avecMagasins ? titreH + bandeM : 0) + padB;
+    const plotW = W - padL - padR;
+
+    // Les quantités Qlik peuvent être NÉGATIVES (retours supérieurs aux ventes
+    // sur un mois) : l'échelle part du minimum réel, sinon le point sortirait
+    // du cadre par le bas.
+    const minQ = Math.min(0, ...values);
+    const maxQ = Math.max(...values, 1);
+    const etendueQ = maxQ - minQ || 1;
+    const maxM = avecMagasins ? Math.max(...stores!, 1) : 1;
+
     const x = (i: number) => (n > 1 ? padL + (i / (n - 1)) * plotW : padL + plotW / 2);
-    const y = (v: number) => padT + plotH - (v / maxV) * plotH;
-    const yS = (v: number) => padT + plotH - (v / maxS) * plotH;
+    const y = (v: number) => hautQ + bandeQ - ((v - minQ) / etendueQ) * bandeQ;
+    const yM = (v: number) => hautM + bandeM - (v / maxM) * bandeM;
+    const zero = y(0);
+
     const linePts = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
-    const areaPts = `${padL},${padT + plotH} ${linePts} ${(padL + plotW).toFixed(1)},${(padT + plotH).toFixed(1)}`;
+    const areaPts = `${padL},${zero.toFixed(1)} ${linePts} ${(padL + plotW).toFixed(1)},${zero.toFixed(1)}`;
     const storesColor = storesColorFor(color);
     const storePts = avecMagasins
-        ? stores!.map((v, i) => `${x(i).toFixed(1)},${yS(v).toFixed(1)}`).join(" ")
+        ? stores!.map((v, i) => `${x(i).toFixed(1)},${yM(v).toFixed(1)}`).join(" ")
         : "";
+
     return (
         <div className="mt-3 w-full overflow-x-auto">
-            {avecMagasins && (
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-1">
-                    <span className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                        <span className="inline-block w-3 h-[3px] rounded-full" style={{ background: color }} />
-                        Quantités vendues <span className="tabular-nums" style={{ color: "var(--text-muted)" }}>(max {maxV.toLocaleString("fr-FR")})</span>
-                    </span>
-                    <span className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                        <span className="inline-block w-3 h-[3px] rounded-full" style={{ background: storesColor }} />
-                        Magasins vendeurs <span className="tabular-nums" style={{ color: "var(--text-muted)" }}>(max {maxS.toLocaleString("fr-FR")})</span>
-                    </span>
-                </div>
-            )}
             <svg
                 viewBox={`0 0 ${W} ${H}`}
                 className="w-full"
@@ -130,54 +145,79 @@ export function NetworkLineChart({
                 role="img"
                 aria-label={avecMagasins ? "Ventes réseau mensuelles et nombre de magasins vendeurs" : "Ventes réseau mensuelles"}
             >
-                {/* ligne de base */}
-                <line x1={padL} y1={padT + plotH} x2={padL + plotW} y2={padT + plotH} stroke="var(--border)" strokeWidth={1} />
-                {/* aire douce sous la courbe */}
+                {/* ─── Bande 1 : quantités ─────────────────────────────── */}
+                <text x={padL} y={titreH} fontSize={9} fontWeight={700} fill={color}>
+                    QUANTITÉS VENDUES
+                </text>
+                <line x1={padL} y1={zero} x2={padL + plotW} y2={zero} stroke="var(--border)" strokeWidth={1} />
                 {n > 1 && <polygon points={areaPts} fill={color} opacity={0.08} />}
-                {/* courbe des magasins, dessinée SOUS celle des quantités (série de contexte) */}
-                {avecMagasins && n > 1 && (
-                    <polyline
-                        points={storePts}
-                        fill="none"
-                        stroke={storesColor}
-                        strokeWidth={1.75}
-                        strokeDasharray="4 3"
-                        strokeLinejoin="round"
-                        strokeLinecap="round"
-                    />
-                )}
-                {/* points évidés : distincts des points pleins des quantités, même sans couleur */}
-                {avecMagasins && stores!.map((v, i) => (
-                    <circle
-                        key={`mag-${labels[i]}`}
-                        cx={x(i)}
-                        cy={yS(v)}
-                        r={2.4}
-                        fill="var(--bg-surface)"
-                        stroke={storesColor}
-                        strokeWidth={1.4}
-                    />
-                ))}
-                {/* courbe */}
                 {n > 1 && <polyline points={linePts} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />}
                 {values.map((v, i) => (
-                    <g key={labels[i]}>
+                    <g key={`qte-${labels[i]}`}>
                         <circle cx={x(i)} cy={y(v)} r={2.6} fill={color} />
-                        {/* quantité au-dessus du point */}
-                        <text x={x(i)} y={y(v) - 6} textAnchor="middle" fontSize={9} fontWeight={700} fill="var(--text-primary)">
+                        <text
+                            x={x(i)}
+                            y={v >= 0 ? y(v) - 6 : y(v) + 12}
+                            textAnchor="middle"
+                            fontSize={9}
+                            fontWeight={700}
+                            fill="var(--text-primary)"
+                        >
                             {Math.round(v).toLocaleString("fr-FR")}
                         </text>
-                        {/* mois sous l'axe */}
-                        <text x={x(i)} y={H - 10} textAnchor="middle" fontSize={8} fill="var(--text-muted)">
-                            {fmtMonthShort(labels[i])}
-                        </text>
-                        {/* nb de magasins sous l'axe, juste au-dessus du mois */}
-                        {avecMagasins && (
-                            <text x={x(i)} y={H - 20} textAnchor="middle" fontSize={8} fontWeight={600} fill={storesColor}>
-                                {Math.round(stores![i]).toLocaleString("fr-FR")}
-                            </text>
-                        )}
                     </g>
+                ))}
+
+                {/* ─── Bande 2 : magasins vendeurs ─────────────────────── */}
+                {avecMagasins && (
+                    <>
+                        <text x={padL} y={hautM - 3} fontSize={9} fontWeight={700} fill={storesColor}>
+                            MAGASINS VENDEURS
+                            <tspan fontWeight={400} fill="var(--text-muted)"> · {maxM.toLocaleString("fr-FR")} au maximum</tspan>
+                        </text>
+                        <line
+                            x1={padL}
+                            y1={hautM + bandeM}
+                            x2={padL + plotW}
+                            y2={hautM + bandeM}
+                            stroke="var(--border)"
+                            strokeWidth={1}
+                        />
+                        {n > 1 && (
+                            <polyline
+                                points={storePts}
+                                fill="none"
+                                stroke={storesColor}
+                                strokeWidth={1.75}
+                                strokeDasharray="4 3"
+                                strokeLinejoin="round"
+                                strokeLinecap="round"
+                            />
+                        )}
+                        {stores!.map((v, i) => (
+                            <g key={`mag-${labels[i]}`}>
+                                {/* point évidé : lisible même sans couleur */}
+                                <circle
+                                    cx={x(i)}
+                                    cy={yM(v)}
+                                    r={2.4}
+                                    fill="var(--bg-surface)"
+                                    stroke={storesColor}
+                                    strokeWidth={1.4}
+                                />
+                                <text x={x(i)} y={yM(v) - 5} textAnchor="middle" fontSize={8} fontWeight={600} fill={storesColor}>
+                                    {Math.round(v).toLocaleString("fr-FR")}
+                                </text>
+                            </g>
+                        ))}
+                    </>
+                )}
+
+                {/* ─── Axe des mois, commun aux deux bandes ────────────── */}
+                {labels.map((lab, i) => (
+                    <text key={`mois-${lab}`} x={x(i)} y={H - 7} textAnchor="middle" fontSize={8} fill="var(--text-muted)">
+                        {fmtMonthShort(lab)}
+                    </text>
                 ))}
             </svg>
         </div>
