@@ -193,7 +193,7 @@ export async function pgGetArticlesByCodeCentrale(codes: string[]): Promise<Map<
         LEFT JOIN fouident fi ON fi.code = af.code
         LEFT JOIN cube_pa pa ON pa.artnoid = a.no_id
         LEFT JOIN article_infosup ai ON ai.artnoid = a.no_id
-        WHERE a.artcentrale IN (${sql.join(unique.map(c => sql`${c}`), sql`, `)})
+        WHERE TRIM(a.artcentrale::text) IN (${sql.join(unique.map(c => sql`${c}`), sql`, `)})
           AND a.codein IS NOT NULL
         ORDER BY a.artcentrale, af.no_id
     `);
