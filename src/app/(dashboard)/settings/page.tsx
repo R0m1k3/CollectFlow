@@ -9,6 +9,7 @@ import { testDatabaseConnection, saveDatabaseSettings, getSavedDatabaseConfig, s
 import { useEffect } from "react";
 import { UserManagement } from "@/features/admin/components/user-management";
 import { ApiKeyManagement } from "@/features/admin/components/api-key-management";
+import { ApiConnectionInfo } from "@/features/admin/components/api-connection-info";
 
 interface OpenRouterModel { id: string; name: string; free: boolean; }
 
@@ -617,10 +618,17 @@ export default function SettingsPage() {
                 <UserManagement />
             </Section>
 
-            {/* Clés de l'API publique /api/v1 */}
+            {/* API publique /api/v1 — connexion puis gestion des clés */}
+            <Section
+                title="API CollectFlow — Connexion"
+                subtitle="Tout ce qu'il faut pour appeler l'API depuis un script ou un outil externe"
+            >
+                <ApiConnectionInfo />
+            </Section>
+
             <Section
                 title="Clés d'API"
-                subtitle="Accès programmatique en lecture à la grille et à la recherche (/api/v1)"
+                subtitle="Créer et révoquer les clés d'accès à /api/v1"
             >
                 <ApiKeyManagement />
             </Section>

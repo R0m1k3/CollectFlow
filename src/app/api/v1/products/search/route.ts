@@ -3,6 +3,7 @@ import { requireApiAuth } from "@/lib/api-auth";
 import { ok, fail, buildPagination } from "@/lib/api-response";
 import { productSearchSchema, pickFields, toSortKey } from "@/lib/api-schemas";
 import { queryGridRows } from "@/lib/grid-store";
+import { enrichRows } from "@/lib/api-enrich";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,14 +39,18 @@ export async function GET(req: NextRequest) {
         limit: q.limit,
     });
 
+    // Métriques Qlik et gamme serveur relues au moment de l'appel (voir api-enrich).
+    const rows = q.enrich === "1" ? await enrichRows(result.rows) : result.rows;
+
     return ok(
-        result.rows.map((r) => pickFields(r, q.fields)),
+        rows.map((r) => pickFields(r, q.fields)),
         {
             pagination: buildPagination(q.page, q.limit, result.total),
             meta: {
                 query: q.q,
                 computedAt: result.computedAt,
                 scope: q.fournisseur ? `fournisseur:${q.fournisseur}` : "tous fournisseurs",
+                enrichi: q.enrich === "1",
             },
         },
     );

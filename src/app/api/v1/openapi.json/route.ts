@@ -29,6 +29,14 @@ export async function GET(req: NextRequest) {
             schema: { type: "string" },
             description: "Champs de ProductRow à conserver, séparés par des virgules (allège fortement la réponse). `codein` est toujours inclus.",
         },
+        {
+            name: "enrich",
+            in: "query",
+            schema: { type: "string", enum: ["0", "1"], default: "1" },
+            description:
+                "1 (défaut) : relit les métriques réseau Qlik (`network`) et la gamme serveur (`codeGammeServeur`) au moment de l'appel. "
+                + "0 : sert l'instantané brut, légèrement plus rapide.",
+        },
     ];
 
     const spec = {
@@ -42,7 +50,10 @@ export async function GET(req: NextRequest) {
                 + "**Aucun endpoint ne déclenche de recalcul ni d'appel à Qlik.** Toutes les réponses proviennent "
                 + "de données déjà persistées : l'instantané de grille (`grid_rows`), rempli quand la Grille est "
                 + "ouverte dans l'application, et le cache des métriques réseau (`qlik_network_metrics`). "
-                + "Un fournisseur jamais ouvert renvoie donc `202 not_ready` au lieu d'imposer une attente.",
+                + "Un fournisseur jamais ouvert renvoie donc `202 not_ready` au lieu d'imposer une attente.\n\n"
+                + "Deux informations sont relues à chaque appel car elles évoluent indépendamment du calcul de "
+                + "la grille : les **métriques réseau Qlik** (`network`, `null` quand il n'y en a pas) et la "
+                + "**gamme serveur non modifiée** (`codeGammeServeur`). Passer `enrich=0` pour s'en dispenser.",
         },
         servers: [{ url: "/api/v1" }],
         security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
@@ -87,7 +98,25 @@ export async function GET(req: NextRequest) {
                         libelle1: { type: "string" },
                         gtin: { type: "string" },
                         codeCentrale: { type: "string", description: "Clé de jointure avec Qlik (format 10000XXXXXX)." },
-                        codeGamme: { type: ["string", "null"] },
+                        codeGamme: { type: ["string", "null"], description: "Gamme courante — peut être surchargée par un snapshot de session." },
+                        codeGammeServeur: {
+                            type: ["string", "null"],
+                            description: "Gamme **non modifiée**, telle qu'elle existe sur le serveur PostgreSQL. Relue à chaque appel (sauf `enrich=0`). `null` = aucune gamme en base.",
+                        },
+                        codeGammeInit: { type: ["string", "null"], description: "Alias historique de `codeGammeServeur`, maintenu aligné." },
+                        network: {
+                            type: ["object", "null"],
+                            description: "Métriques réseau Qlik en cache, `null` si le produit n'en a pas.",
+                            properties: {
+                                caReseau: { type: "number" },
+                                qteReseau: { type: "number" },
+                                nbMagasinsReseau: { type: "integer" },
+                                caParMagasinReseau: { type: "number" },
+                                margePctReseau: { type: "number", description: "Ratio brut Qlik (0.32 = 32 %)." },
+                                qteByMonth: { type: ["object", "null"], description: "Quantités par mois, clés YYYY-MM." },
+                                fetchedAt: { type: ["string", "null"], format: "date-time" },
+                            },
+                        },
                         totalCa: { type: "number" },
                         totalQuantite: { type: "number" },
                         totalMarge: { type: "number" },

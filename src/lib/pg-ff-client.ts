@@ -253,6 +253,39 @@ export async function pgGetGammesByFournisseur(codefou: string): Promise<Map<str
     return map;
 }
 
+/**
+ * Gammes **serveur** pour une liste de codein, tous fournisseurs confondus.
+ *
+ * Variante de `pgGetGammesByFournisseur` sans la jointure `artfou1` : la recherche
+ * de l'API `/api/v1` est transversale, on ne connaît donc pas le fournisseur.
+ * C'est la gamme telle qu'elle existe en base — non modifiée, indépendante des
+ * snapshots de session qui peuvent surcharger `codeGamme` dans la Grille.
+ */
+export async function pgGetGammesByCodeins(codeins: string[]): Promise<Map<string, string>> {
+    const unique = [...new Set(codeins.map(c => String(c ?? "").trim()).filter(Boolean))];
+    if (unique.length === 0) return new Map();
+
+    // DISTINCT ON (codein) → 1 gamme par article, saison la plus récente en premier.
+    const result = await pgNoParallel(sql`
+        SELECT DISTINCT ON (a.codein)
+            TRIM(a.codein::text) AS codein,
+            g.code AS gamme_code
+        FROM art_gamme_saison ags
+        JOIN articles a ON a.no_id = ags.artnoid
+        JOIN gammes g   ON g.no_id = ags.idgamme
+        JOIN saisons s  ON s.no_id = ags.idsaison
+        WHERE TRIM(a.codein::text) IN (${sql.join(unique.map(c => sql`${c}`), sql`, `)})
+        ORDER BY a.codein, s.no_id DESC
+    `);
+
+    const map = new Map<string, string>();
+    for (const row of result.rows as unknown as { codein: string; gamme_code: string }[]) {
+        if (row.codein && row.gamme_code) map.set(row.codein, String(row.gamme_code).trim());
+    }
+    console.log(`[pg-ff] pgGetGammesByCodeins: ${map.size}/${unique.length} articles avec gamme`);
+    return map;
+}
+
 // ---------------------------------------------------------------------------
 // 4. Nomenclature (famille / sous-famille)
 // ---------------------------------------------------------------------------

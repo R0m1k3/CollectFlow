@@ -3,7 +3,7 @@ import { requireApiAuth } from "@/lib/api-auth";
 import { ok, fail } from "@/lib/api-response";
 import { productDetailSchema } from "@/lib/api-schemas";
 import { getGridRowByCodein } from "@/lib/grid-store";
-import { getNetworkMetricsByCodeCentrale } from "@/lib/qlik-network-cache";
+import { enrichRows } from "@/lib/api-enrich";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,15 +41,15 @@ export async function GET(
         );
     }
 
-    // Métriques réseau à jour depuis le cache (le payload peut dater du dernier calcul).
-    let network = null;
-    if (found.row.codeCentrale) {
-        const metrics = await getNetworkMetricsByCodeCentrale([found.row.codeCentrale]);
-        network = metrics.get(found.row.codeCentrale) ?? null;
-    }
+    // Métriques réseau + gamme serveur relues maintenant : le payload date du dernier
+    // calcul de la grille, alors que ces deux données évoluent indépendamment.
+    const [enriched] = await enrichRows([found.row]);
 
-    return ok(
-        { ...found.row, network },
-        { meta: { computedAt: found.computedAt, networkFetchedAt: network?.fetchedAt ?? null } },
-    );
+    return ok(enriched, {
+        meta: {
+            computedAt: found.computedAt,
+            networkFetchedAt: enriched.network?.fetchedAt ?? null,
+            hasNetwork: enriched.network !== null,
+        },
+    });
 }

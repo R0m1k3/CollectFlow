@@ -3,6 +3,7 @@ import { requireApiAuth } from "@/lib/api-auth";
 import { ok, fail, buildPagination } from "@/lib/api-response";
 import { gridQuerySchema, pickFields, toSortKey } from "@/lib/api-schemas";
 import { queryGridRows, getGridFreshness } from "@/lib/grid-store";
+import { enrichRows } from "@/lib/api-enrich";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,8 +51,11 @@ export async function GET(req: NextRequest) {
         limit: q.limit,
     });
 
+    // Métriques Qlik et gamme serveur relues au moment de l'appel (voir api-enrich).
+    const rows = q.enrich === "1" ? await enrichRows(result.rows) : result.rows;
+
     return ok(
-        result.rows.map((r) => pickFields(r, q.fields)),
+        rows.map((r) => pickFields(r, q.fields)),
         {
             pagination: buildPagination(q.page, q.limit, result.total),
             meta: {
@@ -59,6 +63,7 @@ export async function GET(req: NextRequest) {
                 computedAt: result.computedAt,
                 snapshotComputedAt: freshness.computedAt,
                 snapshotRowCount: freshness.rowCount,
+                enrichi: q.enrich === "1",
             },
         },
     );

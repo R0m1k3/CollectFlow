@@ -8,7 +8,6 @@
 
 import { z } from "zod";
 import { GRID_SORT_KEYS, type GridSortKey } from "@/lib/grid-store";
-import type { ProductRow } from "@/types/grid";
 
 const SORT_KEYS = GRID_SORT_KEYS as readonly string[];
 
@@ -27,6 +26,11 @@ const sortShape = {
     order: z.enum(["asc", "desc"]).default("desc"),
     /** Liste de champs de ProductRow à conserver, séparés par des virgules. */
     fields: z.string().optional(),
+    /**
+     * `1` (défaut) : relit les métriques réseau Qlik et la gamme serveur au moment
+     * de l'appel. `0` : sert l'instantané brut, un peu plus rapide.
+     */
+    enrich: z.enum(["0", "1"]).default("1"),
 };
 
 /** `/api/v1/grid` — le fournisseur est obligatoire (recherche transversale : /products/search). */
@@ -67,7 +71,7 @@ export const productDetailSchema = z.object({
  * et les ventilations par magasin, ce qui est volumineux sur plusieurs centaines de
  * lignes. `codein` est toujours conservé pour que la ligne reste identifiable.
  */
-export function pickFields(row: ProductRow, fields?: string): Partial<ProductRow> {
+export function pickFields<T extends object>(row: T, fields?: string): Partial<T> {
     if (!fields) return row;
     const wanted = new Set(
         fields.split(",").map((f) => f.trim()).filter(Boolean),
@@ -78,7 +82,7 @@ export function pickFields(row: ProductRow, fields?: string): Partial<ProductRow
     for (const key of wanted) {
         if (key in row) out[key] = (row as unknown as Record<string, unknown>)[key];
     }
-    return out as Partial<ProductRow>;
+    return out as Partial<T>;
 }
 
 /** Normalise le tri validé vers la clé attendue par grid-store. */
