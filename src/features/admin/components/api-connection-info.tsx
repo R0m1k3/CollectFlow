@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { Copy, Check, ExternalLink } from "lucide-react";
+import { Copy, Check, ExternalLink, Bot } from "lucide-react";
 
 function CopyButton({ text }: { text: string }) {
     const [copied, setCopied] = useState(false);
@@ -121,6 +121,37 @@ export function ApiConnectionInfo() {
                 <p className="text-[12px] font-semibold" style={{ color: "var(--text-primary)" }}>Exemples</p>
                 <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/products/search?q=tapis&limit=20"`}</CodeLine>
                 <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/grid?fournisseur=FOU001&fields=codein,libelle1,totalCa,codeGammeServeur"`}</CodeLine>
+            </div>
+
+            {/* Branchement d'une IA externe (ChatGPT) */}
+            <div className="space-y-2">
+                <p className="text-[12px] font-semibold flex items-center gap-1.5" style={{ color: "var(--text-primary)" }}>
+                    <Bot className="w-4 h-4" style={{ color: "var(--accent)" }} />
+                    Connecter une IA externe (ChatGPT)
+                </p>
+                <ol className="text-[11px] space-y-1.5 list-decimal pl-4" style={{ color: "var(--text-secondary)" }}>
+                    <li>Créez une clé d&apos;API dans la section ci-dessous et copiez-la.</li>
+                    <li>Dans ChatGPT : <strong>Créer un GPT</strong> → onglet <strong>Configurer</strong> → <strong>Créer une action</strong>.</li>
+                    <li>
+                        Cliquez sur <strong>Importer depuis une URL</strong> et collez l&apos;adresse du schéma :
+                        <div className="mt-1"><CodeLine>{`${base}/openapi.json`}</CodeLine></div>
+                        <span style={{ color: "var(--text-muted)" }}>
+                            Ce schéma est public (il ne contient aucune donnée) pour que ChatGPT puisse l&apos;importer.
+                            Votre application doit être joignable depuis Internet.
+                        </span>
+                    </li>
+                    <li>
+                        Dans <strong>Authentification</strong>, choisissez <strong>Clé d&apos;API</strong>, type{" "}
+                        <strong>Personnalisé</strong>, nom d&apos;en-tête <code className="font-mono">X-API-Key</code>,
+                        et collez votre clé.
+                    </li>
+                    <li>Testez avec une question du type « cherche les produits tapis » — le GPT appellera <code className="font-mono">rechercherProduits</code>.</li>
+                </ol>
+                <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                    Si votre domaine public diffère de celui affiché ici, renseignez la variable
+                    d&apos;environnement <code className="font-mono">COLLECTFLOW_PUBLIC_URL</code> : elle fixe l&apos;URL
+                    déclarée dans le schéma.
+                </p>
             </div>
 
             {/* Comportement à connaître */}

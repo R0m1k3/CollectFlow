@@ -10,6 +10,7 @@ import { useEffect } from "react";
 import { UserManagement } from "@/features/admin/components/user-management";
 import { ApiKeyManagement } from "@/features/admin/components/api-key-management";
 import { ApiConnectionInfo } from "@/features/admin/components/api-connection-info";
+import { GridWarmup } from "@/features/admin/components/grid-warmup";
 
 interface OpenRouterModel { id: string; name: string; free: boolean; }
 
@@ -631,6 +632,13 @@ export default function SettingsPage() {
                 subtitle="Créer et révoquer les clés d'accès à /api/v1"
             >
                 <ApiKeyManagement />
+            </Section>
+
+            <Section
+                title="Données exposées à l'API"
+                subtitle="Calculer l'instantané de tous les fournisseurs pour qu'une IA externe y ait accès"
+            >
+                <GridWarmup />
             </Section>
 
             {/* Save Button — Floating/Sticky style at bottom */}
