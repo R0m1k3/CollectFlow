@@ -10,9 +10,16 @@ export default auth((req) => {
 
     const isApiAuthRoute = nextUrl.pathname.startsWith("/api/auth");
     const isPublicRoute = nextUrl.pathname === "/login" || nextUrl.pathname.startsWith("/public/");
+    // L'API publique s'authentifie elle-même (clé d'API ou session) et rend ses
+    // propres erreurs JSON. Sans cette exemption, un script non authentifié
+    // recevrait une redirection 302 + la page HTML de login au lieu d'un 401.
+    const isPublicApiRoute = nextUrl.pathname.startsWith("/api/v1");
 
     // 1. Laisser passer les requêtes d'auth API
     if (isApiAuthRoute) return NextResponse.next();
+
+    // 1 bis. Laisser passer /api/v1 — l'authentification est faite dans les handlers
+    if (isPublicApiRoute) return NextResponse.next();
 
     // 2. Rediriger vers /login si non connecté et route non publique
     if (!isLoggedIn && !isPublicRoute) {

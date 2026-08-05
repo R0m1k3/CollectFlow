@@ -119,6 +119,62 @@ async function main() {
         `);
         console.log("[DB Init] Table qlik_network_metrics is verified/created.");
 
+        // Instantané persisté de la grille : lu par /api/v1 pour ne jamais
+        // déclencher de recalcul. Rempli en effet de bord par getProductRows().
+        await tempPool.query(`
+            CREATE TABLE IF NOT EXISTS "grid_rows" (
+                "code_fournisseur" varchar(20) NOT NULL,
+                "codein" varchar(20) NOT NULL,
+                "nom_fournisseur" varchar(255),
+                "libelle1" varchar(500),
+                "gtin" varchar(30),
+                "reference" varchar(100),
+                "code_centrale" varchar(20),
+                "code1" varchar(20),
+                "code2" varchar(20),
+                "code3" varchar(20),
+                "code_gamme" varchar(20),
+                "code_gamme_init" varchar(20),
+                "total_ca" numeric(16, 2),
+                "total_quantite" numeric(14, 2),
+                "total_marge" numeric(16, 2),
+                "taux_marge" numeric(8, 4),
+                "stock_actuel" numeric(14, 2),
+                "ca_reseau" numeric(16, 2),
+                "qte_reseau" numeric(14, 2),
+                "nb_magasins_reseau" integer,
+                "ca_par_magasin_reseau" numeric(16, 2),
+                "marge_pct_reseau" numeric(8, 4),
+                "payload" jsonb NOT NULL,
+                "computed_at" timestamp DEFAULT now() NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "uq_grid_rows_fou_codein"
+                ON "grid_rows" ("code_fournisseur", "codein");
+            CREATE INDEX IF NOT EXISTS "idx_grid_rows_fournisseur" ON "grid_rows" ("code_fournisseur");
+            CREATE INDEX IF NOT EXISTS "idx_grid_rows_codein" ON "grid_rows" ("codein");
+            CREATE INDEX IF NOT EXISTS "idx_grid_rows_gamme" ON "grid_rows" ("code_gamme");
+            CREATE INDEX IF NOT EXISTS "idx_grid_rows_code_centrale" ON "grid_rows" ("code_centrale");
+            CREATE INDEX IF NOT EXISTS "idx_grid_rows_total_ca" ON "grid_rows" ("total_ca");
+            CREATE INDEX IF NOT EXISTS "idx_grid_rows_libelle" ON "grid_rows" ("libelle1");
+        `);
+        console.log("[DB Init] Table grid_rows is verified/created.");
+
+        // Clés d'API : seul le hachage SHA-256 est stocké.
+        await tempPool.query(`
+            CREATE TABLE IF NOT EXISTS "api_keys" (
+                "id" serial PRIMARY KEY NOT NULL,
+                "name" varchar(100) NOT NULL,
+                "key_prefix" varchar(20) NOT NULL,
+                "key_hash" text NOT NULL UNIQUE,
+                "role" varchar(20) DEFAULT 'user' NOT NULL,
+                "created_by" varchar(50),
+                "created_at" timestamp DEFAULT now(),
+                "last_used_at" timestamp,
+                "revoked_at" timestamp
+            );
+        `);
+        console.log("[DB Init] Table api_keys is verified/created.");
+
         await tempPool.end();
         console.log("[DB Init] Initialization successful. Exiting.");
         process.exit(0);

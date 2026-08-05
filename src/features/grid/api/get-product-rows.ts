@@ -15,6 +15,7 @@ import { db } from "@/db";
 import { sessionSnapshots } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { getNetworkMetricsByCodeCentrale } from "@/lib/qlik-network-cache";
+import { upsertGridRows } from "@/lib/grid-store";
 
 const NB_MAGASINS_RESEAU = 270;
 
@@ -67,6 +68,23 @@ async function refreshGammeInit(rows: ProductRow[], codeFournisseur: string): Pr
     }
 }
 
+/**
+ * Écrit l'instantané de grille lu par /api/v1 (table `grid_rows`).
+ *
+ * Seul `magasin = TOTAL` est persisté : `ProductRow` embarque déjà les ventilations
+ * par magasin (sales12mByStore, caByStore…), inutile de stocker trois variantes.
+ * Toute erreur est avalée : la persistance ne doit jamais casser l'affichage.
+ */
+async function persistGridSnapshot(input: GetProductRowsInput, rows: ProductRow[]): Promise<void> {
+    if ((input.magasin ?? "TOTAL") !== "TOTAL") return;
+    try {
+        const n = await upsertGridRows(input.codeFournisseur, rows);
+        console.log(`[getProductRows] instantané persisté: ${n} lignes pour ${input.codeFournisseur}`);
+    } catch (e) {
+        console.error("[getProductRows] persistance grid_rows KO:", (e as Error).message?.slice(0, 200));
+    }
+}
+
 export async function getProductRows(input: GetProductRowsInput): Promise<ProductRow[]> {
     const cacheKey = gridRowsCacheKey(input);
     const cached = gridRowsCache.get(cacheKey);
@@ -85,6 +103,10 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
     const promise = buildProductRows(input).then((rows) => {
         gridRowsCache.set(cacheKey, { rows, createdAt: Date.now() });
         gridRowsPending.delete(cacheKey);
+        // Persiste l'instantané pour /api/v1 : le calcul vient d'avoir lieu, on
+        // arrête simplement de jeter le résultat. Volontairement NON bloquant —
+        // l'affichage de la Grille ne doit pas attendre l'écriture.
+        void persistGridSnapshot(input, rows);
         return rows;
     }).catch((error) => {
         gridRowsPending.delete(cacheKey);

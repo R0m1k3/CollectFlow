@@ -129,6 +129,82 @@ export const qlikNetworkMetrics = pgTable("qlik_network_metrics", {
   fetchedAt: timestamp("fetched_at").defaultNow(),
 });
 
+/**
+ * Instantané persisté des lignes de grille (une ligne par fournisseur × article).
+ *
+ * Raison d'être : `getProductRows()` reconstruit la grille en direct et ne la garde
+ * qu'en mémoire 10 minutes — perdu à chaque redémarrage. L'API `/api/v1` ne doit
+ * jamais déclencher ce calcul, elle lit donc cette table, remplie en effet de bord
+ * quand quelqu'un ouvre la Grille. Aucun calcul supplémentaire n'est introduit : on
+ * arrête simplement de jeter le résultat.
+ *
+ * Seul `magasin = TOTAL` est persisté : `payload` embarque déjà les ventilations par
+ * magasin (sales12mByStore, caByStore…).
+ */
+export const gridRows = pgTable("grid_rows", {
+  codeFournisseur: varchar("code_fournisseur", { length: 20 }).notNull(),
+  codein: varchar("codein", { length: 20 }).notNull(),
+
+  // Colonnes scalaires : servent aux filtres, au tri et à la recherche en SQL.
+  nomFournisseur: varchar("nom_fournisseur", { length: 255 }),
+  libelle1: varchar("libelle1", { length: 500 }),
+  gtin: varchar("gtin", { length: 30 }),
+  reference: varchar("reference", { length: 100 }),
+  codeCentrale: varchar("code_centrale", { length: 20 }),
+  code1: varchar("code1", { length: 20 }),
+  code2: varchar("code2", { length: 20 }),
+  code3: varchar("code3", { length: 20 }),
+  codeGamme: varchar("code_gamme", { length: 20 }),
+  codeGammeInit: varchar("code_gamme_init", { length: 20 }),
+  totalCa: numeric("total_ca", { precision: 16, scale: 2 }),
+  totalQuantite: numeric("total_quantite", { precision: 14, scale: 2 }),
+  totalMarge: numeric("total_marge", { precision: 16, scale: 2 }),
+  tauxMarge: numeric("taux_marge", { precision: 8, scale: 4 }),
+  stockActuel: numeric("stock_actuel", { precision: 14, scale: 2 }),
+  caReseau: numeric("ca_reseau", { precision: 16, scale: 2 }),
+  qteReseau: numeric("qte_reseau", { precision: 14, scale: 2 }),
+  nbMagasinsReseau: integer("nb_magasins_reseau"),
+  caParMagasinReseau: numeric("ca_par_magasin_reseau", { precision: 16, scale: 2 }),
+  margePctReseau: numeric("marge_pct_reseau", { precision: 8, scale: 4 }),
+
+  /** ProductRow complet (séries mensuelles, ventilations par magasin, dates…). */
+  payload: jsonb("payload").notNull(),
+  /** Date du calcul ayant produit cette ligne — expose la fraîcheur au consommateur. */
+  computedAt: timestamp("computed_at").defaultNow().notNull(),
+}, (table) => {
+  return [
+    uniqueIndex("uq_grid_rows_fou_codein").on(table.codeFournisseur, table.codein),
+    index("idx_grid_rows_fournisseur").on(table.codeFournisseur),
+    index("idx_grid_rows_codein").on(table.codein),
+    index("idx_grid_rows_gamme").on(table.codeGamme),
+    index("idx_grid_rows_code_centrale").on(table.codeCentrale),
+    index("idx_grid_rows_total_ca").on(table.totalCa),
+    index("idx_grid_rows_libelle").on(table.libelle1),
+  ];
+});
+
+/**
+ * Clés d'API pour les appelants non-navigateur (scripts, outils externes).
+ *
+ * Seul le hachage SHA-256 est stocké : la clé en clair n'est affichée qu'une fois,
+ * à la création. Une clé révoquée conserve sa ligne (traçabilité) via `revokedAt`.
+ */
+export const apiKeys = pgTable("api_keys", {
+  id: serial("id").primaryKey(),
+  /** Nom lisible choisi à la création (ex "Export Excel comptabilité"). */
+  name: varchar("name", { length: 100 }).notNull(),
+  /** Préfixe en clair (ex "cf_a1b2c3") — sert à identifier la clé dans l'UI. */
+  keyPrefix: varchar("key_prefix", { length: 20 }).notNull(),
+  /** SHA-256 hexadécimal de la clé complète. */
+  keyHash: text("key_hash").notNull().unique(),
+  /** 'admin' ou 'user' — même sémantique que users.role. */
+  role: varchar("role", { length: 20 }).default("user").notNull(),
+  createdBy: varchar("created_by", { length: 50 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  lastUsedAt: timestamp("last_used_at"),
+  revokedAt: timestamp("revoked_at"),
+});
+
 /** AI Context rules per supplier (Epic: AI Context) */
 export const aiSupplierContext = pgTable("ai_supplier_context", {
   /** Supplier code serving as the primary key */

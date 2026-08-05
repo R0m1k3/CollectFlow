@@ -8,6 +8,7 @@ import { useDbSettingsStore } from "@/features/settings/store/use-db-settings-st
 import { testDatabaseConnection, saveDatabaseSettings, getSavedDatabaseConfig, saveQlikSettings, testQlikConnection } from "@/features/settings/actions";
 import { useEffect } from "react";
 import { UserManagement } from "@/features/admin/components/user-management";
+import { ApiKeyManagement } from "@/features/admin/components/api-key-management";
 
 interface OpenRouterModel { id: string; name: string; free: boolean; }
 
@@ -614,6 +615,14 @@ export default function SettingsPage() {
                 subtitle="Administration des accès et des rôles"
             >
                 <UserManagement />
+            </Section>
+
+            {/* Clés de l'API publique /api/v1 */}
+            <Section
+                title="Clés d'API"
+                subtitle="Accès programmatique en lecture à la grille et à la recherche (/api/v1)"
+            >
+                <ApiKeyManagement />
             </Section>
 
             {/* Save Button — Floating/Sticky style at bottom */}
