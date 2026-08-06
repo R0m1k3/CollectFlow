@@ -22,6 +22,19 @@ import "server-only";
 import type { ProductRow } from "@/types/grid";
 import { getNetworkMetricsByCodeCentrale, type NetworkMetricCached } from "@/lib/qlik-network-cache";
 import { pgGetGammesByCodeins } from "@/lib/pg-ff-client";
+import { computeNetworkTrend, trendLabel, type TrendDirection } from "@/lib/network-trend";
+
+/** Tendance réseau 12 mois, telle qu'affichée dans la colonne « Tendance » de la Grille. */
+export interface ProductTrend {
+    /** "up" | "down" | "flat" — seuil à ±8 % de variation modélisée. */
+    direction: TrendDirection;
+    /** Variation modélisée sur la période (0.23 = +23 %). `null` si non calculable. */
+    pct: number | null;
+    /** Libellé prêt à afficher : « Forte hausse », « Stable »… */
+    label: string;
+    /** Nombre de mois effectivement utilisés (12 au maximum). */
+    monthsUsed: number;
+}
 
 export interface EnrichedProductRow extends ProductRow {
     /**
@@ -31,6 +44,13 @@ export interface EnrichedProductRow extends ProductRow {
     codeGammeServeur: string | null;
     /** Métriques réseau Qlik en cache, ou `null` si le produit n'en a pas. */
     network: NetworkMetricCached | null;
+    /**
+     * Tendance réseau calculée par régression linéaire sur les 12 derniers mois.
+     * `null` quand il n'y a aucune série mensuelle. Fournie pour que l'appelant —
+     * en particulier un agent — n'ait pas à réimplémenter le calcul et à diverger
+     * de ce que montre l'application.
+     */
+    trend: ProductTrend | null;
 }
 
 /**
@@ -69,6 +89,7 @@ export async function enrichRows(rows: ProductRow[]): Promise<EnrichedProductRow
             ...row,
             codeGammeServeur: gammeServeur,
             network: metrics,
+            trend: null, // renseignée plus bas, une fois la série mensuelle connue
         };
 
         // `codeGammeInit` porte déjà la sémantique « état serveur » dans la Grille :
@@ -87,6 +108,19 @@ export async function enrichRows(rows: ProductRow[]): Promise<EnrichedProductRow
             enriched.margePctReseau = metrics.margePctReseau;
             enriched.qteReseauByMonth = metrics.qteByMonth;
             enriched.networkFetchedAt = metrics.fetchedAt ?? undefined;
+        }
+
+        // Tendance calculée sur la série finale (celle du cache si elle existe,
+        // sinon celle de l'instantané) — même entrée que la colonne « Tendance ».
+        const serie = enriched.qteReseauByMonth;
+        const t = computeNetworkTrend(serie);
+        if (t.hasData) {
+            enriched.trend = {
+                direction: t.direction,
+                pct: t.pct,
+                label: t.pct != null ? trendLabel(t.pct) : "Indéterminée",
+                monthsUsed: t.values.length,
+            };
         }
 
         return enriched;

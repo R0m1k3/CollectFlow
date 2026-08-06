@@ -120,7 +120,10 @@ export async function GET(req: NextRequest) {
                 },
                 Product: {
                     type: "object",
-                    description: "Ligne de grille : un article chez un fournisseur.",
+                    description:
+                        "Ligne de grille : un article chez un fournisseur. La liste de propriétés ci-dessous "
+                        + "n'est pas exhaustive — la réponse contient l'intégralité de la ligne (une soixantaine "
+                        + "de champs). Utilisez `fields` pour n'en garder qu'une partie.",
                     properties: {
                         codein: { type: "string", description: "Identifiant interne de l'article." },
                         codeFournisseur: { type: "string" },
@@ -149,8 +152,25 @@ export async function GET(req: NextRequest) {
                         nbJoursDerniereVente: { type: "integer" },
                         sales12m: { type: "object", description: "Quantités vendues par mois, clés « YYYYMM »." },
                         stock12m: { type: "object", description: "Stock de fin de mois, clés « YYYYMM »." },
+                        receptions12m: { type: "object", description: "Quantités reçues par mois, clés « YYYYMM »." },
                         sales12mByStore: { type: "object", description: "Ventes par magasin (292, 579) puis par mois." },
+                        stock12mByStore: { type: "object", description: "Stock de fin de mois par magasin puis par mois." },
+                        receptions12mByStore: { type: "object", description: "Réceptions par magasin puis par mois." },
+                        qteReseauByMonth: { type: ["object", "null"], description: "Quantités vendues par le réseau, clés « YYYY-MM » — série derrière la tendance." },
                         network: { $ref: "#/components/schemas/NetworkMetrics" },
+                        trend: { $ref: "#/components/schemas/Trend" },
+                    },
+                },
+                Trend: {
+                    type: ["object", "null"],
+                    description:
+                        "Tendance réseau sur 12 mois, par régression linéaire — la même que la colonne "
+                        + "« Tendance » de l'application. `null` si aucune série mensuelle n'est disponible.",
+                    properties: {
+                        direction: { type: "string", enum: ["up", "down", "flat"], description: "Seuil à ±8 % de variation modélisée." },
+                        pct: { type: ["number", "null"], description: "Variation modélisée sur la période (0.23 = +23 %)." },
+                        label: { type: "string", description: "Libellé prêt à afficher : « Forte hausse », « Stable »…" },
+                        monthsUsed: { type: "integer", description: "Nombre de mois réellement utilisés (12 au maximum)." },
                     },
                 },
             },
