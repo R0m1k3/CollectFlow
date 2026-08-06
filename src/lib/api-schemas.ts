@@ -13,7 +13,13 @@ const SORT_KEYS = GRID_SORT_KEYS as readonly string[];
 
 export const paginationShape = {
     page: z.coerce.number().int().min(1).default(1),
-    limit: z.coerce.number().int().min(1).max(500).default(100),
+    /**
+     * Aucun plafond : l'appelant décide de la taille qu'il veut recevoir.
+     * Le défaut reste modeste (100) pour que les endpoints de recherche, non
+     * bornés par un fournisseur, ne renvoient pas tout le catalogue par accident.
+     * `/grid` redéfinit ce paramètre : sans `limit`, il renvoie tout.
+     */
+    limit: z.coerce.number().int().min(1).default(100),
 };
 
 const sortShape = {
@@ -53,18 +59,18 @@ export const gridQuerySchema = z.object({
     ...sortShape,
     ...paginationShape,
     /**
-     * Plafond relevé à 5000 pour `/grid` : un lot fournisseur dépasse souvent 500
-     * références, et l'objectif est qu'une app ou un agent récupère **tout** le
-     * fournisseur en un seul appel plutôt que de paginer — ce que les agents font
-     * mal, concluant à tort qu'ils ont tout lu.
+     * **Aucun plafond, et aucune valeur par défaut** : sans `limit`, `/grid`
+     * renvoie *toutes* les lignes du fournisseur.
      *
-     * La borne reste à 500 sur la recherche transversale, qui elle n'est pas
-     * bornée par un fournisseur.
+     * C'est l'objectif de cet endpoint — qu'une app ou un agent récupère un
+     * fournisseur entier en un appel. Paginer par défaut condamnait l'appelant à
+     * boucler, ce que les agents font mal : ils s'arrêtent à la première page et
+     * raisonnent sur un catalogue tronqué.
      *
      * Réponse volumineuse : une ligne complète porte les séries mensuelles et les
      * ventilations par magasin. Combiner avec `fields` est vivement conseillé.
      */
-    limit: z.coerce.number().int().min(1).max(5000).default(100),
+    limit: z.coerce.number().int().min(1).optional(),
 });
 
 /** `/api/v1/products/search` — `fournisseur` facultatif : c'est la recherche transversale. */

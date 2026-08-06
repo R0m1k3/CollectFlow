@@ -174,7 +174,10 @@ function buildWhere(q: GridQuery): SQL | undefined {
  */
 export async function queryGridRows(q: GridQuery): Promise<GridQueryResult> {
     const page = Math.max(1, q.page ?? 1);
-    const limit = Math.min(500, Math.max(1, q.limit ?? 100));
+    // `limit` absent = aucune limite : on renvoie toutes les lignes du filtre.
+    // Il y avait ici un Math.min(500, …) qui re-plafonnait en silence, quelle que
+    // soit la valeur demandée — la réponse était tronquée sans que rien ne le dise.
+    const limit = q.limit != null ? Math.max(1, q.limit) : null;
     const where = buildWhere(q);
 
     const sortCol = SORTABLE[q.sort ?? "totalCa"] ?? gridRows.totalCa;
@@ -186,13 +189,15 @@ export async function queryGridRows(q: GridQuery): Promise<GridQueryResult> {
         .from(gridRows)
         .where(where);
 
-    const found = await db
+    const selection = db
         .select({ payload: gridRows.payload, computedAt: gridRows.computedAt })
         .from(gridRows)
         .where(where)
-        .orderBy(orderBy, asc(gridRows.codein))
-        .limit(limit)
-        .offset((page - 1) * limit);
+        .orderBy(orderBy, asc(gridRows.codein));
+
+    const found = limit != null
+        ? await selection.limit(limit).offset((page - 1) * limit)
+        : await selection;
 
     let oldest: Date | null = null;
     for (const r of found) {

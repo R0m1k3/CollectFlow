@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
 
     const paginationParams = [
         { name: "page", in: "query", schema: { type: "integer", minimum: 1, default: 1 }, description: "Numéro de page." },
-        { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 5000, default: 100 }, description: "Lignes par page. Jusqu'à 5000 sur /grid : un seul appel suffit pour un fournisseur entier. 500 maximum sur les autres endpoints." },
+        { name: "limit", in: "query", schema: { type: "integer", minimum: 1 }, description: "Lignes par page, sans plafond. Sur /grid, OMETTRE ce paramètre renvoie toutes les lignes du fournisseur en un seul appel — c'est le mode recommandé. Sur les autres endpoints, le défaut est 100." },
     ];
     const sortParams = [
         { name: "sort", in: "query", schema: { type: "string", enum: GRID_SORT_KEYS }, description: "Colonne de tri." },

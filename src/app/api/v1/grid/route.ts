@@ -93,7 +93,9 @@ export async function GET(req: NextRequest) {
     // Métriques Qlik et gamme serveur relues au moment de l'appel (voir api-enrich).
     const rows = q.enrich === "1" ? await enrichRows(result.rows) : result.rows;
 
-    const pagination = buildPagination(q.page, q.limit, result.total);
+    // Sans `limit`, tout a été renvoyé : la pagination doit le refléter (une seule
+    // page couvrant le total), sinon `hasMore` mentirait.
+    const pagination = buildPagination(q.page, q.limit ?? Math.max(1, result.total), result.total);
 
     return ok(
         rows.map((r) => pickFields(r, q.fields)),
@@ -117,8 +119,8 @@ export async function GET(req: NextRequest) {
                 ...(pagination.hasMore
                     ? {
                         avertissement:
-                            `Réponse partielle : ${rows.length} lignes sur ${result.total}. `
-                            + `Relancez avec page=${q.page + 1}, ou augmentez limit (5000 au maximum) pour tout obtenir en un appel.`,
+                            `Réponse partielle : ${rows.length} lignes sur ${result.total}, parce que « limit » a été précisé. `
+                            + `Retirez « limit » pour obtenir tout le fournisseur en un appel, ou passez à page=${q.page + 1}.`,
                     }
                     : {}),
             },

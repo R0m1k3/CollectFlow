@@ -50,7 +50,7 @@ const ENDPOINTS: Array<{ method: string; path: string; desc: string }> = [
 ];
 
 const PARAMS: Array<{ name: string; desc: string }> = [
-    { name: "page, limit", desc: "Pagination. limit ≤ 5000 sur /grid — un seul appel suffit donc pour un fournisseur entier ; ≤ 500 ailleurs" },
+    { name: "page, limit", desc: "Pagination, sans plafond. Sur /grid, omettre limit renvoie TOUT le fournisseur en un appel ; ailleurs le défaut est 100" },
     { name: "sort, order", desc: "Tri, ex. sort=totalCa&order=desc" },
     { name: "search", desc: "Libellé, codein, GTIN, référence ou code centrale" },
     { name: "gamme, code1..code3", desc: "Filtres sur la gamme et la nomenclature" },
@@ -123,10 +123,10 @@ export function ApiConnectionInfo() {
                 <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/products/search?q=tapis&limit=20"`}</CodeLine>
                 <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/grid?fournisseur=FOU001&fields=codein,libelle1,totalCa,codeGammeServeur"`}</CodeLine>
                 <p className="text-[11px] pt-1" style={{ color: "var(--text-muted)" }}>
-                    Tout un fournisseur en un seul appel — <code className="font-mono">meta.complet</code> confirme
-                    qu&apos;il ne reste rien à lire :
+                    Tout un fournisseur en un seul appel — il suffit d&apos;omettre <code className="font-mono">limit</code>,
+                    et <code className="font-mono">meta.complet</code> confirme qu&apos;il ne reste rien à lire :
                 </p>
-                <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/grid?fournisseur=FOU001&limit=5000"`}</CodeLine>
+                <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/grid?fournisseur=FOU001"`}</CodeLine>
             </div>
 
             {/* Branchement d'une IA externe (ChatGPT) */}
