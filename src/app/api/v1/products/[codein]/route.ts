@@ -4,9 +4,12 @@ import { ok, fail } from "@/lib/api-response";
 import { productDetailSchema } from "@/lib/api-schemas";
 import { getGridRowByCodein } from "@/lib/grid-store";
 import { enrichRows } from "@/lib/api-enrich";
+import { getProductRows } from "@/features/grid/api/get-product-rows";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Idem /api/v1/grid : le calcul à la demande peut prendre plusieurs secondes.
+export const maxDuration = 300;
 
 /**
  * GET /api/v1/products/:codein?fournisseur=…
@@ -33,11 +36,26 @@ export async function GET(
         return fail("bad_request", "Paramètres invalides.", parsed.error.issues);
     }
 
-    const found = await getGridRowByCodein(codein, parsed.data.fournisseur);
+    let found = await getGridRowByCodein(codein, parsed.data.fournisseur);
+
+    // Absent de l'instantané : on peut le calculer, mais seulement si l'appelant a
+    // précisé le fournisseur — le calcul se fait par lot fournisseur, pas par article.
+    if (!found && parsed.data.compute === "1" && parsed.data.fournisseur) {
+        console.log(`[api/v1/products] ${codein} absent — calcul du lot ${parsed.data.fournisseur} à la demande`);
+        try {
+            await getProductRows({ codeFournisseur: parsed.data.fournisseur, magasin: "TOTAL" });
+            found = await getGridRowByCodein(codein, parsed.data.fournisseur);
+        } catch (e) {
+            console.error(`[api/v1/products] calcul KO pour ${parsed.data.fournisseur}:`, e instanceof Error ? e.message : String(e));
+        }
+    }
+
     if (!found) {
         return fail(
             "not_found",
-            `Aucun instantané pour le produit « ${codein} ». Le fournisseur a-t-il déjà été ouvert dans la Grille ?`,
+            parsed.data.fournisseur
+                ? `Produit « ${codein} » introuvable chez le fournisseur « ${parsed.data.fournisseur} ».`
+                : `Aucun instantané pour le produit « ${codein} ». Ajoutez « fournisseur=… » pour que l'API calcule le lot à la demande.`,
         );
     }
 

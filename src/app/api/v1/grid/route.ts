@@ -4,19 +4,27 @@ import { ok, fail, buildPagination } from "@/lib/api-response";
 import { gridQuerySchema, pickFields, toSortKey } from "@/lib/api-schemas";
 import { queryGridRows, getGridFreshness } from "@/lib/grid-store";
 import { enrichRows } from "@/lib/api-enrich";
+import { getProductRows } from "@/features/grid/api/get-product-rows";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Le calcul à la demande (premier appel sur un fournisseur inconnu) enchaîne
+// plusieurs requêtes SQL sur la base miroir FF : on laisse de la marge.
+export const maxDuration = 300;
 
 /**
- * GET /api/v1/grid?fournisseur=…&gamme=&code1..3=&search=&sort=&order=&page=&limit=&fields=
+ * GET /api/v1/grid?fournisseur=…&gamme=&code1..3=&search=&sort=&order=&page=&limit=&fields=&compute=
  *
  * Lignes de grille d'un fournisseur, filtrées / triées / paginées **en SQL** depuis
  * l'instantané persisté (`grid_rows`).
  *
- * Cet endpoint ne déclenche **jamais** `getProductRows()` et ne contacte jamais Qlik :
- * si le fournisseur n'a pas encore d'instantané, il répond `202 not_ready` plutôt que
- * d'imposer un calcul de plusieurs secondes à l'appelant.
+ * Si le fournisseur n'a pas encore d'instantané, l'endpoint le **calcule à la demande**
+ * (`compute=1`, défaut) : sans cela, un appelant externe ne pourrait consulter que les
+ * fournisseurs déjà ouverts dans la Grille par un humain. Le calcul est protégé par le
+ * cache et le verrou anti-concurrence de `getProductRows()`, et il persiste l'instantané
+ * au passage — les appels suivants repassent donc par le chemin rapide.
+ *
+ * `compute=0` restaure le comportement strict : échec immédiat en `202 not_ready`.
  */
 export async function GET(req: NextRequest) {
     const authCtx = await requireApiAuth(req);
@@ -28,14 +36,45 @@ export async function GET(req: NextRequest) {
     }
     const q = parsed.data;
 
-    // Distingue « fournisseur jamais calculé » (202) de « filtres sans résultat » (200 vide).
-    const freshness = await getGridFreshness(q.fournisseur);
+    // Distingue « fournisseur jamais calculé » de « filtres sans résultat » (200 vide).
+    let freshness = await getGridFreshness(q.fournisseur);
+    let computedOnDemand = false;
+
     if (!freshness) {
-        return fail(
-            "not_ready",
-            `Aucun instantané pour le fournisseur « ${q.fournisseur} ». Ouvrez-le une fois dans la Grille pour le calculer.`,
-            { fournisseur: q.fournisseur },
-        );
+        if (q.compute === "0") {
+            return fail(
+                "not_ready",
+                `Aucun instantané pour le fournisseur « ${q.fournisseur} ». Relancez sans « compute=0 » pour le calculer à la demande.`,
+                { fournisseur: q.fournisseur },
+            );
+        }
+
+        console.log(`[api/v1/grid] instantané absent pour ${q.fournisseur} — calcul à la demande (via ${authCtx.via})`);
+        try {
+            // magasin TOTAL : c'est la seule variante persistée par getProductRows,
+            // et ProductRow embarque déjà les ventilations par magasin.
+            await getProductRows({ codeFournisseur: q.fournisseur, magasin: "TOTAL" });
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.error(`[api/v1/grid] calcul à la demande KO pour ${q.fournisseur}:`, msg);
+            return fail(
+                "internal_error",
+                `Le calcul de la grille a échoué pour le fournisseur « ${q.fournisseur} ».`,
+                { fournisseur: q.fournisseur },
+            );
+        }
+
+        freshness = await getGridFreshness(q.fournisseur);
+        if (!freshness) {
+            // Calcul réussi mais aucune ligne : le code fournisseur n'existe pas, ou
+            // il n'a aucun article. À distinguer d'une panne.
+            return fail(
+                "not_found",
+                `Aucun article pour le fournisseur « ${q.fournisseur} ». Vérifiez le code auprès de /api/v1/fournisseurs.`,
+                { fournisseur: q.fournisseur },
+            );
+        }
+        computedOnDemand = true;
     }
 
     const result = await queryGridRows({
@@ -64,6 +103,8 @@ export async function GET(req: NextRequest) {
                 snapshotComputedAt: freshness.computedAt,
                 snapshotRowCount: freshness.rowCount,
                 enrichi: q.enrich === "1",
+                /** true = l'instantané n'existait pas et vient d'être calculé par cet appel. */
+                computedOnDemand,
             },
         },
     );

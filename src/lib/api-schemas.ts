@@ -41,6 +41,15 @@ export const gridQuerySchema = z.object({
     code2: z.string().min(1).optional(),
     code3: z.string().min(1).optional(),
     search: z.string().min(1).optional(),
+    /**
+     * `1` (défaut) : si le fournisseur n'a pas encore d'instantané, l'API le calcule
+     * à la demande au lieu de répondre `not_ready`. C'est ce qui permet à une app ou
+     * à un agent externe d'interroger n'importe quel fournisseur sans qu'un humain
+     * ait ouvert la Grille avant. Le premier appel est alors plus lent (plusieurs
+     * secondes) ; les suivants sont servis depuis l'instantané.
+     * `0` : comportement strict, échoue vite en `not_ready`.
+     */
+    compute: z.enum(["0", "1"]).default("1"),
     ...sortShape,
     ...paginationShape,
 });
@@ -62,6 +71,11 @@ export const fournisseursQuerySchema = z.object({
 
 export const productDetailSchema = z.object({
     fournisseur: z.string().min(1).optional(),
+    /**
+     * `1` (défaut) : calcule l'instantané à la demande si le produit n'y figure pas
+     * encore. Nécessite `fournisseur`, le calcul se faisant par lot fournisseur.
+     */
+    compute: z.enum(["0", "1"]).default("1"),
 });
 
 /**

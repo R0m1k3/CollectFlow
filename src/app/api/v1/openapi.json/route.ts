@@ -54,10 +54,12 @@ export async function GET(req: NextRequest) {
             description:
                 "Lecture des données de la grille CollectFlow : ventes sur 12 mois par magasin, stock, marges, "
                 + "gammes et métriques du réseau Qlik (~270 magasins Foir'Fouille), plus la recherche de produits.\n\n"
-                + "**Aucun endpoint ne déclenche de recalcul ni d'appel à Qlik.** Les réponses proviennent de "
-                + "données déjà persistées : l'instantané de grille, écrit quand la Grille est calculée dans "
-                + "l'application, et le cache des métriques réseau. Un fournisseur dont l'instantané n'existe pas "
-                + "encore renvoie `202 not_ready`.\n\n"
+                + "**N'importe quel fournisseur peut être interrogé directement.** Les réponses sont servies "
+                + "depuis un instantané persisté ; si le fournisseur demandé n'en a pas encore, `/grid` le calcule "
+                + "à la demande. Ce premier appel prend alors plusieurs secondes, les suivants sont immédiats. "
+                + "Passez `compute=0` pour refuser ce calcul et obtenir un `202 not_ready` immédiat.\n\n"
+                + "**Aucun endpoint ne contacte Qlik en direct** : les métriques réseau viennent d'un cache "
+                + "alimenté par une synchronisation séparée.\n\n"
                 + "Deux informations sont relues à chaque appel car elles évoluent indépendamment : les métriques "
                 + "réseau Qlik (`network`, `null` s'il n'y en a pas) et la gamme serveur non modifiée "
                 + "(`codeGammeServeur`).",
@@ -190,8 +192,10 @@ export async function GET(req: NextRequest) {
                     summary: "Lister les produits d'un fournisseur",
                     description:
                         "Lignes de grille d'un fournisseur : ventes 12 mois, stock, marges, gammes et métriques "
-                        + "réseau. Renvoie `202 not_ready` si les données de ce fournisseur n'ont pas encore été "
-                        + "calculées — le signaler, plutôt que de conclure à l'absence de produits.",
+                        + "réseau. Fonctionne pour **n'importe quel** fournisseur : si ses données n'ont jamais été "
+                        + "calculées, l'API les calcule à la demande (premier appel de quelques secondes, "
+                        + "`meta.computedOnDemand = true`). Un `404` signifie que le code fournisseur n'existe pas "
+                        + "ou n'a aucun article — le signaler plutôt que de conclure à une panne.",
                     parameters: [
                         { name: "fournisseur", in: "query", required: true, schema: { type: "string" }, description: "Code fournisseur (voir listerFournisseurs)." },
                         { name: "gamme", in: "query", schema: { type: "string" }, description: "Filtre sur la gamme (A, B, C, D, Z)." },
@@ -199,6 +203,14 @@ export async function GET(req: NextRequest) {
                         { name: "code2", in: "query", schema: { type: "string" }, description: "Filtre nomenclature niveau 2." },
                         { name: "code3", in: "query", schema: { type: "string" }, description: "Filtre nomenclature niveau 3." },
                         { name: "search", in: "query", schema: { type: "string" }, description: "Filtre texte : libellé, codein, GTIN, référence ou code centrale." },
+                        {
+                            name: "compute",
+                            in: "query",
+                            schema: { type: "string", enum: ["0", "1"], default: "1" },
+                            description:
+                                "1 (défaut) : calcule les données du fournisseur si elles n'existent pas encore. "
+                                + "0 : refuse le calcul et répond immédiatement 202 not_ready.",
+                        },
                         ...sortParams,
                         ...paginationParams,
                     ],
@@ -218,9 +230,10 @@ export async function GET(req: NextRequest) {
                                 },
                             },
                         },
-                        "202": { description: "Données pas encore calculées pour ce fournisseur", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+                        "202": { description: "Données pas encore calculées (uniquement avec compute=0)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
                         "400": { description: "Paramètres invalides", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
                         "401": { description: "Clé d'API absente, invalide ou révoquée", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+                        "404": { description: "Fournisseur inconnu ou sans article", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
                     },
                 },
             },
