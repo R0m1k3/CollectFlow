@@ -31,10 +31,15 @@ export interface Pagination {
     limit: number;
     total: number;
     totalPages: number;
+    /** `true` s'il reste des pages à lire — évite d'avoir à comparer page et totalPages. */
+    hasMore: boolean;
 }
 
 export function buildPagination(page: number, limit: number, total: number): Pagination {
-    return { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) };
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    // `hasMore` explicite : un agent qui doit comparer page et totalPages oublie
+    // souvent de le faire et conclut à tort qu'il a tout récupéré.
+    return { page, limit, total, totalPages, hasMore: page < totalPages };
 }
 
 /** Réponse de succès. `meta` porte la fraîcheur de la donnée (`computedAt`). */

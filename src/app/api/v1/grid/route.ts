@@ -93,10 +93,12 @@ export async function GET(req: NextRequest) {
     // Métriques Qlik et gamme serveur relues au moment de l'appel (voir api-enrich).
     const rows = q.enrich === "1" ? await enrichRows(result.rows) : result.rows;
 
+    const pagination = buildPagination(q.page, q.limit, result.total);
+
     return ok(
         rows.map((r) => pickFields(r, q.fields)),
         {
-            pagination: buildPagination(q.page, q.limit, result.total),
+            pagination,
             meta: {
                 fournisseur: q.fournisseur,
                 computedAt: result.computedAt,
@@ -105,6 +107,20 @@ export async function GET(req: NextRequest) {
                 enrichi: q.enrich === "1",
                 /** true = l'instantané n'existait pas et vient d'être calculé par cet appel. */
                 computedOnDemand,
+                /**
+                 * true = cette réponse contient **toutes** les lignes du fournisseur.
+                 * Dit explicitement à un appelant — en particulier un agent — s'il
+                 * peut s'arrêter là, au lieu de le laisser déduire d'une pagination
+                 * qu'il risque d'ignorer.
+                 */
+                complet: !pagination.hasMore,
+                ...(pagination.hasMore
+                    ? {
+                        avertissement:
+                            `Réponse partielle : ${rows.length} lignes sur ${result.total}. `
+                            + `Relancez avec page=${q.page + 1}, ou augmentez limit (5000 au maximum) pour tout obtenir en un appel.`,
+                    }
+                    : {}),
             },
         },
     );

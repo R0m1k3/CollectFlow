@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
 
     const paginationParams = [
         { name: "page", in: "query", schema: { type: "integer", minimum: 1, default: 1 }, description: "Numéro de page." },
-        { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 500, default: 100 }, description: "Nombre de lignes par page (500 maximum)." },
+        { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 5000, default: 100 }, description: "Lignes par page. Jusqu'à 5000 sur /grid : un seul appel suffit pour un fournisseur entier. 500 maximum sur les autres endpoints." },
     ];
     const sortParams = [
         { name: "sort", in: "query", schema: { type: "string", enum: GRID_SORT_KEYS }, description: "Colonne de tri." },
@@ -93,6 +93,7 @@ export async function GET(req: NextRequest) {
                         limit: { type: "integer" },
                         total: { type: "integer" },
                         totalPages: { type: "integer" },
+                        hasMore: { type: "boolean", description: "true = il reste des pages. Sur /grid, meta.complet dit la même chose en positif." },
                     },
                 },
                 Fournisseur: {

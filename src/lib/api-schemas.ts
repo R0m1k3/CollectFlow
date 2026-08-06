@@ -52,6 +52,19 @@ export const gridQuerySchema = z.object({
     compute: z.enum(["0", "1"]).default("1"),
     ...sortShape,
     ...paginationShape,
+    /**
+     * Plafond relevé à 5000 pour `/grid` : un lot fournisseur dépasse souvent 500
+     * références, et l'objectif est qu'une app ou un agent récupère **tout** le
+     * fournisseur en un seul appel plutôt que de paginer — ce que les agents font
+     * mal, concluant à tort qu'ils ont tout lu.
+     *
+     * La borne reste à 500 sur la recherche transversale, qui elle n'est pas
+     * bornée par un fournisseur.
+     *
+     * Réponse volumineuse : une ligne complète porte les séries mensuelles et les
+     * ventilations par magasin. Combiner avec `fields` est vivement conseillé.
+     */
+    limit: z.coerce.number().int().min(1).max(5000).default(100),
 });
 
 /** `/api/v1/products/search` — `fournisseur` facultatif : c'est la recherche transversale. */
