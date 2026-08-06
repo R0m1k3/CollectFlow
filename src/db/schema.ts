@@ -125,6 +125,21 @@ export const qlikNetworkMetrics = pgTable("qlik_network_metrics", {
   periode: varchar("periode", { length: 20 }),
   /** Quantité vendue réseau par mois : { "YYYY-MM": qté } (12 derniers mois). */
   qteByMonth: jsonb("qte_by_month"),
+  /**
+   * Détail mensuel complet : { "YYYY-MM": { qte, ca, nbMag, caMag, margePct } }.
+   * Superset de `qteByMonth`, qui reste maintenu tel quel pour la colonne
+   * « Tendance / Réseau » de la Grille.
+   */
+  metricsByMonth: jsonb("metrics_by_month"),
+  /**
+   * Libellé de l'article tel que Qlik le renvoie. Renseigné par la recherche
+   * produit (qui interroge la dimension libellé) ; la sync fournisseur ne
+   * l'écrase pas. Permet d'afficher une fiche pour un produit réseau que le
+   * catalogue Nancy ne référence pas.
+   */
+  libelleReseau: varchar("libelle_reseau", { length: 255 }),
+  /** Fournisseur de l'article côté Qlik, même origine que `libelleReseau`. */
+  fournisseurReseau: varchar("fournisseur_reseau", { length: 255 }),
   /** Dernière synchro depuis Qlik */
   fetchedAt: timestamp("fetched_at").defaultNow(),
 });

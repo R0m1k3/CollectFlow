@@ -121,6 +121,14 @@ export interface ProductRow {
     tauxPresenceReseau?: number;
     /** Quantité vendue réseau par mois : { "YYYY-MM": qté } (tendance / modal). */
     qteReseauByMonth?: Record<string, number> | null;
+    /**
+     * Nombre de magasins vendeurs par mois : { "YYYY-MM": nb }.
+     *
+     * Deuxième courbe de la carte tendance : une quantité qui monte parce que le
+     * produit est diffusé dans plus de magasins ne raconte pas la même histoire
+     * qu'une quantité qui monte à diffusion constante.
+     */
+    nbMagReseauByMonth?: Record<string, number> | null;
     /** Fraîcheur des données réseau (ISO) */
     networkFetchedAt?: string;
 }

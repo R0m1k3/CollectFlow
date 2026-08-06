@@ -13,7 +13,7 @@ import {
     RowSelectionState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, Warehouse, AlertTriangle } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, Warehouse, AlertTriangle, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -27,70 +27,20 @@ import { HeatmapCell } from "@/features/grid/components/heatmap-cell";
 import type { ProductRow, GammeCode } from "@/types/grid";
 import { cn } from "@/lib/utils";
 import {
+    getLast12Months,
+    formatMonthLabel,
+    formatDate,
+    SITE_LABELS,
+    getStoreConfig,
+} from "@/features/grid/lib/months";
+import {
     computeNetworkTrend,
-    TrendSparkline,
-    NetworkLineChart,
+    computeStoresSeries,
+    trendLabel,
     TREND_COLOR,
-    TREND_STRONG,
-} from "@/features/network/components/network-trend";
-
-function getLast12Months(): string[] {
-    const months: string[] = [];
-    const now = new Date();
-    // On commence à i=12 (il y a 12 mois) et on finit à i=1 (le mois dernier)
-    // pour exclure le mois en cours (i=0)
-    for (let i = 12; i >= 1; i--) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        months.push(`${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`);
-    }
-    return months;
-}
-
-// La constante est supprimée d'ici pour éviter le mismatch d'hydratation (new Date() au runtime module)
-
-function formatMonthLabel(key: string): string {
-    const m = parseInt(key.slice(4, 6), 10);
-    const names = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"];
-    return `${names[m - 1]} ${key.slice(2, 4)}`;
-}
-
-function formatDate(iso?: string): string {
-    if (!iso) return "—";
-    return new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
-}
-
-/**
- * Returns premium styling and color for stores based on the store name's hash.
- * This guarantees a consistent color for a given store, regardless of its position in the list.
- */
-const SITE_LABELS: Record<string, { label: string; nom: string }> = {
-    "292": { label: "F", nom: "Frouard (Nancy)" },
-    "579": { label: "H", nom: "Houdemont" },
-};
-
-function getStoreConfig(name: string) {
-    const known = SITE_LABELS[name];
-    const words = (known?.nom ?? name).trim().split(/\s+/);
-    let label = known?.label ?? words[0].charAt(0).toUpperCase();
-    if (!known && words.length > 1) {
-        label += words[1].charAt(0).toUpperCase();
-    }
-
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-        hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const colorInt = Math.abs(hash) % 5;
-
-    switch (colorInt) {
-        case 0: return { bg: "rgba(99, 102, 241, 0.1)", text: "#818cf8", border: "rgba(99, 102, 241, 0.2)", label }; // Indigo
-        case 1: return { bg: "rgba(245, 158, 11, 0.1)", text: "#fbbf24", border: "rgba(245, 158, 11, 0.2)", label }; // Amber
-        case 2: return { bg: "rgba(16, 185, 129, 0.1)", text: "#10b981", border: "rgba(16, 185, 129, 0.2)", label }; // Emerald
-        case 3: return { bg: "rgba(236, 72, 153, 0.1)", text: "#ec4899", border: "rgba(236, 72, 153, 0.2)", label }; // Pink
-        case 4: return { bg: "rgba(14, 165, 233, 0.1)", text: "#0ea5e9", border: "rgba(14, 165, 233, 0.2)", label }; // Sky
-        default: return { bg: "var(--bg-elevated)", text: "var(--text-muted)", border: "var(--border)", label };
-    }
-}
+    NB_MAGASINS_RESEAU,
+} from "@/features/grid/lib/network-trend";
+import { TrendSparkline, NetworkLineChart } from "@/features/grid/components/network-charts";
 
 interface HeatmapGridProps {
     onSelectionChange?: (codeins: string[]) => void;
@@ -125,6 +75,56 @@ function getQlikNetworkSortValue(value: number | null | undefined, columnId: str
 // =========================================================================
 
 // 1. Composant isolé pour la Cellule Gamme (évite le re-render des colonnes)
+/**
+ * Cellule dont la valeur se copie d'un clic.
+ *
+ * Extraite de la colonne « Code interne », qui la portait en ligne avec un
+ * `eslint-disable react-hooks/rules-of-hooks` : un `useState` dans le corps d'un
+ * `cell()` de TanStack n'est pas rendu au même endroit d'un rendu à l'autre. Un
+ * vrai composant supprime la dérogation et rend la copie réutilisable — les
+ * références et les gencodes se recopient autant que les codes internes.
+ *
+ * `stopPropagation` est indispensable : sans lui, le clic sélectionne aussi la
+ * ligne.
+ */
+const CopiableCell = React.memo(function CopiableCell({ value, titre, className, style }: {
+    value: string | null | undefined;
+    titre: string;
+    className?: string;
+    style?: React.CSSProperties;
+}) {
+    const [copied, setCopied] = useState(false);
+    const texte = (value ?? "").trim();
+
+    if (!texte) {
+        return <span className={className} style={style}>-</span>;
+    }
+
+    const handleCopy = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(texte);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    return (
+        <div
+            onClick={handleCopy}
+            className="group flex items-center gap-1.5 cursor-pointer hover:text-emerald-500 transition-colors min-w-0"
+            title={copied ? "Copié !" : titre}
+        >
+            <span className={cn("truncate", className)} style={style}>{texte}</span>
+            <span className="shrink-0 transition-all duration-200">
+                {copied ? (
+                    <Check className="w-3 h-3 text-emerald-500 animate-in zoom-in-50" />
+                ) : (
+                    <Copy className="w-3 h-3 opacity-0 group-hover:opacity-40 hover:!opacity-100" />
+                )}
+            </span>
+        </div>
+    );
+});
+
 const GammeCell = React.memo(({ row, isAdmin }: { row: ProductRow; isAdmin?: boolean }) => {
     // Abonnement ultra-ciblé : la cellule ne re-render que si SA valeur change
     const codein = row.codein;
@@ -245,34 +245,102 @@ interface CellDetailData {
     receptions: number | null;
 }
 
-/** Modal : quantités vendues réseau sur les 12 derniers mois, en une seule courbe. */
+/**
+ * Tuile de statistique : intitulé en phrase, valeur en chiffres proportionnels.
+ *
+ * Pas de `tabular-nums` ici : à grande taille, des chiffres de largeur égale font
+ * paraître un nombre court anormalement lâche. Les chiffres tabulaires sont
+ * réservés aux colonnes qui s'alignent verticalement (tableau, axes).
+ */
+function TuileStat({ label, valeur, indice, couleur, icone: Icone }: {
+    label: string;
+    valeur: string;
+    indice?: string;
+    couleur?: string;
+    icone?: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+}) {
+    return (
+        <div className="rounded-xl px-3 py-2.5 flex-1 min-w-[140px]" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
+            <div className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                {label}
+            </div>
+            <div className="flex items-center gap-1.5 mt-0.5">
+                {Icone && <Icone className="w-4 h-4 shrink-0" style={{ color: couleur ?? "var(--text-primary)" }} />}
+                <span className="text-[20px] font-bold leading-tight" style={{ color: couleur ?? "var(--text-primary)" }}>
+                    {valeur}
+                </span>
+            </div>
+            {indice && <div className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>{indice}</div>}
+        </div>
+    );
+}
+
+/**
+ * Carte « tendance réseau » : le verdict en tuiles, puis les trois séries
+ * mensuelles en petits multiples.
+ *
+ * La couleur de tendance (vert / rouge / gris) ne vit QUE dans la tuile de
+ * verdict, accompagnée d'une flèche et d'un libellé : un état ne se signale
+ * jamais par la couleur seule. Les courbes, elles, portent des teintes
+ * d'identité — sans quoi la même couleur voudrait dire deux choses.
+ */
 function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () => void }) {
-    const trend = computeNetworkTrend(row.qteReseauByMonth);
+    const trend = computeNetworkTrend(row.qteReseauByMonth, row.nbMagReseauByMonth);
     const { values, labels, direction, pct } = trend;
     const color = TREND_COLOR[direction];
+    const magasins = computeStoresSeries(row.nbMagReseauByMonth);
+    const Fleche = direction === "up" ? TrendingUp : direction === "down" ? TrendingDown : Minus;
+
+    const dernier = values.length - 1;
+    const fmt = (v: number, d = 0) => v.toLocaleString("fr-FR", { minimumFractionDigits: d, maximumFractionDigits: d });
+    const verdict = trend.nouveau
+        ? "Nouveau"
+        : pct != null
+            ? `${pct >= 0 ? "+" : ""}${Math.round(pct * 100)} %`
+            : "—";
+
     return (
-        <DialogContent className="max-w-md" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }} onInteractOutside={onClose}>
+        <DialogContent className="max-w-xl" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }} onInteractOutside={onClose}>
             <DialogHeader>
                 <DialogTitle className="text-base leading-snug pr-6" style={{ color: "var(--text-primary)" }}>
                     {row.libelle1}
                 </DialogTitle>
                 <p className="text-[12px] mt-0.5" style={{ color: "var(--text-muted)" }}>
-                    Ventes réseau · {labels.length > 0 ? `${labels.length} derniers mois` : "12 derniers mois"}
-                    {row.nbMagasinsReseau != null && <> · <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>{row.nbMagasinsReseau} magasins</span></>}
-                    {pct != null && (
-                        <> · <span className="font-bold" style={{ color }}>
-                            {pct >= 0 ? "+" : ""}{Math.round(pct * 100)}% ·{" "}
-                            {pct > TREND_STRONG ? "Forte hausse" : pct > 0.08 ? "Hausse" : pct < -TREND_STRONG ? "Forte baisse" : pct < -0.08 ? "Baisse" : "Stable"}
-                        </span></>
-                    )}
+                    Réseau · 12 mois glissants, mois en cours exclu
                 </p>
             </DialogHeader>
+
             {!trend.hasData ? (
                 <div className="mt-3 rounded-xl p-4 text-center text-[13px]" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
                     Pas encore de détail mensuel pour ce produit.<br />Relancez un Sync Qlik pour le remplir.
                 </div>
             ) : (
-                <NetworkLineChart labels={labels} values={values} color={color} />
+                <>
+                    <div className="flex flex-wrap gap-2 mt-1">
+                        <TuileStat
+                            label="Tendance"
+                            valeur={verdict}
+                            indice={trend.surQteParMagasin
+                                ? `${trendLabel(pct, trend.nouveau)} · sur la qté/magasin`
+                                : `${trendLabel(pct, trend.nouveau)} · sur les volumes (magasins inconnus)`}
+                            couleur={color}
+                            icone={Fleche}
+                        />
+                        {trend.perStore && (
+                            <TuileStat
+                                label="Qté / magasin"
+                                valeur={fmt(trend.perStore[dernier], trend.perStore[dernier] < 10 ? 1 : 0)}
+                                indice={`dernier mois · ${fmt(trend.perStore.reduce((t, v) => t + v, 0) / trend.perStore.length, 1)} en moyenne`}
+                            />
+                        )}
+                        <TuileStat
+                            label="Magasins vendeurs"
+                            valeur={magasins ? fmt(magasins.values[dernier]) : fmt(row.nbMagasinsReseau ?? 0)}
+                            indice={`sur ${NB_MAGASINS_RESEAU} du réseau`}
+                        />
+                    </div>
+                    <NetworkLineChart labels={labels} values={values} stores={magasins?.values} perStore={trend.perStore} />
+                </>
             )}
         </DialogContent>
     );
@@ -443,63 +511,40 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
             accessorKey: "codein",
             header: "Code interne",
             size: 90,
-            cell: ({ getValue }) => {
-                const value = getValue<string>();
-                // eslint-disable-next-line react-hooks/rules-of-hooks
-                const [copied, setCopied] = useState(false);
-
-                const handleCopy = (e: React.MouseEvent) => {
-                    e.stopPropagation();
-                    navigator.clipboard.writeText(value);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000);
-                };
-
-                return (
-                    <div
-                        onClick={handleCopy}
-                        className="group flex items-center gap-1.5 cursor-pointer hover:text-emerald-500 transition-colors"
-                        title="Copier le code interne"
-                    >
-                        <span className="tabular-nums font-bold text-[12px] tracking-tight opacity-70 group-hover:opacity-100" style={{ color: "var(--text-muted)" }}>
-                            {value}
-                        </span>
-                        <div className="shrink-0 transition-all duration-200">
-                            {copied ? (
-                                <Check className="w-3 h-3 text-emerald-500 animate-in zoom-in-50" />
-                            ) : (
-                                <Copy className="w-3 h-3 opacity-0 group-hover:opacity-40 hover:!opacity-100" />
-                            )}
-                        </div>
-                    </div>
-                );
-            },
+            cell: ({ getValue }) => (
+                <CopiableCell
+                    value={getValue<string>()}
+                    titre="Copier le code interne"
+                    className="tabular-nums font-bold text-[12px] tracking-tight opacity-70 group-hover:opacity-100"
+                    style={{ color: "var(--text-muted)" }}
+                />
+            ),
         },
         {
             accessorKey: "reference",
             header: "Référence",
             size: 110,
-            cell: ({ getValue }) => {
-                const val = getValue<string>();
-                return (
-                    <span className="text-[12px] font-mono opacity-80" style={{ color: "var(--text-secondary)" }}>
-                        {val || "-"}
-                    </span>
-                );
-            },
+            cell: ({ getValue }) => (
+                <CopiableCell
+                    value={getValue<string>()}
+                    titre="Copier la référence"
+                    className="text-[12px] font-mono opacity-80 group-hover:opacity-100"
+                    style={{ color: "var(--text-secondary)" }}
+                />
+            ),
         },
         {
             accessorKey: "gtin",
             header: "EAN / GTIN",
             size: 120,
-            cell: ({ getValue }) => {
-                const val = getValue<string>();
-                return (
-                    <span className="text-[12px] font-mono tracking-tight opacity-70" style={{ color: "var(--text-secondary)" }}>
-                        {val || "-"}
-                    </span>
-                );
-            },
+            cell: ({ getValue }) => (
+                <CopiableCell
+                    value={getValue<string>()}
+                    titre="Copier l'EAN / GTIN"
+                    className="text-[12px] font-mono tracking-tight opacity-70 group-hover:opacity-100"
+                    style={{ color: "var(--text-secondary)" }}
+                />
+            ),
         },
         {
             accessorKey: "libelle1",
@@ -612,13 +657,18 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
         {
             id: "tendanceReseau",
             accessorFn: (row) => {
-                const t = computeNetworkTrend(row.qteReseauByMonth);
-                return t.hasData && t.pct != null ? t.pct : Number.NEGATIVE_INFINITY;
+                const t = computeNetworkTrend(row.qteReseauByMonth, row.nbMagReseauByMonth);
+                if (!t.hasData) return Number.NEGATIVE_INFINITY;
+                // Un produit « nouveau » n'a pas de pourcentage mais c'est la plus
+                // forte progression possible : il doit remonter en tête du tri, pas
+                // tomber au fond avec les lignes sans données.
+                if (t.nouveau) return Number.POSITIVE_INFINITY;
+                return t.pct ?? Number.NEGATIVE_INFINITY;
             },
             header: () => <div className="text-center w-full">Tendance<br/><span className="text-[9px] opacity-60">Réseau · 12 m</span></div>,
             size: 78,
             cell: ({ row }) => {
-                const trend = computeNetworkTrend(row.original.qteReseauByMonth);
+                const trend = computeNetworkTrend(row.original.qteReseauByMonth, row.original.nbMagReseauByMonth);
                 if (!trend.hasData) return <div className="text-center text-[12px]" style={{ color: "var(--text-secondary)" }}>-</div>;
                 // Cliquable → modal des ventes réseau mois par mois (12 derniers mois).
                 return (

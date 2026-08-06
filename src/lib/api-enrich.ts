@@ -22,17 +22,26 @@ import "server-only";
 import type { ProductRow } from "@/types/grid";
 import { getNetworkMetricsByCodeCentrale, type NetworkMetricCached } from "@/lib/qlik-network-cache";
 import { pgGetGammesByCodeins } from "@/lib/pg-ff-client";
-import { computeNetworkTrend, trendLabel, type TrendDirection } from "@/lib/network-trend";
+// Module de la Grille : l'API doit renvoyer exactement la tendance affichée dans
+// l'application, pas une seconde implémentation qui divergerait.
+import { computeNetworkTrend, trendLabel } from "@/features/grid/lib/network-trend";
 
 /** Tendance réseau 12 mois, telle qu'affichée dans la colonne « Tendance » de la Grille. */
 export interface ProductTrend {
-    /** "up" | "down" | "flat" — seuil à ±8 % de variation modélisée. */
-    direction: TrendDirection;
-    /** Variation modélisée sur la période (0.23 = +23 %). `null` si non calculable. */
+    direction: "up" | "down" | "flat";
+    /** Variation des 4 derniers mois vs les 4 premiers (0.23 = +23 %). `null` si aucune base. */
     pct: number | null;
-    /** Libellé prêt à afficher : « Forte hausse », « Stable »… */
+    /** Libellé prêt à afficher : « Forte hausse », « Nouveau », « Stable »… */
     label: string;
-    /** Nombre de mois effectivement utilisés (12 au maximum). */
+    /**
+     * `true` = tendance calculée sur la quantité **par magasin vendeur**, ce qui
+     * neutralise l'effet d'un simple élargissement de la distribution. `false` =
+     * repli sur les quantités brutes, faute de nombre de magasins sur 12 mois.
+     */
+    surQteParMagasin: boolean;
+    /** Aucune vente sur les 4 premiers mois, des ventes sur les 4 derniers. */
+    nouveau: boolean;
+    /** Nombre de mois de la série (12 quand elle est complète). */
     monthsUsed: number;
 }
 
@@ -110,15 +119,24 @@ export async function enrichRows(rows: ProductRow[]): Promise<EnrichedProductRow
             enriched.networkFetchedAt = metrics.fetchedAt ?? undefined;
         }
 
-        // Tendance calculée sur la série finale (celle du cache si elle existe,
-        // sinon celle de l'instantané) — même entrée que la colonne « Tendance ».
+        // Tendance : mêmes entrées que la colonne « Tendance » de la Grille, à
+        // savoir la série des quantités **et** celle du nombre de magasins vendeurs
+        // — sans la seconde, le calcul se rabat sur les quantités brutes et
+        // confond « vend mieux » avec « est distribué plus largement ».
         const serie = enriched.qteReseauByMonth;
-        const t = computeNetworkTrend(serie);
+        const nbMagByMonth = metrics?.metricsByMonth
+            ? Object.fromEntries(
+                Object.entries(metrics.metricsByMonth).map(([mois, m]) => [mois, Number(m?.nbMag) || 0]),
+            )
+            : null;
+        const t = computeNetworkTrend(serie, nbMagByMonth);
         if (t.hasData) {
             enriched.trend = {
                 direction: t.direction,
                 pct: t.pct,
-                label: t.pct != null ? trendLabel(t.pct) : "Indéterminée",
+                label: trendLabel(t.pct, t.nouveau),
+                surQteParMagasin: t.surQteParMagasin,
+                nouveau: t.nouveau,
                 monthsUsed: t.values.length,
             };
         }

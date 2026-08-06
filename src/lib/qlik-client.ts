@@ -91,6 +91,36 @@ export interface NetworkMetric {
     periode?: string;
     /** Quantité vendue réseau par mois : { "YYYY-MM": qté }. Rempli si sync avec filtre Date. */
     qteByMonth?: Record<string, number>;
+    /**
+     * Détail mensuel complet : { "YYYY-MM": { qte, ca, nbMag, caMag, margePct } }.
+     *
+     * Le cube mensuel Qlik renvoie déjà ces 5 mesures par (Article Code, Mois).
+     * Lors d'une synchronisation datée validée, les 12 mois complets sont
+     * toujours présents ; un mois sans fait est explicitement représenté à 0.
+     */
+    metricsByMonth?: Record<string, QlikMonthMetrics>;
+    /**
+     * Libellé de l'article côté Qlik. Renseigné uniquement par la recherche
+     * produit (`qlik-search.ts`), qui interroge la dimension libellé ; la sync
+     * fournisseur ne le connaît pas et le laisse `undefined`.
+     */
+    libelleReseau?: string;
+    /** Fournisseur de l'article côté Qlik, même origine que `libelleReseau`. */
+    fournisseurReseau?: string;
+}
+
+/** Les mesures réseau Qlik pour un produit sur un mois donné. */
+export interface QlikMonthMetrics {
+    /** Quantité vendue réseau — toujours présente. */
+    qte: number;
+    /** CA réseau du mois. */
+    ca?: number;
+    /** Nombre de magasins ayant vendu le produit ce mois-là. */
+    nbMag?: number;
+    /** CA moyen par magasin sur le mois (mesure Qlik brute). */
+    caMag?: number;
+    /** Taux de marge réseau du mois (ratio brut Qlik, ex 0.32 = 32%). */
+    margePct?: number;
 }
 
 /**

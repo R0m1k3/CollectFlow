@@ -7,6 +7,7 @@ import { Loader2, CheckCircle, AlertCircle, RotateCcw, Camera, ChevronDown } fro
 import { useMemo, useState, useTransition } from "react";
 import { saveSnapshot } from "@/features/snapshots/api/save-snapshot";
 import { SuccessModal } from "@/components/shared/success-modal";
+import { isStaleServerActionError, STALE_ACTION_MESSAGE } from "@/lib/stale-action";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -37,7 +38,13 @@ export function FloatingSummaryBar() {
     const [isPending, startTransition] = useTransition();
     const [isSavingSnapshot, setIsSavingSnapshot] = useState(false);
     const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle");
-    const [modal, setModal] = useState<{ isOpen: boolean, title: string, message: string }>({
+    const [modal, setModal] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+        variant?: "success" | "error";
+        action?: { label: string; onClick: () => void };
+    }>({
         isOpen: false,
         title: "",
         message: ""
@@ -118,12 +125,26 @@ export function FloatingSummaryBar() {
         } catch (err) {
             console.error(err);
             if (!labelOverride) {
-                const msg = err instanceof Error ? err.message : String(err);
-                setModal({
-                    isOpen: true,
-                    title: "Erreur Snapshot",
-                    message: `Impossible de créer le snapshot : ${msg}`
-                });
+                // Onglet resté ouvert pendant un déploiement : les identifiants de
+                // Server Action ont changé côté serveur. Rien à réparer côté
+                // métier, il faut recharger le bundle client.
+                if (isStaleServerActionError(err)) {
+                    setModal({
+                        isOpen: true,
+                        title: "Page à recharger",
+                        message: STALE_ACTION_MESSAGE,
+                        variant: "error",
+                        action: { label: "Recharger la page", onClick: () => window.location.reload() },
+                    });
+                } else {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    setModal({
+                        isOpen: true,
+                        title: "Erreur Snapshot",
+                        message: `Impossible de créer le snapshot : ${msg}`,
+                        variant: "error",
+                    });
+                }
             }
         } finally {
             setIsSavingSnapshot(false);
@@ -327,6 +348,8 @@ export function FloatingSummaryBar() {
                 onClose={() => setModal(prev => ({ ...prev, isOpen: false }))}
                 title={modal.title}
                 message={modal.message}
+                variant={modal.variant}
+                action={modal.action}
             />
         </div>
     );

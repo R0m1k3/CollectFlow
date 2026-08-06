@@ -11,6 +11,7 @@ import { UserManagement } from "@/features/admin/components/user-management";
 import { ApiKeyManagement } from "@/features/admin/components/api-key-management";
 import { ApiConnectionInfo } from "@/features/admin/components/api-connection-info";
 import { GridWarmup } from "@/features/admin/components/grid-warmup";
+import { ServerLogs } from "@/features/settings/components/server-logs";
 
 interface OpenRouterModel { id: string; name: string; free: boolean; }
 
@@ -668,6 +669,14 @@ export default function SettingsPage() {
                         Pénalité de régularité appliquée si inactivité prolongée. Score final borné 0-100.
                     </p>
                 </div>
+            </Section>
+
+            {/* Journaux serveur — diagnostic des extractions Qlik */}
+            <Section
+                title="Journaux serveur"
+                subtitle="Journal complet des synchronisations Qlik, à télécharger pour diagnostic"
+            >
+                <ServerLogs />
             </Section>
 
             {/* Gestion des Utilisateurs */}

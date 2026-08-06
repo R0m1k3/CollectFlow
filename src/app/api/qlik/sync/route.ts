@@ -5,11 +5,9 @@ import { upsertNetworkMetrics } from "@/lib/qlik-network-cache";
 import { pgGetArticlesByFournisseur } from "@/lib/pg-ff-client";
 import {
     buildGridNetworkQlikDateFilter,
-    envMonthsBack,
     QLIK_MONTHS_BACK_DEFAULT,
-    QLIK_MONTHS_BACK_MAX,
-    QLIK_MONTHS_BACK_MIN,
 } from "@/lib/qlik-date-range";
+import { startCapture, stopCapture } from "@/lib/log-capture";
 
 // Tâche d'extraction Qlik potentiellement très longue (hypercube paginé).
 // On accepte quand même 5 min côté plateforme Next.js, mais on rend la main au
@@ -26,7 +24,10 @@ type QlikSyncStatus = "idle" | "running" | "success" | "error";
 
 interface QlikSyncJob {
     jobId: string;
+    /** Code fournisseur (mode fournisseur) — chaîne vide en mode produit. */
     fournisseur: string;
+    /** Code centrale (mode produit) — absent en mode fournisseur. */
+    codeCentrale?: string;
     status: QlikSyncStatus;
     requested: number;
     fetched: number;
@@ -48,6 +49,33 @@ interface QlikSyncJob {
  */
 const jobs = new Map<string, QlikSyncJob>();
 
+/**
+ * Clé de job. Le mode fournisseur garde sa clé historique (le code fournisseur
+ * brut) ; le mode produit est préfixé pour ne jamais entrer en collision.
+ */
+function jobKeyForProduct(codeCentrale: string): string {
+    return `cc:${codeCentrale.toUpperCase()}`;
+}
+
+/**
+ * Nombre maximum d'extractions produit simultanées.
+ *
+ * Le mode produit est ouvert à tous les utilisateurs connectés (contrairement au
+ * mode fournisseur, réservé aux admins). Une extraction sur 1 seul code est très
+ * légère, mais le serveur Qlik est sujet aux saturations mémoire : on plafonne
+ * la concurrence plutôt que de lui laisser prendre N requêtes en parallèle.
+ */
+const MAX_CONCURRENT_PRODUCT_JOBS = 3;
+
+/** Compte les extractions produit actuellement en cours. */
+function runningProductJobs(): number {
+    let n = 0;
+    for (const [key, job] of jobs) {
+        if (key.startsWith("cc:") && job.status === "running") n++;
+    }
+    return n;
+}
+
 /** Construit un jobId court et lisible. */
 function newJobId(): string {
     return `qlik_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -58,6 +86,7 @@ function publicJob(job: QlikSyncJob) {
     return {
         jobId: job.jobId,
         fournisseur: job.fournisseur,
+        codeCentrale: job.codeCentrale,
         status: job.status,
         requested: job.requested,
         fetched: job.fetched,
@@ -72,11 +101,12 @@ function publicJob(job: QlikSyncJob) {
     };
 }
 
-/** État "idle" sérialisé (pas de job connu pour ce fournisseur). */
-function idleJob(fournisseur: string) {
+/** État "idle" sérialisé (pas de job connu pour cette cible). */
+function idleJob(fournisseur: string, codeCentrale?: string) {
     return {
         jobId: null,
         fournisseur,
+        codeCentrale,
         status: "idle" as const,
         requested: 0,
         fetched: 0,
@@ -101,6 +131,20 @@ async function requireAdmin(): Promise<NextResponse | null> {
     }
     if ((session.user as { role?: string } | undefined)?.role !== "admin") {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    return null;
+}
+
+/**
+ * Vérifie qu'une session existe (sans exiger le rôle admin).
+ *
+ * Utilisé par le mode produit : le middleware Next ne couvre PAS les routes
+ * `/api/*`, le contrôle doit donc être fait ici explicitement.
+ */
+async function requireSession(): Promise<NextResponse | null> {
+    const session = await auth();
+    if (!session) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     return null;
 }
@@ -172,6 +216,10 @@ function filterCentralCodes(rawCodes: Array<string | null | undefined>): {
  * au fur et à mesure (compteur fetched, puis upserted, puis finishedAt).
  */
 async function runJob(job: QlikSyncJob): Promise<void> {
+    // Journal téléchargeable depuis Paramètres. Ouvert AVANT le premier log du
+    // job pour ne pas perdre l'entête (choix des champs, carte du modèle Qlik) —
+    // c'est précisément la partie qu'un terminal tronque.
+    startCapture(job.jobId, `sync fournisseur=${job.fournisseur} démarrée le ${job.startedAt}`);
     try {
         const articles = await pgGetArticlesByFournisseur(job.fournisseur);
         // Filtre strict des codes (trim, dedupe, exclusion vides/`-`/codes trop suspects).
@@ -189,18 +237,20 @@ async function runJob(job: QlikSyncJob): Promise<void> {
             return;
         }
 
-        // Fenêtre temporelle alignée sur la grille, éventuellement raccourcie via
-        // QLIK_SYNC_MONTHS_BACK (1..12, défaut 12). On logue la valeur effective
-        // pour audit.
-        const monthsBack = envMonthsBack("QLIK_SYNC_MONTHS_BACK", QLIK_MONTHS_BACK_DEFAULT);
-        const dateFilter = buildGridNetworkQlikDateFilter(new Date(), monthsBack);
+        // Contrat métier strict : toujours 12 mois complets glissants.
+        // Une variable d'environnement ne doit pas pouvoir raccourcir la série.
+        const dateFilter = buildGridNetworkQlikDateFilter(new Date(), QLIK_MONTHS_BACK_DEFAULT);
         job.periode = dateFilter.label;
         job.dateDebut = dateFilter.dateDebut;
         job.dateFin = dateFilter.dateFin;
         console.log(
-            `[api/qlik/sync] job=${job.jobId} → extraction Qlik pour ${codes.length} codes — fenêtre ${dateFilter.label} (${dateFilter.dateDebut} → ${dateFilter.dateFin}, QLIK_SYNC_MONTHS_BACK=${monthsBack}, bornes ${QLIK_MONTHS_BACK_MIN}..${QLIK_MONTHS_BACK_MAX})…`,
+            `[api/qlik/sync] job=${job.jobId} → extraction Qlik pour ${codes.length} codes — 12 mois complets ${dateFilter.label} (${dateFilter.dateDebut} → ${dateFilter.dateFin})…`,
         );
-        const metrics = await fetchNetworkMetricsPlaywright(codes, undefined, dateFilter);
+        // Le code fournisseur est transmis en plus des codes : s'il désigne dans
+        // Qlik le même périmètre (couverture vérifiée côté extracteur), une seule
+        // sélection remplace les dizaines de milliers de `SelectValues` par code.
+        // Les codes restent le repli et le contrôle de couverture.
+        const metrics = await fetchNetworkMetricsPlaywright(codes, undefined, dateFilter, job.fournisseur);
         job.fetched = metrics.size;
         console.log(`[api/qlik/sync] job=${job.jobId} ← Qlik a renvoyé ${metrics.size} produits réseau`);
         const count = await upsertNetworkMetrics([...metrics.values()]);
@@ -209,34 +259,99 @@ async function runJob(job: QlikSyncJob): Promise<void> {
         job.status = "success";
         job.finishedAt = new Date().toISOString();
     } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        console.error(`[api/qlik/sync] job=${job.jobId}`, msg);
-        job.status = "error";
-        // Message explicite quand le serveur Qlik est saturé (OOM à l'ouverture de
-        // l'app) : ce n'est PAS un bug CollectFlow, l'app Qlik ne se charge même pas.
-        const lower = msg.toLowerCase();
-        if (lower.includes("out of memory") || lower.includes("not enough memory") || lower.includes("file corrupted") || lower.includes('"code":6') || lower.includes('"code":3002')) {
-            job.error = "Serveur Qlik saturé : mémoire insuffisante pour charger l'application. Réessayez plus tard (ou faites libérer / augmenter la RAM du serveur Qlik).";
-        } else {
-            job.error = msg;
-        }
-        job.finishedAt = new Date().toISOString();
+        applyJobError(job, e);
+    } finally {
+        await stopCapture(job.jobId, `statut final=${job.status}${job.error ? ` — ${job.error}` : ""}`);
     }
 }
 
 /**
- * GET /api/qlik/sync?fournisseur=XXX
- * Retourne l'état courant du job pour ce fournisseur. Si aucun job n'est
+ * Inscrit une erreur dans le job, en traduisant la saturation mémoire du
+ * serveur Qlik en message actionnable (ce n'est PAS un bug CollectFlow :
+ * l'app Qlik ne se charge même pas).
+ */
+function applyJobError(job: QlikSyncJob, e: unknown): void {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[api/qlik/sync] job=${job.jobId}`, msg);
+    job.status = "error";
+    const lower = msg.toLowerCase();
+    if (lower.includes("out of memory") || lower.includes("not enough memory") || lower.includes("file corrupted") || lower.includes('"code":6') || lower.includes('"code":3002')) {
+        job.error = "Serveur Qlik saturé : mémoire insuffisante pour charger l'application. Réessayez plus tard (ou faites libérer / augmenter la RAM du serveur Qlik).";
+    } else {
+        job.error = msg;
+    }
+    job.finishedAt = new Date().toISOString();
+}
+
+/**
+ * Extraction Qlik pour UN seul code centrale (fiche produit).
+ *
+ * Beaucoup plus légère que la sync fournisseur : un seul code au lieu de
+ * plusieurs centaines, sur la même fenêtre 12 mois glissants. Réutilise
+ * exactement le même extracteur, donc le même détail mensuel.
+ */
+async function runProductJob(job: QlikSyncJob): Promise<void> {
+    startCapture(job.jobId, `sync produit=${job.codeCentrale} démarrée le ${job.startedAt}`);
+    try {
+        const code = job.codeCentrale!;
+        job.requested = 1;
+
+        const dateFilter = buildGridNetworkQlikDateFilter(new Date(), QLIK_MONTHS_BACK_DEFAULT);
+        job.periode = dateFilter.label;
+        job.dateDebut = dateFilter.dateDebut;
+        job.dateFin = dateFilter.dateFin;
+        console.log(
+            `[api/qlik/sync] job=${job.jobId} → extraction Qlik produit (1 code) — fenêtre ${dateFilter.label} (${dateFilter.dateDebut} → ${dateFilter.dateFin})…`,
+        );
+
+        const metrics = await fetchNetworkMetricsPlaywright([code], undefined, dateFilter);
+        job.fetched = metrics.size;
+        if (metrics.size === 0) {
+            job.status = "success";
+            job.message = "Ce code centrale est inconnu de Qlik (aucune vente réseau sur la période)";
+            job.finishedAt = new Date().toISOString();
+            return;
+        }
+        const count = await upsertNetworkMetrics([...metrics.values()]);
+        job.upserted = count;
+        job.status = "success";
+        job.message = "Données réseau récupérées";
+        job.finishedAt = new Date().toISOString();
+        console.log(`[api/qlik/sync] job=${job.jobId} produit ${code} — ${count} ligne(s) upsert`);
+    } catch (e) {
+        applyJobError(job, e);
+    } finally {
+        await stopCapture(job.jobId, `statut final=${job.status}${job.error ? ` — ${job.error}` : ""}`);
+    }
+}
+
+/**
+ * GET /api/qlik/sync?fournisseur=XXX  ou  ?codeCentrale=YYY
+ * Retourne l'état courant du job pour cette cible. Si aucun job n'est
  * connu, renvoie un état "idle" (avec un message explicite). Permet au
  * frontend de reprendre l'état après un reload et de poller en arrière-plan.
  */
 export async function GET(req: NextRequest) {
+    const codeCentrale = req.nextUrl.searchParams.get("codeCentrale");
+    const fournisseur = req.nextUrl.searchParams.get("fournisseur");
+
+    // Mode produit : ouvert à tout utilisateur connecté.
+    if (codeCentrale) {
+        const denied = await requireSession();
+        if (denied) return denied;
+        const job = jobs.get(jobKeyForProduct(codeCentrale));
+        if (!job) {
+            return NextResponse.json({ success: true, ...idleJob("", codeCentrale) });
+        }
+        return NextResponse.json({ success: true, ...publicJob(job) });
+    }
+
+    // Mode fournisseur : admin uniquement (inchangé).
     const denied = await requireAdmin();
     if (denied) return denied;
 
-    const fournisseur = req.nextUrl.searchParams.get("fournisseur");
     if (!fournisseur) {
-        return NextResponse.json({ error: "Param 'fournisseur' requis" }, { status: 400 });
+        return NextResponse.json({ error: "Param 'fournisseur' ou 'codeCentrale' requis" }, { status: 400 });
     }
     const job = jobs.get(fournisseur);
     if (!job) {
@@ -252,12 +367,59 @@ export async function GET(req: NextRequest) {
  * ensuite poller GET pour suivre l'avancement et être notifié de la fin.
  */
 export async function POST(req: NextRequest) {
+    const codeCentraleParam = req.nextUrl.searchParams.get("codeCentrale");
+
+    // ─── Mode produit : 1 code centrale, ouvert à tout utilisateur connecté ───
+    if (codeCentraleParam) {
+        const denied = await requireSession();
+        if (denied) return denied;
+
+        // Même validation que la sync fournisseur (trim, rejet des vides / "-" /
+        // codes hors charset) pour ne jamais envoyer de saleté à l'Engine Qlik.
+        const { accepted } = filterCentralCodes([codeCentraleParam]);
+        if (accepted.length === 0) {
+            return NextResponse.json({ error: "Code centrale invalide" }, { status: 400 });
+        }
+        const code = accepted[0];
+        const key = jobKeyForProduct(code);
+
+        const existingProduct = jobs.get(key);
+        if (existingProduct && existingProduct.status === "running") {
+            return NextResponse.json({ success: true, ...publicJob(existingProduct) });
+        }
+
+        if (runningProductJobs() >= MAX_CONCURRENT_PRODUCT_JOBS) {
+            return NextResponse.json(
+                { error: "Trop d'extractions Qlik en cours. Réessayez dans quelques instants." },
+                { status: 429 },
+            );
+        }
+
+        const productJob: QlikSyncJob = {
+            jobId: newJobId(),
+            fournisseur: "",
+            codeCentrale: code,
+            status: "running",
+            requested: 0,
+            fetched: 0,
+            upserted: 0,
+            startedAt: new Date().toISOString(),
+        };
+        jobs.set(key, productJob);
+        console.log(`[api/qlik/sync] job=${productJob.jobId} démarré pour codeCentrale=${code}`);
+
+        void runProductJob(productJob).catch((e) => applyJobError(productJob, e));
+
+        return NextResponse.json({ success: true, ...publicJob(productJob) });
+    }
+
+    // ─── Mode fournisseur : admin uniquement (inchangé) ──────────────────────
     const denied = await requireAdmin();
     if (denied) return denied;
 
     const fournisseur = req.nextUrl.searchParams.get("fournisseur");
     if (!fournisseur) {
-        return NextResponse.json({ error: "Param 'fournisseur' requis" }, { status: 400 });
+        return NextResponse.json({ error: "Param 'fournisseur' ou 'codeCentrale' requis" }, { status: 400 });
     }
 
     const existing = jobs.get(fournisseur);

@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutGrid, Camera, FileDown, Settings, Package, BarChart2, TrendingUp, Trophy, Megaphone, PackageMinus, PackageSearch, ShoppingCart, LogOut, User as UserIcon, Loader2, ChevronRight, ChevronLeft, MessageSquareCode } from "lucide-react";
+import { LayoutGrid, Camera, FileDown, Settings, Package, PackageSearch, BarChart2, TrendingUp, Trophy, Megaphone, PackageMinus, ShoppingCart, LogOut, User as UserIcon, Loader2, ChevronRight, ChevronLeft, MessageSquareCode } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -11,7 +11,7 @@ import { useSession, signOut } from "next-auth/react";
 const NAV_ITEMS = [
     { icon: BarChart2, label: "Dashboard", href: "/dashboard" },
     { icon: LayoutGrid, label: "Grille", href: "/grid" },
-    { icon: PackageSearch, label: "Recherche réseau", href: "/recherche-reseau" },
+    { icon: PackageSearch, label: "Produits", href: "/produits" },
     { icon: TrendingUp, label: "Analytics", href: "/analytics" },
     { icon: Trophy, label: "Hit Parade", href: "/hit-parade" },
     { icon: Megaphone, label: "Publicités", href: "/publicites" },

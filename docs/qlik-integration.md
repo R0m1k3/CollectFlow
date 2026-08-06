@@ -14,6 +14,367 @@ La Foir'Fouille : **CA réseau, Qté vendue réseau, Nb magasins** par produit.
 | Bouton UI | `src/features/grid/components/sync-qlik-button.tsx` |
 | Jointure grille | `enrichWithNetworkMetrics()` dans `src/features/grid/api/get-product-rows.ts` (Phase 8) |
 | Colonnes grille | CA réseau / Qté réseau / Magasins (/270) / % présence (`heatmap-grid.tsx`) |
+| Recherche produit (Qlik d'abord) | `src/lib/qlik-search.ts` → `src/features/produits/api/search-produits.ts` → `GET /api/produits/search` |
+
+## Recherche produit — Qlik d'abord
+
+La page `/produits` ne cherche **plus** dans le catalogue FF Nancy en premier :
+le réseau référence bien plus de produits que Nancy, et ce sont précisément
+ceux-là qu'on veut voir.
+
+1. `searchQlikArticles()` — recherche de list object sur le champ libellé
+   article. `SearchListObjectFor` applique un **OU** entre les mots (« tapis
+   anti » ramenait 17 696 libellés sur l'app FF, et sélectionner ces 17 696
+   valeurs faisait abandonner le cube en `code 15 — Request aborted`). On
+   cherche donc mot par mot pour retenir le plus sélectif, on filtre en **ET**
+   côté client, puis on sélectionne les valeurs retenues par numéro d'élément
+   (`SelectListObjectValues`). La sélection restreint la dimension « Article
+   Code » aux articles correspondants.
+2. Les **mesures réseau sortent du même cube**, dans la **même session Qlik** :
+   fenêtre 12 mois glissants sélectionnée sur le champ `Date`, master measures
+   résolues par titre, cube trié par quantité réseau décroissante (les meilleures
+   ventes en tête, donc pas besoin de lire tout l'ensemble sélectionné).
+   Elles sont ensuite persistées par `upsertNetworkMetrics()`.
+
+   ⚠️ Ne **jamais** relancer `fetchNetworkMetricsPlaywright()` pendant une
+   recherche : deux sessions concurrentes sur la même app, dont une avec une
+   grosse sélection, et l'Engine coupe les requêtes (`code 15`). C'est ce qui
+   faisait échouer la recherche alors que la sync de la Grille — seule sur le
+   serveur — fonctionnait. Le détail mensuel vient donc du cache, et la fiche
+   produit garde son bouton « Actualiser depuis Qlik » pour l'extraire à la
+   demande sur un seul code.
+3. `pgGetProduitsByCodeCentrale()` — rapprochement avec le catalogue Nancy, sur
+   **deux clés candidates** : la dimension « Article Code » et le champ
+   `article_no_centrale`, qui n'ont pas le même format sur l'app FF. Un code
+   absent = produit réseau que nous ne référençons pas (`?cc=` sur la fiche).
+
+Plafonds mesurés en production : sélectionner les 13 446 libellés contenant
+« tapis » prenait 81 s puis 486 s avant d'abandonner. La sélection est donc
+plafonnée à **300 valeurs** (`MAX_VALEURS_SELECTION`) et une seule recherche
+tourne à la fois.
+
+L'API est **asynchrone** : `POST /api/produits/search?q=…` démarre un job et rend
+la main tout de suite, `GET` renvoie l'avancement puis le résultat (polling client
+toutes les 2 s). Une requête HTTP maintenue pendant toute l'extraction se faisait
+couper par le reverse proxy, qui répond une page HTML — le client échouait sur
+« Unexpected token '<' … is not valid JSON ». Même schéma que `POST /api/qlik/sync`.
+
+Repli : si Qlik est injoignable, la recherche retombe sur `pgSearchProduits()` et
+la réponse le signale (`source: "db"`). Un résultat Qlik exploitable est mis en
+cache mémoire 10 min ; un repli ne l'est pas, sinon une panne passagère resterait
+figée.
+
+Champs de l'app FF (« Magasins Vision Consolidée ») : le code est `Article Code`,
+le libellé `Article` (repli `article_libelle_ticket`, qui est le libellé ticket
+tronqué), le fournisseur `Fournisseur` (repli `code_fournisseur`, qui ne porte
+que le code). Ces préférences sont dans `CHAMPS_LIBELLE_PREFERES` /
+`CHAMPS_FOURNISSEUR_PREFERES`, complétées par une heuristique pour les autres
+apps. Si la détection tombe à côté, forcer :
+
+```
+QLIK_FIELD_ARTICLE_LIBELLE=<nom exact du champ libellé>
+QLIK_FIELD_FOURNISSEUR=<nom exact du champ fournisseur>
+```
+
+Sans champ libellé exploitable, la recherche fonctionne encore par code centrale.
+
+## Le modèle est piloté par `Période` / `Type_Cal` — pas par `Date`
+
+**C'est l'explication de fond**, obtenue en dumpant les expressions réelles :
+
+```
+« Quantité N »          = Sum({<Type_Cal={'N'}>} quantite)
+« CA N »                = Sum({<Type_Cal={'N'}>} $(vCA_vat))
+« Quantité COMP »       = Sum({<Type_Cal={'$(vPeriod_comp)'}$(vConstantCOMP)>} quantite)
+« Magasin Ventes Nb N » = Count({<Type_Cal={'N'}>} Distinct ventes_code_site)
+```
+
+L'app n'est pas un modèle « faits + calendrier » classique. Un **pont de périodes**
+duplique les lignes de faits : `Type_Cal='N'` marque celles de la période
+analysée, `'COMP'` celles de la période de comparaison. Et c'est le champ
+**`Période`** (4 valeurs, une sélectionnée) qui décide de quelle période il s'agit.
+
+Tout ce qu'on observait en découle :
+
+| Symptôme | Cause |
+|---|---|
+| Sélectionner `Date` ne change rien (100 % du total avant/après) | Le périmètre vient du pont de périodes, pas du champ date |
+| Août→décembre vides sur tous les articles | « Quantité N » ne couvre que la période courante (janvier→juillet) |
+| Janvier→juillet de l'année précédente renseignés | Ce sont les mois que « Quantité COMP » sait atteindre |
+| `Sum(quantite)` brut inexploitable | Il additionne les lignes N **et** COMP : il double compte |
+
+### La bonne méthode : effacer `Période`, puis extraire ANNÉE par ANNÉE
+
+C'est ce que fait un utilisateur dans l'app : il sélectionne **2026** et obtient
+l'année plus sa comparaison N-1 ; il sélectionne 2025 et obtient 2025. Les
+données de 2024, 2025 et 2026 sont toutes accessibles mois par mois. `Type_Cal='N'`
+désigne simplement **l'année sélectionnée**.
+
+Il suffit donc d'enchaîner les années couvertes par la fenêtre (2025 puis 2026)
+pour reconstituer les 12 mois glissants — chaque passe donnant les 5 mesures, et
+non la seule quantité comme « Quantité COMP ».
+
+Ce mécanisme existait déjà dans le code (« passe N-1 ») mais restait **sans
+effet** :
+
+```
+[qlik-pw] (mois) passe N-1 terminée : 299905 → 299905 points mensuels
+                                       ^^^^^^^^^^^^^^ aucun gain
+```
+
+La sélection `Période` **héritée de l'ouverture de l'app** (observé
+« Période:1/4 » alors que rien n'avait été sélectionné) épinglait le contexte sur
+l'année en cours et annulait la sélection d'année. `choisirPeriode()` teste donc
+en **premier** l'état sans aucune sélection de `Période`, et l'efface dès que la
+couverture est incomplète.
+
+Chaque passe n'écrit que les mois **de la fenêtre**, et les totaux s'additionnent
+sur ces mois : deux années ne peuvent pas se doubler puisqu'elles ne partagent
+aucun mois.
+
+### Mesuré : aucune valeur de `Période` ne porte à elle seule 12 mois
+
+`choisirPeriode()` essaie chaque valeur et mesure la couverture réelle sur un
+cube `[Mois] × Quantité N`. Résultat en production :
+
+```
+valeurs de « Période » : ["juin 2026","Année à date","Mois à date","Semaine 2026/30"]
+  « juin 2026 »       → 1/12   ["2026-06"]
+  « Année à date »    → 6/12   ["2026-01".."2026-06"]
+  « Mois à date »     → 0/12
+  « Semaine 2026/30 » → 0/12
+```
+
+Ce ne sont pas des types de période mais **4 contextes relatifs à aujourd'hui**.
+Aucun ne porte 12 mois glissants : les master measures ne pourront **jamais**
+couvrir la fenêtre. Ce n'est plus une hypothèse, c'est une mesure.
+
+Conséquence directe : **l'agrégation directe des faits est obligatoire**, et une
+`Période` partielle est pire que pas de sélection — « Année à date » restreint les
+faits à 2026-01→06 et amputerait d'autant l'agrégation, qui sait lire tout
+l'historique. `choisirPeriode()` **efface** donc la sélection quand la couverture
+est incomplète, et ne la garde que si elle couvre les 12 mois.
+
+### Chaque expression est validée séparément
+
+Une seule mesure invalide suffit à faire renvoyer **zéro ligne** à tout un
+hypercube, sans qu'aucun message ne dise laquelle : observé en production, le
+cube à 5 mesures calculait 26 s puis rendait 0 ligne, alors que `Sum(quantite)`
+seul donnait 35 424 324.
+
+`validerExpression()` teste donc chaque expression isolément sur un petit cube
+`[Mois]` avant de construire le gros :
+
+```
+[qlik-pw][diag] validation des expressions, une par une :
+[qlik-pw][diag]   mesure « quantité » = Sum(quantite) → 12 mois, total=33945285
+[qlik-pw][diag]   mesure « magasins » = Count(DISTINCT [Magasin Code]) → INVALIDE (cube vide)
+```
+
+Une expression invalide est remplacée par la colonne neutre `0` : le cube reste
+exploitable et le log nomme la coupable. Seule la quantité est bloquante.
+
+## ⚠️ Les master measures « N » ignorent la sélection Date
+
+**Constat de production, vérifié arithmétiquement.** Avec août 2025 seul
+sélectionné, le cube renvoyait `qte=164` / `ca=2 220,75 €` — soit exactement la
+somme de janvier à juillet 2026. « CA N », « Quantité N » et consorts sont des
+mesures **cumul année en cours**, insensibles au champ `Date`.
+
+Trois conséquences, toutes observées :
+
+- les totaux réseau de la Grille étaient un **cumul année en cours** (mois
+  courant partiel inclus), pas 12 mois glissants ;
+- les mois de l'année précédente non couverts par « Quantité COMP » (août à
+  décembre, en juillet) restaient **vides sur tous les articles** ;
+- la passe de rattrapage y recopiait le **total de période**, d'où cinq mois
+  identiques à 164 dans `qteByMonth`.
+
+Aucune sélection ne corrige cela. Le chemin nominal agrège donc **directement les
+champs de faits**, qui respectent les sélections :
+
+| Rôle | Expression (surchargeable) |
+|------|----------------------------|
+| Quantité | `QLIK_EXPR_QTE` — défaut `Sum(quantite)` |
+| CA | `QLIK_EXPR_CA` — défaut `Sum(ca_ht)` |
+| Magasins | `QLIK_EXPR_NBMAG` — défaut `Count(DISTINCT [Magasin Code])` |
+| Marge | `QLIK_EXPR_MARGE` — défaut `Sum(marge)` |
+
+Un seul cube `[Article Code, Mois]` couvre les 12 mois : ni passe N-1 ni
+rattrapage — c'est exactement ce qu'ils compensaient. Les totaux deviennent la
+**somme des 12 mois de la fenêtre**.
+
+Sur l'app de production, les champs `Date`, `Date calendrier` et `Date_Key`
+existent mais leur sélection ne réduit pas `Sum(quantite)` : ils restent à
+100 % du total historique. L'extracteur essaie d'abord ces champs puis utilise
+la dimension maître `Mois` comme chemin fiable. Il crée un list object, retrouve
+les 12 valeurs `YYYY-MM`, les sélectionne par `qElemNumber`, puis exécute le
+cube mensuel. Cette méthode ne dépend ni du champ sous-jacent ni de son format
+dual et conserve le chemin rapide (une sélection articles + un cube paginé).
+
+Garde-fous : « Quantité N » est incluse dans le cube pour **calibrage**, et le
+log compare les deux sur les mois de l'année en cours, seul périmètre où la
+master measure est juste :
+
+```
+[qlik-pw][expr] 485210 lignes, quantité totale=…, calibrage année 2026 : 4812/4830 mois conformes à « Quantité N »
+```
+
+Un calibrage faible signale une expression à ajuster (filtre `flag_type_mvt`,
+`ca_ttc` plutôt que `ca_ht`…). Il n'existe plus de repli automatique vers les
+master measures annuelles : quantité totale nulle, champ Date invalide, erreur
+Engine ou somme incohérente font échouer la synchronisation et laissent le cache
+précédent intact.
+
+Après sélection de la fenêtre, l'extracteur vérifie deux invariants avant tout
+upsert :
+
+1. la somme de toutes les lignes `[Article Code, Mois]` est égale au total Qlik
+   sans dimension calculé avec les mêmes sélections ;
+2. pour chaque article, la quantité réseau totale est exactement la somme de ses
+   12 mois. Les mois sans ligne de faits sont alors seulement matérialisés à `0`.
+
+Une extraction interrompue ou partielle n'est jamais publiée.
+
+### Valider les expressions sur le vrai serveur
+
+`scripts/qlik-validate.mjs` répond aux deux questions ouvertes en une exécution,
+**depuis un réseau qui atteint Qlik** (le serveur est filtré par IP : injoignable
+depuis l'extérieur, la passerelle d'egress tombe en `connection timeout`) :
+
+```
+docker exec -e QLIK_PWD='<mot de passe>' -it <conteneur> node scripts/qlik-validate.mjs
+```
+
+Il affiche les expressions réelles des master measures, puis un tableau mois par
+mois comparant `Sum(quantite)` / `Sum(ca_ht)` / `Sum(ca_ttc)` /
+`Count(DISTINCT [Magasin Code])` aux mesures « N » — sur les mois de l'année en
+cours (où elles doivent coïncider) comme sur ceux de l'année précédente (où les
+mesures « N » sont censées être à 0). Il affiche enfin `Article Code`,
+`article_no_centrale` et `article_codein` côte à côte, pour trancher la clé de
+jointure avec `articles.artcentrale`.
+
+Lecture seule : sélections en soft lock, objets de session détruits.
+
+### La sélection Date filtre-t-elle seulement quelque chose ?
+
+Question restée sans réponse tant que seules des mesures **insensibles à la
+sélection** étaient utilisées : rien ne prouvait que `Date` bornait quoi que ce
+soit. Le chemin par expressions le vérifie désormais avant d'extraire, avec un
+total de contrôle (`Sum(quantite)` sans dimension) :
+
+```
+[qlik-pw][expr] contrôle Sum(quantite) sans filtre date = 12345678
+[qlik-pw][expr]   champ « Date » → 0 (0% du total sans filtre)
+[qlik-pw][expr]   champ « Date calendrier » → 3456789 (28% du total sans filtre)
+[qlik-pw][expr] champ date retenu : « Date calendrier »
+```
+
+Un champ n'est retenu que s'il donne un total **non nul et strictement inférieur**
+au total sans filtre — 0 % signifie que la sélection ne matche rien, 100 % qu'elle
+n'a aucun effet. Candidats essayés dans l'ordre : `QLIK_DATE_FIELD` (si défini),
+`Date`, `Date calendrier`, `Date_Key` (celui-ci sélectionné au format `AAAAMMJJ`).
+
+Si aucun ne filtre, l'extraction échoue explicitement plutôt que de produire une
+fenêtre fausse. Chaque sélection d'un candidat rejeté est effacée avant l'essai
+suivant ; autrement un premier candidat à zéro contaminait tous les contrôles
+suivants. Avant cet échec, la dimension maître `Mois` est testée elle aussi.
+
+## La passe de rattrapage a été supprimée
+
+Elle ré-extrayait un mois vide en ne sélectionnant que ses dates. Les master
+measures ignorant la sélection Date, le cube lui renvoyait le **total de période**
+qu'elle recopiait dans chaque mois manquant : d'où les plateaux identiques d'août
+à décembre (87 648 douze mois de suite sur un article) et les tendances
+« −162 % » entièrement fabriquées.
+
+Un mois qu'on ne sait pas extraire doit rester **absent**, jamais rempli d'une
+valeur plausible.
+
+## Mois vides de la fenêtre glissante
+
+Les mesures « N » de l'app sont bornées à une année civile. Quand la fenêtre
+12 mois glissants chevauche deux années (le cas 11 mois sur 12), le chemin
+« dimension Mois » sélectionne les 365 jours d'un coup et la mesure ne se résout
+que sur une seule année : les mois de l'année précédente ressortent vides.
+« Quantité COMP » ne rattrape que les mois ayant un comparable dans l'année en
+cours — d'où, en juillet 2026, un trou observé d'août à décembre 2025 sur
+**tous** les articles.
+
+Le chemin daté repose uniquement sur les expressions de faits et un cube unique
+`[Article Code, Mois]`. Après validation de la fenêtre et du total, chaque
+article reçoit exactement les 12 clés attendues. Une clé absente du cube signifie
+alors réellement « aucun fait sur ce mois » et vaut `0`; avant cette validation,
+aucun zéro n'est inventé.
+
+`QLIK_MONTH_DIM=0` ou `QLIK_USE_EXPR=0` désactive désormais un prérequis et fait
+échouer la synchronisation datée : ces options ne peuvent plus réactiver un
+chemin connu comme incorrect.
+
+⚠️ Les données déjà en cache gardent leurs zéros : il faut relancer la sync Qlik
+pour les corriger.
+
+## Coût de `SelectValues` sur « Article Code »
+
+Mesuré en production : **8 à 100 s par appel**, quasi indépendamment du nombre de
+valeurs — le moteur balaie un symbole de plus d'un million d'entrées. Avec 7 200
+codes en lots de 300, cela faisait 24 appels, ~15 min de sync, et la session Qlik
+mourait avant la fin (`Socket closed`, puis `Execution context was destroyed`).
+
+La dimension Mois livrant déjà tous les mois d'un coup, rien n'oblige à découper
+les codes : le chemin mensuel fait donc **une seule sélection pour tous les codes**
+et **un seul cube paginé** (la lecture des pages coûte ~50 ms). Repli automatique
+sur les lots si l'Engine refuse. Même principe pour `rattraperMoisVides()` : une
+sélection de codes, puis seule la fenêtre de dates change d'un mois à l'autre.
+
+La sonde de diagnostic de fin de sync a été retirée : elle refaisait une sélection
+complète des codes et des 365 jours pour rien.
+
+### Sélection PAR FOURNISSEUR (ÉTAPE 0)
+
+Le code fournisseur FF présent en base SQL / API (ex. `J009`) existe aussi dans
+Qlik. Une valeur y désigne le même périmètre que les dizaines de milliers de codes
+articles — pour un fournisseur de 41 569 références, c'est **un** `SelectValues`
+trivial au lieu d'un appel de 8 à 100 s **répété à chaque passe annuelle**.
+
+`selectionnerParFournisseur()` (in-page, avant `choisirPeriode()`) :
+
+1. essaie chaque champ candidat — `QLIK_FIELD_CODE_FOURNISSEUR`, puis
+   `code_fournisseur`, `Fournisseur`, `fournisseur_code_centrale` ;
+2. `SelectValues` le code fournisseur (soft lock) ; une valeur inconnue passe au
+   champ suivant ;
+3. **vérifie la couverture** : lit les Article Code visibles sous cette sélection
+   (cube paginé) et compare aux codes demandés ;
+4. ne retient la bascule que si la couverture atteint `QLIK_SUPPLIER_MIN_COVERAGE`
+   (défaut **0.99**, borné à [0.5, 1]). Sinon la sélection est annulée et on
+   revient à la sélection par codes.
+
+Ce contrôle est indispensable : un article rattaché à plusieurs fournisseurs, ou
+un référencement Qlik différent du référencement FF, doit faire **revenir aux
+codes** plutôt que perdre silencieusement des articles.
+
+Quand la bascule est retenue (`parFournisseur = true`), plus **aucun**
+`SelectValues` sur « Article Code » n'est émis — ni par les passes annuelles, ni
+par l'agrégation directe par expressions. Le périmètre fournisseur survit aux
+sélections `Année` et `Date`, qui portent sur d'autres champs. Le repli par lots
+de codes reste disponible si l'Engine refuse un cube.
+
+En mode produit (sync d'un seul code centrale), aucun fournisseur n'est transmis :
+la sélection reste par code.
+
+### Aucun résultat partiel dans le cache
+
+Le script in-page conserve des points de contrôle à des fins de diagnostic, mais
+une synchronisation datée interrompue est refusée intégralement. Le cache garde
+sa dernière version complète jusqu'à la réussite d'une nouvelle extraction.
+
+## Tendance réseau = 12 mois glissants stricts
+
+`computeNetworkTrend()` reconstruit sa fenêtre à partir de la date du jour :
+12 mois complets, **mois en cours exclu** (partiel, il tirait la pente vers le bas).
+La tendance n'est affichée que si les 12 clés sont explicitement présentes dans
+le cache. Les anciennes séries partielles de deux ou trois mois sont donc
+refusées au lieu d'être présentées comme une tendance.
 
 Retirés : ranking (champs/query/colonnes), analyse IA (routes `/api/ai/*`, `bulk-ai-analyzer`,
 dossier `ai-copilot`), score (`score-engine.ts`, colonne score).
@@ -67,6 +428,9 @@ QLIK_DIM_CODE_ARTICLE_ID=fcd239e5-288b-4830-a047-0e3d7665d971
 QLIK_MEAS_CA_ID=43a76088-86fa-402e-a80e-0efd7701b3e1
 QLIK_MEAS_QTE_ID=7b40caf1-be4b-4811-8d45-50acde33e715
 QLIK_MEAS_NBMAG_ID=8b63fae5-db2f-4e4c-8618-f3e9d60b6b3b
+# Sélection par fournisseur (facultatif — auto-détection sinon) :
+QLIK_FIELD_CODE_FOURNISSEUR=      # champ Qlik portant le code fournisseur FF
+QLIK_SUPPLIER_MIN_COVERAGE=0.99   # couverture minimale exigée pour basculer
 ```
 
 ## RESTE À FAIRE

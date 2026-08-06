@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
  *
  * Lecture **exclusive** de la table `qlik_network_metrics` : aucun appel à Qlik n'est
  * déclenché. Pour interroger Qlik en direct (y compris sur des produits que nous ne
- * référençons pas), c'est `/api/qlik/search` — bien plus lent, et volontairement
+ * référençons pas), c'est la page Produits — bien plus lente, et volontairement
  * séparé de cette API.
  */
 export async function GET(

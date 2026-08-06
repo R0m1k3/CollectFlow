@@ -113,7 +113,10 @@ async function main() {
             ALTER TABLE "qlik_network_metrics"
                 ADD COLUMN IF NOT EXISTS "ca_par_magasin_reseau" numeric(16, 2),
                 ADD COLUMN IF NOT EXISTS "marge_pct_reseau" numeric(8, 4),
-                ADD COLUMN IF NOT EXISTS "qte_by_month" jsonb;
+                ADD COLUMN IF NOT EXISTS "qte_by_month" jsonb,
+                ADD COLUMN IF NOT EXISTS "metrics_by_month" jsonb,
+                ADD COLUMN IF NOT EXISTS "libelle_reseau" varchar(255),
+                ADD COLUMN IF NOT EXISTS "fournisseur_reseau" varchar(255);
             ALTER TABLE "qlik_network_metrics" DROP COLUMN IF EXISTS "rupture_pct_reseau";
             ALTER TABLE "qlik_network_metrics" DROP COLUMN IF EXISTS "couverture_stock_reseau";
         `);
