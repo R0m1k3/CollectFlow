@@ -56,6 +56,7 @@ const PARAMS: Array<{ name: string; desc: string }> = [
     { name: "gamme, code1..code3", desc: "Filtres sur la gamme et la nomenclature" },
     { name: "fields", desc: "Champs à conserver, séparés par des virgules — allège fortement la réponse" },
     { name: "enrich", desc: "1 par défaut : métriques Qlik + gamme serveur relues à l'appel. 0 pour s'en dispenser" },
+    { name: "compute", desc: "1 par défaut : calcule le fournisseur s'il n'a jamais été ouvert (premier appel plus lent). 0 pour échouer vite" },
 ];
 
 export function ApiConnectionInfo() {

@@ -9,7 +9,46 @@
  *   - Tous types → lire qtestock pour reconstruire stock12m
  */
 
-const FF_API_BASE = process.env.FF_API_BASE_URL ?? "https://api.ffnancy.fr";
+import fs from "fs/promises";
+import path from "path";
+
+const CONFIG_FILE = path.join(process.cwd(), "data", ".db-config.json");
+const FF_API_BASE_DEFAULT = "https://api.ffnancy.fr";
+const FF_API_BASE_TTL_MS = 30_000;
+
+let ffApiBaseCache: { value: string; at: number } | null = null;
+
+/**
+ * URL de l'API FF Nancy, résolue **au moment de l'appel**.
+ *
+ * Ordre de priorité : réglage enregistré dans Paramètres → variable
+ * d'environnement `FF_API_BASE_URL` → valeur par défaut. Auparavant l'URL était
+ * figée au chargement du module depuis l'environnement seul : impossible de la
+ * corriger depuis l'application quand le serveur changeait d'adresse.
+ *
+ * Le résultat est mémorisé 30 s pour ne pas relire le fichier à chaque requête.
+ */
+async function getFfApiBase(): Promise<string> {
+    if (ffApiBaseCache && Date.now() - ffApiBaseCache.at < FF_API_BASE_TTL_MS) {
+        return ffApiBaseCache.value;
+    }
+    let configured: string | undefined;
+    try {
+        const raw = await fs.readFile(CONFIG_FILE, "utf-8");
+        const parsed = JSON.parse(raw) as { ffApiBaseUrl?: string };
+        configured = parsed?.ffApiBaseUrl?.trim() || undefined;
+    } catch {
+        // Fichier absent ou illisible : on retombe sur l'environnement.
+    }
+    const value = (configured || process.env.FF_API_BASE_URL || FF_API_BASE_DEFAULT).replace(/\/+$/, "");
+    ffApiBaseCache = { value, at: Date.now() };
+    return value;
+}
+
+/** Vide le cache — appelé après un enregistrement dans Paramètres. */
+export function resetFfApiBaseCache(): void {
+    ffApiBaseCache = null;
+}
 
 // ---------------------------------------------------------------------------
 // Types API (shapes des réponses brutes)
@@ -65,9 +104,62 @@ export interface FfCommande {
     qtecde: number;
 }
 
+export interface FfSyncTable {
+    nom: string;
+    derniereSync: string;
+    nbLignes?: number;
+    /** "ok" ou état d'erreur renvoyé par la synchronisation. */
+    statut?: string;
+    erreur?: string | null;
+}
+
 export interface FfSyncStatus {
     lastSync: string;
-    tables: { nom: string; derniereSync: string; nbLignes?: number }[];
+    tables: FfSyncTable[];
+}
+
+/**
+ * Normalise la réponse de `/api/sync/status`.
+ *
+ * L'API renvoie `{ sync: [{ table_name, last_sync, rows_synced, status, error_msg }] }`,
+ * alors que l'application attendait `{ lastSync, tables: [{ nom, derniereSync, nbLignes }] }`.
+ * Les champs lus n'existaient donc pas : le panneau des Paramètres affichait une
+ * coquille vide sans la moindre erreur, puisque la requête HTTP réussissait.
+ *
+ * Les deux formes sont acceptées ici, pour rester compatible si l'API évolue.
+ */
+export function normalizeSyncStatus(raw: unknown): FfSyncStatus | null {
+    if (!raw || typeof raw !== "object") return null;
+    const d = raw as Record<string, unknown>;
+
+    // Forme déjà attendue par l'application.
+    if (Array.isArray(d.tables)) {
+        return {
+            lastSync: String(d.lastSync ?? ""),
+            tables: d.tables as FfSyncTable[],
+        };
+    }
+
+    // Forme réelle de l'API FF Nancy.
+    const sync = Array.isArray(d.sync) ? (d.sync as Array<Record<string, unknown>>) : null;
+    if (!sync) return null;
+
+    const tables: FfSyncTable[] = sync.map((t) => ({
+        nom: String(t.table_name ?? t.nom ?? "—"),
+        derniereSync: String(t.last_sync ?? t.derniereSync ?? ""),
+        nbLignes: Number(t.rows_synced ?? t.nbLignes ?? 0) || 0,
+        statut: t.status != null ? String(t.status) : undefined,
+        erreur: t.error_msg != null ? String(t.error_msg) : null,
+    }));
+
+    // Pas de date globale dans la réponse : on prend la plus récente des tables.
+    const lastSync = tables
+        .map((t) => t.derniereSync)
+        .filter(Boolean)
+        .sort()
+        .at(-1) ?? "";
+
+    return { lastSync, tables };
 }
 
 /** Stock agrégé sur tous les sites pour un codein */
@@ -212,6 +304,7 @@ function extractFouNom(f: any): string {
 export async function getFournisseursFromApi(
     search?: string
 ): Promise<{ code: string; nom: string }[]> {
+    const FF_API_BASE = await getFfApiBase();
     try {
         const url = search
             ? `${FF_API_BASE}/api/fournisseurs?search=${encodeURIComponent(search)}&limit=500`
@@ -242,6 +335,7 @@ export async function getFournisseursFromApi(
 export async function getArticlesByFournisseur(
     codefou: string
 ): Promise<FfArticle[]> {
+    const FF_API_BASE = await getFfApiBase();
     const raw = await fetchAllPages<unknown>(
         (page) => `${FF_API_BASE}/api/articles?codefou=${encodeURIComponent(codefou)}&page=${page}&limit=500`,
         extractList,
@@ -272,6 +366,7 @@ export async function getMouvementsByFournisseur(
     dateDebut: string,
     dateFin: string
 ): Promise<FfMouvement[]> {
+    const FF_API_BASE = await getFfApiBase();
     const raw = await fetchAllPages<unknown>(
         (page) =>
             `${FF_API_BASE}/api/mouvements/articles?codefou=${encodeURIComponent(codefou)}&dateDebut=${dateDebut}&dateFin=${dateFin}&page=${page}&limit=1000`,
@@ -301,6 +396,7 @@ export async function getMouvementsForDate(
     dateDebut: string,
     dateFin: string
 ): Promise<FfMouvement[]> {
+    const FF_API_BASE = await getFfApiBase();
     const raw = await fetchAllPages<unknown>(
         (page) =>
             `${FF_API_BASE}/api/mouvements/articles?dateDebut=${dateDebut}&dateFin=${dateFin}&page=${page}&limit=1000`,
@@ -362,6 +458,7 @@ export async function getMensuelByArticles(
     batchSize = 50
 ): Promise<Map<string, FfMensuelEntry[]>> {
     const result = new Map<string, FfMensuelEntry[]>();
+    const FF_API_BASE = await getFfApiBase();
 
     for (let i = 0; i < articles.length; i += batchSize) {
         const batch = articles.slice(i, i + batchSize);
@@ -448,6 +545,7 @@ export async function getReferentielByArticles(
     batchSize = 50
 ): Promise<Map<string, FfReferentiel>> {
     const result = new Map<string, FfReferentiel>();
+    const FF_API_BASE = await getFfApiBase();
 
     for (let i = 0; i < articles.length; i += batchSize) {
         const batch = articles.slice(i, i + batchSize);
@@ -479,6 +577,7 @@ export async function getCommandesByFournisseur(
     codefou: string
 ): Promise<Map<string, number>> {
     const result = new Map<string, number>();
+    const FF_API_BASE = await getFfApiBase();
     try {
         const res = await fetch(
             `${FF_API_BASE}/api/commandes/articles?codefou=${encodeURIComponent(codefou)}`,
@@ -502,9 +601,10 @@ export async function getCommandesByFournisseur(
 
 export async function getSyncStatus(): Promise<FfSyncStatus | null> {
     try {
+    const FF_API_BASE = await getFfApiBase();
         const res = await fetch(`${FF_API_BASE}/api/sync/status`, { cache: "no-store" });
         if (!res.ok) return null;
-        return await res.json();
+        return normalizeSyncStatus(await res.json());
     } catch (err) {
         console.error("[api-ff] getSyncStatus error:", err);
         return null;

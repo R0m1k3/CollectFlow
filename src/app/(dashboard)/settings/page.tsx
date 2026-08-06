@@ -5,7 +5,7 @@ import { Save, Eye, EyeOff, CheckCircle, AlertCircle, Loader2, RefreshCw, Sun, M
 import { useTheme } from "next-themes";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { useDbSettingsStore } from "@/features/settings/store/use-db-settings-store";
-import { testDatabaseConnection, saveDatabaseSettings, getSavedDatabaseConfig, saveQlikSettings, testQlikConnection } from "@/features/settings/actions";
+import { testDatabaseConnection, saveDatabaseSettings, getSavedDatabaseConfig, saveQlikSettings, testQlikConnection, saveFfApiSettings, testFfApiConnection } from "@/features/settings/actions";
 import { useEffect } from "react";
 import { UserManagement } from "@/features/admin/components/user-management";
 import { ApiKeyManagement } from "@/features/admin/components/api-key-management";
@@ -38,39 +38,91 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
     );
 }
 
-interface FfSyncTable { nom: string; derniereSync: string; nbLignes?: number; }
+interface FfSyncTable { nom: string; derniereSync: string; nbLignes?: number; statut?: string; erreur?: string | null; }
 interface FfSyncStatus { lastSync: string; tables: FfSyncTable[]; }
 
 function FfApiStatusSection() {
     const [status, setStatus] = useState<FfSyncStatus | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [url, setUrl] = useState("");
+    const [savedUrl, setSavedUrl] = useState<string | null>(null);
+    const [saving, setSaving] = useState(false);
+    const [testedUrl, setTestedUrl] = useState<string | null>(null);
 
-    const fetchStatus = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const res = await fetch("/api/ff-status");
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            setStatus(await res.json());
-        } catch (e) {
-            setError(e instanceof Error ? e.message : "Erreur inconnue");
-        } finally {
-            setLoading(false);
-        }
+    // Charge l'URL enregistrée pour la préremplir (vide = valeur par défaut).
+    useEffect(() => {
+        getSavedDatabaseConfig()
+            .then((cfg) => {
+                setSavedUrl(cfg?.ffApiBaseUrl ?? null);
+                if (cfg?.ffApiBaseUrl) setUrl(cfg.ffApiBaseUrl);
+            })
+            .catch(() => { /* réglage optionnel : on laisse le champ vide */ });
     }, []);
 
-    useEffect(() => { fetchStatus(); }, [fetchStatus]);
+    const runTest = useCallback((candidate?: string) => {
+        setLoading(true);
+        setError(null);
+        setStatus(null);
+        testFfApiConnection(candidate)
+            .then((res) => {
+                setTestedUrl(res.url);
+                if (res.success) setStatus(res.status as FfSyncStatus);
+                else setError(res.error ?? "Échec inconnu");
+            })
+            .catch((e) => setError(e instanceof Error ? e.message : "Erreur inconnue"))
+            .finally(() => setLoading(false));
+    }, []);
+
+    useEffect(() => { runTest(); }, [runTest]);
+
+    const save = async () => {
+        setSaving(true);
+        setError(null);
+        try {
+            const res = await saveFfApiSettings(url);
+            if (!res.success) { setError(res.error ?? "Enregistrement impossible"); return; }
+            setSavedUrl(url.trim() || null);
+            runTest(url);
+        } finally {
+            setSaving(false);
+        }
+    };
 
     return (
         <Section title="API FF Nancy" subtitle="Source des données produits — synchronisation nuit depuis SQL Server (données J-1)">
-            <div className="flex items-center gap-3">
-                <button onClick={fetchStatus} disabled={loading} className="apple-btn-secondary h-9 px-4">
-                    {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                    Vérifier le statut
+            <Field label="URL de l'API" hint="Laisser vide pour utiliser la valeur par défaut (https://api.ffnancy.fr)">
+                <input
+                    type="text"
+                    placeholder="https://api.ffnancy.fr"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") void save(); }}
+                    className="apple-input w-full"
+                />
+            </Field>
+
+            <div className="flex items-center gap-3 flex-wrap">
+                <button onClick={save} disabled={saving} className="apple-btn h-9 px-4">
+                    {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                    Enregistrer
                 </button>
-                {error && <span className="text-[12px] text-red-400">{error}</span>}
+                <button onClick={() => runTest(url)} disabled={loading} className="apple-btn-secondary h-9 px-4">
+                    {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                    Tester
+                </button>
+                {status && <span className="text-[12px] text-emerald-400 flex items-center gap-1"><CheckCircle className="w-3.5 h-3.5" /> Connexion OK</span>}
+                {error && <span className="text-[12px] text-red-400 flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5" /> {error}</span>}
             </div>
+
+            {/* L'URL réellement appelée : évite de croire qu'on teste celle du champ
+                alors que le réglage enregistré ou la variable d'environnement prime. */}
+            {testedUrl && (
+                <p className="text-[11px] text-[var(--text-muted)]">
+                    Adresse testée : <span className="font-mono">{testedUrl}</span>
+                    {!savedUrl && <> — valeur par défaut, aucun réglage enregistré</>}
+                </p>
+            )}
 
             {status && (
                 <div className="space-y-2 mt-2">
@@ -85,6 +137,7 @@ function FfApiStatusSection() {
                                         <th className="text-left px-3 py-2 font-medium text-[var(--text-secondary)]">Table</th>
                                         <th className="text-right px-3 py-2 font-medium text-[var(--text-secondary)]">Sync</th>
                                         <th className="text-right px-3 py-2 font-medium text-[var(--text-secondary)]">Lignes</th>
+                                        <th className="text-right px-3 py-2 font-medium text-[var(--text-secondary)]">État</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -96,6 +149,12 @@ function FfApiStatusSection() {
                                             </td>
                                             <td className="px-3 py-2 text-right text-[var(--text-muted)]">
                                                 {t.nbLignes?.toLocaleString("fr-FR") ?? "—"}
+                                            </td>
+                                            {/* Une table en erreur est précisément ce qu'on vient chercher ici. */}
+                                            <td className="px-3 py-2 text-right">
+                                                {t.statut === "ok"
+                                                    ? <span className="text-emerald-400">ok</span>
+                                                    : <span className="text-red-400" title={t.erreur ?? undefined}>{t.statut ?? "—"}</span>}
                                             </td>
                                         </tr>
                                     ))}
