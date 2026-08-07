@@ -19,7 +19,8 @@ export default async function GridPage({ searchParams }: GridPageProps) {
     const filters = {
         code1: params.code1 || null,
         code2: params.code2 || null,
-        code3: params.code3 || null,
+        // Liste séparée par des virgules : le filtre accepte plusieurs nomenclatures.
+        code3: params.code3 ? String(params.code3).split(",").filter(Boolean) : null,
     };
 
     // 1. Fetch available suppliers & stores

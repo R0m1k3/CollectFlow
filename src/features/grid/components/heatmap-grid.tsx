@@ -414,8 +414,11 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
     const filteredData = useMemo(() => {
         const { code3, codeGamme } = filters;
         if (!code3 && !codeGamme) return rows;
+        // Set plutôt que includes() : la liste peut compter des dizaines de
+        // nomenclatures, et le filtre est réévalué pour chaque ligne.
+        const nomenclatures = code3 ? new Set(code3) : null;
         return rows.filter(r => {
-            if (code3 && r.code3 !== code3) return false;
+            if (nomenclatures && !nomenclatures.has(r.code3)) return false;
             if (codeGamme) {
                 const g = draftChanges[r.codein] ?? r.codeGamme ?? "";
                 const norm = g.trim() === "" ? "Aucune" : g;

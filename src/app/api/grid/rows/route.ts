@@ -18,10 +18,11 @@ export async function GET(request: NextRequest) {
 
     const magasin = searchParams.get("magasin") ?? "TOTAL";
     const chunkSize = Math.max(50, Math.min(500, Number(searchParams.get("chunkSize") ?? 150)));
+    // `code3` n'est volontairement pas lu : la Grille applique ce filtre en local
+    // (getProductRows ne s'en sert pas) et il accepte désormais plusieurs valeurs.
     const filters: Partial<GridFilters> = {
         code1: searchParams.get("code1"),
         code2: searchParams.get("code2"),
-        code3: searchParams.get("code3"),
     };
     const forceRefresh = searchParams.get("refresh") === "1";
 

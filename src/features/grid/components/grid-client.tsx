@@ -58,6 +58,7 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
     const rows = useGridStore((s) => s.rows);
     const setActiveGridQuery = useGridStore((s) => s.setActiveGridQuery);
     const setFilter = useGridStore((s) => s.setFilter);
+    const setCode3Filter = useGridStore((s) => s.setCode3Filter);
     const setActiveMagasin = useGridStore((s) => s.setActiveMagasin);
     const searchParams = useSearchParams();
     const router = useRouter();
@@ -95,10 +96,10 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
         if (!isMounted) return;
         if (prevFournisseurRef.current !== codeFournisseur) {
             setFilter("codeGamme", null);
-            setFilter("code3", null);
+            setCode3Filter(null);
             prevFournisseurRef.current = codeFournisseur;
         }
-    }, [codeFournisseur, setFilter, isMounted]);
+    }, [codeFournisseur, setFilter, setCode3Filter, isMounted]);
 
     const refreshToken = searchParams.get("_refresh");
     useEffect(() => {
@@ -108,9 +109,11 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
         const params = new URLSearchParams();
         params.set("fournisseur", codeFournisseur);
         params.set("magasin", magasin || "TOTAL");
+        // `code3` n'est volontairement pas transmis : le serveur ignore ce filtre
+        // (getProductRows ne s'en sert pas) et la Grille l'applique en local. Le
+        // faire voyager relançait un chargement complet à chaque case cochée.
         if (filters.code1) params.set("code1", filters.code1);
         if (filters.code2) params.set("code2", filters.code2);
-        if (filters.code3) params.set("code3", filters.code3);
         if (refreshToken) params.set("refresh", "1");
 
         let accumulatedRows: ProductRow[] = [];
@@ -173,7 +176,7 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
         loadRows();
 
         return () => controller.abort();
-    }, [codeFournisseur, magasin, filters.code1, filters.code2, filters.code3, refreshToken, setRows, isMounted]);
+    }, [codeFournisseur, magasin, filters.code1, filters.code2, refreshToken, setRows, isMounted]);
 
     // Synchroniser le magasin actif depuis la prop URL (changement de magasin sans rechargement)
     useEffect(() => {

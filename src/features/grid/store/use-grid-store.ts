@@ -33,7 +33,9 @@ interface GridState {
     clearDrafts: (codeins: string[]) => void;
     /** Apply saved drafts onto row.codeGamme so change indicators persist after save */
     applyDraftsToRows: (draftsToApply: Record<string, GammeCode>) => void;
-    setFilter: (key: keyof GridFilters, value: string | null) => void;
+    setFilter: (key: Exclude<keyof GridFilters, "code3">, value: string | null) => void;
+    /** Nomenclatures retenues. `null` = aucun filtre, `[]` = rien de coché. */
+    setCode3Filter: (codes: string[] | null) => void;
     setDisplayDensity: (density: "compact" | "normal" | "comfortable") => void;
     setActiveGridQuery: (query: string) => void;
     restoreSnapshot: (changes: Record<string, GammeCode>) => void;
@@ -171,6 +173,9 @@ export const useGridStore = create<GridState>()(
             },
             setFilter: (key, value) => {
                 set((state) => ({ ...state, filters: { ...state.filters, [key]: value } }));
+            },
+            setCode3Filter: (codes) => {
+                set((state) => ({ ...state, filters: { ...state.filters, code3: codes } }));
             },
             setDisplayDensity: (density) => set({ displayDensity: density }),
             setActiveGridQuery: (query) => set({ activeGridQuery: query }),

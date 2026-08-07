@@ -149,7 +149,13 @@ export interface GridFilters {
     codeFournisseur: string | null;
     code1: string | null;
     code2: string | null;
-    code3: string | null;
+    /**
+     * Nomenclatures retenues (codes `code3`).
+     * `null` = aucun filtre (tout s'affiche) ; `[]` = rien de coché (aucune
+     * ligne). Distinguer les deux évite la valeur sentinelle qu'imposerait un
+     * simple tableau.
+     */
+    code3: string[] | null;
     codeGamme: GammeCode | null;
     search: string;
 }
