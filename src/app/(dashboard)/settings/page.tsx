@@ -13,8 +13,6 @@ import { ApiConnectionInfo } from "@/features/admin/components/api-connection-in
 import { GridWarmup } from "@/features/admin/components/grid-warmup";
 import { ServerLogs } from "@/features/settings/components/server-logs";
 
-interface OpenRouterModel { id: string; name: string; free: boolean; }
-
 function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
     return (
         <section className="apple-card">
@@ -251,19 +249,9 @@ export default function SettingsPage() {
     const displayDensity = useGridStore((s) => s.displayDensity);
     const setDisplayDensity = useGridStore((s) => s.setDisplayDensity);
 
-    const [showKey, setShowKey] = useState(false);
-    const [apiKey, setApiKey] = useState("");
     const [dbStatus, setDbStatus] = useState<"idle" | "testing" | "ok" | "error">("idle");
     const [dbError, setDbError] = useState<string | null>(null);
     const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
-    const [models, setModels] = useState<OpenRouterModel[]>([]);
-    const [selectedModel, setSelectedModel] = useState("google/gemini-2.0-flash-001");
-    const [modelsStatus, setModelsStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
-
-    // AI Provider
-    const [aiProvider, setAiProvider] = useState<"openrouter" | "google">("openrouter");
-    const [googleAiKey, setGoogleAiKey] = useState("");
-    const [googleAiModel, setGoogleAiModel] = useState("");
 
     const [isMounted, setIsMounted] = useState(false);
 
@@ -276,20 +264,6 @@ export default function SettingsPage() {
         ssl, setSsl,
         getDatabaseUrl
     } = useDbSettingsStore();
-
-    const fetchModels = useCallback(async (key: string) => {
-        if (!key.trim()) return;
-        setModelsStatus("loading");
-        try {
-            const res = await fetch("/api/openrouter/models", { headers: { "x-openrouter-key": key } });
-            if (!res.ok) throw new Error();
-            const data = await res.json();
-            setModels(data.models ?? []);
-            setModelsStatus("ok");
-        } catch {
-            setModelsStatus("error");
-        }
-    }, []);
 
     const reloadFromServer = useCallback(async () => {
         const config = await getSavedDatabaseConfig();
@@ -308,20 +282,13 @@ export default function SettingsPage() {
                     console.error("Failed to parse saved URL", e);
                 }
             }
-            if (config.openRouterKey) {
-                setApiKey(config.openRouterKey);
-                fetchModels(config.openRouterKey);
-            }
-            if (config.openRouterModel) {
-                setSelectedModel(config.openRouterModel);
-            }
-            if (config.aiProvider) setAiProvider(config.aiProvider);
-            if (config.googleAiKey) setGoogleAiKey(config.googleAiKey);
-            if (config.googleAiModel) setGoogleAiModel(config.googleAiModel);
         }
-    }, [fetchModels, setApiKey, setDatabase, setHost, setPassword, setPort, setSelectedModel, setSsl, setUser]);
+    }, [setDatabase, setHost, setPassword, setPort, setSsl, setUser]);
 
     useEffect(() => {
+        // `isMounted` sert à éviter un écart d'hydratation : il doit donc être posé
+        // au montage, ce que la règle déconseille en général mais qui est ici le but.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setIsMounted(true);
         reloadFromServer();
     }, [reloadFromServer]);
@@ -342,7 +309,7 @@ export default function SettingsPage() {
     const handleSave = async () => {
         setSaveStatus("saving");
         const url = getDatabaseUrl();
-        const res = await saveDatabaseSettings(url, apiKey, selectedModel, aiProvider, googleAiKey, googleAiModel);
+        const res = await saveDatabaseSettings(url);
         if (res.success) {
             setSaveStatus("saved");
             setTimeout(() => setSaveStatus("idle"), 2500);
@@ -456,64 +423,6 @@ export default function SettingsPage() {
             <FfApiStatusSection />
 
             <QlikSettingsSection />
-
-            {/* OpenRouter */}
-            <Section title="IA Copilot — OpenRouter" subtitle="Clé API pour les analyses de gammes par intelligence artificielle">
-                <Field label="Clé API" hint="Disponible sur openrouter.ai/keys — commence par sk-or-...">
-                    <div className="flex gap-2">
-                        <div className="relative flex-1">
-                            <input
-                                type={showKey ? "text" : "password"}
-                                placeholder="sk-or-v1-..."
-                                value={apiKey}
-                                onChange={(e) => setApiKey(e.target.value)}
-                                className="apple-input font-mono pr-10"
-                            />
-                            <button
-                                onClick={() => setShowKey((v) => !v)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 transition-opacity hover:opacity-100 opacity-50"
-                            >
-                                {showKey ? <EyeOff className="w-4 h-4" style={{ color: "var(--text-primary)" }} /> : <Eye className="w-4 h-4" style={{ color: "var(--text-primary)" }} />}
-                            </button>
-                        </div>
-                        <button
-                            onClick={() => fetchModels(apiKey)}
-                            disabled={!apiKey || modelsStatus === "loading"}
-                            className="apple-btn-secondary h-9 px-4 whitespace-nowrap"
-                        >
-                            {modelsStatus === "loading" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                            Charger les modèles
-                        </button>
-                    </div>
-                </Field>
-
-                <Field
-                    label={`Modèle IA${models.length > 0 ? ` (${models.length} disponibles)` : ""}`}
-                    hint={modelsStatus === "error" ? "⚠ Erreur — vérifiez votre clé puis rechargez" : modelsStatus === "idle" ? "Entrez votre clé et cliquez « Charger les modèles »" : undefined}
-                >
-                    {models.length > 0 ? (
-                        <select
-                            value={selectedModel}
-                            onChange={(e) => setSelectedModel(e.target.value)}
-                            className="apple-input"
-                        >
-                            {models.map((m) => (
-                                <option key={m.id} value={m.id}>
-                                    {m.free ? "🆓 " : ""}{m.name}
-                                </option>
-                            ))}
-                        </select>
-                    ) : (
-                        <input
-                            type="text"
-                            value={selectedModel}
-                            onChange={(e) => setSelectedModel(e.target.value)}
-                            placeholder="ex: google/gemini-2.0-flash-001"
-                            className="apple-input"
-                        />
-                    )}
-                </Field>
-            </Section>
 
             {/* Apparence */}
             <Section title="Apparence">
