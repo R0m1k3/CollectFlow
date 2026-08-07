@@ -207,6 +207,53 @@ export async function GET(req: NextRequest) {
                     },
                 },
             },
+            "/nomenclatures": {
+                get: {
+                    operationId: "listerNomenclaturesFournisseur",
+                    summary: "Postes de nomenclature d'un fournisseur",
+                    description:
+                        "Répartition des articles d'un fournisseur par poste de nomenclature, avec le nombre "
+                        + "d'articles et le CA de chacun. **À utiliser avant /grid sur un gros fournisseur** : "
+                        + "certains dépassent 130 000 articles. On liste les postes (quelques dizaines de lignes), "
+                        + "puis on interroge /grid poste par poste avec le filtre indiqué par `meta.filtreGrid` "
+                        + "(code1, code2 ou code3).",
+                    parameters: [
+                        { name: "fournisseur", in: "query", required: true, schema: { type: "string" } },
+                        { name: "niveau", in: "query", schema: { type: "integer", enum: [1, 2, 3], default: 1 }, description: "1 = univers, 2 = famille, 3 = sous-famille." },
+                        { name: "parent", in: "query", schema: { type: "string" }, description: "Restreint à un poste parent : un code1 si niveau=2, un code2 si niveau=3." },
+                    ],
+                    responses: {
+                        "200": {
+                            description: "Postes de nomenclature",
+                            content: {
+                                "application/json": {
+                                    schema: {
+                                        type: "object",
+                                        properties: {
+                                            data: {
+                                                type: "array",
+                                                items: {
+                                                    type: "object",
+                                                    properties: {
+                                                        code: { type: "string", description: "À passer au filtre code1/code2/code3 de /grid." },
+                                                        libelle: { type: ["string", "null"] },
+                                                        nbArticles: { type: "integer" },
+                                                        totalCa: { type: "number" },
+                                                        totalQuantite: { type: "number" },
+                                                    },
+                                                },
+                                            },
+                                            meta: { type: "object" },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        "202": { description: "Fournisseur pas encore calculé", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+                        "400": { description: "Paramètres invalides", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+                    },
+                },
+            },
             "/grid": {
                 get: {
                     operationId: "listerProduitsFournisseur",

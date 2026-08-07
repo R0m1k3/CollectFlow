@@ -43,6 +43,7 @@ function CodeLine({ children, copy }: { children: string; copy?: string }) {
 const ENDPOINTS: Array<{ method: string; path: string; desc: string }> = [
     { method: "GET", path: "/fournisseurs", desc: "Fournisseurs, avec la fraîcheur de leur instantané" },
     { method: "GET", path: "/grid?fournisseur=CODE", desc: "Lignes de grille d'un fournisseur" },
+    { method: "GET", path: "/nomenclatures?fournisseur=CODE", desc: "Postes de nomenclature d'un fournisseur, avec nb d'articles et CA" },
     { method: "GET", path: "/products/search?q=terme", desc: "Recherche transversale, tous fournisseurs" },
     { method: "GET", path: "/products/{codein}", desc: "Fiche complète d'un produit" },
     { method: "GET", path: "/network/{codeCentrale}", desc: "Métriques réseau Qlik + courbe 12 mois" },
@@ -127,6 +128,12 @@ export function ApiConnectionInfo() {
                     et <code className="font-mono">meta.complet</code> confirme qu&apos;il ne reste rien à lire :
                 </p>
                 <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/grid?fournisseur=FOU001"`}</CodeLine>
+                <p className="text-[11px] pt-1" style={{ color: "var(--text-muted)" }}>
+                    Gros fournisseur (plusieurs dizaines de milliers d&apos;articles) : lister d&apos;abord les
+                    postes de nomenclature, puis les traiter un par un.
+                </p>
+                <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/nomenclatures?fournisseur=D005&niveau=1"`}</CodeLine>
+                <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/grid?fournisseur=D005&code1=32"`}</CodeLine>
             </div>
 
             {/* Branchement d'une IA externe (ChatGPT) */}

@@ -88,6 +88,19 @@ export const fournisseursQuerySchema = z.object({
     withData: z.enum(["0", "1"]).optional(),
 });
 
+/** `/api/v1/nomenclatures` — inventaire des postes d'un fournisseur. */
+export const nomenclaturesQuerySchema = z.object({
+    fournisseur: z.string().min(1, "Paramètre 'fournisseur' requis"),
+    /**
+     * 1 = univers, 2 = famille, 3 = sous-famille (selon la nomenclature FF).
+     * Le `transform` ne fait que redonner le type littéral : les bornes ont déjà
+     * été validées juste avant, la valeur ne peut être que 1, 2 ou 3.
+     */
+    niveau: z.coerce.number().int().min(1).max(3).default(1).transform((n) => n as 1 | 2 | 3),
+    /** Restreint à un poste parent : un code1 pour niveau=2, un code2 pour niveau=3. */
+    parent: z.string().min(1).optional(),
+});
+
 export const productDetailSchema = z.object({
     fournisseur: z.string().min(1).optional(),
     /**

@@ -277,3 +277,66 @@ export async function listGridSuppliers(): Promise<
         computedAt: r.computedAt ? new Date(r.computedAt).toISOString() : null,
     }));
 }
+
+// ---------------------------------------------------------------------------
+// Inventaire des nomenclatures d'un fournisseur
+// ---------------------------------------------------------------------------
+
+/** Un poste de nomenclature, avec son poids — de quoi décider par où découper. */
+export interface GridNomenclature {
+    code: string;
+    /** Libellé du poste, lu dans le payload (il n'a pas de colonne dédiée). */
+    libelle: string | null;
+    nbArticles: number;
+    totalCa: number;
+    totalQuantite: number;
+}
+
+/**
+ * Répartition des articles d'un fournisseur par niveau de nomenclature.
+ *
+ * Sans cela, un appelant qui veut découper un gros fournisseur par nomenclature
+ * est coincé : les filtres `code1..3` existent sur `/grid`, mais rien ne lui dit
+ * **quelles** valeurs existent — il devrait tout télécharger pour les découvrir,
+ * ce qui annule le bénéfice du découpage.
+ *
+ * Tout est agrégé en SQL : la réponse fait quelques dizaines de lignes, même pour
+ * un fournisseur de 130 000 articles.
+ */
+export async function listGridNomenclatures(
+    codeFournisseur: string,
+    niveau: 1 | 2 | 3,
+    parent?: string,
+): Promise<GridNomenclature[]> {
+    const codeCol = niveau === 1 ? gridRows.code1 : niveau === 2 ? gridRows.code2 : gridRows.code3;
+    // Les libellés ne sont pas dénormalisés en colonnes : on les lit dans le payload.
+    const libelleKey = niveau === 1 ? "libelleNiveau1" : niveau === 2 ? "libelleNiveau2" : "libelle3";
+    const parentCol = niveau === 2 ? gridRows.code1 : niveau === 3 ? gridRows.code2 : null;
+
+    const clauses: SQL[] = [
+        eq(gridRows.codeFournisseur, codeFournisseur),
+        sql`${codeCol} is not null and ${codeCol} <> ''`,
+    ];
+    if (parent && parentCol) clauses.push(eq(parentCol, parent));
+
+    const rows = await db
+        .select({
+            code: codeCol,
+            libelle: sql<string | null>`max(${gridRows.payload} ->> ${libelleKey})`,
+            nbArticles: sql<number>`count(*)::int`,
+            totalCa: sql<number>`coalesce(sum(${gridRows.totalCa}), 0)::float`,
+            totalQuantite: sql<number>`coalesce(sum(${gridRows.totalQuantite}), 0)::float`,
+        })
+        .from(gridRows)
+        .where(and(...clauses))
+        .groupBy(codeCol)
+        .orderBy(desc(sql`coalesce(sum(${gridRows.totalCa}), 0)`));
+
+    return rows.map((r) => ({
+        code: String(r.code ?? ""),
+        libelle: r.libelle ?? null,
+        nbArticles: Number(r.nbArticles) || 0,
+        totalCa: Number(r.totalCa) || 0,
+        totalQuantite: Number(r.totalQuantite) || 0,
+    }));
+}
