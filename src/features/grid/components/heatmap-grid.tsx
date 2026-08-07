@@ -396,7 +396,63 @@ function CellDetailModal({ d, activeMagasin, onClose }: { d: CellDetailData; act
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-center" style={{ color: "var(--text-muted)" }}>Stock fin mois</span>
                 </div>
             </div>
+
+            {/*
+              * En « tous magasins », les trois tuiles ci-dessus sont des cumuls.
+              * Le détail par magasin est justement ce qu'on vient vérifier ici :
+              * savoir que le stock est de 40 ne dit pas s'il est réparti ou
+              * entièrement sur un seul site.
+              */}
+            {activeMagasin === "TOTAL" && <VentilationParMagasin d={d} />}
         </DialogContent>
+    );
+}
+
+/** Détail ventes / entrées / stock du mois, magasin par magasin. */
+function VentilationParMagasin({ d }: { d: CellDetailData }) {
+    const sites = [...new Set([
+        ...Object.keys(d.row.sales12mByStore ?? {}),
+        ...Object.keys(d.row.stock12mByStore ?? {}),
+    ])].sort();
+
+    if (sites.length === 0) return null;
+
+    return (
+        <div className="mt-3 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+            <table className="w-full text-[11px]">
+                <thead>
+                    <tr style={{ background: "var(--bg-elevated)" }}>
+                        <th className="text-left px-2.5 py-1.5 font-semibold" style={{ color: "var(--text-secondary)" }}>Magasin</th>
+                        <th className="text-right px-2.5 py-1.5 font-semibold" style={{ color: "var(--text-secondary)" }}>Ventes</th>
+                        <th className="text-right px-2.5 py-1.5 font-semibold" style={{ color: "var(--text-secondary)" }}>Entrées</th>
+                        <th className="text-right px-2.5 py-1.5 font-semibold" style={{ color: "var(--text-secondary)" }}>Stock</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {sites.map((site) => {
+                        const ventes = d.row.sales12mByStore?.[site]?.[d.monthKey] ?? 0;
+                        const entrees = d.row.receptions12mByStore?.[site]?.[d.monthKey] ?? 0;
+                        const stock = d.row.stock12mByStore?.[site]?.[d.monthKey] ?? 0;
+                        return (
+                            <tr key={site} style={{ borderTop: "1px solid var(--border)" }}>
+                                <td className="px-2.5 py-1.5" style={{ color: "var(--text-primary)" }}>
+                                    {SITE_LABELS[site]?.nom ?? site}
+                                </td>
+                                <td className="px-2.5 py-1.5 text-right tabular-nums" style={{ color: "var(--text-secondary)" }}>
+                                    {Math.round(ventes).toLocaleString("fr-FR")}
+                                </td>
+                                <td className="px-2.5 py-1.5 text-right tabular-nums" style={{ color: entrees > 0 ? "rgb(16,185,129)" : "var(--text-muted)" }}>
+                                    {entrees > 0 ? `+${Math.round(entrees).toLocaleString("fr-FR")}` : "—"}
+                                </td>
+                                <td className="px-2.5 py-1.5 text-right tabular-nums font-semibold" style={{ color: "var(--text-primary)" }}>
+                                    {Math.round(stock).toLocaleString("fr-FR")}
+                                </td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
+        </div>
     );
 }
 
