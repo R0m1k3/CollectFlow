@@ -277,6 +277,12 @@ export async function lancerRound(origine: "auto" | "manuel", forcerHorsFenetre 
     try {
         await seedSyncFournisseurs();
 
+        // Garde anti-boucle. L'avancement de la file repose sur l'écriture de
+        // `dernier*At`, et cette écriture est volontairement non bloquante en cas
+        // d'erreur. Si elle échoue, le fournisseur resterait le plus ancien et
+        // serait repris sans fin : on retient donc ce qui a déjà été tenté.
+        const tentes = new Set<string>();
+
         let depuisDernierQlik = 0;
         for (;;) {
             if (etat.arretDemande) break;
@@ -290,7 +296,8 @@ export async function lancerRound(origine: "auto" | "manuel", forcerHorsFenetre 
             // Qlik prioritaire quand le quota d'entrelacement est atteint.
             if (qlikPossible && depuisDernierQlik >= s.sqlParQlik) {
                 const cible = await prochainQlik(s.qlikMinJours, new Date());
-                if (cible) {
+                if (cible && !tentes.has(`qlik:${cible.codeFournisseur}`)) {
+                    tentes.add(`qlik:${cible.codeFournisseur}`);
                     await traiterQlik(cible.codeFournisseur, cible.nomFournisseur);
                     depuisDernierQlik = 0;
                     continue;
@@ -299,6 +306,14 @@ export async function lancerRound(origine: "auto" | "manuel", forcerHorsFenetre 
 
             const cibleSql = await prochainSql(depuis);
             if (cibleSql) {
+                if (tentes.has(`sql:${cibleSql.codeFournisseur}`)) {
+                    console.error(
+                        `[sync-nuit] ${cibleSql.codeFournisseur} ressort de la file après avoir été traité :`
+                        + " le suivi n'a pas pu être écrit. Arrêt du round pour ne pas boucler.",
+                    );
+                    break;
+                }
+                tentes.add(`sql:${cibleSql.codeFournisseur}`);
                 await traiterSql(cibleSql.codeFournisseur, cibleSql.nomFournisseur);
                 depuisDernierQlik++;
                 continue;
@@ -307,7 +322,8 @@ export async function lancerRound(origine: "auto" | "manuel", forcerHorsFenetre 
             // File SQL vide : on consacre le temps restant à Qlik.
             if (qlikPossible) {
                 const cible = await prochainQlik(s.qlikMinJours, new Date());
-                if (cible) {
+                if (cible && !tentes.has(`qlik:${cible.codeFournisseur}`)) {
+                    tentes.add(`qlik:${cible.codeFournisseur}`);
                     await traiterQlik(cible.codeFournisseur, cible.nomFournisseur);
                     depuisDernierQlik = 0;
                     continue;

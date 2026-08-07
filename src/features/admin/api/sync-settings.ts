@@ -1,12 +1,15 @@
-"use server";
-
 /**
  * CollectFlow — Réglages de la synchronisation nocturne.
  *
  * Rangés dans `data/.db-config.json`, comme les autres réglages de
  * l'application (base, Qlik, API FF), pour qu'il n'y ait qu'un seul endroit à
  * sauvegarder et à monter dans le conteneur.
+ *
+ * Module **serveur**, pas fichier d'actions : il exporte aussi des valeurs
+ * (les défauts, le type), ce que `"use server"` interdit.
  */
+
+import "server-only";
 
 import fs from "fs/promises";
 import path from "path";

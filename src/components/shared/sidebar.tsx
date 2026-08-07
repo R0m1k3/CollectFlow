@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutGrid, Camera, FileDown, Settings, Package, PackageSearch, BarChart2, TrendingUp, Trophy, Megaphone, PackageMinus, ShoppingCart, LogOut, User as UserIcon, Loader2, ChevronRight, ChevronLeft } from "lucide-react";
+import { LayoutGrid, Camera, FileDown, Settings, Package, PackageSearch, BarChart2, TrendingUp, Trophy, Megaphone, PackageMinus, ShoppingCart, LogOut, User as UserIcon, Loader2, ChevronRight, ChevronLeft, CalendarClock } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -19,6 +19,7 @@ const NAV_ITEMS = [
     { icon: ShoppingCart, label: "Commandes auto", href: "/commandes-auto" },
     { icon: Camera, label: "Snapshots", href: "/snapshots" },
     { icon: FileDown, label: "Exports", href: "/exports", adminOnly: true },
+    { icon: CalendarClock, label: "Synchronisation", href: "/admin/synchronisation", adminOnly: true },
     { icon: Settings, label: "Paramètres", href: "/settings", adminOnly: true },
 ];
 
