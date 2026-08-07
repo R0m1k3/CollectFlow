@@ -2296,24 +2296,62 @@ export async function fetchNetworkMetricsPlaywright(
             },
         );
 
+        // Reprise globale sur erreur transitoire.
+        //
+        // Le moteur Qlik abandonne les requêtes longues quand il est chargé
+        // (« code 15 / Request aborted »). Observé sur un même fournisseur, avec
+        // le même code : réussite à 4 h du matin (OpenDoc en 78 s), échec à 6 h
+        // (OpenDoc en 233 s, puis abandon). Les reprises par requête de
+        // `rpcWithRetry` ne suffisent pas — c'est toute l'extraction qui tombe.
+        //
+        // La pause est volontairement longue : relancer aussitôt ne ferait
+        // qu'ajouter de la charge au serveur qui vient déjà de renoncer.
+        const extractionEssais = 1 + envNumber("QLIK_EXTRACTION_RETRIES", 1, 0, 3);
+        const extractionPauseMs = envNumber("QLIK_EXTRACTION_RETRY_PAUSE_MS", 60_000, 0, 600_000);
+        const estTransitoire = (m: string) => /"code"\s*:\s*15\b/.test(m) || /request aborted/i.test(m);
+        const pause = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
         let result: InPageResult;
-        try {
-            result = (await evaluer()) as InPageResult;
-        } catch (e) {
-            const msg = String((e as Error)?.message || e);
-            // Une fenêtre 12 mois n'est publiable que si l'extraction est
-            // complète et a passé tous les contrôles. Conserver un checkpoint
-            // partiel fabriquerait précisément des graphiques à 2 ou 3 mois.
-            if (dateFilter) {
-                throw new Error(`[qlik-pw] extraction 12 mois interrompue, cache inchangé : ${msg}`);
+        let essai = 0;
+        for (;;) {
+            essai++;
+            const reste = essai < extractionEssais;
+            try {
+                const candidat = (await evaluer()) as InPageResult;
+                if (candidat.ok || !reste || !estTransitoire(String(candidat.error ?? ""))) {
+                    result = candidat;
+                    break;
+                }
+                console.warn(
+                    `[qlik-pw] tentative ${essai}/${extractionEssais} abandonnée par le moteur (${String(candidat.error).slice(0, 160)})`
+                    + ` — nouvelle tentative dans ${Math.round(extractionPauseMs / 1000)} s`,
+                );
+            } catch (e) {
+                const msg = String((e as Error)?.message || e);
+                if (reste && estTransitoire(msg)) {
+                    console.warn(
+                        `[qlik-pw] tentative ${essai}/${extractionEssais} interrompue (${msg.slice(0, 160)})`
+                        + ` — nouvelle tentative dans ${Math.round(extractionPauseMs / 1000)} s`,
+                    );
+                } else {
+                    // Comportement d'origine, une fois les reprises épuisées.
+                    // Une fenêtre 12 mois n'est publiable que si l'extraction est
+                    // complète et a passé tous les contrôles. Conserver un checkpoint
+                    // partiel fabriquerait précisément des graphiques à 2 ou 3 mois.
+                    if (dateFilter) {
+                        throw new Error(`[qlik-pw] extraction 12 mois interrompue, cache inchangé : ${msg}`);
+                    }
+                    const secours = checkpoint as { rows?: Array<Array<string | number>>; monthly?: InPageResult["monthly"] } | null;
+                    if (secours?.rows?.length) {
+                        console.error(`[qlik-pw] extraction interrompue (${msg.slice(0, 200)}) — reprise du dernier point de contrôle : ${secours.rows.length} lignes`);
+                        result = { ok: true, rows: secours.rows, monthly: secours.monthly, size: secours.rows.length, partiel: true };
+                        break;
+                    }
+                    throw e;
+                }
             }
-            const secours = checkpoint as { rows?: Array<Array<string | number>>; monthly?: InPageResult["monthly"] } | null;
-            if (secours?.rows?.length) {
-                console.error(`[qlik-pw] extraction interrompue (${msg.slice(0, 200)}) — reprise du dernier point de contrôle : ${secours.rows.length} lignes`);
-                result = { ok: true, rows: secours.rows, monthly: secours.monthly, size: secours.rows.length, partiel: true };
-            } else {
-                throw e;
-            }
+            checkpoint = null; // la nouvelle tentative repart d'une extraction vierge
+            await pause(extractionPauseMs);
         }
 
         if (!result.ok) {
