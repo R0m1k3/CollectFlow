@@ -178,6 +178,31 @@ async function main() {
         `);
         console.log("[DB Init] Table api_keys is verified/created.");
 
+        // Paramétrage et suivi de la synchronisation nocturne, par fournisseur.
+        await tempPool.query(`
+            CREATE TABLE IF NOT EXISTS "sync_fournisseurs" (
+                "code_fournisseur" varchar(20) PRIMARY KEY NOT NULL,
+                "nom_fournisseur" varchar(255),
+                "actif_sql" boolean NOT NULL DEFAULT true,
+                "actif_qlik" boolean NOT NULL DEFAULT true,
+                "desactive_motif" text,
+                "dernier_sql_at" timestamp,
+                "dernier_sql_statut" varchar(20),
+                "dernier_sql_lignes" integer,
+                "dernier_sql_erreur" text,
+                "dernier_sql_ms" integer,
+                "dernier_qlik_at" timestamp,
+                "dernier_qlik_statut" varchar(20),
+                "dernier_qlik_codes" integer,
+                "dernier_qlik_erreur" text,
+                "dernier_qlik_ms" integer,
+                "updated_at" timestamp DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS "idx_sync_fou_sql" ON "sync_fournisseurs" ("actif_sql", "dernier_sql_at");
+            CREATE INDEX IF NOT EXISTS "idx_sync_fou_qlik" ON "sync_fournisseurs" ("actif_qlik", "dernier_qlik_at");
+        `);
+        console.log("[DB Init] Table sync_fournisseurs is verified/created.");
+
         await tempPool.end();
         console.log("[DB Init] Initialization successful. Exiting.");
         process.exit(0);

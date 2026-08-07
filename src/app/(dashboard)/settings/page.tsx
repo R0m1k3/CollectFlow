@@ -263,10 +263,7 @@ export default function SettingsPage() {
     // AI Provider
     const [aiProvider, setAiProvider] = useState<"openrouter" | "google">("openrouter");
     const [googleAiKey, setGoogleAiKey] = useState("");
-    const [showGoogleKey, setShowGoogleKey] = useState(false);
     const [googleAiModel, setGoogleAiModel] = useState("");
-    const [googleModels, setGoogleModels] = useState<{ id: string; name: string }[]>([]);
-    const [googleModelsStatus, setGoogleModelsStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
 
     const [isMounted, setIsMounted] = useState(false);
 
@@ -279,20 +276,6 @@ export default function SettingsPage() {
         ssl, setSsl,
         getDatabaseUrl
     } = useDbSettingsStore();
-
-    const fetchGoogleModels = useCallback(async (key: string) => {
-        if (!key.trim()) return;
-        setGoogleModelsStatus("loading");
-        try {
-            const res = await fetch("/api/google-ai/models", { headers: { "x-google-ai-key": key } });
-            if (!res.ok) throw new Error();
-            const data = await res.json();
-            setGoogleModels(data.models ?? []);
-            setGoogleModelsStatus("ok");
-        } catch {
-            setGoogleModelsStatus("error");
-        }
-    }, []);
 
     const fetchModels = useCallback(async (key: string) => {
         if (!key.trim()) return;
@@ -333,13 +316,10 @@ export default function SettingsPage() {
                 setSelectedModel(config.openRouterModel);
             }
             if (config.aiProvider) setAiProvider(config.aiProvider);
-            if (config.googleAiKey) {
-                setGoogleAiKey(config.googleAiKey);
-                fetchGoogleModels(config.googleAiKey);
-            }
+            if (config.googleAiKey) setGoogleAiKey(config.googleAiKey);
             if (config.googleAiModel) setGoogleAiModel(config.googleAiModel);
         }
-    }, [fetchModels, fetchGoogleModels, setApiKey, setDatabase, setHost, setPassword, setPort, setSelectedModel, setSsl, setUser]);
+    }, [fetchModels, setApiKey, setDatabase, setHost, setPassword, setPort, setSelectedModel, setSsl, setUser]);
 
     useEffect(() => {
         setIsMounted(true);
@@ -477,86 +457,6 @@ export default function SettingsPage() {
 
             <QlikSettingsSection />
 
-            {/* AI Provider selector */}
-            <Section title="Admin AI Chat — Fournisseur" subtitle="Choisissez le fournisseur IA utilisé dans l'onglet Admin AI Chat">
-                <div className="flex gap-2">
-                    <button
-                        onClick={() => setAiProvider("openrouter")}
-                        className={`flex-1 py-2.5 px-4 rounded-lg border text-[13px] font-medium transition-colors ${aiProvider === "openrouter" ? "border-[var(--accent)] bg-[var(--accent-bg)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"}`}
-                    >
-                        OpenRouter
-                    </button>
-                    <button
-                        onClick={() => setAiProvider("google")}
-                        className={`flex-1 py-2.5 px-4 rounded-lg border text-[13px] font-medium transition-colors ${aiProvider === "google" ? "border-[var(--accent)] bg-[var(--accent-bg)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"}`}
-                    >
-                        Google AI Studio
-                    </button>
-                </div>
-
-                {aiProvider === "google" && (
-                    <>
-                        <Field label="Clé API Google AI Studio" hint="Disponible sur aistudio.google.com/apikey — commence par AIza...">
-                            <div className="flex gap-2">
-                                <div className="relative flex-1">
-                                    <input
-                                        type={showGoogleKey ? "text" : "password"}
-                                        placeholder="AIzaSy..."
-                                        value={googleAiKey}
-                                        onChange={(e) => setGoogleAiKey(e.target.value)}
-                                        className="apple-input font-mono pr-10"
-                                    />
-                                    <button
-                                        onClick={() => setShowGoogleKey((v) => !v)}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 transition-opacity"
-                                    >
-                                        {showGoogleKey ? <EyeOff className="w-4 h-4" style={{ color: "var(--text-primary)" }} /> : <Eye className="w-4 h-4" style={{ color: "var(--text-primary)" }} />}
-                                    </button>
-                                </div>
-                                <button
-                                    onClick={() => fetchGoogleModels(googleAiKey)}
-                                    disabled={!googleAiKey || googleModelsStatus === "loading"}
-                                    className="apple-btn-secondary h-9 px-4 whitespace-nowrap"
-                                >
-                                    {googleModelsStatus === "loading" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                                    Charger les modèles
-                                </button>
-                            </div>
-                        </Field>
-                        <Field
-                            label={`Modèle Google${googleModels.length > 0 ? ` (${googleModels.length} disponibles)` : ""}`}
-                            hint={googleModelsStatus === "error" ? "⚠ Erreur — vérifiez votre clé puis rechargez" : googleModelsStatus === "idle" ? "Entrez votre clé et cliquez « Charger les modèles »" : undefined}
-                        >
-                            {googleModels.length > 0 ? (
-                                <select
-                                    value={googleAiModel}
-                                    onChange={(e) => setGoogleAiModel(e.target.value)}
-                                    className="apple-input"
-                                >
-                                    {googleModels.map((m) => (
-                                        <option key={m.id} value={m.id}>{m.name}</option>
-                                    ))}
-                                </select>
-                            ) : (
-                                <input
-                                    type="text"
-                                    value={googleAiModel}
-                                    onChange={(e) => setGoogleAiModel(e.target.value)}
-                                    placeholder="ex: gemini-2.0-flash"
-                                    className="apple-input"
-                                />
-                            )}
-                        </Field>
-                    </>
-                )}
-
-                {aiProvider === "openrouter" && (
-                    <p className="text-[12px] text-[var(--text-muted)]">
-                        Utilise la clé OpenRouter configurée ci-dessous et le modèle sélectionné.
-                    </p>
-                )}
-            </Section>
-
             {/* OpenRouter */}
             <Section title="IA Copilot — OpenRouter" subtitle="Clé API pour les analyses de gammes par intelligence artificielle">
                 <Field label="Clé API" hint="Disponible sur openrouter.ai/keys — commence par sk-or-...">
@@ -647,27 +547,6 @@ export default function SettingsPage() {
                         <option value="normal">Normal (40px)</option>
                         <option value="comfortable">Spacieux (48px)</option>
                     </select>
-                </div>
-            </Section>
-
-            {/* Score Produit */}
-            <Section title="Score Produit" subtitle="Formule hybride absolue + relative (v4)">
-                <div className="bg-[var(--surface-tertiary)] rounded-lg p-3 space-y-2">
-                    <p className="text-[11px] text-[var(--text-secondary)]">
-                        <strong>Formule :</strong> Volume (50pts) + CA (30pts) + Marge (20pts) + Bonus relatif (±10pts)
-                    </p>
-                    <p className="text-[11px] text-[var(--text-muted)]">
-                        Le score est basé sur des paliers absolus sensibles au prix unitaire, avec un ajustement relatif selon la position dans le lot fournisseur.
-                    </p>
-                    <div className="border-t border-[var(--border-subtle)] pt-2 mt-2 space-y-1">
-                        <p className="text-[11px] text-[var(--text-secondary)]"><strong>Volume</strong> (0-50 pts) — unités / magasin / mois</p>
-                        <p className="text-[11px] text-[var(--text-secondary)]"><strong>CA</strong> (0-30 pts) — € / magasin / an</p>
-                        <p className="text-[11px] text-[var(--text-secondary)]"><strong>Marge</strong> (0-20 pts) — taux de marge %</p>
-                        <p className="text-[11px] text-[var(--text-secondary)]"><strong>Bonus relatif</strong> (±10 pts) — percentile composite dans le lot</p>
-                    </div>
-                    <p className="text-[11px] text-[var(--text-muted)] mt-2">
-                        Pénalité de régularité appliquée si inactivité prolongée. Score final borné 0-100.
-                    </p>
                 </div>
             </Section>
 

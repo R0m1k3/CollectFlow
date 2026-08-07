@@ -220,6 +220,56 @@ export const apiKeys = pgTable("api_keys", {
   revokedAt: timestamp("revoked_at"),
 });
 
+/**
+ * Paramétrage et suivi de la synchronisation nocturne, un enregistrement par
+ * fournisseur.
+ *
+ * Deux sources aux coûts très différents, donc deux cadences distinctes :
+ * l'instantané SQL prend une minute au pire, l'extraction Qlik jusqu'à huit —
+ * et le serveur Qlik abandonne quand on le sollicite trop. D'où `actifSql` et
+ * `actifQlik` séparés, et deux dates de dernier passage.
+ *
+ * L'ordre de passage se déduit de `dernier*At` (le plus ancien d'abord) : la
+ * nuit suivante reprend donc naturellement là où la précédente s'est arrêtée,
+ * et repart d'elle-même pour un nouveau tour quand tout a été traité. Aucun
+ * curseur ni compteur de tour à maintenir.
+ */
+export const syncFournisseurs = pgTable("sync_fournisseurs", {
+  codeFournisseur: varchar("code_fournisseur", { length: 20 }).primaryKey(),
+  nomFournisseur: varchar("nom_fournisseur", { length: 255 }),
+  /** Inclus dans la rotation de l'instantané SQL. */
+  actifSql: boolean("actif_sql").default(true).notNull(),
+  /** Inclus dans la rotation Qlik (beaucoup plus coûteuse). */
+  actifQlik: boolean("actif_qlik").default(true).notNull(),
+  /**
+   * Renseigné quand le planificateur a désactivé le fournisseur de lui-même —
+   * typiquement « aucun article ». Évite de réessayer chaque nuit un
+   * fournisseur vide, tout en gardant la raison visible pour le réactiver.
+   */
+  desactiveMotif: text("desactive_motif"),
+
+  dernierSqlAt: timestamp("dernier_sql_at"),
+  /** 'succes' | 'echec' | 'vide' */
+  dernierSqlStatut: varchar("dernier_sql_statut", { length: 20 }),
+  dernierSqlLignes: integer("dernier_sql_lignes"),
+  dernierSqlErreur: text("dernier_sql_erreur"),
+  dernierSqlMs: integer("dernier_sql_ms"),
+
+  dernierQlikAt: timestamp("dernier_qlik_at"),
+  dernierQlikStatut: varchar("dernier_qlik_statut", { length: 20 }),
+  dernierQlikCodes: integer("dernier_qlik_codes"),
+  dernierQlikErreur: text("dernier_qlik_erreur"),
+  dernierQlikMs: integer("dernier_qlik_ms"),
+
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => {
+  return [
+    // Index de file d'attente : « le plus ancien d'abord », par source.
+    index("idx_sync_fou_sql").on(table.actifSql, table.dernierSqlAt),
+    index("idx_sync_fou_qlik").on(table.actifQlik, table.dernierQlikAt),
+  ];
+});
+
 /** AI Context rules per supplier (Epic: AI Context) */
 export const aiSupplierContext = pgTable("ai_supplier_context", {
   /** Supplier code serving as the primary key */
