@@ -260,17 +260,17 @@ function TuileStat({ label, valeur, indice, couleur, icone: Icone }: {
     icone?: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
 }) {
     return (
-        <div className="rounded-xl px-3 py-2.5 flex-1 min-w-[140px]" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
-            <div className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+        <div className="rounded-xl px-3.5 py-3 flex-1 min-w-[160px]" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
+            <div className="text-[12px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
                 {label}
             </div>
-            <div className="flex items-center gap-1.5 mt-0.5">
-                {Icone && <Icone className="w-4 h-4 shrink-0" style={{ color: couleur ?? "var(--text-primary)" }} />}
-                <span className="text-[20px] font-bold leading-tight" style={{ color: couleur ?? "var(--text-primary)" }}>
+            <div className="flex items-center gap-1.5 mt-1">
+                {Icone && <Icone className="w-5 h-5 shrink-0" style={{ color: couleur ?? "var(--text-primary)" }} />}
+                <span className="text-[26px] font-bold leading-tight" style={{ color: couleur ?? "var(--text-primary)" }}>
                     {valeur}
                 </span>
             </div>
-            {indice && <div className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>{indice}</div>}
+            {indice && <div className="text-[12px] mt-1 leading-snug" style={{ color: "var(--text-muted)" }}>{indice}</div>}
         </div>
     );
 }
@@ -300,12 +300,12 @@ function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () =>
             : "—";
 
     return (
-        <DialogContent className="max-w-xl" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }} onInteractOutside={onClose}>
+        <DialogContent className="max-w-2xl" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }} onInteractOutside={onClose}>
             <DialogHeader>
-                <DialogTitle className="text-base leading-snug pr-6" style={{ color: "var(--text-primary)" }}>
+                <DialogTitle className="text-lg leading-snug pr-6" style={{ color: "var(--text-primary)" }}>
                     {row.libelle1}
                 </DialogTitle>
-                <p className="text-[12px] mt-0.5" style={{ color: "var(--text-muted)" }}>
+                <p className="text-[13px] mt-1" style={{ color: "var(--text-muted)" }}>
                     Réseau · 12 mois glissants, mois en cours exclu
                 </p>
             </DialogHeader>

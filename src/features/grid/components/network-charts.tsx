@@ -135,7 +135,9 @@ export function NetworkLineChart({
     }
 
     const W = 520;
-    const padL = 16, padR = 16, axeH = 18, enteteH = 15, ecart = 12;
+    // Bandeau et axe dimensionnés pour la typographie ci-dessous : agrandir les
+    // polices sans élargir ces bandes ferait chevaucher titres et courbes.
+    const padL = 16, padR = 16, axeH = 24, enteteH = 21, ecart = 14;
     const plotW = W - padL - padR;
     const H = facettes.reduce((t, f) => t + enteteH + f.hauteur + ecart, 0) - ecart + axeH;
 
@@ -170,7 +172,7 @@ export function NetworkLineChart({
                             key={v}
                             type="button"
                             onClick={() => setVue(v)}
-                            className="px-2.5 py-0.5 text-[10px] font-semibold rounded-md transition-colors capitalize"
+                            className="px-3 py-1 text-[12px] font-semibold rounded-md transition-colors capitalize"
                             style={vue === v
                                 ? { background: "var(--bg-surface)", color: "var(--text-primary)" }
                                 : { color: "var(--text-muted)" }}
@@ -204,11 +206,11 @@ export function NetworkLineChart({
                     return (
                         <g key={f.titre}>
                             {/* Bandeau de facette : repère coloré + titre + maximum, en encre neutre */}
-                            <rect x={padL} y={f.hautEntete + 3} width={12} height={3} rx={1.5} fill={f.couleur} />
-                            <text x={padL + 18} y={f.hautEntete + 7} fontSize={9.5} fontWeight={600} fill="var(--text-secondary)" dominantBaseline="middle">
+                            <rect x={padL} y={f.hautEntete + 6} width={14} height={4} rx={2} fill={f.couleur} />
+                            <text x={padL + 20} y={f.hautEntete + 9} fontSize={13} fontWeight={700} fill="var(--text-secondary)" dominantBaseline="middle">
                                 {f.titre}
                             </text>
-                            <text x={padL + plotW} y={f.hautEntete + 7} textAnchor="end" fontSize={9} fill="var(--text-muted)" dominantBaseline="middle">
+                            <text x={padL + plotW} y={f.hautEntete + 9} textAnchor="end" fontSize={11.5} fill="var(--text-muted)" dominantBaseline="middle">
                                 max {fmt(f.max, f.decimales ?? 0)}{f.unite ?? ""}
                             </text>
 
@@ -242,14 +244,14 @@ export function NetworkLineChart({
                                 // bandeau de la facette (constaté au rendu : « 58 » par-dessus
                                 // « Qté / magasin »). Dans ce cas elle bascule SOUS le point.
                                 const yPoint = f.y(f.valeurs[i]);
-                                const dessus = yPoint - 8 >= f.haut + 8;
+                                const dessus = yPoint - 11 >= f.haut + 8;
                                 return (
                                     <text
                                         key={`lab-${f.titre}-${i}`}
                                         x={x(i)}
-                                        y={dessus ? yPoint - 8 : yPoint + 13}
+                                        y={dessus ? yPoint - 10 : yPoint + 16}
                                         textAnchor={ancrage(i)}
-                                        fontSize={9}
+                                        fontSize={12.5}
                                         fontWeight={700}
                                         fill="var(--text-primary)"
                                     >
@@ -283,9 +285,9 @@ export function NetworkLineChart({
                     <text
                         key={`mois-${lab}`}
                         x={x(i)}
-                        y={H - 5}
+                        y={H - 7}
                         textAnchor={ancrage(i)}
-                        fontSize={8.5}
+                        fontSize={11}
                         fill={survol === i ? "var(--text-primary)" : "var(--text-muted)"}
                         fontWeight={survol === i ? 700 : 400}
                     >
@@ -300,8 +302,8 @@ export function NetworkLineChart({
                     plus jamais. `pointerEvents=none` laisse passer le survol vers les
                     cibles en dessous. */}
                 {survol != null && (() => {
-                    const largeur = 158;
-                    const hauteur = 16 + disposees.length * 13 + 8;
+                    const largeur = 196;
+                    const hauteur = 22 + disposees.length * 17 + 8;
                     // La bulle bascule à gauche du réticule quand elle déborderait à droite.
                     const gauche = x(survol) + 10 + largeur > W - 4;
                     const bx = gauche ? x(survol) - 10 - largeur : x(survol) + 10;
@@ -311,18 +313,18 @@ export function NetworkLineChart({
                                 x={bx} y={4} width={largeur} height={hauteur} rx={8}
                                 fill="var(--bg-elevated)" stroke="var(--border)" strokeWidth={1}
                             />
-                            <text x={bx + 9} y={17} fontSize={9.5} fontWeight={700} fill="var(--text-primary)">
+                            <text x={bx + 11} y={21} fontSize={12.5} fontWeight={700} fill="var(--text-primary)">
                                 {fmtMonthShort(labels[survol])}
                             </text>
                             {disposees.map((f, k) => (
                                 <g key={`bulle-${f.titre}`}>
-                                    <rect x={bx + 9} y={26 + k * 13} width={8} height={3} rx={1.5} fill={f.couleur} />
-                                    <text x={bx + 22} y={30 + k * 13} fontSize={9} fill="var(--text-secondary)">
+                                    <rect x={bx + 11} y={33 + k * 17} width={10} height={4} rx={2} fill={f.couleur} />
+                                    <text x={bx + 26} y={38 + k * 17} fontSize={11.5} fill="var(--text-secondary)">
                                         {f.titre}
                                     </text>
                                     <text
-                                        x={bx + largeur - 9} y={30 + k * 13}
-                                        textAnchor="end" fontSize={9} fontWeight={700} fill="var(--text-primary)"
+                                        x={bx + largeur - 11} y={38 + k * 17}
+                                        textAnchor="end" fontSize={11.5} fontWeight={700} fill="var(--text-primary)"
                                     >
                                         {fmt(f.valeurs[survol], f.decimales ?? 0)}
                                     </text>
@@ -353,7 +355,7 @@ export function NetworkLineChart({
                 du graphique et défile à l'intérieur : la carte garde sa taille, et
                 aucune valeur n'est réservée au survol. */
             <div style={{ height: H }} className="overflow-y-auto overflow-x-auto">
-                <table className="w-full text-[11px] tabular-nums" style={{ borderCollapse: "collapse" }}>
+                <table className="w-full text-[13px] tabular-nums" style={{ borderCollapse: "collapse" }}>
                     <thead className="sticky top-0" style={{ background: "var(--bg-surface)" }}>
                         <tr style={{ color: "var(--text-muted)" }}>
                             <th className="text-left font-medium py-1 pr-2">Mois</th>
@@ -408,7 +410,7 @@ export function DualLineChart({
         <div className="w-full overflow-x-auto">
             <div className="flex items-center gap-4 mb-1">
                 {series.map((s) => (
-                    <span key={s.name} className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                    <span key={s.name} className="flex items-center gap-1.5 text-[12px]" style={{ color: "var(--text-secondary)" }}>
                         <span className="inline-block w-3 h-[3px] rounded-full" style={{ background: s.color }} />
                         {s.name}
                     </span>
