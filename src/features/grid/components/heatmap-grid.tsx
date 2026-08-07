@@ -413,10 +413,14 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
     // Filtre client-side par code3 (famille) et codeGamme
     const filteredData = useMemo(() => {
         const { code3, codeGamme } = filters;
-        if (!code3 && !codeGamme) return rows;
+        // Garde : un état persisté d'une version antérieure peut encore contenir
+        // une chaîne. La migration du store le corrige, mais un `new Set("320211")`
+        // produirait un ensemble de caractères et viderait la Grille sans rien dire.
+        const codes = Array.isArray(code3) ? code3 : typeof code3 === "string" ? [code3] : null;
+        if (!codes && !codeGamme) return rows;
         // Set plutôt que includes() : la liste peut compter des dizaines de
         // nomenclatures, et le filtre est réévalué pour chaque ligne.
-        const nomenclatures = code3 ? new Set(code3) : null;
+        const nomenclatures = codes ? new Set(codes) : null;
         return rows.filter(r => {
             if (nomenclatures && !nomenclatures.has(r.code3)) return false;
             if (codeGamme) {

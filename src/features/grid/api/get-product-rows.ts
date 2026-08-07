@@ -288,6 +288,25 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
                     product.caByStore[site]       = sCa;
                     product.margeByStore[site]    = sMarge;
                 }
+
+                // Le stock TOTAL se recalcule ici, à partir des séries par site.
+                //
+                // Il était sommé plus haut depuis les lignes mensuelles brutes, ce
+                // qui perdait tout magasin SANS MOUVEMENT dans le mois : le stock
+                // est un niveau, pas un flux — un magasin qui n'a rien vendu ni reçu
+                // détient toujours sa marchandise. Sur un produit à faible rotation,
+                // « tous magasins » n'affichait donc que le site actif, en pratique
+                // Frouard. Les séries par site, elles, sont reportées d'un mois sur
+                // l'autre : leur somme est la bonne.
+                const sites = Object.keys(product.stock12mByStore);
+                if (sites.length > 0) {
+                    for (const periode of sortedPeriods) {
+                        product.stock12m[periode] = sites.reduce(
+                            (total, site) => total + (product.stock12mByStore![site][periode] ?? 0),
+                            0,
+                        );
+                    }
+                }
             }
 
             // workingStores : sites avec au moins 1 vente sur les 12 derniers mois
@@ -396,7 +415,14 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
 
     } catch (error) {
         console.error(`[getProductRows] Error for ${codeFournisseur}:`, error);
-        return [];
+        // Ne PAS renvoyer [] : une liste vide est indiscernable d'un fournisseur
+        // sans article. La Grille affichait une page blanche sans explication, et
+        // la synchro nocturne prenait la panne pour un fournisseur vide — qu'elle
+        // désactivait alors automatiquement. La remonter laisse chaque appelant la
+        // traiter comme une erreur (bandeau rouge, statut « echec »).
+        throw error instanceof Error
+            ? error
+            : new Error(`Calcul de la grille impossible pour ${codeFournisseur} : ${String(error)}`);
     }
 }
 
@@ -417,9 +443,22 @@ async function reconcileSelectedStoreFromMensuelApi(
 
     if (candidates.length === 0) return;
 
+    // Ce rattrapage fait UNE requête HTTP par article : sur un gros fournisseur,
+    // les candidats se comptent par milliers et le changement de magasin se fige
+    // plusieurs minutes. On le borne, et on dit ce qui a été laissé de côté
+    // plutôt que de tronquer en silence.
+    const PLAFOND = Number(process.env.GRID_STORE_RECONCILE_MAX ?? 300);
+    const retenus = candidates.slice(0, PLAFOND);
+    if (candidates.length > retenus.length) {
+        console.warn(
+            `[getProductRows] rattrapage magasin ${magasin} borné à ${retenus.length} articles`
+            + ` sur ${candidates.length} : les autres gardent la valeur SQL.`,
+        );
+    }
+
     try {
         const mensuelMap = await getMensuelByArticles(
-            candidates.map((row) => ({
+            retenus.map((row) => ({
                 codein: row.codein,
                 libelle1: row.libelle1,
                 codefou: row.codeFournisseur,
@@ -431,7 +470,7 @@ async function reconcileSelectedStoreFromMensuelApi(
         );
 
         let fixedRows = 0;
-        for (const row of candidates) {
+        for (const row of retenus) {
             const entries = (mensuelMap.get(row.codein) ?? []).filter((entry) => entry.site === magasin);
             if (entries.length === 0) continue;
 

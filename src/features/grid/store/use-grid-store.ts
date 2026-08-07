@@ -72,6 +72,12 @@ function computeSummary(rows: ProductRow[], drafts: Record<string, GammeCode>, m
     };
 }
 
+/** Sous-ensemble réellement écrit dans le navigateur (cf. `partialize`). */
+type GridPersisted = Pick<
+    GridState,
+    "filters" | "displayDensity" | "draftChanges" | "activeGridQuery" | "columnVisibility" | "columnSizing"
+>;
+
 export const useGridStore = create<GridState>()(
     persist(
         (set, get) => ({
@@ -219,8 +225,24 @@ export const useGridStore = create<GridState>()(
         }),
         {
             name: "collectflow-grid-storage",
+            /**
+             * v1 — `filters.code3` est passé d'une chaîne unique à `string[] | null`
+             * (filtre multi-nomenclatures). Sans migration, la valeur déjà présente
+             * dans le navigateur restait une chaîne : `new Set("320211")` produit un
+             * ensemble de caractères, plus aucune ligne ne correspond, et la Grille
+             * apparaît vide. Le numéro de version force la reprise de l'existant.
+             */
+            version: 1,
+            migrate: (persisted: unknown, version: number): GridPersisted => {
+                const etat = (persisted ?? {}) as GridPersisted & { filters?: Record<string, unknown> };
+                if (version < 1 && etat.filters) {
+                    const c = etat.filters.code3;
+                    etat.filters.code3 = typeof c === "string" && c !== "" ? [c] : Array.isArray(c) ? c : null;
+                }
+                return etat;
+            },
             // Only persist filters, display density, drafts, active grid query, and column visibility/sizing
-            partialize: (state) => ({
+            partialize: (state): GridPersisted => ({
                 filters: state.filters,
                 displayDensity: state.displayDensity,
                 draftChanges: state.draftChanges,
