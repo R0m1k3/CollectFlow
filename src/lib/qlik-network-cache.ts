@@ -42,10 +42,19 @@ export async function getNetworkMetricsByCodeCentrale(
     const unique = [...new Set(codes.filter(Boolean))];
     if (unique.length === 0) return out;
 
-    const rows = await db
-        .select()
-        .from(qlikNetworkMetrics)
-        .where(inArray(qlikNetworkMetrics.codeCentrale, unique));
+    // Découpage obligatoire : `inArray` produit un paramètre lié par valeur, or le
+    // protocole PostgreSQL en accepte 65535 au maximum. Un gros fournisseur peut
+    // dépasser 130 000 codes — la requête échouait alors purement et simplement.
+    const CHUNK = 2000;
+    const rows: Array<typeof qlikNetworkMetrics.$inferSelect> = [];
+    for (let i = 0; i < unique.length; i += CHUNK) {
+        const batch = unique.slice(i, i + CHUNK);
+        const part = await db
+            .select()
+            .from(qlikNetworkMetrics)
+            .where(inArray(qlikNetworkMetrics.codeCentrale, batch));
+        rows.push(...part);
+    }
 
     for (const r of rows) {
         out.set(r.codeCentrale, {

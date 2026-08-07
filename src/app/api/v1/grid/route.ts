@@ -77,7 +77,7 @@ export async function GET(req: NextRequest) {
         computedOnDemand = true;
     }
 
-    const result = await queryGridRows({
+    const filtres = {
         codeFournisseur: q.fournisseur,
         gamme: q.gamme,
         code1: q.code1,
@@ -86,16 +86,21 @@ export async function GET(req: NextRequest) {
         search: q.search,
         sort: toSortKey(q.sort),
         order: q.order,
-        page: q.page,
-        limit: q.limit,
-    });
+    };
+
+    // Sans `limit`, la réponse peut porter tout un fournisseur — et certains en
+    // comptent plus de 130 000. Tout charger puis tout sérialiser d'un bloc ferait
+    // exploser la mémoire du processus : on diffuse par lots, à mémoire constante.
+    if (q.limit == null) {
+        return streamAllRows(req, filtres, q, freshness, computedOnDemand);
+    }
+
+    const result = await queryGridRows({ ...filtres, page: q.page, limit: q.limit });
 
     // Métriques Qlik et gamme serveur relues au moment de l'appel (voir api-enrich).
     const rows = q.enrich === "1" ? await enrichRows(result.rows) : result.rows;
 
-    // Sans `limit`, tout a été renvoyé : la pagination doit le refléter (une seule
-    // page couvrant le total), sinon `hasMore` mentirait.
-    const pagination = buildPagination(q.page, q.limit ?? Math.max(1, result.total), result.total);
+    const pagination = buildPagination(q.page, q.limit, result.total);
 
     return ok(
         rows.map((r) => pickFields(r, q.fields)),
@@ -126,4 +131,92 @@ export async function GET(req: NextRequest) {
             },
         },
     );
+}
+
+/** Lots internes : compromis entre nombre d'allers-retours SQL et mémoire retenue. */
+const STREAM_BATCH = 1000;
+
+type Filtres = Parameters<typeof queryGridRows>[0];
+
+/**
+ * Diffuse **toutes** les lignes du fournisseur en une seule réponse JSON, sans
+ * jamais la construire entièrement en mémoire.
+ *
+ * La forme reste celle des autres réponses (`{ data, pagination, meta }`) : un
+ * client existant ne voit aucune différence, il reçoit simplement les octets au
+ * fil de l'eau. `pagination` et `meta` sont écrits en dernier, une fois le total
+ * connu — l'ordre des clés n'a aucune importance en JSON.
+ *
+ * Une erreur survenant après les premiers octets ne peut plus changer le code
+ * HTTP : on ferme alors le document avec `meta.erreur`, pour que l'appelant
+ * détecte une réponse tronquée au lieu de la croire complète.
+ */
+function streamAllRows(
+    req: NextRequest,
+    filtres: Filtres,
+    q: { enrich: string; fields?: string; fournisseur: string },
+    freshness: { rowCount: number; computedAt: string | null },
+    computedOnDemand: boolean,
+): Response {
+    const encoder = new TextEncoder();
+
+    const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+            const write = (s: string) => controller.enqueue(encoder.encode(s));
+            let envoyees = 0;
+            let total = 0;
+            let computedAt: string | null = null;
+            let erreur: string | null = null;
+
+            write('{"data":[');
+            try {
+                for (let page = 1; ; page++) {
+                    const lot = await queryGridRows({ ...filtres, page, limit: STREAM_BATCH });
+                    if (page === 1) {
+                        total = lot.total;
+                        computedAt = lot.computedAt;
+                    }
+                    if (lot.rows.length === 0) break;
+
+                    const enrichies = q.enrich === "1" ? await enrichRows(lot.rows) : lot.rows;
+                    for (const r of enrichies) {
+                        write((envoyees === 0 ? "" : ",") + JSON.stringify(pickFields(r, q.fields)));
+                        envoyees++;
+                    }
+                    if (lot.rows.length < STREAM_BATCH) break;
+                }
+            } catch (e) {
+                erreur = e instanceof Error ? e.message : String(e);
+                console.error(`[api/v1/grid] diffusion interrompue pour ${q.fournisseur} après ${envoyees} lignes:`, erreur);
+            }
+
+            const complet = erreur === null && envoyees === total;
+            write("]," + JSON.stringify({
+                pagination: { page: 1, limit: envoyees, total, totalPages: 1, hasMore: !complet },
+                meta: {
+                    fournisseur: q.fournisseur,
+                    computedAt,
+                    snapshotComputedAt: freshness.computedAt,
+                    snapshotRowCount: freshness.rowCount,
+                    enrichi: q.enrich === "1",
+                    computedOnDemand,
+                    diffuse: true,
+                    complet,
+                    ...(erreur
+                        ? { erreur: `Diffusion interrompue après ${envoyees} lignes sur ${total} : ${erreur}` }
+                        : {}),
+                },
+            }).slice(1));
+            controller.close();
+        },
+    });
+
+    return new Response(stream, {
+        headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store",
+            // Empêche un proxy de tamponner la réponse entière avant de la relayer.
+            "X-Accel-Buffering": "no",
+        },
+    });
 }

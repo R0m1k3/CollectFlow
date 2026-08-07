@@ -314,22 +314,29 @@ export async function pgGetGammesByCodeins(codeins: string[]): Promise<Map<strin
     const unique = [...new Set(codeins.map(c => String(c ?? "").trim()).filter(Boolean))];
     if (unique.length === 0) return new Map();
 
-    // DISTINCT ON (codein) → 1 gamme par article, saison la plus récente en premier.
-    const result = await pgNoParallel(sql`
-        SELECT DISTINCT ON (a.codein)
-            TRIM(a.codein::text) AS codein,
-            g.code AS gamme_code
-        FROM art_gamme_saison ags
-        JOIN articles a ON a.no_id = ags.artnoid
-        JOIN gammes g   ON g.no_id = ags.idgamme
-        JOIN saisons s  ON s.no_id = ags.idsaison
-        WHERE TRIM(a.codein::text) IN (${sql.join(unique.map(c => sql`${c}`), sql`, `)})
-        ORDER BY a.codein, s.no_id DESC
-    `);
-
+    // Découpage obligatoire : chaque codein devient un paramètre lié, or PostgreSQL
+    // en accepte 65535 au maximum. Un gros fournisseur dépasse 130 000 articles —
+    // la requête échouait alors purement et simplement.
+    const CHUNK = 2000;
     const map = new Map<string, string>();
-    for (const row of result.rows as unknown as { codein: string; gamme_code: string }[]) {
-        if (row.codein && row.gamme_code) map.set(row.codein, String(row.gamme_code).trim());
+
+    for (let i = 0; i < unique.length; i += CHUNK) {
+        const batch = unique.slice(i, i + CHUNK);
+        // DISTINCT ON (codein) → 1 gamme par article, saison la plus récente en premier.
+        const result = await pgNoParallel(sql`
+            SELECT DISTINCT ON (a.codein)
+                TRIM(a.codein::text) AS codein,
+                g.code AS gamme_code
+            FROM art_gamme_saison ags
+            JOIN articles a ON a.no_id = ags.artnoid
+            JOIN gammes g   ON g.no_id = ags.idgamme
+            JOIN saisons s  ON s.no_id = ags.idsaison
+            WHERE TRIM(a.codein::text) IN (${sql.join(batch.map(c => sql`${c}`), sql`, `)})
+            ORDER BY a.codein, s.no_id DESC
+        `);
+        for (const row of result.rows as unknown as { codein: string; gamme_code: string }[]) {
+            if (row.codein && row.gamme_code) map.set(row.codein, String(row.gamme_code).trim());
+        }
     }
     console.log(`[pg-ff] pgGetGammesByCodeins: ${map.size}/${unique.length} articles avec gamme`);
     return map;
