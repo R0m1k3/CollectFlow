@@ -83,6 +83,7 @@ export async function GET(req: NextRequest) {
         code1: q.code1,
         code2: q.code2,
         code3: q.code3,
+        nomenclature: q.nomenclature,
         search: q.search,
         sort: toSortKey(q.sort),
         order: q.order,

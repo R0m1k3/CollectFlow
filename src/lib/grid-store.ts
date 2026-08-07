@@ -44,6 +44,8 @@ export interface GridQuery {
     code1?: string;
     code2?: string;
     code3?: string;
+    /** Préfixe de nomenclature (« 32 », « 3202 », « 320211 ») — filtre sur code3. */
+    nomenclature?: string;
     /** Recherche libre : libellé, codein, GTIN, référence, code centrale. */
     search?: string;
     sort?: GridSortKey;
@@ -153,6 +155,10 @@ function buildWhere(q: GridQuery): SQL | undefined {
     if (q.code1) clauses.push(eq(gridRows.code1, q.code1));
     if (q.code2) clauses.push(eq(gridRows.code2, q.code2));
     if (q.code3) clauses.push(eq(gridRows.code3, q.code3));
+    // Filtre par **préfixe** de nomenclature : « 32 », « 3202 » ou « 320211 ».
+    // C'est celui à utiliser avec /api/v1/nomenclatures, car il ne dépend pas de
+    // code1/code2 — parfois vides quand la hiérarchie n'a pas pu être remontée.
+    if (q.nomenclature) clauses.push(sql`${gridRows.code3} like ${q.nomenclature + "%"}`);
     const search = q.search?.trim();
     if (search) {
         const pattern = `%${search}%`;
@@ -292,13 +298,23 @@ export interface GridNomenclature {
     totalQuantite: number;
 }
 
+/** Longueur du code pour chaque niveau : « 32 » → « 3202 » → « 320211 ». */
+export const NOMENCLATURE_LONGUEURS: Record<1 | 2 | 3, number> = { 1: 2, 2: 4, 3: 6 };
+
 /**
  * Répartition des articles d'un fournisseur par niveau de nomenclature.
  *
  * Sans cela, un appelant qui veut découper un gros fournisseur par nomenclature
- * est coincé : les filtres `code1..3` existent sur `/grid`, mais rien ne lui dit
- * **quelles** valeurs existent — il devrait tout télécharger pour les découvrir,
- * ce qui annule le bénéfice du découpage.
+ * est coincé : le filtre existe sur `/grid`, mais rien ne lui dit **quelles**
+ * valeurs existent — il devrait tout télécharger pour les découvrir, ce qui
+ * annule le bénéfice du découpage.
+ *
+ * Les niveaux sont dérivés par **préfixe de `code3`** (codes hiérarchiques à 6
+ * chiffres, de 31xxxx à 40xxxx), et non des colonnes `code1`/`code2`. Celles-ci
+ * ne sont renseignées que si `pgGetNomenclatureByFournisseur` a su remonter la
+ * hiérarchie, ce qui dépend d'une détection heuristique de la colonne parent de
+ * la table `nomenclature` ; quand elle échoue, seul `code3` est rempli. Le
+ * préfixe, lui, est toujours disponible.
  *
  * Tout est agrégé en SQL : la réponse fait quelques dizaines de lignes, même pour
  * un fournisseur de 130 000 articles.
@@ -308,20 +324,23 @@ export async function listGridNomenclatures(
     niveau: 1 | 2 | 3,
     parent?: string,
 ): Promise<GridNomenclature[]> {
-    const codeCol = niveau === 1 ? gridRows.code1 : niveau === 2 ? gridRows.code2 : gridRows.code3;
-    // Les libellés ne sont pas dénormalisés en colonnes : on les lit dans le payload.
+    const longueur = NOMENCLATURE_LONGUEURS[niveau];
+    const codeExpr = sql<string>`left(${gridRows.code3}, ${longueur})`;
+    // Les libellés n'ont pas de colonne dédiée : on les lit dans le payload.
+    // Aux niveaux 1 et 2 ils peuvent être absents (même cause que ci-dessus) ;
+    // le code et les compteurs, eux, restent justes.
     const libelleKey = niveau === 1 ? "libelleNiveau1" : niveau === 2 ? "libelleNiveau2" : "libelle3";
-    const parentCol = niveau === 2 ? gridRows.code1 : niveau === 3 ? gridRows.code2 : null;
 
     const clauses: SQL[] = [
         eq(gridRows.codeFournisseur, codeFournisseur),
-        sql`${codeCol} is not null and ${codeCol} <> ''`,
+        sql`${gridRows.code3} is not null and length(${gridRows.code3}) >= ${longueur}`,
     ];
-    if (parent && parentCol) clauses.push(eq(parentCol, parent));
+    // `parent` est lui aussi un préfixe : « 32 » pour descendre au niveau 2.
+    if (parent) clauses.push(sql`${gridRows.code3} like ${parent + "%"}`);
 
     const rows = await db
         .select({
-            code: codeCol,
+            code: codeExpr,
             libelle: sql<string | null>`max(${gridRows.payload} ->> ${libelleKey})`,
             nbArticles: sql<number>`count(*)::int`,
             totalCa: sql<number>`coalesce(sum(${gridRows.totalCa}), 0)::float`,
@@ -329,7 +348,7 @@ export async function listGridNomenclatures(
         })
         .from(gridRows)
         .where(and(...clauses))
-        .groupBy(codeCol)
+        .groupBy(codeExpr)
         .orderBy(desc(sql`coalesce(sum(${gridRows.totalCa}), 0)`));
 
     return rows.map((r) => ({

@@ -46,6 +46,12 @@ export const gridQuerySchema = z.object({
     code1: z.string().min(1).optional(),
     code2: z.string().min(1).optional(),
     code3: z.string().min(1).optional(),
+    /**
+     * Préfixe de nomenclature (« 32 », « 3202 », « 320211 »), tel que renvoyé par
+     * /api/v1/nomenclatures. À préférer à code1/code2, qui peuvent être vides
+     * quand la hiérarchie n'a pas pu être remontée depuis la base FF.
+     */
+    nomenclature: z.string().min(1).max(20).regex(/^[0-9]+$/, "La nomenclature doit être un préfixe numérique (ex. 32, 3202, 320211)").optional(),
     search: z.string().min(1).optional(),
     /**
      * `1` (défaut) : si le fournisseur n'a pas encore d'instantané, l'API le calcule

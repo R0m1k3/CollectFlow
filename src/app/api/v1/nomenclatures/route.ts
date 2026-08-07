@@ -16,10 +16,11 @@ export const dynamic = "force-dynamic";
  * C'est la porte d'entrée pour traiter un gros fournisseur : certains dépassent
  * 130 000 articles, et tout récupérer d'un coup n'a de sens ni pour une IA ni
  * pour une application. On liste d'abord les postes — quelques dizaines de
- * lignes — puis on interroge `/grid?fournisseur=…&code1=…` poste par poste.
+ * lignes — puis on interroge `/grid?fournisseur=…&nomenclature=…` poste par poste.
  *
- * `niveau=2` accepte `parent` (un code1) et `niveau=3` un `parent` (un code2),
- * pour descendre l'arborescence sans tout charger.
+ * Les codes sont hiérarchiques par préfixe (6 chiffres, de 31xxxx à 40xxxx) :
+ * niveau 1 = « 32 », niveau 2 = « 3202 », niveau 3 = « 320211 ». `parent` accepte
+ * un préfixe pour descendre l'arborescence sans tout charger.
  */
 export async function GET(req: NextRequest) {
     const authCtx = await requireApiAuth(req);
@@ -54,8 +55,11 @@ export async function GET(req: NextRequest) {
             nbArticles,
             snapshotRowCount: freshness.rowCount,
             snapshotComputedAt: freshness.computedAt,
-            /** Le paramètre de /grid à utiliser pour filtrer sur un poste de ce niveau. */
-            filtreGrid: `code${niveau}`,
+            /**
+             * Le paramètre de /grid à utiliser avec les `code` renvoyés ci-dessus.
+             * `nomenclature` filtre par préfixe et fonctionne aux trois niveaux.
+             */
+            filtreGrid: "nomenclature",
         },
     });
 }

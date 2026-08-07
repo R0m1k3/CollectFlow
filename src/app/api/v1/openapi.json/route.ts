@@ -220,7 +220,7 @@ export async function GET(req: NextRequest) {
                     parameters: [
                         { name: "fournisseur", in: "query", required: true, schema: { type: "string" } },
                         { name: "niveau", in: "query", schema: { type: "integer", enum: [1, 2, 3], default: 1 }, description: "1 = univers, 2 = famille, 3 = sous-famille." },
-                        { name: "parent", in: "query", schema: { type: "string" }, description: "Restreint à un poste parent : un code1 si niveau=2, un code2 si niveau=3." },
+                        { name: "parent", in: "query", schema: { type: "string" }, description: "Préfixe du poste parent, ex. « 32 » pour lister ses familles." },
                     ],
                     responses: {
                         "200": {
@@ -269,7 +269,8 @@ export async function GET(req: NextRequest) {
                         { name: "gamme", in: "query", schema: { type: "string" }, description: "Filtre sur la gamme (A, B, C, D, Z)." },
                         { name: "code1", in: "query", schema: { type: "string" }, description: "Filtre nomenclature niveau 1." },
                         { name: "code2", in: "query", schema: { type: "string" }, description: "Filtre nomenclature niveau 2." },
-                        { name: "code3", in: "query", schema: { type: "string" }, description: "Filtre nomenclature niveau 3." },
+                        { name: "code3", in: "query", schema: { type: "string" }, description: "Filtre nomenclature niveau 3 (code exact)." },
+                        { name: "nomenclature", in: "query", schema: { type: "string" }, description: "Préfixe de nomenclature renvoyé par listerNomenclaturesFournisseur : 32, 3202 ou 320211. À préférer à code1/code2, qui peuvent être vides." },
                         { name: "search", in: "query", schema: { type: "string" }, description: "Filtre texte : libellé, codein, GTIN, référence ou code centrale." },
                         {
                             name: "compute",

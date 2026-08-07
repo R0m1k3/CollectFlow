@@ -54,7 +54,8 @@ const PARAMS: Array<{ name: string; desc: string }> = [
     { name: "page, limit", desc: "Pagination, sans plafond. Sur /grid, omettre limit renvoie TOUT le fournisseur en un appel ; ailleurs le défaut est 100" },
     { name: "sort, order", desc: "Tri, ex. sort=totalCa&order=desc" },
     { name: "search", desc: "Libellé, codein, GTIN, référence ou code centrale" },
-    { name: "gamme, code1..code3", desc: "Filtres sur la gamme et la nomenclature" },
+    { name: "nomenclature", desc: "Préfixe de nomenclature : 32 (univers), 3202 (famille), 320211 (sous-famille)" },
+    { name: "gamme, code1..code3", desc: "Filtres sur la gamme et les codes exacts de nomenclature" },
     { name: "fields", desc: "Champs à conserver, séparés par des virgules — allège fortement la réponse" },
     { name: "enrich", desc: "1 par défaut : métriques Qlik + gamme serveur relues à l'appel. 0 pour s'en dispenser" },
     { name: "compute", desc: "1 par défaut : calcule le fournisseur s'il n'a jamais été ouvert (premier appel plus lent). 0 pour échouer vite" },
@@ -133,7 +134,7 @@ export function ApiConnectionInfo() {
                     postes de nomenclature, puis les traiter un par un.
                 </p>
                 <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/nomenclatures?fournisseur=D005&niveau=1"`}</CodeLine>
-                <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/grid?fournisseur=D005&code1=32"`}</CodeLine>
+                <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/grid?fournisseur=D005&nomenclature=32"`}</CodeLine>
             </div>
 
             {/* Branchement d'une IA externe (ChatGPT) */}
