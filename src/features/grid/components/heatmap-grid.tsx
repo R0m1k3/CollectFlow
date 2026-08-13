@@ -180,15 +180,27 @@ interface VirtualRowProps {
     row: Row<ProductRow>;
     rowHeight: number;
     isSelected: boolean;
-    columnVisibility: Record<string, boolean>;
+    /** Identifiants des colonnes visibles, concaténés — cf. le corps du composant. */
+    columnsKey: string;
     columnSizing: Record<string, number>;
 }
 
-const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnVisibility, columnSizing }: VirtualRowProps) => {
+const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnsKey, columnSizing }: VirtualRowProps) => {
     // Uniquement la ligne concernée écoute son propre changement pour l'effet visuel
     const effectiveGamme = useGridStore((s) => s.draftChanges[row.original.codein] ?? row.original.codeGamme);
-    void columnVisibility; // Force re-render via React.memo when visibility changes
-    void columnSizing; // Force re-render via React.memo when resizing columns
+    // ⚠️ Ces deux props ne sont pas lues : elles n'existent que pour rompre la
+    // mémoïsation. TanStack met ses objets `Row` en cache sur la seule identité
+    // des DONNÉES ; changer le jeu de colonnes ne leur donne aucune référence
+    // neuve. Sans un signal supplémentaire, `React.memo` laisserait les lignes
+    // déjà montées peindre l'ancien jeu de cellules pendant que l'en-tête, lui,
+    // affiche le nouveau — seules les lignes fraîchement virtualisées seraient à
+    // jour, et la grille se retrouverait à deux vitesses.
+    //
+    // La signature couvre TOUT changement de colonnes (case décochée dans le menu
+    // « Colonnes », bloc mensuel replié) là où l'ancien objet `columnVisibility`
+    // ne voyait que le menu.
+    void columnsKey;
+    void columnSizing; // idem, pour le redimensionnement des colonnes
 
     return (
         <tr
@@ -911,6 +923,10 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
 
     const visibleColumns = table.getVisibleLeafColumns();
     const totalWidth = visibleColumns.reduce((s, c) => s + ((c.columnDef as { size?: number }).size ?? 150), 0);
+    // Signature du jeu de colonnes affiché : elle sert de signal de re-rendu aux
+    // lignes virtuelles (cf. `GridRow`). Calculée une fois par rendu de grille,
+    // pas une fois par ligne.
+    const columnsKey = visibleColumns.map((c) => c.id).join("|");
 
     if (!isMounted) {
         return (
@@ -1046,7 +1062,17 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
                             </tr>
                         ))}
                     </thead>
-                    <tbody key={displayDensity} style={{ height: rowVirtualizer.getTotalSize(), position: "relative", display: "block" }}>
+                    {/*
+                      * La clé porte AUSSI la signature des colonnes : changer de jeu de
+                      * colonnes remonte le corps du tableau au lieu de compter sur la
+                      * comparaison de props de `React.memo`. Une ligne mémoïsée qui rate
+                      * le signal continue de peindre l'ancien jeu de cellules, et la
+                      * grille se retrouve à deux vitesses — en-tête à jour, corps en
+                      * retard. Un remontage ne coûte que les ~30 lignes virtualisées, et
+                      * le redimensionnement (continu) ne le déclenche pas : les
+                      * identifiants de colonnes ne changent pas.
+                      */}
+                    <tbody key={`${displayDensity}|${columnsKey}`} style={{ height: rowVirtualizer.getTotalSize(), position: "relative", display: "block" }}>
                         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                             const row = tableRows[virtualRow.index];
                             const isSelected = row.getIsSelected();
@@ -1058,7 +1084,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
                                         row={row}
                                         rowHeight={rowHeight}
                                         isSelected={isSelected}
-                                        columnVisibility={columnVisibility}
+                                        columnsKey={columnsKey}
                                         columnSizing={columnSizing}
                                     />
                                 </div>
