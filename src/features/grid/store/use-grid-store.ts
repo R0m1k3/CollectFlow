@@ -30,6 +30,9 @@ interface GridState {
      */
     showMonthlySales: boolean;
     setShowMonthlySales: (visible: boolean) => void;
+    /** Bloc des deux colonnes de prix (PV moyen réseau, PV central) affiché ou non. */
+    showPrices: boolean;
+    setShowPrices: (visible: boolean) => void;
 
     /** Currently displayed store: "TOTAL" | "292" | "579" */
     activeMagasin: string;
@@ -85,7 +88,7 @@ function computeSummary(rows: ProductRow[], drafts: Record<string, GammeCode>, m
 /** Sous-ensemble réellement écrit dans le navigateur (cf. `partialize`). */
 type GridPersisted = Pick<
     GridState,
-    "filters" | "displayDensity" | "draftChanges" | "activeGridQuery" | "columnVisibility" | "columnSizing" | "showMonthlySales"
+    "filters" | "displayDensity" | "draftChanges" | "activeGridQuery" | "columnVisibility" | "columnSizing" | "showMonthlySales" | "showPrices"
 >;
 
 export const useGridStore = create<GridState>()(
@@ -117,8 +120,10 @@ export const useGridStore = create<GridState>()(
             columnVisibility: {},
             columnSizing: {},
             showMonthlySales: true,
+            showPrices: true,
 
             setShowMonthlySales: (visible) => set({ showMonthlySales: visible }),
+            setShowPrices: (visible) => set({ showPrices: visible }),
 
             setActiveMagasin: (code) => {
                 set({ activeMagasin: code });
@@ -252,10 +257,11 @@ export const useGridStore = create<GridState>()(
                     const c = etat.filters.code3;
                     etat.filters.code3 = typeof c === "string" && c !== "" ? [c] : Array.isArray(c) ? c : null;
                 }
-                // Drapeau ajouté après coup : un état persisté antérieur n'en a
+                // Drapeaux ajoutés après coup : un état persisté antérieur n'en a
                 // pas, et une valeur `undefined` écraserait la valeur par défaut
-                // à la fusion (le bloc mensuel disparaîtrait sans raison).
+                // à la fusion (le bloc disparaîtrait sans raison).
                 if (typeof etat.showMonthlySales !== "boolean") etat.showMonthlySales = true;
+                if (typeof etat.showPrices !== "boolean") etat.showPrices = true;
                 return etat;
             },
             // Only persist filters, display density, drafts, active grid query, and column visibility/sizing
@@ -267,6 +273,7 @@ export const useGridStore = create<GridState>()(
                 columnVisibility: state.columnVisibility,
                 columnSizing: state.columnSizing,
                 showMonthlySales: state.showMonthlySales,
+                showPrices: state.showPrices,
             }),
         }
     )

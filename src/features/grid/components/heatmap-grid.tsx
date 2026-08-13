@@ -13,11 +13,12 @@ import {
     RowSelectionState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, Warehouse, AlertTriangle, TrendingUp, TrendingDown, Minus, CalendarRange, Eye, EyeOff } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, Warehouse, AlertTriangle, TrendingUp, TrendingDown, Minus, CalendarRange, Tag, Eye, EyeOff } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
+    DropdownMenuLabel,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
@@ -56,21 +57,41 @@ const QLIK_NETWORK_COLUMN_IDS = new Set<string>([
     "qteReseau",
     "nbMagasinsReseau",
     "tendanceReseau",
+    "prixMoyenReseau",
     "caParMagasinReseau",
     "margePctReseau",
 ]);
 
-function getQlikNetworkSortValue(value: number | null | undefined, columnId: string, sorting: SortingState): number | undefined {
-    if (value != null) return value;
+/**
+ * Valeur de tri d'une colonne dont la donnée peut manquer : `undefined`, jamais
+ * zéro — un article que la source ne renseigne pas n'a pas vendu pour 0 €.
+ *
+ * Les colonnes qui l'emploient portent `sortUndefined: "last"`, qui garde ces
+ * lignes en bas dans LES DEUX SENS. Une sentinelle ±Infinity choisie d'après le
+ * sens de tri courant ne le pouvait pas : TanStack mémorise le résultat de
+ * l'accesseur dans `row._valuesCache` sans jamais le réévaluer, si bien que la
+ * sentinelle calculée au premier tri restait figée et renvoyait les lignes sans
+ * donnée en tête dès qu'on inversait le sens.
+ */
+const valeurTriable = (value: number | null | undefined): number | undefined => value ?? undefined;
 
-    const activeSort = sorting.find((sort) => sort.id === columnId);
-    if (!activeSort) return undefined;
-
-    // TanStack inverse le résultat en tri descendant. On utilise donc une
-    // sentinelle dépendante du sens de tri pour garder les valeurs absentes
-    // toujours en bas, en ascendant comme en descendant.
-    return activeSort.desc ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY;
+/**
+ * Prix de vente moyen constaté sur le réseau.
+ *
+ * Même définition que la fiche produit (`/produits`) : CA réseau ÷ quantité
+ * vendue. Sans quantité, le rapport n'existe pas — on rend `null` plutôt que
+ * zéro, un prix nul se confondrait avec un article donné.
+ */
+function prixMoyenReseau(row: ProductRow): number | null {
+    const qte = row.qteReseau;
+    const ca = row.caReseau;
+    if (qte == null || ca == null || qte <= 0) return null;
+    return ca / qte;
 }
+
+/** Montant en euros au centime — l'usage sur des prix unitaires. */
+const fmtEuro2 = (v: number) =>
+    v.toLocaleString("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // =========================================================================
 // OPTIMISATION PERFORMANCES (React.memo + Zustand Selectors granulaires)
@@ -220,7 +241,7 @@ const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnsKey
         >
             {row.getVisibleCells().map((cell: Cell<ProductRow, unknown>) => {
                 const isFlexible = cell.column.id === "libelle1" || cell.column.id === "libelle3";
-                const isCenter = cell.column.id === "totalQuantite" || cell.column.id === "totalCa" || cell.column.id === "totalMarge" || cell.column.id.startsWith("month_") || cell.column.id === "gammeInitial" || QLIK_NETWORK_COLUMN_IDS.has(cell.column.id) || cell.column.id === "gamme";
+                const isCenter = cell.column.id === "totalQuantite" || cell.column.id === "totalCa" || cell.column.id === "totalMarge" || cell.column.id.startsWith("month_") || cell.column.id === "gammeInitial" || QLIK_NETWORK_COLUMN_IDS.has(cell.column.id) || cell.column.id === "prixVente" || cell.column.id === "gamme";
                 const size = cell.column.getSize();
                 return (
                     <td
@@ -451,6 +472,8 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
     const activeMagasin = useGridStore((s) => s.activeMagasin);
     const showMonthlySales = useGridStore((s) => s.showMonthlySales);
     const setShowMonthlySales = useGridStore((s) => s.setShowMonthlySales);
+    const showPrices = useGridStore((s) => s.showPrices);
+    const setShowPrices = useGridStore((s) => s.setShowPrices);
 
     // Filtre client-side par code3 (famille) et codeGamme
     const filteredData = useMemo(() => {
@@ -665,7 +688,8 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
         },
         {
             id: "caReseau",
-            accessorFn: (row) => getQlikNetworkSortValue(row.caReseau, "caReseau", sorting),
+            accessorFn: (row) => valeurTriable(row.caReseau),
+            sortUndefined: "last" as const,
             header: () => <div className="text-center w-full">CA<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
             size: 90,
             cell: ({ row }) => {
@@ -679,7 +703,8 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
         },
         {
             id: "qteReseau",
-            accessorFn: (row) => getQlikNetworkSortValue(row.qteReseau, "qteReseau", sorting),
+            accessorFn: (row) => valeurTriable(row.qteReseau),
+            sortUndefined: "last" as const,
             header: () => <div className="text-center w-full">Qté<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
             size: 80,
             cell: ({ row }) => {
@@ -693,7 +718,8 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
         },
         {
             id: "nbMagasinsReseau",
-            accessorFn: (row) => getQlikNetworkSortValue(row.nbMagasinsReseau, "nbMagasinsReseau", sorting),
+            accessorFn: (row) => valeurTriable(row.nbMagasinsReseau),
+            sortUndefined: "last" as const,
             header: () => <div className="text-center w-full">Magasins<br/><span className="text-[9px] opacity-60">/ 270</span></div>,
             size: 80,
             cell: ({ row }) => {
@@ -734,9 +760,62 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
                 );
             },
         },
+        // Bloc « prix », repliable : le prix réellement pratiqué par le réseau, et
+        // celui du catalogue. Deux origines différentes, donc deux colonnes — les
+        // rapprocher d'un seul écart chiffré supposerait une même assiette (HT/TTC,
+        // remises), ce que les deux sources ne garantissent pas.
+        ...(showPrices ? [
+            {
+                id: "prixMoyenReseau",
+                // Même définition que la fiche produit : CA réseau ÷ quantité vendue.
+                accessorFn: (row: ProductRow) => valeurTriable(prixMoyenReseau(row)),
+                sortUndefined: "last" as const,
+                // Sous-titre tenu court : les en-têtes ne rognent pas leur texte et
+                // un libellé trop long chevauche la colonne voisine. Le détail
+                // (« CA réseau ÷ quantité ») est dans l'infobulle des cellules.
+                header: () => <div className="text-center w-full">PV moyen<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
+                size: 88,
+                cell: ({ row }: { row: { original: ProductRow } }) => {
+                    const val = prixMoyenReseau(row.original);
+                    return (
+                        <div
+                            className="text-center tabular-nums text-[12px] font-bold"
+                            style={{ color: "var(--text-secondary)" }}
+                            title={val != null
+                                ? `Prix de vente moyen constaté sur le réseau : CA réseau ÷ quantité vendue (12 mois glissants)`
+                                : "Pas de quantité réseau sur la période : le prix moyen n'a pas de sens"}
+                        >
+                            {val != null ? fmtEuro2(val) : "-"}
+                        </div>
+                    );
+                },
+            },
+            {
+                id: "prixVente",
+                accessorFn: (row: ProductRow) => valeurTriable(row.prixVente),
+                sortUndefined: "last" as const,
+                header: () => <div className="text-center w-full">PV central<br/><span className="text-[9px] opacity-60">Article</span></div>,
+                size: 88,
+                cell: ({ row }: { row: { original: ProductRow } }) => {
+                    const val = row.original.prixVente;
+                    return (
+                        <div
+                            className="text-center tabular-nums text-[12px] font-bold"
+                            style={{ color: "var(--text-primary)" }}
+                            title={val != null
+                                ? "Prix de vente central de la fiche article (base Nancy)"
+                                : "Aucun prix de vente central sur la fiche article"}
+                        >
+                            {val != null ? fmtEuro2(val) : "-"}
+                        </div>
+                    );
+                },
+            },
+        ] : []),
         {
             id: "caParMagasinReseau",
-            accessorFn: (row) => getQlikNetworkSortValue(row.caParMagasinReseau, "caParMagasinReseau", sorting),
+            accessorFn: (row) => valeurTriable(row.caParMagasinReseau),
+            sortUndefined: "last" as const,
             header: () => <div className="text-center w-full">CA / Mag<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
             size: 85,
             cell: ({ row }) => {
@@ -750,7 +829,8 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
         },
         {
             id: "margePctReseau",
-            accessorFn: (row) => getQlikNetworkSortValue(row.margePctReseau, "margePctReseau", sorting),
+            accessorFn: (row) => valeurTriable(row.margePctReseau),
+            sortUndefined: "last" as const,
             header: () => <div className="text-center w-full">Marge %<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
             size: 75,
             cell: ({ row }) => {
@@ -887,7 +967,10 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
             size: 110,
             cell: ({ row }) => <GammeCell row={row.original} isAdmin={isAdmin} />,
         },
-    ], [MONTHS_12, activeMagasin, isAdmin, sorting, showMonthlySales]); // activeMagasin déclenche re-render des cellules mensuelles et totaux
+        // `sorting` ne figure plus en dépendance : plus aucun accesseur ne le lit
+        // depuis que `sortUndefined` remplace les sentinelles. Les colonnes ne se
+        // reconstruisent donc plus à chaque clic sur un en-tête.
+    ], [MONTHS_12, activeMagasin, isAdmin, showMonthlySales, showPrices]); // activeMagasin déclenche re-render des cellules mensuelles et totaux
 
     const table = useReactTable({
         data: filteredData,
@@ -927,6 +1010,8 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
     // lignes virtuelles (cf. `GridRow`). Calculée une fois par rendu de grille,
     // pas une fois par ligne.
     const columnsKey = visibleColumns.map((c) => c.id).join("|");
+    /** Blocs de colonnes affichés — badge du menu « Vues ». */
+    const nbVues = (showMonthlySales ? 1 : 0) + (showPrices ? 1 : 0);
 
     if (!isMounted) {
         return (
@@ -947,22 +1032,64 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
         <div className="h-full w-full relative">
             {portalContainer && createPortal(
                 <div className="flex items-center gap-2.5">
-                {/* Repli du bloc mensuel : douze colonnes d'un coup, pas une par une. */}
-                <button
-                    onClick={() => setShowMonthlySales(!showMonthlySales)}
-                    aria-pressed={showMonthlySales}
-                    title={showMonthlySales
-                        ? "Masquer les 12 colonnes de ventes mensuelles — le détail reste accessible en cliquant sur la case de total"
-                        : "Afficher les 12 colonnes de ventes mensuelles"}
-                    className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-semibold border transition-all shadow-sm apple-btn-secondary"
-                    style={showMonthlySales
-                        ? { background: "var(--accent-bg)", borderColor: "var(--accent-border)", color: "var(--accent)" }
-                        : { background: "var(--action-secondary-bg)", borderColor: "var(--border-strong)", color: "var(--action-secondary-text)" }}
-                >
-                    <CalendarRange className="w-4 h-4" />
-                    <span className="hidden lg:inline">Ventes mensuelles</span>
-                    {showMonthlySales ? <Eye className="w-3.5 h-3.5 opacity-70" /> : <EyeOff className="w-3.5 h-3.5 opacity-70" />}
-                </button>
+                {/*
+                  * « Vues » replie des BLOCS de colonnes d'un geste, là où le menu
+                  * « Colonnes » voisin agit colonne par colonne. Douze cellules
+                  * mensuelles ou deux prix ne se masquent pas une par une.
+                  */}
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <button
+                            className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-semibold border transition-all shadow-sm apple-btn-secondary"
+                            style={nbVues > 0
+                                ? { background: "var(--accent-bg)", borderColor: "var(--accent-border)", color: "var(--accent)" }
+                                : { background: "var(--action-secondary-bg)", borderColor: "var(--border-strong)", color: "var(--action-secondary-text)" }}
+                            title="Afficher ou masquer les blocs de colonnes : ventes mensuelles, prix"
+                            aria-label="Afficher ou masquer les blocs de colonnes"
+                        >
+                            {nbVues > 0 ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                            <span className="hidden lg:inline">Vues</span>
+                            <span className="text-[11px] font-bold tabular-nums opacity-70">{nbVues}/2</span>
+                        </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-[280px] z-50">
+                        <DropdownMenuLabel className="text-[11px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                            Blocs de colonnes
+                        </DropdownMenuLabel>
+                        <DropdownMenuCheckboxItem
+                            checked={showMonthlySales}
+                            onCheckedChange={(v) => setShowMonthlySales(!!v)}
+                            onSelect={(e: Event) => e.preventDefault()}
+                            className="cursor-pointer"
+                        >
+                            <span className="flex items-center gap-2">
+                                <CalendarRange className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--text-muted)" }} />
+                                <span className="flex flex-col">
+                                    <span className="text-xs font-semibold">Ventes mensuelles</span>
+                                    <span className="text-[10.5px]" style={{ color: "var(--text-muted)" }}>
+                                        12 mois · détail au clic sur le total
+                                    </span>
+                                </span>
+                            </span>
+                        </DropdownMenuCheckboxItem>
+                        <DropdownMenuCheckboxItem
+                            checked={showPrices}
+                            onCheckedChange={(v) => setShowPrices(!!v)}
+                            onSelect={(e: Event) => e.preventDefault()}
+                            className="cursor-pointer"
+                        >
+                            <span className="flex items-center gap-2">
+                                <Tag className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--text-muted)" }} />
+                                <span className="flex flex-col">
+                                    <span className="text-xs font-semibold">Prix</span>
+                                    <span className="text-[10.5px]" style={{ color: "var(--text-muted)" }}>
+                                        PV moyen réseau · PV central
+                                    </span>
+                                </span>
+                            </span>
+                        </DropdownMenuCheckboxItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <button
@@ -1020,7 +1147,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
                             <tr key={headerGroup.id} className="flex w-full">
                                 {headerGroup.headers.map((header) => {
                                     const isFlexible = header.column.id === "libelle1" || header.column.id === "libelle3";
-                                    const isCenter = header.column.id === "totalQuantite" || header.column.id === "totalCa" || header.column.id === "totalMarge" || header.column.id.startsWith("month_") || header.column.id === "gammeInitial" || QLIK_NETWORK_COLUMN_IDS.has(header.column.id) || header.column.id === "gamme";
+                                    const isCenter = header.column.id === "totalQuantite" || header.column.id === "totalCa" || header.column.id === "totalMarge" || header.column.id.startsWith("month_") || header.column.id === "gammeInitial" || QLIK_NETWORK_COLUMN_IDS.has(header.column.id) || header.column.id === "prixVente" || header.column.id === "gamme";
                                     const size = header.getSize();
                                     return (
                                         <th
