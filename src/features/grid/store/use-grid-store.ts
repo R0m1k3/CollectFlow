@@ -20,6 +20,16 @@ interface GridState {
     columnVisibility: Record<string, boolean>;
     /** Persisted column sizing state */
     columnSizing: Record<string, number>;
+    /**
+     * Bloc des 12 colonnes mensuelles affiché ou non dans la Grille.
+     *
+     * Séparé de `columnVisibility` : masquer douze colonnes une par une n'est pas
+     * une manipulation, et l'état « bloc replié » doit survivre au renouvellement
+     * de la fenêtre glissante — les identifiants `month_YYYYMM` changent chaque
+     * mois, un drapeau ne change pas.
+     */
+    showMonthlySales: boolean;
+    setShowMonthlySales: (visible: boolean) => void;
 
     /** Currently displayed store: "TOTAL" | "292" | "579" */
     activeMagasin: string;
@@ -75,7 +85,7 @@ function computeSummary(rows: ProductRow[], drafts: Record<string, GammeCode>, m
 /** Sous-ensemble réellement écrit dans le navigateur (cf. `partialize`). */
 type GridPersisted = Pick<
     GridState,
-    "filters" | "displayDensity" | "draftChanges" | "activeGridQuery" | "columnVisibility" | "columnSizing"
+    "filters" | "displayDensity" | "draftChanges" | "activeGridQuery" | "columnVisibility" | "columnSizing" | "showMonthlySales"
 >;
 
 export const useGridStore = create<GridState>()(
@@ -106,6 +116,9 @@ export const useGridStore = create<GridState>()(
             activeGridQuery: "",
             columnVisibility: {},
             columnSizing: {},
+            showMonthlySales: true,
+
+            setShowMonthlySales: (visible) => set({ showMonthlySales: visible }),
 
             setActiveMagasin: (code) => {
                 set({ activeMagasin: code });
@@ -239,6 +252,10 @@ export const useGridStore = create<GridState>()(
                     const c = etat.filters.code3;
                     etat.filters.code3 = typeof c === "string" && c !== "" ? [c] : Array.isArray(c) ? c : null;
                 }
+                // Drapeau ajouté après coup : un état persisté antérieur n'en a
+                // pas, et une valeur `undefined` écraserait la valeur par défaut
+                // à la fusion (le bloc mensuel disparaîtrait sans raison).
+                if (typeof etat.showMonthlySales !== "boolean") etat.showMonthlySales = true;
                 return etat;
             },
             // Only persist filters, display density, drafts, active grid query, and column visibility/sizing
@@ -249,6 +266,7 @@ export const useGridStore = create<GridState>()(
                 activeGridQuery: state.activeGridQuery,
                 columnVisibility: state.columnVisibility,
                 columnSizing: state.columnSizing,
+                showMonthlySales: state.showMonthlySales,
             }),
         }
     )
