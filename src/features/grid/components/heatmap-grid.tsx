@@ -1062,7 +1062,17 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
                             </tr>
                         ))}
                     </thead>
-                    <tbody key={displayDensity} style={{ height: rowVirtualizer.getTotalSize(), position: "relative", display: "block" }}>
+                    {/*
+                      * La clé porte AUSSI la signature des colonnes : changer de jeu de
+                      * colonnes remonte le corps du tableau au lieu de compter sur la
+                      * comparaison de props de `React.memo`. Une ligne mémoïsée qui rate
+                      * le signal continue de peindre l'ancien jeu de cellules, et la
+                      * grille se retrouve à deux vitesses — en-tête à jour, corps en
+                      * retard. Un remontage ne coûte que les ~30 lignes virtualisées, et
+                      * le redimensionnement (continu) ne le déclenche pas : les
+                      * identifiants de colonnes ne changent pas.
+                      */}
+                    <tbody key={`${displayDensity}|${columnsKey}`} style={{ height: rowVirtualizer.getTotalSize(), position: "relative", display: "block" }}>
                         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                             const row = tableRows[virtualRow.index];
                             const isSelected = row.getIsSelected();
