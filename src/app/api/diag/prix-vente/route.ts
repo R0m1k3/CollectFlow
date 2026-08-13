@@ -81,6 +81,36 @@ export async function GET(req: NextRequest) {
         }
     }
 
+    // ── 2 bis. Les trois sources de prix, côte à côte ───────────────────────
+    // `cube_pv` est la source retenue (pendant de `cube_pa` pour l'achat) ;
+    // `cube_stock.pv` sert de filet ; `article_infosup` ferme la marche.
+    if (codefou) {
+        try {
+            const r = await db.execute(sql`
+                WITH art AS (
+                    SELECT DISTINCT a.no_id, a.codein
+                    FROM artfou1 af
+                    JOIN articles a ON a.no_id = af.art_no_id
+                    WHERE af.code = ${codefou} AND a.codein IS NOT NULL
+                )
+                SELECT
+                    (SELECT COUNT(*)::int FROM art)                                                       AS articles,
+                    (SELECT COUNT(DISTINCT cpv.artnoid)::int FROM cube_pv cpv
+                        JOIN art ON art.no_id = cpv.artnoid WHERE cpv.pv > 0)                             AS avec_cube_pv,
+                    (SELECT COUNT(DISTINCT cs.artnoid)::int FROM cube_stock cs
+                        JOIN art ON art.no_id = cs.artnoid WHERE cs.pv > 0)                               AS avec_cube_stock_pv,
+                    (SELECT COUNT(*)::int FROM article_infosup ai
+                        JOIN art ON art.no_id = ai.artnoid WHERE ai.prix_vente_mini > 0)                  AS avec_prix_vente_mini
+            `);
+            diagnostic.sources_de_prix = {
+                commentaire: "nombre d'articles du fournisseur ayant un prix > 0 dans chaque source",
+                ...(r.rows[0] as Record<string, unknown>),
+            };
+        } catch (e) {
+            diagnostic.sources_de_prix = { erreur: (e as Error).message?.slice(0, 200) };
+        }
+    }
+
     // ── 3. Colonnes candidates du schéma, et leur remplissage réel ──────────
     // C'est la réponse à « le prix est peut-être ailleurs » : une colonne bien
     // nommée mais vide ne sert à rien, seul le comptage tranche.
