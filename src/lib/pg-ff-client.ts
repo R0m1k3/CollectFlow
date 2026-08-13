@@ -450,10 +450,12 @@ function buildNomMap(rows: PgNomRow[]): Map<string, PgNomRow> {
  * 1 requête SQL — remplace la partie stock du référentiel.
  */
 export async function pgGetStockByFournisseur(codefou: string): Promise<Map<string, PgStockRow[]>> {
+    // `site` est élagué pour la même raison que dans pgGetPrixVenteByFournisseur :
+    // il sert de clé de recherche (derniereLivraisonByStore, prix de repli).
     const result = await pgNoParallel(sql`
         SELECT
             a.codein,
-            cs.site,
+            TRIM(cs.site::text) AS site,
             cs.stockdispo::float,
             cs.qte::float,
             cs.valstock::float,
@@ -487,10 +489,15 @@ export async function pgGetStockByFournisseur(codefou: string): Promise<Map<stri
  * tarifé n'est pas un article à 0 €.
  */
 export async function pgGetPrixVenteByFournisseur(codefou: string): Promise<Map<string, Record<string, number>>> {
+    // Le site sert de CLÉ de recherche côté Grille (prixVenteByStore["292"]), d'où
+    // l'élagage : la synchronisation Apiflow écrit `cube_pv.site` brut, sans passer
+    // par le `safeStr` qu'elle applique à `cube_stock`. Une colonne MSSQL de largeur
+    // fixe remonterait complétée d'espaces, et la recherche échouerait en silence —
+    // le prix resterait visible en « tous magasins » et vide magasin par magasin.
     const result = await pgNoParallel(sql`
         SELECT
             a.codein,
-            cpv.site,
+            TRIM(cpv.site::text) AS site,
             cpv.pv::float AS pv
         FROM cube_pv cpv
         JOIN articles a ON a.no_id = cpv.artnoid

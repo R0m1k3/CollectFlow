@@ -394,7 +394,8 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
                 const depuisStock: Record<string, number> = {};
                 for (const s of stockMap.get(product.codein) ?? []) {
                     const pv = Number(s.pv);
-                    if (s.site && Number.isFinite(pv) && pv > 0) depuisStock[s.site] = pv;
+                    const site = String(s.site ?? "").trim();
+                    if (site && Number.isFinite(pv) && pv > 0) depuisStock[site] = pv;
                 }
                 if (Object.keys(depuisStock).length > 0) product.prixVenteByStore = depuisStock;
             }

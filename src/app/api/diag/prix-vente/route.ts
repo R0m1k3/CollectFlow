@@ -111,6 +111,26 @@ export async function GET(req: NextRequest) {
         }
     }
 
+    // ── 2 ter. Les valeurs de `site` telles qu'elles sont stockées ──────────
+    // Ces chaînes servent de CLÉ de recherche par magasin côté Grille : un
+    // espace de remplissage ou un code inattendu et le prix par magasin serait
+    // introuvable, sans que rien ne le signale à l'écran.
+    try {
+        const r = await db.execute(sql`
+            SELECT site, LENGTH(site)::int AS longueur, COUNT(*)::int AS lignes
+            FROM cube_pv
+            GROUP BY site, LENGTH(site)
+            ORDER BY lignes DESC
+            LIMIT 12
+        `);
+        diagnostic.sites_cube_pv = {
+            commentaire: "la Grille recherche les codes magasin tels quels — longueur 3 attendue pour « 292 » / « 579 »",
+            valeurs: r.rows,
+        };
+    } catch (e) {
+        diagnostic.sites_cube_pv = { erreur: (e as Error).message?.slice(0, 200) };
+    }
+
     // ── 3. Colonnes candidates du schéma, et leur remplissage réel ──────────
     // C'est la réponse à « le prix est peut-être ailleurs » : une colonne bien
     // nommée mais vide ne sert à rien, seul le comptage tranche.
