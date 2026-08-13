@@ -13,7 +13,7 @@ import {
     RowSelectionState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, Warehouse, AlertTriangle, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, Warehouse, AlertTriangle, TrendingUp, TrendingDown, Minus, CalendarRange, Eye, EyeOff } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -24,6 +24,8 @@ import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { GammeSelect } from "@/features/grid/components/gamme-select";
 import { HeatmapCell } from "@/features/grid/components/heatmap-cell";
+import { TuileStat } from "@/features/grid/components/stat-tile";
+import { ProductMonthlyModal } from "@/features/grid/components/product-monthly-modal";
 import type { ProductRow, GammeCode } from "@/types/grid";
 import { cn } from "@/lib/utils";
 import {
@@ -246,36 +248,6 @@ interface CellDetailData {
 }
 
 /**
- * Tuile de statistique : intitulé en phrase, valeur en chiffres proportionnels.
- *
- * Pas de `tabular-nums` ici : à grande taille, des chiffres de largeur égale font
- * paraître un nombre court anormalement lâche. Les chiffres tabulaires sont
- * réservés aux colonnes qui s'alignent verticalement (tableau, axes).
- */
-function TuileStat({ label, valeur, indice, couleur, icone: Icone }: {
-    label: string;
-    valeur: string;
-    indice?: string;
-    couleur?: string;
-    icone?: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
-}) {
-    return (
-        <div className="rounded-xl px-3.5 py-3 flex-1 min-w-[160px]" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
-            <div className="text-[12px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-                {label}
-            </div>
-            <div className="flex items-center gap-1.5 mt-1">
-                {Icone && <Icone className="w-5 h-5 shrink-0" style={{ color: couleur ?? "var(--text-primary)" }} />}
-                <span className="text-[26px] font-bold leading-tight" style={{ color: couleur ?? "var(--text-primary)" }}>
-                    {valeur}
-                </span>
-            </div>
-            {indice && <div className="text-[12px] mt-1 leading-snug" style={{ color: "var(--text-muted)" }}>{indice}</div>}
-        </div>
-    );
-}
-
-/**
  * Carte « tendance réseau » : le verdict en tuiles, puis les trois séries
  * mensuelles en petits multiples.
  *
@@ -465,6 +437,8 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
     const displayDensity = useGridStore((s) => s.displayDensity);
     const draftChanges = useGridStore((s) => s.filters.codeGamme ? s.draftChanges : EMPTY_DRAFT_CHANGES);
     const activeMagasin = useGridStore((s) => s.activeMagasin);
+    const showMonthlySales = useGridStore((s) => s.showMonthlySales);
+    const setShowMonthlySales = useGridStore((s) => s.setShowMonthlySales);
 
     // Filtre client-side par code3 (famille) et codeGamme
     const filteredData = useMemo(() => {
@@ -500,6 +474,8 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
     // État pour le détail d'une cellule mensuelle (modal)
     const [cellDetail, setCellDetail] = useState<CellDetailData | null>(null);
     const [networkModal, setNetworkModal] = useState<ProductRow | null>(null);
+    // Détail 12 mois du produit, ouvert depuis la case de total
+    const [monthlyModal, setMonthlyModal] = useState<ProductRow | null>(null);
     const tableContainerRef = useRef<HTMLDivElement>(null);
 
     // Calculer les mois dynamiquement pour éviter le mismatch entre serveur et client
@@ -777,7 +753,11 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
                 );
             },
         },
-        ...MONTHS_12.map((monthKey) => ({
+        // Bloc mensuel repliable : les colonnes sont retirées du modèle, pas
+        // seulement cachées — inutile de faire calculer douze cellules par ligne
+        // à TanStack pour ne rien peindre. Le détail reste accessible d'un clic
+        // sur la case de total.
+        ...(showMonthlySales ? MONTHS_12.map((monthKey) => ({
             id: `month_${monthKey}`,
             header: () => <div className="text-center w-full">{formatMonthLabel(monthKey)}</div>,
             size: 68,
@@ -804,7 +784,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
                     />
                 );
             },
-        })),
+        })) : []),
         {
             id: "totalQuantite",
             accessorFn: (row: ProductRow) => activeMagasin === "TOTAL" ? row.totalQuantite : (row.quantiteByStore?.[activeMagasin] ?? 0),
@@ -814,14 +794,25 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
                 const qty = activeMagasin === "TOTAL"
                     ? row.original.totalQuantite
                     : (row.original.quantiteByStore?.[activeMagasin] ?? 0);
+                // Cliquable → détail 12 mois : ventes, entrées en stock, stock par
+                // magasin. `stopPropagation` sinon le clic sélectionne la ligne.
                 return (
-                    <div className="mx-auto w-[60px] text-center px-1 tabular-nums text-sm font-black py-1.5 rounded-md border" style={{
-                        background: "var(--bg-elevated)",
-                        color: "var(--text-primary)",
-                        borderColor: "var(--border-strong)"
-                    }}>
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setMonthlyModal(row.original);
+                        }}
+                        title="Voir le détail des 12 mois : ventes mensuelles, entrées en stock et stock par magasin"
+                        className="mx-auto w-[60px] text-center px-1 tabular-nums text-sm font-black py-1.5 rounded-md border cursor-pointer transition-all hover:brightness-110 active:scale-95"
+                        style={{
+                            background: "var(--bg-elevated)",
+                            color: "var(--text-primary)",
+                            borderColor: "var(--border-strong)"
+                        }}
+                    >
                         {Math.round(qty).toLocaleString("fr-FR")}
-                    </div>
+                    </button>
                 );
             },
         },
@@ -884,7 +875,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
             size: 110,
             cell: ({ row }) => <GammeCell row={row.original} isAdmin={isAdmin} />,
         },
-    ], [MONTHS_12, activeMagasin, isAdmin, sorting]); // activeMagasin déclenche re-render des cellules mensuelles et totaux
+    ], [MONTHS_12, activeMagasin, isAdmin, sorting, showMonthlySales]); // activeMagasin déclenche re-render des cellules mensuelles et totaux
 
     const table = useReactTable({
         data: filteredData,
@@ -939,6 +930,23 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
         <>
         <div className="h-full w-full relative">
             {portalContainer && createPortal(
+                <div className="flex items-center gap-2.5">
+                {/* Repli du bloc mensuel : douze colonnes d'un coup, pas une par une. */}
+                <button
+                    onClick={() => setShowMonthlySales(!showMonthlySales)}
+                    aria-pressed={showMonthlySales}
+                    title={showMonthlySales
+                        ? "Masquer les 12 colonnes de ventes mensuelles — le détail reste accessible en cliquant sur la case de total"
+                        : "Afficher les 12 colonnes de ventes mensuelles"}
+                    className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-semibold border transition-all shadow-sm apple-btn-secondary"
+                    style={showMonthlySales
+                        ? { background: "var(--accent-bg)", borderColor: "var(--accent-border)", color: "var(--accent)" }
+                        : { background: "var(--action-secondary-bg)", borderColor: "var(--border-strong)", color: "var(--action-secondary-text)" }}
+                >
+                    <CalendarRange className="w-4 h-4" />
+                    <span className="hidden lg:inline">Ventes mensuelles</span>
+                    {showMonthlySales ? <Eye className="w-3.5 h-3.5 opacity-70" /> : <EyeOff className="w-3.5 h-3.5 opacity-70" />}
+                </button>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <button
@@ -971,7 +979,8 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
                                 );
                             })}
                     </DropdownMenuContent>
-                </DropdownMenu>,
+                </DropdownMenu>
+                </div>,
                 portalContainer
             )}
 
@@ -1066,6 +1075,17 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
         </Dialog>
         <Dialog open={networkModal !== null} onOpenChange={(open) => { if (!open) setNetworkModal(null); }}>
             {networkModal !== null && <NetworkMonthlyModal row={networkModal} onClose={() => setNetworkModal(null)} />}
+        </Dialog>
+        {/* Modal détail 12 mois (ventes / entrées / stock par magasin) */}
+        <Dialog open={monthlyModal !== null} onOpenChange={(open) => { if (!open) setMonthlyModal(null); }}>
+            {monthlyModal !== null && (
+                <ProductMonthlyModal
+                    row={monthlyModal}
+                    mois={MONTHS_12}
+                    activeMagasin={activeMagasin}
+                    onClose={() => setMonthlyModal(null)}
+                />
+            )}
         </Dialog>
         </>
     );
