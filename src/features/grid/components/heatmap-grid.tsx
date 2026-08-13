@@ -96,29 +96,43 @@ const fmtEuro2 = (v: number) =>
 /**
  * Prix de vente à montrer pour le magasin consulté.
  *
- * Sur un magasin donné, c'est SON prix. En « tous magasins », c'est le prix
- * commun — et s'ils divergent, le plus élevé assorti d'un signal : une cellule
- * ne peut afficher qu'un nombre, mais taire l'écart ferait passer le prix d'un
- * magasin pour celui des deux.
+ * `cube_pv` a une clé `(artnoid, site)`, mais notre base n'y met en pratique
+ * qu'une ligne par article : le prix n'est pas ventilé par magasin. La colonne
+ * doit donc rester lisible dans les deux cas de figure —
+ *
+ *   · magasin consulté tarifé → SON prix ;
+ *   · prix unique, non ventilé → ce prix vaut pour tous les magasins ;
+ *   · plusieurs prix mais aucun pour ce magasin → rien, plutôt que celui du
+ *     voisin ;
+ *   · en « tous magasins » : le prix commun, et s'ils divergent le plus élevé
+ *     assorti d'un signal. Une cellule ne peut afficher qu'un nombre, mais
+ *     taire l'écart ferait passer le prix d'un magasin pour celui des deux.
  */
 function prixVenteAffiche(row: ProductRow, activeMagasin: string): { valeur: number | null; divergent: boolean; detail: string | null } {
-    const parSite = row.prixVenteByStore;
+    const entrees = Object.entries(row.prixVenteByStore ?? {});
 
-    if (activeMagasin !== "TOTAL") {
-        const pv = parSite?.[activeMagasin];
-        return { valeur: pv ?? null, divergent: false, detail: null };
-    }
-
-    const entrees = Object.entries(parSite ?? {});
+    // Aucun prix ventilé : reste le PV de la fiche article, s'il existe.
     if (entrees.length === 0) return { valeur: row.prixVente ?? null, divergent: false, detail: null };
 
     // Comparaison au centime : deux flottants issus du même prix peuvent différer
     // dans les décimales lointaines sans que le prix affiché change.
     const distincts = new Set(entrees.map(([, pv]) => Math.round(pv * 100)));
-    const detail = entrees
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([site, pv]) => `${SITE_LABELS[site]?.nom ?? site} : ${fmtEuro2(pv)}`)
-        .join(" · ");
+
+    if (activeMagasin !== "TOTAL") {
+        const pv = row.prixVenteByStore?.[activeMagasin];
+        if (pv != null) return { valeur: pv, divergent: false, detail: null };
+        if (distincts.size === 1) {
+            return { valeur: entrees[0][1], divergent: false, detail: "prix unique, non ventilé par magasin" };
+        }
+        return { valeur: null, divergent: false, detail: null };
+    }
+
+    const detail = entrees.length > 1
+        ? entrees
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([site, pv]) => `${SITE_LABELS[site]?.nom ?? site} : ${fmtEuro2(pv)}`)
+            .join(" · ")
+        : null;
 
     return {
         valeur: Math.max(...entrees.map(([, pv]) => pv)),
