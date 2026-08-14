@@ -307,6 +307,7 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
                 <HeatmapGrid
                     onSelectionChange={setSelectedCodeins}
                     isAdmin={isAdmin}
+                    nomFournisseur={nomFournisseur}
                 />
             </div>
 

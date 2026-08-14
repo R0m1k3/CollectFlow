@@ -14,7 +14,7 @@
  */
 
 import React, { useMemo, useState } from "react";
-import { PackageX, Store } from "lucide-react";
+import { PackageX, Store, FileSpreadsheet, Loader2 } from "lucide-react";
 import { DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { TuileStat } from "@/features/grid/components/stat-tile";
 import { SITE_LABELS } from "@/features/grid/lib/months";
@@ -40,18 +40,29 @@ const eur2 = (v: number) => v.toLocaleString("fr-FR", { minimumFractionDigits: 2
  * des pourcentages. Afficher la valeur brute rendrait la colonne illisible, et
  * ne rien afficher priverait le classement de sa justification.
  */
-const CRITERES: Record<string, { label: string; format: (v: number) => string }> = {
-    caReseau:           { label: "CA réseau",          format: eur0 },
-    qteReseau:          { label: "Qté réseau",         format: nb },
-    nbMagasinsReseau:   { label: "Magasins réseau",    format: nb },
-    tendanceReseau:     { label: "Tendance réseau",    format: (v) => `${v >= 0 ? "+" : ""}${Math.round(v * 100)} %` },
-    prixMoyenReseau:    { label: "PV moyen réseau",    format: eur2 },
-    prixVente:          { label: "PV magasin",         format: eur2 },
-    caParMagasinReseau: { label: "CA / magasin réseau", format: eur0 },
-    margePctReseau:     { label: "Marge % réseau",     format: (v) => `${(Math.abs(v) <= 1 ? v * 100 : v).toFixed(1)} %` },
-    totalQuantite:      { label: "Qté 12 m",           format: nb },
-    totalCa:            { label: "CA 12 m",            format: eur0 },
-    totalMarge:         { label: "Marge 12 m",         format: eur0 },
+interface Critere {
+    label: string;
+    format: (v: number) => string;
+    /** Format de nombre Excel — la valeur part BRUTE dans le tableur, qui doit
+     *  pouvoir la trier et la sommer ; seule sa présentation est reprise ici. */
+    xlsx: string;
+    /** Normalisation avant export, quand la donnée stockée n'est pas l'unité affichée. */
+    brut?: (v: number) => number;
+}
+
+const CRITERES: Record<string, Critere> = {
+    caReseau:           { label: "CA réseau",          format: eur0, xlsx: '#,##0 "€"' },
+    qteReseau:          { label: "Qté réseau",         format: nb,   xlsx: "#,##0" },
+    nbMagasinsReseau:   { label: "Magasins réseau",    format: nb,   xlsx: "#,##0" },
+    tendanceReseau:     { label: "Tendance réseau",    format: (v) => `${v >= 0 ? "+" : ""}${Math.round(v * 100)} %`, xlsx: "0 %" },
+    prixMoyenReseau:    { label: "PV moyen réseau",    format: eur2, xlsx: '#,##0.00 "€"' },
+    prixVente:          { label: "PV magasin",         format: eur2, xlsx: '#,##0.00 "€"' },
+    caParMagasinReseau: { label: "CA / magasin réseau", format: eur0, xlsx: '#,##0 "€"' },
+    margePctReseau:     { label: "Marge % réseau",     format: (v) => `${(Math.abs(v) <= 1 ? v * 100 : v).toFixed(1)} %`,
+                          xlsx: '0.0 "%"', brut: (v) => (Math.abs(v) <= 1 ? v * 100 : v) },
+    totalQuantite:      { label: "Qté 12 m",           format: nb,   xlsx: "#,##0" },
+    totalCa:            { label: "CA 12 m",            format: eur0, xlsx: '#,##0 "€"' },
+    totalMarge:         { label: "Marge 12 m",         format: eur0, xlsx: '#,##0 "€"' },
 };
 
 function libelleCritere(id: string | null): string {
@@ -108,13 +119,106 @@ function constater(row: ProductRow, site: string, mois: string[]): Constat {
     };
 }
 
-export function AssortmentGapsModal({ classement, critereId, mois, magasinInitial, onClose }: {
+/** Ligne prête pour le tableur : le rang, le produit, le constat. */
+interface TrouClasse {
+    row: ProductRow;
+    valeurCritere: unknown;
+    rang: number;
+    constat: Constat;
+}
+
+/**
+ * Classeur Excel de la liste affichée.
+ *
+ * Deux feuilles : les données seules d'un côté — en-têtes ligne 1, filtre
+ * automatique, valeurs NUMÉRIQUES pour que le tableur puisse trier et sommer —
+ * et le contexte de l'extraction de l'autre. Mêler les deux dans une même
+ * feuille condamnerait le filtre et le tri, alors que ce fichier a vocation à
+ * être retravaillé.
+ *
+ * `exceljs` est chargé à la demande : il pèse lourd, et la Grille n'a pas à le
+ * transporter pour tous ceux qui n'exportent jamais.
+ */
+async function construireClasseur(
+    trous: TrouClasse[],
+    contexte: { fournisseur?: string; magasin: string; critere: string; profondeur: number; examines: number },
+    critereId: string | null,
+): Promise<Blob> {
+    const { Workbook } = await import("exceljs");
+    const classeur = new Workbook();
+    classeur.creator = "CollectFlow";
+    classeur.created = new Date();
+
+    const critere = critereId ? CRITERES[critereId] : undefined;
+    const feuille = classeur.addWorksheet("Non travaillés", { views: [{ state: "frozen", ySplit: 1 }] });
+
+    feuille.columns = [
+        { header: "Rang", key: "rang", width: 8 },
+        { header: "Code interne", key: "codein", width: 14 },
+        { header: "Référence", key: "reference", width: 18 },
+        { header: "EAN / GTIN", key: "gtin", width: 16 },
+        { header: "Désignation", key: "libelle", width: 45 },
+        { header: "Famille", key: "famille", width: 30 },
+        { header: contexte.critere, key: "critere", width: 18 },
+        { header: "Ventes ailleurs 12 m", key: "ventesAilleurs", width: 20 },
+        { header: "Stock ailleurs", key: "stockAilleurs", width: 15 },
+        { header: "Constat", key: "constat", width: 24 },
+    ];
+
+    feuille.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    feuille.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } };
+    feuille.getRow(1).height = 20;
+
+    for (const { row, valeurCritere, rang, constat } of trous) {
+        feuille.addRow({
+            rang,
+            codein: row.codein,
+            reference: row.reference || "",
+            gtin: row.gtin || "",
+            libelle: row.libelle1 || "",
+            famille: [row.code3, row.libelle3].filter(Boolean).join(" — "),
+            critere: typeof valeurCritere === "number" && Number.isFinite(valeurCritere)
+                ? (critere?.brut?.(valeurCritere) ?? valeurCritere)
+                : (valeurCritere == null ? "" : String(valeurCritere)),
+            ventesAilleurs: constat.ventesAilleurs,
+            stockAilleurs: constat.stockAilleurs,
+            constat: constat.dejaDetenu ? "déjà détenu, sans vente" : "jamais détenu",
+        });
+    }
+
+    if (critere) feuille.getColumn("critere").numFmt = critere.xlsx;
+    feuille.getColumn("ventesAilleurs").numFmt = "#,##0";
+    feuille.getColumn("stockAilleurs").numFmt = "#,##0";
+    feuille.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: feuille.columns.length } };
+
+    const contexteFeuille = classeur.addWorksheet("Contexte");
+    contexteFeuille.columns = [{ width: 26 }, { width: 60 }];
+    for (const [cle, valeur] of [
+        ["Extraction", "Produits non travaillés par un magasin"],
+        ["Fournisseur", contexte.fournisseur ?? "—"],
+        ["Magasin examiné", contexte.magasin],
+        ["Classement", `${contexte.critere} — ${contexte.profondeur} premiers (${contexte.examines} examinés)`],
+        ["Critère retenu", "aucune vente sur 12 mois glissants ET aucun stock au dernier mois connu"],
+        ["Non travaillés", String(trous.length)],
+        ["Généré le", new Date().toLocaleString("fr-FR")],
+    ]) {
+        const ligne = contexteFeuille.addRow([cle, valeur]);
+        ligne.getCell(1).font = { bold: true };
+    }
+
+    const buffer = await classeur.xlsx.writeBuffer();
+    return new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+
+export function AssortmentGapsModal({ classement, critereId, mois, magasinInitial, nomFournisseur, onClose }: {
     /** Le classement AFFICHÉ, dans son ordre — déjà tronqué à PROFONDEUR_MAX. */
     classement: LigneClassee[];
     critereId: string | null;
     /** Les 12 clés de mois, du plus ancien au plus récent. */
     mois: string[];
     magasinInitial: string;
+    /** Sert à nommer le fichier exporté et à le documenter. */
+    nomFournisseur?: string;
     onClose: () => void;
 }) {
     // Magasins réellement présents dans les données, à défaut les deux sites connus.
@@ -137,10 +241,50 @@ export function AssortmentGapsModal({ classement, critereId, mois, magasinInitia
         .filter(({ constat }) => constat.ventesMagasin <= 0 && constat.stockMagasin <= 0),
         [examine, site, mois]);
 
+    const [exportEnCours, setExportEnCours] = useState(false);
+    const [exportErreur, setExportErreur] = useState<string | null>(null);
+
     const vendusAilleurs = trous.filter((t) => t.constat.ventesAilleurs > 0).length;
     const dejaTentes = trous.filter((t) => t.constat.dejaDetenu).length;
     const nomMagasin = SITE_LABELS[site]?.nom ?? site;
     const autresMagasins = sites.filter((s) => s !== site).map((s) => SITE_LABELS[s]?.nom ?? s).join(", ") || "les autres";
+
+    const exporter = async () => {
+        if (trous.length === 0 || exportEnCours) return;
+        setExportEnCours(true);
+        setExportErreur(null);
+        try {
+            const blob = await construireClasseur(
+                trous,
+                {
+                    fournisseur: nomFournisseur,
+                    magasin: nomMagasin,
+                    critere: libelleCritere(critereId),
+                    profondeur,
+                    examines: examine.length,
+                },
+                critereId,
+            );
+            const url = URL.createObjectURL(blob);
+            const lien = document.createElement("a");
+            lien.href = url;
+            lien.download = [
+                "Non_travailles",
+                nomFournisseur?.replace(/[^\w]+/g, "_"),
+                nomMagasin.replace(/[^\w]+/g, "_"),
+                `Top${profondeur}`,
+                new Date().toISOString().slice(0, 10),
+            ].filter(Boolean).join("_") + ".xlsx";
+            lien.click();
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            // Un export qui échoue en silence laisse croire au téléchargement.
+            console.error("[trous d'assortiment] export Excel :", e);
+            setExportErreur("L'export a échoué. Réessayez, ou signalez-le si cela persiste.");
+        } finally {
+            setExportEnCours(false);
+        }
+    };
 
     return (
         <DialogContent
@@ -206,7 +350,29 @@ export function AssortmentGapsModal({ classement, critereId, mois, magasinInitia
                         </span>
                     )}
                 </div>
+
+                {/* L'export reprend exactement la liste affichée : même magasin,
+                    même profondeur, même classement. */}
+                <button
+                    type="button"
+                    onClick={exporter}
+                    disabled={trous.length === 0 || exportEnCours}
+                    title={trous.length === 0
+                        ? "Rien à exporter : aucun trou dans ce périmètre"
+                        : `Exporter les ${trous.length} produits non travaillés au format Excel`}
+                    className="ml-auto flex items-center gap-2 px-3 py-1.5 rounded-md text-[12px] font-semibold border transition-all disabled:opacity-50"
+                    style={{ background: "var(--bg-elevated)", borderColor: "var(--border-strong)", color: "var(--text-secondary)" }}
+                >
+                    {exportEnCours ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileSpreadsheet className="w-3.5 h-3.5" />}
+                    {exportEnCours ? "Génération…" : "Export Excel"}
+                </button>
             </div>
+
+            {exportErreur && (
+                <div className="rounded-lg px-3 py-2 text-[12px]" style={{ background: "var(--accent-error-bg)", border: "1px solid var(--accent-error)", color: "var(--accent-error)" }}>
+                    {exportErreur}
+                </div>
+            )}
 
             <div className="flex flex-wrap gap-2">
                 <TuileStat
@@ -234,11 +400,12 @@ export function AssortmentGapsModal({ classement, critereId, mois, magasinInitia
                 </div>
             ) : (
                 <div className="rounded-xl overflow-x-auto min-w-0" style={{ border: "1px solid var(--border)" }}>
-                    <table className="w-full text-[12px]" style={{ minWidth: 720 }}>
+                    <table className="w-full text-[12px]" style={{ minWidth: 820 }}>
                         <thead>
                             <tr style={{ background: "var(--bg-elevated)" }}>
                                 <th className="text-right px-2.5 py-1.5 font-semibold" style={{ color: "var(--text-secondary)" }}>#</th>
                                 <th className="text-left px-2.5 py-1.5 font-semibold" style={{ color: "var(--text-secondary)" }}>Code</th>
+                                <th className="text-left px-2.5 py-1.5 font-semibold" style={{ color: "var(--text-secondary)" }}>Référence</th>
                                 <th className="text-left px-2.5 py-1.5 font-semibold" style={{ color: "var(--text-secondary)" }}>Désignation</th>
                                 <th className="text-right px-2.5 py-1.5 font-semibold whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
                                     {libelleCritere(critereId)}
@@ -253,6 +420,9 @@ export function AssortmentGapsModal({ classement, critereId, mois, magasinInitia
                                 <tr key={row.codein} style={{ borderTop: "1px solid var(--border)" }}>
                                     <td className="px-2.5 py-1.5 text-right tabular-nums" style={{ color: "var(--text-muted)" }}>{rang}</td>
                                     <td className="px-2.5 py-1.5 tabular-nums font-semibold whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{row.codein}</td>
+                                    <td className="px-2.5 py-1.5 font-mono text-[11.5px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
+                                        {row.reference || "—"}
+                                    </td>
                                     <td className="px-2.5 py-1.5" style={{ color: "var(--text-primary)" }} title={row.libelle1}>
                                         <span className="font-semibold">{row.libelle1}</span>
                                         {row.libelle3 && (
