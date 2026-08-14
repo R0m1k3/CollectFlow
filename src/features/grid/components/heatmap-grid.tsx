@@ -13,7 +13,7 @@ import {
     RowSelectionState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, Warehouse, AlertTriangle, TrendingUp, TrendingDown, Minus, CalendarRange, Tag, Eye, EyeOff } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, PackageX, Warehouse, AlertTriangle, TrendingUp, TrendingDown, Minus, CalendarRange, Tag, Eye, EyeOff } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -27,6 +27,7 @@ import { GammeSelect } from "@/features/grid/components/gamme-select";
 import { HeatmapCell } from "@/features/grid/components/heatmap-cell";
 import { TuileStat } from "@/features/grid/components/stat-tile";
 import { ProductMonthlyModal } from "@/features/grid/components/product-monthly-modal";
+import { AssortmentGapsModal, PROFONDEUR_MAX, type LigneClassee } from "@/features/grid/components/assortment-gaps-modal";
 import type { ProductRow, GammeCode } from "@/types/grid";
 import { cn } from "@/lib/utils";
 import {
@@ -559,6 +560,8 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
     const [networkModal, setNetworkModal] = useState<ProductRow | null>(null);
     // Détail 12 mois du produit, ouvert depuis la case de total
     const [monthlyModal, setMonthlyModal] = useState<ProductRow | null>(null);
+    // Trous d'assortiment : ce qu'un magasin ne travaille pas, en haut du classement affiché
+    const [gapsOpen, setGapsOpen] = useState(false);
     const tableContainerRef = useRef<HTMLDivElement>(null);
 
     // Calculer les mois dynamiquement pour éviter le mismatch entre serveur et client
@@ -1064,6 +1067,24 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
     /** Blocs de colonnes affichés — badge du menu « Vues ». */
     const nbVues = (showMonthlySales ? 1 : 0) + (showPrices ? 1 : 0);
 
+    /**
+     * Le haut du classement TEL QU'IL EST AFFICHÉ, pour les trous d'assortiment.
+     *
+     * Les lignes viennent du modèle trié et filtré de TanStack : le tri en cours
+     * — CA, quantité, marge, peu importe — fixe l'ordre, et la valeur qui a servi
+     * à classer est relue par `getValue` sur la colonne triée. Tronqué à la
+     * profondeur maximale offerte : au-delà, on copierait 130 000 lignes pour en
+     * regarder 500. Calculé seulement quand la fenêtre est ouverte.
+     */
+    const classementAffiche: LigneClassee[] = useMemo(() => {
+        if (!gapsOpen) return [];
+        const critereId = sorting[0]?.id ?? null;
+        return tableRows.slice(0, PROFONDEUR_MAX).map((r) => ({
+            row: r.original,
+            valeurCritere: critereId ? r.getValue(critereId) : null,
+        }));
+    }, [gapsOpen, tableRows, sorting]);
+
     if (!isMounted) {
         return (
             <div
@@ -1083,6 +1104,17 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
         <div className="h-full w-full relative">
             {portalContainer && createPortal(
                 <div className="flex items-center gap-2.5">
+                {/* Trous d'assortiment — lit le classement affiché, tri compris. */}
+                <button
+                    onClick={() => setGapsOpen(true)}
+                    disabled={tableRows.length === 0}
+                    title="Voir les produits qu'un magasin ne travaille pas — ni vente ni stock — en haut du classement affiché"
+                    className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-semibold border transition-all shadow-sm apple-btn-secondary disabled:opacity-50"
+                    style={{ background: "var(--action-secondary-bg)", borderColor: "var(--border-strong)", color: "var(--action-secondary-text)" }}
+                >
+                    <PackageX className="w-4 h-4" />
+                    <span className="hidden lg:inline">Non travaillés</span>
+                </button>
                 {/*
                   * « Vues » replie des BLOCS de colonnes d'un geste, là où le menu
                   * « Colonnes » voisin agit colonne par colonne. Douze cellules
@@ -1279,6 +1311,18 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
         </Dialog>
         <Dialog open={networkModal !== null} onOpenChange={(open) => { if (!open) setNetworkModal(null); }}>
             {networkModal !== null && <NetworkMonthlyModal row={networkModal} onClose={() => setNetworkModal(null)} />}
+        </Dialog>
+        {/* Trous d'assortiment sur le haut du classement affiché */}
+        <Dialog open={gapsOpen} onOpenChange={setGapsOpen}>
+            {gapsOpen && (
+                <AssortmentGapsModal
+                    classement={classementAffiche}
+                    critereId={sorting[0]?.id ?? null}
+                    mois={MONTHS_12}
+                    magasinInitial={activeMagasin}
+                    onClose={() => setGapsOpen(false)}
+                />
+            )}
         </Dialog>
         {/* Modal détail 12 mois (ventes / entrées / stock par magasin) */}
         <Dialog open={monthlyModal !== null} onOpenChange={(open) => { if (!open) setMonthlyModal(null); }}>
