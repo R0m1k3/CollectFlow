@@ -93,6 +93,54 @@ function prixMoyenReseau(row: ProductRow): number | null {
 const fmtEuro2 = (v: number) =>
     v.toLocaleString("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/**
+ * Prix de vente à montrer pour le magasin consulté.
+ *
+ * `cube_pv` a une clé `(artnoid, site)`, mais notre base n'y met en pratique
+ * qu'une ligne par article : le prix n'est pas ventilé par magasin. La colonne
+ * doit donc rester lisible dans les deux cas de figure —
+ *
+ *   · magasin consulté tarifé → SON prix ;
+ *   · prix unique, non ventilé → ce prix vaut pour tous les magasins ;
+ *   · plusieurs prix mais aucun pour ce magasin → rien, plutôt que celui du
+ *     voisin ;
+ *   · en « tous magasins » : le prix commun, et s'ils divergent le plus élevé
+ *     assorti d'un signal. Une cellule ne peut afficher qu'un nombre, mais
+ *     taire l'écart ferait passer le prix d'un magasin pour celui des deux.
+ */
+function prixVenteAffiche(row: ProductRow, activeMagasin: string): { valeur: number | null; divergent: boolean; detail: string | null } {
+    const entrees = Object.entries(row.prixVenteByStore ?? {});
+
+    // Aucun prix ventilé : reste le PV de la fiche article, s'il existe.
+    if (entrees.length === 0) return { valeur: row.prixVente ?? null, divergent: false, detail: null };
+
+    // Comparaison au centime : deux flottants issus du même prix peuvent différer
+    // dans les décimales lointaines sans que le prix affiché change.
+    const distincts = new Set(entrees.map(([, pv]) => Math.round(pv * 100)));
+
+    if (activeMagasin !== "TOTAL") {
+        const pv = row.prixVenteByStore?.[activeMagasin];
+        if (pv != null) return { valeur: pv, divergent: false, detail: null };
+        if (distincts.size === 1) {
+            return { valeur: entrees[0][1], divergent: false, detail: "prix unique, non ventilé par magasin" };
+        }
+        return { valeur: null, divergent: false, detail: null };
+    }
+
+    const detail = entrees.length > 1
+        ? entrees
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([site, pv]) => `${SITE_LABELS[site]?.nom ?? site} : ${fmtEuro2(pv)}`)
+            .join(" · ")
+        : null;
+
+    return {
+        valeur: Math.max(...entrees.map(([, pv]) => pv)),
+        divergent: distincts.size > 1,
+        detail,
+    };
+}
+
 // =========================================================================
 // OPTIMISATION PERFORMANCES (React.memo + Zustand Selectors granulaires)
 // =========================================================================
@@ -792,21 +840,24 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
             },
             {
                 id: "prixVente",
-                accessorFn: (row: ProductRow) => valeurTriable(row.prixVente),
+                accessorFn: (row: ProductRow) => valeurTriable(prixVenteAffiche(row, activeMagasin).valeur),
                 sortUndefined: "last" as const,
-                header: () => <div className="text-center w-full">PV central<br/><span className="text-[9px] opacity-60">Article</span></div>,
+                header: () => <div className="text-center w-full">PV<br/><span className="text-[9px] opacity-60">Magasin</span></div>,
                 size: 88,
                 cell: ({ row }: { row: { original: ProductRow } }) => {
-                    const val = row.original.prixVente;
+                    const { valeur, divergent, detail } = prixVenteAffiche(row.original, activeMagasin);
                     return (
                         <div
-                            className="text-center tabular-nums text-[12px] font-bold"
+                            className="text-center tabular-nums text-[12px] font-bold flex items-center justify-center gap-0.5"
                             style={{ color: "var(--text-primary)" }}
-                            title={val != null
-                                ? "Prix de vente central de la fiche article (base Nancy)"
-                                : "Aucun prix de vente central sur la fiche article"}
+                            title={valeur != null
+                                ? `Prix de vente en base (cube_pv)${detail ? ` — ${detail}` : ""}`
+                                : "Aucun prix de vente en base pour cet article"}
                         >
-                            {val != null ? fmtEuro2(val) : "-"}
+                            {valeur != null ? fmtEuro2(valeur) : "-"}
+                            {/* Prix différents d'un magasin à l'autre : le signaler, la
+                                cellule ne peut en afficher qu'un. */}
+                            {divergent && <span className="text-[10px] font-black" style={{ color: "var(--accent-warning)" }}>≠</span>}
                         </div>
                     );
                 },

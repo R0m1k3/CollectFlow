@@ -89,7 +89,21 @@ export interface ProductRow {
     /** Données stock & approvisionnement (API FF Nancy) */
     pcb?: number;                    // Conditionnement (pack size)
     prixAchat?: number;              // PA / PRMP
-    prixVente?: number;              // PV central
+    /**
+     * Prix de vente pratiqué, en euros.
+     *
+     * Source par ordre de préférence : `cube_pv` (prix de vente par article et
+     * par site, pendant de `cube_pa` pour l'achat), puis le PV porté par
+     * `cube_stock`, puis `article_infosup.prix_vente_mini` — cette dernière
+     * n'est qu'une borne de paramétrage, vide en pratique.
+     *
+     * Quand les magasins ne pratiquent pas le même prix, cette valeur est la
+     * plus élevée : `prixVenteByStore` porte le détail, et l'affichage signale
+     * la divergence plutôt que d'inventer une moyenne que personne n'encaisse.
+     */
+    prixVente?: number;
+    /** Prix de vente par magasin (site → PV) — `cube_pv`. */
+    prixVenteByStore?: Record<string, number>;
     stockActuel?: number;            // Stock dispo agrégé tous sites
     stockTotal?: number;             // Qte en stock agrégé
     stockValeur?: number;            // Valeur stock agrégée

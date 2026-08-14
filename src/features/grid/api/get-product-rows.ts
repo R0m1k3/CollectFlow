@@ -9,6 +9,7 @@ import {
     pgGetNomenclatureByFournisseur,
     pgGetStockByFournisseur,
     pgGetCommandesByFournisseur,
+    pgGetPrixVenteByFournisseur,
     type PgStockRow,
 } from "@/lib/pg-ff-client";
 import { db } from "@/db";
@@ -124,7 +125,7 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
     try {
         const { dateDebut, dateFin } = buildLast12MonthsRange();
 
-        // ─── Phase 1 : 6 requêtes SQL en parallèle ────────────────────────────
+        // ─── Phase 1 : 7 requêtes SQL en parallèle ────────────────────────────
         // Remplace des centaines/milliers d'appels HTTP per-article.
         const [
             articles,
@@ -133,6 +134,7 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
             nomMap,
             stockMap,
             commandesMap,
+            prixVenteMap,
         ] = await Promise.all([
             pgGetArticlesByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetArticlesByFournisseur ERROR:", e); return []; }),
             pgGetMensuelByFournisseur(codeFournisseur, dateDebut, dateFin).catch(e => { console.error("[getProductRows] pgGetMensuelByFournisseur ERROR:", e); return []; }),
@@ -140,6 +142,7 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
             pgGetNomenclatureByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetNomenclatureByFournisseur ERROR:", e); return new Map(); }),
             pgGetStockByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetStockByFournisseur ERROR:", e); return new Map<string, PgStockRow[]>(); }),
             pgGetCommandesByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetCommandesByFournisseur ERROR:", e); return new Map<string, number>(); }),
+            pgGetPrixVenteByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetPrixVenteByFournisseur ERROR:", e); return new Map<string, Record<string, number>>(); }),
         ]);
 
         console.log(`[getProductRows] ${articles.length} articles, ${mensuelRows.length} mensuel rows, ${gammeMap.size} gammes`);
@@ -372,6 +375,35 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
                     product.derniereLivraisonByStore[r.site] = r.dernierereception;
                 }
             }
+        }
+
+        // ─── Phase 7b : Prix de vente (cube_pv, sinon le PV du cube de stock) ─
+        //
+        // `article_infosup.prix_vente_mini`, renseigné en Phase 3, n'est qu'une
+        // borne de paramétrage : elle est vide en base et laissait la colonne PV
+        // entièrement creuse. Le vrai prix vit dans `cube_pv`, par article ET par
+        // site. On garde le détail par magasin — deux magasins peuvent ne pas
+        // pratiquer le même prix, et l'afficher vaut mieux que le moyenner.
+        for (const product of productMap.values()) {
+            const parSite = prixVenteMap.get(product.codein);
+            if (parSite && Object.keys(parSite).length > 0) {
+                product.prixVenteByStore = parSite;
+            } else {
+                // Filet de secours : le cube de stock porte le même PV, mais
+                // seulement pour les articles qui ont une ligne de stock.
+                const depuisStock: Record<string, number> = {};
+                for (const s of stockMap.get(product.codein) ?? []) {
+                    const pv = Number(s.pv);
+                    const site = String(s.site ?? "").trim();
+                    if (site && Number.isFinite(pv) && pv > 0) depuisStock[site] = pv;
+                }
+                if (Object.keys(depuisStock).length > 0) product.prixVenteByStore = depuisStock;
+            }
+
+            const prix = Object.values(product.prixVenteByStore ?? {});
+            // Le plus élevé quand les magasins divergent : une moyenne inventerait
+            // un prix qu'aucune caisse ne pratique. L'écart est signalé à l'écran.
+            if (prix.length > 0) product.prixVente = Math.max(...prix);
         }
 
         // ─── Phase 8 : Données réseau Qlik (CA / Qté / nb magasins par code centrale) ──

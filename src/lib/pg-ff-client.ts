@@ -72,6 +72,8 @@ export interface PgStockRow {
     qte: number;
     valstock: number;
     prmp: number;
+    /** Prix de vente du site — cube_stock.pv, filet de secours si cube_pv est vide. */
+    pv?: number;
     dernierevente?: string;
     dernierereception?: string;
 }
@@ -448,14 +450,17 @@ function buildNomMap(rows: PgNomRow[]): Map<string, PgNomRow> {
  * 1 requête SQL — remplace la partie stock du référentiel.
  */
 export async function pgGetStockByFournisseur(codefou: string): Promise<Map<string, PgStockRow[]>> {
+    // `site` est élagué pour la même raison que dans pgGetPrixVenteByFournisseur :
+    // il sert de clé de recherche (derniereLivraisonByStore, prix de repli).
     const result = await pgNoParallel(sql`
         SELECT
             a.codein,
-            cs.site,
+            TRIM(cs.site::text) AS site,
             cs.stockdispo::float,
             cs.qte::float,
             cs.valstock::float,
             cs.prmp::float,
+            cs.pv::float,
             cs.dernierevente::text,
             cs.dernierereception::text
         FROM cube_stock cs
@@ -469,6 +474,46 @@ export async function pgGetStockByFournisseur(codefou: string): Promise<Map<stri
         if (!map.has(row.codein)) map.set(row.codein, []);
         map.get(row.codein)!.push(row);
     }
+    return map;
+}
+
+/**
+ * Prix de vente par article et par site (`cube_pv`).
+ *
+ * Pendant exact de `cube_pa` pour l'achat, rafraîchi chaque nuit depuis le cube
+ * MSSQL `Cube_PV`. C'est LA source du prix de vente : `article_infosup`, seule
+ * table lue jusqu'ici pour cette information, ne porte qu'un prix plancher de
+ * paramétrage (`prix_vente_mini`) qui reste vide en pratique.
+ *
+ * Retour : codein → { site → PV }. Les prix nuls sont écartés — un article non
+ * tarifé n'est pas un article à 0 €.
+ */
+export async function pgGetPrixVenteByFournisseur(codefou: string): Promise<Map<string, Record<string, number>>> {
+    // Le site sert de CLÉ de recherche côté Grille (prixVenteByStore["292"]), d'où
+    // l'élagage : la synchronisation Apiflow écrit `cube_pv.site` brut, sans passer
+    // par le `safeStr` qu'elle applique à `cube_stock`. Une colonne MSSQL de largeur
+    // fixe remonterait complétée d'espaces, et la recherche échouerait en silence —
+    // le prix resterait visible en « tous magasins » et vide magasin par magasin.
+    const result = await pgNoParallel(sql`
+        SELECT
+            a.codein,
+            TRIM(cpv.site::text) AS site,
+            cpv.pv::float AS pv
+        FROM cube_pv cpv
+        JOIN articles a ON a.no_id = cpv.artnoid
+        JOIN (SELECT DISTINCT art_no_id FROM artfou1 WHERE code = ${codefou}) af
+            ON af.art_no_id = a.no_id
+        WHERE cpv.pv IS NOT NULL AND cpv.pv > 0
+    `);
+
+    const map = new Map<string, Record<string, number>>();
+    for (const row of result.rows as { codein: string; site: string; pv: number }[]) {
+        if (!row.codein || !row.site) continue;
+        const parSite = map.get(row.codein) ?? {};
+        parSite[String(row.site)] = Number(row.pv);
+        map.set(row.codein, parSite);
+    }
+    console.log(`[pg-ff] Prix de vente : ${map.size} articles tarifés pour ${codefou}`);
     return map;
 }
 
