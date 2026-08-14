@@ -49,6 +49,8 @@ import { TrendSparkline, NetworkLineChart } from "@/features/grid/components/net
 interface HeatmapGridProps {
     onSelectionChange?: (codeins: string[]) => void;
     isAdmin?: boolean;
+    /** Sert à nommer et documenter les extractions issues de la Grille. */
+    nomFournisseur?: string;
 }
 
 const EMPTY_DRAFT_CHANGES: Record<string, GammeCode> = {};
@@ -512,7 +514,7 @@ function VentilationParMagasin({ d }: { d: CellDetailData }) {
 
 // =========================================================================
 
-export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
+export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: HeatmapGridProps) {
     // L'abonnement doit être minimal ici ! PAS de draftChanges ni de setDraftGamme.
     const rows = useGridStore((s) => s.rows);
     const filters = useGridStore((s) => s.filters);
@@ -1320,6 +1322,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin }: HeatmapGridProps) {
                     critereId={sorting[0]?.id ?? null}
                     mois={MONTHS_12}
                     magasinInitial={activeMagasin}
+                    nomFournisseur={nomFournisseur}
                     onClose={() => setGapsOpen(false)}
                 />
             )}
