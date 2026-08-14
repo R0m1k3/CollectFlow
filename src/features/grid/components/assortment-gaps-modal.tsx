@@ -400,11 +400,12 @@ export function AssortmentGapsModal({ classement, critereId, mois, magasinInitia
                 </div>
             ) : (
                 <div className="rounded-xl overflow-x-auto min-w-0" style={{ border: "1px solid var(--border)" }}>
-                    <table className="w-full text-[12px]" style={{ minWidth: 720 }}>
+                    <table className="w-full text-[12px]" style={{ minWidth: 820 }}>
                         <thead>
                             <tr style={{ background: "var(--bg-elevated)" }}>
                                 <th className="text-right px-2.5 py-1.5 font-semibold" style={{ color: "var(--text-secondary)" }}>#</th>
                                 <th className="text-left px-2.5 py-1.5 font-semibold" style={{ color: "var(--text-secondary)" }}>Code</th>
+                                <th className="text-left px-2.5 py-1.5 font-semibold" style={{ color: "var(--text-secondary)" }}>Référence</th>
                                 <th className="text-left px-2.5 py-1.5 font-semibold" style={{ color: "var(--text-secondary)" }}>Désignation</th>
                                 <th className="text-right px-2.5 py-1.5 font-semibold whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
                                     {libelleCritere(critereId)}
@@ -419,6 +420,9 @@ export function AssortmentGapsModal({ classement, critereId, mois, magasinInitia
                                 <tr key={row.codein} style={{ borderTop: "1px solid var(--border)" }}>
                                     <td className="px-2.5 py-1.5 text-right tabular-nums" style={{ color: "var(--text-muted)" }}>{rang}</td>
                                     <td className="px-2.5 py-1.5 tabular-nums font-semibold whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{row.codein}</td>
+                                    <td className="px-2.5 py-1.5 font-mono text-[11.5px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
+                                        {row.reference || "—"}
+                                    </td>
                                     <td className="px-2.5 py-1.5" style={{ color: "var(--text-primary)" }} title={row.libelle1}>
                                         <span className="font-semibold">{row.libelle1}</span>
                                         {row.libelle3 && (
