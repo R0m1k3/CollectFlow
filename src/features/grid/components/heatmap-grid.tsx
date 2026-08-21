@@ -257,6 +257,37 @@ interface VirtualRowProps {
     columnSizing: Record<string, number>;
 }
 
+/**
+ * Colonnes figées à gauche : celles qui disent QUELLE ligne on lit.
+ *
+ * Sans elles, dès qu'on défile vers les totaux ou les mois, la Désignation
+ * sort de l'écran et plus rien n'identifie la ligne — sur 2600 px de tableau
+ * pour ~1150 px visibles, c'est la moitié du temps.
+ *
+ * `libelle1` a été rapprochée de `codein` dans l'ordre des colonnes : le
+ * figeage exige des colonnes contiguës depuis la gauche, et geler en plus
+ * Référence et GTIN aurait immobilisé 636 px au lieu de 406.
+ */
+const COLONNES_FIGEES = new Set(["select", "codein", "libelle1"]);
+
+/**
+ * Décalage `left` de chaque colonne figée, par cumul des largeurs.
+ *
+ * On s'arrête à la première colonne non figée : une colonne figée qui ne
+ * toucherait pas le bord flotterait au milieu du tableau. Si l'utilisateur
+ * masque « Code interne », le calcul se réajuste tout seul.
+ */
+function decalagesFiges(colonnes: { id: string; taille: number }[]): Map<string, number> {
+    const out = new Map<string, number>();
+    let cumul = 0;
+    for (const c of colonnes) {
+        if (!COLONNES_FIGEES.has(c.id)) break;
+        out.set(c.id, cumul);
+        cumul += c.taille;
+    }
+    return out;
+}
+
 const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnsKey, columnSizing }: VirtualRowProps) => {
     // Uniquement la ligne concernée écoute son propre changement pour l'effet visuel
     const effectiveGamme = useGridStore((s) => s.draftChanges[row.original.codein] ?? row.original.codeGamme);
@@ -273,6 +304,10 @@ const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnsKey
     // ne voyait que le menu.
     void columnsKey;
     void columnSizing; // idem, pour le redimensionnement des colonnes
+
+    const cellules = row.getVisibleCells();
+    const figes = decalagesFiges(cellules.map((c) => ({ id: c.column.id, taille: c.column.getSize() })));
+    const dernierFige = [...figes.keys()].at(-1);
 
     return (
         <tr
@@ -291,6 +326,9 @@ const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnsKey
             }}
         >
             {row.getVisibleCells().map((cell: Cell<ProductRow, unknown>) => {
+                const gauche = figes.get(cell.column.id);
+                const estFige = gauche !== undefined;
+                const derniereFigee = estFige && cell.column.id === dernierFige;
                 const isFlexible = cell.column.id === "libelle1" || cell.column.id === "libelle3";
                 const isCenter = cell.column.id === "totalQuantite" || cell.column.id === "totalCa" || cell.column.id === "totalMarge" || cell.column.id.startsWith("month_") || cell.column.id === "gammeInitial" || QLIK_NETWORK_COLUMN_IDS.has(cell.column.id) || cell.column.id === "prixVente" || cell.column.id === "gamme";
                 const size = cell.column.getSize();
@@ -298,8 +336,15 @@ const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnsKey
                     <td
                         key={cell.id}
                         className={cn(
-                            "px-2 overflow-hidden flex items-center transition-colors group-hover/row:bg-white/5",
-                            isSelected && "bg-transparent"
+                            "px-2 overflow-hidden flex items-center transition-colors",
+                            // Une cellule figée doit être OPAQUE : le reste de la ligne
+                            // glisse dessous. Le survol passe donc par une teinte pleine,
+                            // pas par le voile `bg-white/5` des cellules ordinaires.
+                            estFige
+                                ? (isSelected
+                                    ? "bg-[var(--accent-bg)]"
+                                    : "bg-[var(--bg-surface)] group-hover/row:bg-[var(--bg-elevated)]")
+                                : cn("group-hover/row:bg-white/5", isSelected && "bg-transparent"),
                         )}
                         style={{
                             width: isFlexible ? "100%" : size,
@@ -307,7 +352,16 @@ const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnsKey
                             minWidth: size,
                             maxWidth: isFlexible ? "none" : size,
                             height: `${rowHeight}px`,
-                            justifyContent: isCenter ? "center" : "flex-start"
+                            justifyContent: isCenter ? "center" : "flex-start",
+                            ...(estFige ? {
+                                position: "sticky" as const,
+                                left: gauche,
+                                // Au-dessus des cellules voisines, sous l'en-tête (z-10).
+                                zIndex: 2,
+                                // Trait de séparation : sans lui, rien ne dit où finit la
+                                // zone figée et où commence ce qui défile.
+                                borderRight: derniereFigee ? "1px solid var(--border-strong)" : undefined,
+                            } : {}),
                         }}
                     >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -648,32 +702,6 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
             ),
         },
         {
-            accessorKey: "reference",
-            header: "Référence",
-            size: 110,
-            cell: ({ getValue }) => (
-                <CopiableCell
-                    value={getValue<string>()}
-                    titre="Copier la référence"
-                    className="text-[12px] font-mono opacity-80 group-hover:opacity-100"
-                    style={{ color: "var(--text-secondary)" }}
-                />
-            ),
-        },
-        {
-            accessorKey: "gtin",
-            header: "EAN / GTIN",
-            size: 120,
-            cell: ({ getValue }) => (
-                <CopiableCell
-                    value={getValue<string>()}
-                    titre="Copier l'EAN / GTIN"
-                    className="text-[12px] font-mono tracking-tight opacity-70 group-hover:opacity-100"
-                    style={{ color: "var(--text-secondary)" }}
-                />
-            ),
-        },
-        {
             accessorKey: "libelle1",
             header: "Désignation",
             size: 280,
@@ -723,6 +751,32 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                     </div>
                 );
             },
+        },
+        {
+            accessorKey: "reference",
+            header: "Référence",
+            size: 110,
+            cell: ({ getValue }) => (
+                <CopiableCell
+                    value={getValue<string>()}
+                    titre="Copier la référence"
+                    className="text-[12px] font-mono opacity-80 group-hover:opacity-100"
+                    style={{ color: "var(--text-secondary)" }}
+                />
+            ),
+        },
+        {
+            accessorKey: "gtin",
+            header: "EAN / GTIN",
+            size: 120,
+            cell: ({ getValue }) => (
+                <CopiableCell
+                    value={getValue<string>()}
+                    titre="Copier l'EAN / GTIN"
+                    className="text-[12px] font-mono tracking-tight opacity-70 group-hover:opacity-100"
+                    style={{ color: "var(--text-secondary)" }}
+                />
+            ),
         },
         {
             accessorKey: "libelle3",
@@ -1238,21 +1292,44 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                     }}>
                         {table.getHeaderGroups().map((headerGroup) => (
                             <tr key={headerGroup.id} className="flex w-full">
-                                {headerGroup.headers.map((header) => {
+                                {(() => {
+                                    const figesEntete = decalagesFiges(
+                                        headerGroup.headers.map((h) => ({ id: h.column.id, taille: h.getSize() })),
+                                    );
+                                    const dernierFigeEntete = [...figesEntete.keys()].at(-1);
+                                    return headerGroup.headers.map((header) => {
+                                    const gaucheEntete = figesEntete.get(header.column.id);
+                                    const enteteFigee = gaucheEntete !== undefined;
                                     const isFlexible = header.column.id === "libelle1" || header.column.id === "libelle3";
                                     const isCenter = header.column.id === "totalQuantite" || header.column.id === "totalCa" || header.column.id === "totalMarge" || header.column.id.startsWith("month_") || header.column.id === "gammeInitial" || QLIK_NETWORK_COLUMN_IDS.has(header.column.id) || header.column.id === "prixVente" || header.column.id === "gamme";
                                     const size = header.getSize();
                                     return (
                                         <th
                                             key={header.id}
-                                            className="px-2 py-3 text-[10px] font-black uppercase tracking-[0.05em] whitespace-nowrap select-none flex items-center transition-colors hover:bg-white/5 relative group/header"
+                                            className={cn(
+                                                "px-2 py-3 text-[10px] font-black uppercase tracking-[0.05em] whitespace-nowrap select-none flex items-center transition-colors relative group/header",
+                                                !enteteFigee && "hover:bg-white/5",
+                                            )}
                                             style={{
                                                 width: isFlexible ? "100%" : size,
                                                 flex: isFlexible ? `1 1 ${size}px` : `0 0 ${size}px`,
                                                 minWidth: size,
                                                 maxWidth: isFlexible ? "none" : size,
                                                 color: "var(--text-muted)",
-                                                justifyContent: isCenter ? "center" : "flex-start"
+                                                justifyContent: isCenter ? "center" : "flex-start",
+                                                ...(enteteFigee ? {
+                                                    position: "sticky" as const,
+                                                    left: gaucheEntete,
+                                                    zIndex: 2,
+                                                    // Le fond du <thead> est un dégradé translucide : sans
+                                                    // fond propre, les autres intitulés défileraient à
+                                                    // travers l'en-tête figé. On reprend le même dégradé
+                                                    // pour que la bande reste d'un seul tenant.
+                                                    background: "linear-gradient(to bottom, var(--bg-elevated), var(--bg-surface))",
+                                                    borderRight: header.column.id === dernierFigeEntete
+                                                        ? "1px solid var(--border-strong)"
+                                                        : undefined,
+                                                } : {}),
                                             }}
                                             onClick={header.column.getToggleSortingHandler()}
                                         >
@@ -1278,7 +1355,8 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                                             )}
                                         </th>
                                     );
-                                })}
+                                });
+                                })()}
                             </tr>
                         ))}
                     </thead>
