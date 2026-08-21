@@ -238,6 +238,47 @@
   background: rgba(0, 0, 0, 0.18);
 }
 
+/* ── Défilement de la Grille ──
+   La règle ci-dessus (8 px, rail transparent, pouce très pâle) convient aux
+   panneaux où l'ascenseur est accessoire. Dans la Grille, le tableau fait
+   ~2600 px de large : l'ascenseur HORIZONTAL est l'outil de navigation
+   principal, et un rail invisible ne dit pas qu'il reste des colonnes à
+   droite. On lui donne donc un rail dessiné et un pouce saisissable.
+   `scrollbar-*` couvre Firefox, que les sélecteurs -webkit- ignorent. */
+.grid-scroll {
+  scrollbar-width: auto;
+  scrollbar-color: var(--text-muted) var(--bg-elevated);
+}
+
+.grid-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 14px;
+}
+
+.grid-scroll::-webkit-scrollbar-track:horizontal {
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+}
+
+.grid-scroll::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  border-radius: 99px;
+  /* Bordure transparente + background-clip : le pouce garde de l'air dans son
+     rail sans qu'on ait à jouer sur des marges, impossibles ici. */
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+.grid-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+  background-clip: padding-box;
+}
+
+/* Le coin entre les deux ascenseurs, sinon laissé en blanc par le navigateur. */
+.grid-scroll::-webkit-scrollbar-corner {
+  background: var(--bg-elevated);
+}
+
 /* ── Heatmap cells ── */
 .heatmap-zero {
   background: var(--bg-elevated);

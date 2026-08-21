@@ -19,9 +19,12 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
     // Determine color based on label to match the prototype
     const valColor = label.includes("CA") || label.includes("Marge") ? "text-emerald-600 dark:text-emerald-400" : "text-slate-900 dark:text-white";
     return (
-        <div className="flex flex-col items-center">
-            <span className="text-slate-500 text-[10px] uppercase font-black mb-1 tracking-tighter">{label}</span>
-            <span className={`font-mono-nums font-black text-xl ${valColor}`}>{value}</span>
+        // Barre maintenant dans le flux : chaque pixel de hauteur est pris au
+        // tableau. Ces chiffres sont déjà repris en gros dans l'en-tête de page,
+        // ils n'ont pas besoin d'y être une seconde fois en 20 px.
+        <div className="flex flex-col items-center leading-tight">
+            <span className="text-slate-500 text-[10px] uppercase font-black tracking-tighter">{label}</span>
+            <span className={`font-mono-nums font-black text-base ${valColor}`}>{value}</span>
             {sub && <span className="text-emerald-600 dark:text-emerald-500 text-[11px] font-bold">{sub}</span>}
         </div>
     );
@@ -153,7 +156,20 @@ export function FloatingSummaryBar() {
 
     return (
         <div
-            className="fixed bottom-6 left-[264px] right-6 p-4 flex justify-between items-center shadow-lg border rounded-xl z-50 transition-colors bg-slate-100 dark:bg-slate-800"
+            /*
+             * Dans le flux, plus en `fixed`.
+             *
+             * En `fixed` elle ne réservait aucune hauteur : seul un `pb-12` posé sur
+             * la page compensait, et il était trop court d'une quarantaine de pixels.
+             * Elle recouvrait donc la dernière ligne du tableau ET la barre de
+             * défilement horizontale — d'où l'impression qu'aucun ascenseur n'existait.
+             *
+             * Le `left-[264px]` était en prime calé sur une barre latérale dépliée,
+             * alors qu'elle est repliée par défaut (64 px) : 200 px de vide à gauche.
+             * En flux, la grille cède exactement la hauteur nécessaire et il n'y a
+             * plus aucune valeur magique à tenir en phase.
+             */
+            className="shrink-0 px-4 py-2.5 flex flex-wrap justify-between items-center gap-x-4 gap-y-2 shadow-sm border rounded-xl transition-colors bg-slate-100 dark:bg-slate-800"
             style={{
                 borderColor: hasDrafts ? "rgba(234, 179, 8, 0.5)" : "var(--border-strong)",
             }}

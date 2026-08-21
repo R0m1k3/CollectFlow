@@ -134,7 +134,7 @@ export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
                 fournisseurs={fournisseurs}
                 selectedCode={searchParams.get("fournisseur")}
                 onSelect={handleSupplierSelect}
-                className="w-[280px]"
+                className="w-[200px] xl:w-[280px]"
             />
 
             {/* Store Selector */}
@@ -142,7 +142,7 @@ export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
                 magasins={magasins}
                 selectedCode={activeMagasin === "TOTAL" ? null : activeMagasin}
                 onSelect={handleStoreSelect}
-                className="w-[220px]"
+                className="w-[170px] xl:w-[220px]"
             />
 
             {/* Search */}
@@ -156,12 +156,19 @@ export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
                     placeholder="Rechercher (code, désignation...)"
                     value={searchValue}
                     onChange={(e) => setSearchValue(e.target.value)}
-                    className="apple-input w-72 pr-8"
+                    // La croix native de `type="search"` (WebKit/Blink) est masquée :
+                    // ce champ a déjà son propre bouton d'effacement juste à droite,
+                    // et les deux apparaissaient côte à côte. On garde `type="search"`
+                    // pour la sémantique ; le masquage est local, la recherche de
+                    // l'en-tête n'ayant pas de bouton maison, elle garde le sien.
+                    className="apple-input w-52 xl:w-72 pr-8 [&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-cancel-button]:hidden"
                     style={{ paddingLeft: "32px" }}
                 />
                 {searchValue && (
                     <button
+                        type="button"
                         onClick={() => setSearchValue("")}
+                        aria-label="Effacer la recherche"
                         className="absolute right-2 top-1/2 -translate-y-1/2"
                     >
                         <X className="h-3.5 w-3.5 hover:opacity-100 opacity-60 transition-opacity" style={{ color: "var(--text-secondary)" }} />

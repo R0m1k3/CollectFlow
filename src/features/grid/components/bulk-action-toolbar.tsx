@@ -32,7 +32,7 @@ export function BulkActionToolbar({ selectedCodeins, onClearSelection }: BulkAct
     };
 
     return (
-        <div className="flex items-center gap-3 px-4 py-2 bg-slate-900 border border-slate-700/50 rounded-xl backdrop-blur-md shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 bg-slate-900 border border-slate-700/50 rounded-xl backdrop-blur-md shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
             <span className="text-[11px] font-black uppercase tracking-wider text-slate-200">
                 {selectedCodeins.length} sélectionné{selectedCodeins.length > 1 ? "s" : ""}
             </span>

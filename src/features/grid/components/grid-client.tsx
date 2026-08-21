@@ -209,7 +209,7 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
     const activeStoreNom = magasins.find(m => m.code === magasin)?.nom || "National (Total)";
 
     return (
-        <div className="flex flex-col h-full space-y-3 min-h-0 pb-12">
+        <div className="flex flex-col h-full space-y-3 min-h-0">
             {/* Header — chrome raffiné (eyebrow teal + fournisseur héro + pastilles métriques) */}
             <header className="shrink-0 flex items-center justify-between gap-4 pb-2.5" style={{ borderBottom: "1px solid var(--border)" }}>
                 <div className="flex items-center gap-3.5 min-w-0">

@@ -1061,7 +1061,11 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
     });
 
     const visibleColumns = table.getVisibleLeafColumns();
-    const totalWidth = visibleColumns.reduce((s, c) => s + ((c.columnDef as { size?: number }).size ?? 150), 0);
+    // `getSize()` et non `columnDef.size` : le redimensionnement de colonnes est
+    // actif et persisté. En lisant la taille déclarée, la largeur plancher de la
+    // table restait figée sur l'ancienne somme dès qu'on élargissait une colonne,
+    // ce qui rognait les dernières et raccourcissait la course de défilement.
+    const totalWidth = visibleColumns.reduce((s, c) => s + c.getSize(), 0);
     // Signature du jeu de colonnes affiché : elle sert de signal de re-rendu aux
     // lignes virtuelles (cf. `GridRow`). Calculée une fois par rendu de grille,
     // pas une fois par ligne.
@@ -1214,7 +1218,11 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
 
             <div
                 ref={tableContainerRef}
-                className="h-full w-full overflow-auto rounded-[14px] relative"
+                // `tabIndex` : sans lui, les flèches, Origine et Fin ne défilent pas
+                // la grille. Il ne restait que Maj+molette, que personne ne devine.
+                tabIndex={0}
+                aria-label="Tableau des articles — défilement horizontal sur 12 mois"
+                className="h-full w-full overflow-auto rounded-[14px] relative grid-scroll"
                 style={{
                     background: "var(--bg-surface)",
                     border: "1px solid var(--border)",
