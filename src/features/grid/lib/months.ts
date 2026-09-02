@@ -30,6 +30,32 @@ export function getLast12Months(): string[] {
     return months;
 }
 
+/**
+ * Fenêtre de 12 mois **telle que le serveur l'a calculée**, lue dans les clés des
+ * séries mensuelles des lignes reçues.
+ *
+ * `getLast12Months()` recalcule la fenêtre depuis l'horloge du navigateur ; or
+ * les totaux (`totalQuantite`, `quantiteByStore`…) sont figés côté serveur, sur
+ * SA fenêtre. Dès que les deux divergent — onglet resté ouvert au changement de
+ * mois, lignes servies depuis le cache, horloges décalées — un mois de ventes
+ * disparaît des colonnes tout en restant compté dans le total : la case
+ * « Tot. 12m » affiche 28 quand les douze cases visibles ne font que 20.
+ * Les clés des données sont la seule référence commune : on les prend.
+ *
+ * Renvoie `null` si aucune ligne ne porte de série (fournisseur sans vente,
+ * chargement en cours) — l'appelant retombe alors sur `getLast12Months()`.
+ */
+export function getMonthsFromRows(rows: ReadonlyArray<{ sales12m?: Record<string, number> }>): string[] | null {
+    for (const r of rows) {
+        const keys = Object.keys(r.sales12m ?? {}).filter((k) => /^\d{6}$/.test(k));
+        if (keys.length < 12) continue;
+        // Toutes les lignes d'un même calcul partagent la même fenêtre : la
+        // première ligne complète suffit.
+        return keys.sort().slice(-12);
+    }
+    return null;
+}
+
 /** `"202601"` → `"Jan 26"`. */
 export function formatMonthLabel(key: string): string {
     const m = parseInt(key.slice(4, 6), 10);

@@ -129,15 +129,27 @@ function EnteteSection({ icone: Icone, titre, detail, couleur }: {
 }
 
 /**
- * Stock de fin de mois, un magasin par ligne.
+ * Une série mensuelle ventilée par magasin, un magasin par ligne.
+ *
+ * Sert aux ventes (flux : une colonne « 12 m » cumule la ligne) comme au stock
+ * (niveau : additionner douze fins de mois n'aurait aucun sens, pas de cumul).
  *
  * La ligne de total est recalculée depuis les lignes affichées : un total qui ne
  * correspond pas à la somme visible fait douter du tableau entier.
  */
-function TableauStockMagasins({ row, mois, activeMagasin }: {
+function TableauParMagasin({ row, mois, activeMagasin, parSite, agrege, sousLigne, cumul, aria }: {
     row: ProductRow;
     mois: string[];
     activeMagasin: string;
+    /** Série par magasin (site → mois → valeur). */
+    parSite: Record<string, Record<string, number>> | undefined;
+    /** Série agrégée réseau, affichée seule quand aucune ventilation n'existe. */
+    agrege: Record<string, number>;
+    /** Texte secondaire sous le nom du magasin (`null` pour la ligne réseau). */
+    sousLigne: (site: string | null, valeurs: number[]) => string;
+    /** Ajoute une colonne de cumul sur 12 mois (flux uniquement). */
+    cumul?: boolean;
+    aria: string;
 }) {
     const sites = [...new Set([
         ...Object.keys(row.stock12mByStore ?? {}),
@@ -147,26 +159,31 @@ function TableauStockMagasins({ row, mois, activeMagasin }: {
     // Sans ventilation par site (produit jamais mouvementé, données partielles),
     // on montre au moins la série agrégée plutôt qu'un tableau vide.
     const lignes = sites.length > 0
-        ? sites.map((site) => ({
-            cle: site,
-            nom: SITE_LABELS[site]?.nom ?? site,
-            actif: activeMagasin === site,
-            derniereEntree: row.derniereLivraisonByStore?.[site],
-            valeurs: mois.map((m) => row.stock12mByStore?.[site]?.[m] ?? 0),
-        }))
-        : [{
-            cle: "TOTAL",
-            nom: "Total réseau",
-            actif: true,
-            derniereEntree: row.derniereLivraison,
-            valeurs: mois.map((m) => row.stock12m[m] ?? 0),
-        }];
+        ? sites.map((site) => {
+            const valeurs = mois.map((m) => parSite?.[site]?.[m] ?? 0);
+            return { cle: site, nom: SITE_LABELS[site]?.nom ?? site, actif: activeMagasin === site, valeurs, sous: sousLigne(site, valeurs) };
+        })
+        : [(() => {
+            const valeurs = mois.map((m) => agrege[m] ?? 0);
+            return { cle: "TOTAL", nom: "Total réseau", actif: true, valeurs, sous: sousLigne(null, valeurs) };
+        })()];
 
     const totaux = mois.map((_, i) => lignes.reduce((t, l) => t + l.valeurs[i], 0));
+    const somme = (v: number[]) => v.reduce((t, x) => t + x, 0);
+
+    const cellule = (v: number, key: string, gras = false) => (
+        <td
+            key={key}
+            className={`px-1.5 py-1.5 text-right tabular-nums${gras ? " font-bold" : ""}`}
+            style={{ color: v === 0 && !gras ? "var(--text-muted)" : "var(--text-primary)" }}
+        >
+            {fmt(v)}
+        </td>
+    );
 
     return (
         <div className="rounded-xl overflow-x-auto min-w-0" style={{ border: "1px solid var(--border)" }}>
-            <table className="w-full text-[11.5px]" style={{ minWidth: 600 }}>
+            <table className="w-full text-[11.5px]" style={{ minWidth: 600 }} aria-label={aria}>
                 <thead>
                     <tr style={{ background: "var(--bg-elevated)" }}>
                         <th className="text-left px-2.5 py-1.5 font-semibold" style={{ color: "var(--text-secondary)" }}>
@@ -177,6 +194,11 @@ function TableauStockMagasins({ row, mois, activeMagasin }: {
                                 {formatMonthLabel(m)}
                             </th>
                         ))}
+                        {cumul && (
+                            <th className="text-right px-2 py-1.5 font-bold whitespace-nowrap" style={{ color: "var(--text-primary)", borderLeft: "1px solid var(--border)" }}>
+                                12 m
+                            </th>
+                        )}
                     </tr>
                 </thead>
                 <tbody>
@@ -186,21 +208,16 @@ function TableauStockMagasins({ row, mois, activeMagasin }: {
                             <tr key={l.cle} style={{ borderTop: "1px solid var(--border)", background: surligne ? "var(--accent-bg)" : undefined }}>
                                 <td className="px-2.5 py-1.5 whitespace-nowrap" style={{ color: "var(--text-primary)" }}>
                                     <div className="font-semibold">{l.nom}</div>
-                                    {/* La date de dernière entrée explique un stock qui ne bouge
-                                        plus : elle est écrite, pas réservée au survol. */}
-                                    <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                                        {l.derniereEntree ? `dern. entrée ${formatDate(l.derniereEntree)}` : "aucune entrée"}
-                                    </div>
+                                    {/* L'information secondaire (dernière entrée, mois avec
+                                        vente) est écrite, pas réservée au survol. */}
+                                    <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>{l.sous}</div>
                                 </td>
-                                {l.valeurs.map((v, i) => (
-                                    <td
-                                        key={mois[i]}
-                                        className="px-1.5 py-1.5 text-right tabular-nums"
-                                        style={{ color: v === 0 ? "var(--text-muted)" : "var(--text-primary)" }}
-                                    >
-                                        {fmt(v)}
+                                {l.valeurs.map((v, i) => cellule(v, mois[i]))}
+                                {cumul && (
+                                    <td className="px-2 py-1.5 text-right tabular-nums font-bold" style={{ color: "var(--text-primary)", borderLeft: "1px solid var(--border)" }}>
+                                        {fmt(somme(l.valeurs))}
                                     </td>
-                                ))}
+                                )}
                             </tr>
                         );
                     })}
@@ -209,11 +226,12 @@ function TableauStockMagasins({ row, mois, activeMagasin }: {
                             <td className="px-2.5 py-1.5 font-bold" style={{ color: "var(--text-primary)" }}>
                                 Total
                             </td>
-                            {totaux.map((v, i) => (
-                                <td key={mois[i]} className="px-1.5 py-1.5 text-right tabular-nums font-bold" style={{ color: "var(--text-primary)" }}>
-                                    {fmt(v)}
+                            {totaux.map((v, i) => cellule(v, mois[i], true))}
+                            {cumul && (
+                                <td className="px-2 py-1.5 text-right tabular-nums font-bold" style={{ color: "var(--text-primary)", borderLeft: "1px solid var(--border)" }}>
+                                    {fmt(somme(totaux))}
                                 </td>
-                            ))}
+                            )}
                         </tr>
                     )}
                 </tbody>
@@ -225,8 +243,13 @@ function TableauStockMagasins({ row, mois, activeMagasin }: {
 /**
  * Détail 12 mois d'un produit : ventes, entrées en stock, stock par magasin.
  *
- * Les deux premières séries suivent le magasin actif de la Grille (cohérence
- * avec la case cliquée) ; la troisième reste toujours ventilée, c'est son objet.
+ * Les graphiques suivent le magasin actif de la Grille (cohérence avec la case
+ * cliquée) ; les tableaux de ventes et de stock restent toujours ventilés par
+ * magasin, c'est leur objet.
+ *
+ * `mois` est la fenêtre du serveur (lue dans les données, cf. `months.ts`) :
+ * c'est ce qui garantit que la tuile « Ventes 12 m » retombe sur le total de la
+ * Grille.
  */
 export function ProductMonthlyModal({ row, mois, activeMagasin, onClose }: {
     row: ProductRow;
@@ -308,7 +331,7 @@ export function ProductMonthlyModal({ row, mois, activeMagasin, onClose }: {
                 />
             </div>
 
-            <section className="space-y-1">
+            <section className="space-y-1.5">
                 <EnteteSection
                     icone={ShoppingCart}
                     titre="Ventes mensuelles"
@@ -320,6 +343,22 @@ export function ProductMonthlyModal({ row, mois, activeMagasin, onClose }: {
                     valeurs={ventes}
                     couleur={COULEUR_VENTES}
                     aria={`Ventes mensuelles de ${row.libelle1} sur 12 mois`}
+                />
+                {/* Le graphique donne la forme, le tableau donne les chiffres par
+                    magasin — et son cumul « 12 m » est le même total que la tuile
+                    et que la case cliquée dans la Grille. */}
+                <TableauParMagasin
+                    row={row}
+                    mois={mois}
+                    activeMagasin={activeMagasin}
+                    parSite={row.sales12mByStore}
+                    agrege={row.sales12m}
+                    sousLigne={(_site, valeurs) => {
+                        const n = valeurs.filter((v) => v !== 0).length;
+                        return n === 0 ? "aucune vente" : `${n} mois avec vente`;
+                    }}
+                    cumul
+                    aria={`Ventes mensuelles de ${row.libelle1} par magasin`}
                 />
             </section>
 
@@ -345,7 +384,19 @@ export function ProductMonthlyModal({ row, mois, activeMagasin, onClose }: {
                     detail="stock de fin de mois"
                     couleur="var(--border-strong)"
                 />
-                <TableauStockMagasins row={row} mois={mois} activeMagasin={activeMagasin} />
+                <TableauParMagasin
+                    row={row}
+                    mois={mois}
+                    activeMagasin={activeMagasin}
+                    parSite={row.stock12mByStore}
+                    agrege={row.stock12m}
+                    sousLigne={(site) => {
+                        // La date de dernière entrée explique un stock qui ne bouge plus.
+                        const d = site ? row.derniereLivraisonByStore?.[site] : row.derniereLivraison;
+                        return d ? `dern. entrée ${formatDate(d)}` : "aucune entrée";
+                    }}
+                    aria={`Stock de fin de mois de ${row.libelle1} par magasin`}
+                />
             </section>
         </DialogContent>
     );

@@ -32,6 +32,7 @@ import type { ProductRow, GammeCode } from "@/types/grid";
 import { cn } from "@/lib/utils";
 import {
     getLast12Months,
+    getMonthsFromRows,
     formatMonthLabel,
     formatDate,
     SITE_LABELS,
@@ -620,8 +621,11 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
     const [gapsOpen, setGapsOpen] = useState(false);
     const tableContainerRef = useRef<HTMLDivElement>(null);
 
-    // Calculer les mois dynamiquement pour éviter le mismatch entre serveur et client
-    const MONTHS_12 = useMemo(() => getLast12Months(), []);
+    // Les 12 mois viennent des données, pas de l'horloge du navigateur : les
+    // totaux sont figés sur la fenêtre du serveur, les colonnes doivent l'être
+    // aussi, sinon un mois manque aux cases mais pas au total (cf. months.ts).
+    // Le calcul local ne sert que tant qu'aucune ligne n'est chargée.
+    const MONTHS_12 = useMemo(() => getMonthsFromRows(rows) ?? getLast12Months(), [rows]);
 
     useEffect(() => {
         setIsMounted(true);
