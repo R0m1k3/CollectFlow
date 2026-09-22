@@ -1031,6 +1031,143 @@ export async function pgGetStockForCodeins(codeins: string[]): Promise<Map<strin
 }
 
 // ---------------------------------------------------------------------------
+// Stock — fournisseur de la dernière entrée
+// ---------------------------------------------------------------------------
+
+/**
+ * Colonnes candidates de `mvtart` reliant un mouvement de stock à un fournisseur.
+ * `mvtart` provient d'une réplication FF : le nom exact n'est pas garanti, on le
+ * détecte une fois par process (même principe que `getNomenclatureParentCol`).
+ *  - target "artfou1" : la colonne est une FK vers `artfou1.no_id`
+ *  - target "code"    : la colonne contient directement le code fournisseur (`fouident.code`)
+ */
+const MVTART_FOU_CANDIDATES: { column: string; target: "artfou1" | "code" }[] = [
+    { column: "artfou1_no_id", target: "artfou1" },
+    { column: "artfou_no_id", target: "artfou1" },
+    { column: "afou_no_id", target: "artfou1" },
+    { column: "codefou", target: "code" },
+    { column: "code_fou", target: "code" },
+    { column: "fou_code", target: "code" },
+    { column: "fournisseur", target: "code" },
+];
+
+let _mvtartFouLink: { column: string; target: "artfou1" | "code" } | null | undefined = undefined;
+
+async function getMvtartFouLink() {
+    if (_mvtartFouLink !== undefined) return _mvtartFouLink;
+    try {
+        const meta = await db.execute(sql`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'mvtart'
+        `);
+        const cols = new Set(
+            (meta.rows as { column_name: string }[]).map(r => r.column_name.toLowerCase())
+        );
+        // Le nom vient d'information_schema ET doit figurer dans la liste blanche
+        // ci-dessus : aucune valeur utilisateur n'atteint le SQL.
+        _mvtartFouLink = MVTART_FOU_CANDIDATES.find(c => cols.has(c.column)) ?? null;
+    } catch (e) {
+        console.error("[pg-ff] Détection mvtart.fournisseur impossible:", e);
+        _mvtartFouLink = null;
+    }
+    console.log("[pg-ff] mvtart → fournisseur:", _mvtartFouLink ?? "aucune colonne (repli artfou1.preference=1)");
+    return _mvtartFouLink;
+}
+
+/**
+ * Jointure latérale sur la DERNIÈRE entrée en stock (`genremvt IN (1,2)`) du
+ * couple article/site : elle expose `lastentry.datmvt` (date) et
+ * `lastentry.code` (code fournisseur, `NULL` si la base ne porte pas
+ * l'information).
+ *
+ * Règle métier : un article n'est rattaché qu'au fournisseur de sa dernière
+ * entrée. S'il est rentré en stock chez un autre fournisseur, il ne doit plus
+ * apparaître sous le précédent.
+ *
+ * La `LEFT JOIN artfou1` (et non `JOIN`) garantit qu'on retient bien la vraie
+ * dernière entrée, même si son fournisseur est inconnu.
+ */
+function lastEntryJoin(
+    link: { column: string; target: "artfou1" | "code" } | null,
+    artnoidExpr: SQL,
+    siteExpr: SQL,
+): SQL {
+    const codeExpr = link
+        ? (link.target === "artfou1" ? sql`afe.code` : sql.raw(`me.${link.column}`))
+        : sql`NULL::text`;
+    const joinArtfou = link && link.target === "artfou1"
+        ? sql`LEFT JOIN artfou1 afe ON afe.no_id = ${sql.raw(`me.${link.column}`)}`
+        : sql``;
+    return sql`
+        LEFT JOIN LATERAL (
+            SELECT me.datmvt, ${codeExpr} AS code
+            FROM mvtart me
+            ${joinArtfou}
+            WHERE me.artnoid = ${artnoidExpr}
+              AND me.site = ${siteExpr}
+              AND me.genremvt IN (1, 2)
+            ORDER BY me.datmvt DESC, me.no_id DESC
+            LIMIT 1
+        ) lastentry ON TRUE
+        ${link ? sql`LEFT JOIN fouident flast ON flast.code = lastentry.code` : sql``}
+    `;
+}
+
+/**
+ * Libellé fournisseur affiché : celui de la dernière entrée quand la base le
+ * permet, sinon repli documenté sur `artfou1.preference = 1`.
+ */
+function fournisseurExpr(link: { column: string; target: "artfou1" | "code" } | null): SQL {
+    return link
+        ? sql`COALESCE(flast.nom, lastentry.code, f.nom, af.code)`
+        : sql`COALESCE(f.nom, af.code)`;
+}
+
+/**
+ * Diagnostic (`/api/diag/stock-fournisseur`) : expose la colonne détectée, les
+ * colonnes réellement présentes sur `mvtart` et un échantillon comparant le
+ * fournisseur principal au fournisseur de la dernière entrée.
+ */
+export async function pgDiagFournisseurDerniereEntree() {
+    const link = await getMvtartFouLink();
+    const meta = await db.execute(sql`
+        SELECT column_name, data_type FROM information_schema.columns
+        WHERE table_name = 'mvtart' ORDER BY ordinal_position
+    `);
+    let echantillon: unknown[] = [];
+    if (link) {
+        const r = await pgNoParallel(sql`
+            SELECT
+                a.codein,
+                cs.site,
+                COALESCE(f.nom, af.code)              AS fournisseur_preference,
+                COALESCE(flast.nom, lastentry.code)   AS fournisseur_derniere_entree,
+                lastentry.datmvt::text                AS derniere_entree
+            FROM cube_stock cs
+            JOIN articles a ON a.no_id = cs.artnoid
+            JOIN (
+                SELECT DISTINCT ON (art_no_id) art_no_id, code
+                FROM artfou1
+                WHERE preference = 1
+                ORDER BY art_no_id, code
+            ) af ON af.art_no_id = a.no_id
+            LEFT JOIN fouident f ON f.code = af.code
+            ${lastEntryJoin(link, sql`cs.artnoid`, sql`cs.site`)}
+            WHERE cs.qte < 0
+              AND cs.site IN ('292', '579')
+            LIMIT 20
+        `);
+        echantillon = r.rows;
+    }
+    return {
+        colonneDetectee: link,
+        candidatsTestes: MVTART_FOU_CANDIDATES.map(c => c.column),
+        colonnesMvtart: meta.rows,
+        echantillon,
+    };
+}
+
+// ---------------------------------------------------------------------------
 // Stock négatif — tous magasins ou par site
 // ---------------------------------------------------------------------------
 
@@ -1044,10 +1181,6 @@ export interface PgStockNegatifRow {
     derniereentree: string | null;
 }
 
-/**
- * Retourne tous les articles avec un stock disponible négatif.
- * Si `site` est fourni, filtre sur ce magasin uniquement.
- */
 export interface PgStockSansVenteRow {
     codein: string;
     libelle1: string;
@@ -1060,22 +1193,30 @@ export interface PgStockSansVenteRow {
 /**
  * Retourne les articles ayant des entrées en stock (hors mois courant)
  * mais aucune vente enregistrée sur ce site.
+ * Les articles dont le stock actuel est nul sont exclus (rien à régulariser).
  */
 export async function pgGetStockSansVente(site?: string): Promise<PgStockSansVenteRow[]> {
+    const link = await getMvtartFouLink();
     const siteFilter = site ? sql`AND m.site = ${site}` : sql``;
     const result = await pgNoParallel(sql`
         SELECT
             a.codein,
             COALESCE(a.libelle1, '') AS libelle1,
-            COALESCE(f.nom, af.code) AS fournisseur,
+            ${fournisseurExpr(link)} AS fournisseur,
             m.site,
             COALESCE(cs.qte::float, 0) AS stock_actuel,
             MAX(m.datmvt)::text AS derniere_entree
         FROM mvtart m
         JOIN articles a ON a.no_id = m.artnoid
-        JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
+        JOIN (
+            SELECT DISTINCT ON (art_no_id) art_no_id, code
+            FROM artfou1
+            WHERE preference = 1
+            ORDER BY art_no_id, code
+        ) af ON af.art_no_id = a.no_id
         JOIN fouident f ON f.code = af.code
         LEFT JOIN cube_stock cs ON cs.artnoid = a.no_id AND cs.site = m.site
+        ${lastEntryJoin(link, sql`a.no_id`, sql`m.site`)}
         WHERE m.genremvt IN (1, 2)
           AND m.site IN ('292', '579')
           AND date_trunc('month', m.datmvt) < date_trunc('month', CURRENT_DATE)
@@ -1086,29 +1227,25 @@ export async function pgGetStockSansVente(site?: string): Promise<PgStockSansVen
                 AND mv2.site = m.site
                 AND mv2.genremvt = 3
           )
-        GROUP BY a.codein, a.libelle1, f.nom, af.code, m.site, cs.qte
+        GROUP BY a.codein, a.libelle1, ${fournisseurExpr(link)}, m.site, cs.qte
+        HAVING COALESCE(cs.qte::float, 0) <> 0
         ORDER BY MAX(m.datmvt) DESC
     `);
     return result.rows as PgStockSansVenteRow[];
 }
 
 export async function pgGetStockNegatif(site?: string): Promise<PgStockNegatifRow[]> {
+    const link = await getMvtartFouLink();
     const siteFilter = site ? sql`AND cs.site = ${site}` : sql``;
     const result = await pgNoParallel(sql`
         SELECT
             a.codein,
             COALESCE(a.libelle1, '') AS libelle1,
-            COALESCE(f.nom, af.code) AS fournisseur,
+            ${fournisseurExpr(link)} AS fournisseur,
             cs.site,
             cs.qte::float AS stockdispo,
             cs.dernierevente::text,
-            (
-                SELECT MAX(m.datmvt)::text
-                FROM mvtart m
-                WHERE m.artnoid = cs.artnoid
-                  AND m.site = cs.site
-                  AND m.genremvt IN (1, 2)
-            ) AS derniereentree
+            lastentry.datmvt::text AS derniereentree
         FROM cube_stock cs
         JOIN articles a ON a.no_id = cs.artnoid
         JOIN (
@@ -1118,6 +1255,7 @@ export async function pgGetStockNegatif(site?: string): Promise<PgStockNegatifRo
             ORDER BY art_no_id, code
         ) af ON af.art_no_id = a.no_id
         JOIN fouident f ON f.code = af.code
+        ${lastEntryJoin(link, sql`cs.artnoid`, sql`cs.site`)}
         WHERE cs.qte < 0
           AND cs.site IN ('292', '579')
         ${siteFilter}
@@ -1147,12 +1285,13 @@ export interface PgSansVente6MoisRow {
  * ET dont la dernière entrée en stock remonte aussi à plus de 6 mois.
  */
 export async function pgGetSansVente6Mois(site?: string): Promise<PgSansVente6MoisRow[]> {
+    const link = await getMvtartFouLink();
     const siteFilter = site ? sql`AND cs.site = ${site}` : sql``;
     const result = await pgNoParallel(sql`
         SELECT
             a.codein,
             COALESCE(a.libelle1, '') AS libelle1,
-            COALESCE(f.nom, af.code) AS fournisseur,
+            ${fournisseurExpr(link)} AS fournisseur,
             cs.site,
             cs.qte::float AS stock_actuel,
             cs.dernierevente::text AS derniere_vente,
@@ -1160,13 +1299,7 @@ export async function pgGetSansVente6Mois(site?: string): Promise<PgSansVente6Mo
                 WHEN cs.dernierevente IS NULL THEN NULL
                 ELSE (CURRENT_DATE - cs.dernierevente::date)
             END AS jours_sans_vente,
-            (
-                SELECT MAX(m.datmvt)::text
-                FROM mvtart m
-                WHERE m.artnoid = cs.artnoid
-                  AND m.site = cs.site
-                  AND m.genremvt IN (1, 2)
-            ) AS derniere_entree
+            lastentry.datmvt::text AS derniere_entree
         FROM cube_stock cs
         JOIN articles a ON a.no_id = cs.artnoid
         JOIN (
@@ -1176,6 +1309,7 @@ export async function pgGetSansVente6Mois(site?: string): Promise<PgSansVente6Mo
             ORDER BY art_no_id, code
         ) af ON af.art_no_id = a.no_id
         JOIN fouident f ON f.code = af.code
+        ${lastEntryJoin(link, sql`cs.artnoid`, sql`cs.site`)}
         WHERE cs.site IN ('292', '579')
           AND cs.qte > 0
           AND (
