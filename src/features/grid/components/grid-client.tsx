@@ -12,7 +12,7 @@ import type { ProductRow } from "@/types/grid";
 import { CheckCircle, AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { useSession } from "next-auth/react";
 
-import { useSearchParams, useRouter, usePathname } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import type { GridFilters } from "@/types/grid";
 
 interface GridClientProps {
@@ -51,7 +51,7 @@ function MetricPill({ label, value, accent = false }: { label: string; value: st
     );
 }
 
-export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, magasins, magasin, filters }: GridClientProps) {
+export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, magasins, magasin }: GridClientProps) {
     const { data: session } = useSession();
     const isAdmin = (session?.user as { role?: string } | undefined)?.role === "admin";
     const setRows = useGridStore((s) => s.setRows);
@@ -61,8 +61,6 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
     const setCode3Filter = useGridStore((s) => s.setCode3Filter);
     const setActiveMagasin = useGridStore((s) => s.setActiveMagasin);
     const searchParams = useSearchParams();
-    const router = useRouter();
-    const pathname = usePathname();
 
     const [selectedCodeins, setSelectedCodeins] = useState<string[]>([]);
     const [isPending, startTransition] = useTransition();
@@ -101,7 +99,13 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
         }
     }, [codeFournisseur, setFilter, setCode3Filter, isMounted]);
 
-    const refreshToken = searchParams.get("_refresh");
+    // Rechargement forcé (bouton « Rafraîchir », fin de synchro Qlik) : demandé via
+    // le store, pas via l'URL. On retient la dernière demande déjà servie pour ne
+    // pas re-forcer le recalcul serveur à chaque remontage ou changement de filtre.
+    const refreshRequest = useGridStore((s) => s.refreshRequest);
+    const requestRefresh = useGridStore((s) => s.requestRefresh);
+    const servedRefreshRef = useRef(refreshRequest);
+
     useEffect(() => {
         if (!isMounted) return;
 
@@ -109,20 +113,34 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
         const params = new URLSearchParams();
         params.set("fournisseur", codeFournisseur);
         params.set("magasin", magasin || "TOTAL");
-        // `code3` n'est volontairement pas transmis : le serveur ignore ce filtre
-        // (getProductRows ne s'en sert pas) et la Grille l'applique en local. Le
-        // faire voyager relançait un chargement complet à chaque case cochée.
-        if (filters.code1) params.set("code1", filters.code1);
-        if (filters.code2) params.set("code2", filters.code2);
-        if (refreshToken) params.set("refresh", "1");
+        // Les filtres de nomenclature (code1/code2/code3) ne sont pas transmis : le
+        // serveur ne s'en sert pas et la Grille les applique en local. Les faire
+        // voyager relançait un chargement complet à chaque changement.
+        const forceRefresh = refreshRequest !== servedRefreshRef.current;
+        if (forceRefresh) params.set("refresh", "1");
 
-        let accumulatedRows: ProductRow[] = [];
+        const accumulatedRows: ProductRow[] = [];
+        let lastFlush = 0;
         setRows([]);
         setRowsLoaded(0);
         setTotalRows(null);
         setLoadError(null);
         setIsLoadingRows(true);
         setShowStartOverlay(true);
+
+        // Chaque mise à jour du store reconstruit tout le tableau (index, tri,
+        // filtres, compteurs) : la faire à chaque paquet de 150 lignes rendait le
+        // chargement quadratique. On regroupe donc les paquets et on ne pousse les
+        // lignes que toutes les FLUSH_MS (et une dernière fois à la fin).
+        const FLUSH_MS = 300;
+        // Les lignes déjà poussées dans le store ne doivent plus bouger : on lui
+        // passe une copie, et on continue d'accumuler dans le tableau privé.
+        const flush = (loaded: number, total: number | null, final = false) => {
+            setRows(final ? accumulatedRows : accumulatedRows.slice());
+            setRowsLoaded(loaded);
+            setTotalRows(total);
+            lastFlush = Date.now();
+        };
 
         async function loadRows() {
             try {
@@ -137,6 +155,9 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let buffer = "";
+                let loaded = 0;
+                let total: number | null = null;
+                let pending = false;
 
                 while (true) {
                     const { done, value } = await reader.read();
@@ -150,18 +171,26 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
                         if (!line.trim()) continue;
                         const message = JSON.parse(line) as GridRowsStreamMessage;
                         if (message.type === "chunk") {
-                            accumulatedRows = accumulatedRows.concat(message.rows);
-                            setRows(accumulatedRows);
-                            setRowsLoaded(message.loaded);
-                            setTotalRows(message.total);
+                            for (const row of message.rows) accumulatedRows.push(row);
+                            loaded = message.loaded;
+                            total = message.total;
+                            pending = true;
                         } else if (message.type === "done") {
-                            setRowsLoaded(message.loaded);
-                            setTotalRows(message.total);
+                            loaded = message.loaded;
+                            total = message.total;
                         } else if (message.type === "error") {
                             throw new Error(message.error);
                         }
                     }
+
+                    if (pending && Date.now() - lastFlush >= FLUSH_MS) {
+                        flush(loaded, total);
+                        pending = false;
+                    }
                 }
+
+                flush(loaded, total, true);
+                if (forceRefresh) servedRefreshRef.current = refreshRequest;
             } catch (error) {
                 if (!controller.signal.aborted) {
                     setLoadError(error instanceof Error ? error.message : "Erreur de chargement");
@@ -176,7 +205,7 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
         loadRows();
 
         return () => controller.abort();
-    }, [codeFournisseur, magasin, filters.code1, filters.code2, refreshToken, setRows, isMounted]);
+    }, [codeFournisseur, magasin, refreshRequest, setRows, isMounted]);
 
     // Synchroniser le magasin actif depuis la prop URL (changement de magasin sans rechargement)
     useEffect(() => {
@@ -193,13 +222,10 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
     };
 
     // Force le rechargement des données depuis le serveur en ignorant le cache
-    // 10 min : on change le paramètre URL `_refresh`, ce qui relance le fetch
-    // avec `refresh=1` (→ forceRefresh) et remonte l'état serveur à jour (INIT).
+    // 10 min (`refresh=1` → forceRefresh) et remonte l'état serveur à jour (INIT).
     const handleForceRefresh = () => {
         if (isLoadingRows) return;
-        const params = new URLSearchParams(searchParams.toString());
-        params.set("_refresh", String(Date.now()));
-        router.replace(`${pathname}?${params.toString()}`);
+        requestRefresh();
     };
 
     if (!isMounted) {

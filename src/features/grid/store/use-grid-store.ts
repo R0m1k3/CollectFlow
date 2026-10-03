@@ -16,6 +16,14 @@ interface GridState {
     displayDensity: "compact" | "normal" | "comfortable";
     /** The active URL search parameters (e.g. ?fournisseur=123&magasin=TOTAL) */
     activeGridQuery: string;
+    /**
+     * Compteur de demandes de rechargement forcé (ignore le cache serveur).
+     * Volontairement hors URL et non persisté : un paramètre `_refresh` dans
+     * l'URL restait mémorisé dans `activeGridQuery`, et chaque retour sur la
+     * Grille par le menu relançait un recalcul complet.
+     */
+    refreshRequest: number;
+    requestRefresh: () => void;
     /** Persisted column visibility state */
     columnVisibility: Record<string, boolean>;
     /** Persisted column sizing state */
@@ -58,6 +66,15 @@ interface GridState {
 }
 
 let summaryTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Retire l'ancien paramètre `_refresh` (cache-buster) d'une query string mémorisée. */
+function sansParamRefresh(query: string): string {
+    if (!query.includes("_refresh")) return query;
+    const params = new URLSearchParams(query.startsWith("?") ? query.slice(1) : query);
+    params.delete("_refresh");
+    const qs = params.toString();
+    return qs ? `?${qs}` : "";
+}
 
 function indexRows(rows: ProductRow[]): Record<string, ProductRow> {
     const indexed: Record<string, ProductRow> = {};
@@ -117,6 +134,7 @@ export const useGridStore = create<GridState>()(
             },
             displayDensity: "normal",
             activeGridQuery: "",
+            refreshRequest: 0,
             columnVisibility: {},
             columnSizing: {},
             showMonthlySales: true,
@@ -202,7 +220,8 @@ export const useGridStore = create<GridState>()(
                 set((state) => ({ ...state, filters: { ...state.filters, code3: codes } }));
             },
             setDisplayDensity: (density) => set({ displayDensity: density }),
-            setActiveGridQuery: (query) => set({ activeGridQuery: query }),
+            setActiveGridQuery: (query) => set({ activeGridQuery: sansParamRefresh(query) }),
+            requestRefresh: () => set((state) => ({ refreshRequest: state.refreshRequest + 1 })),
             restoreSnapshot: (changes) => {
                 set({ draftChanges: changes, summary: computeSummary(get().rows, changes, get().activeMagasin) });
             },
@@ -249,8 +268,11 @@ export const useGridStore = create<GridState>()(
              * dans le navigateur restait une chaîne : `new Set("320211")` produit un
              * ensemble de caractères, plus aucune ligne ne correspond, et la Grille
              * apparaît vide. Le numéro de version force la reprise de l'existant.
+             *
+             * v2 — `activeGridQuery` pouvait contenir `_refresh=…` : le lien « Grille »
+             * du menu forçait alors un recalcul serveur complet à chaque retour.
              */
-            version: 1,
+            version: 2,
             migrate: (persisted: unknown, version: number): GridPersisted => {
                 const etat = (persisted ?? {}) as GridPersisted & { filters?: Record<string, unknown> };
                 if (version < 1 && etat.filters) {
@@ -262,6 +284,9 @@ export const useGridStore = create<GridState>()(
                 // à la fusion (le bloc disparaîtrait sans raison).
                 if (typeof etat.showMonthlySales !== "boolean") etat.showMonthlySales = true;
                 if (typeof etat.showPrices !== "boolean") etat.showPrices = true;
+                if (typeof etat.activeGridQuery === "string") {
+                    etat.activeGridQuery = sansParamRefresh(etat.activeGridQuery);
+                }
                 return etat;
             },
             // Only persist filters, display density, drafts, active grid query, and column visibility/sizing

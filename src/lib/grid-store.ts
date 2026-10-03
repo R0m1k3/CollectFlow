@@ -14,7 +14,7 @@ import "server-only";
 
 import { db } from "@/db";
 import { gridRows } from "@/db/schema";
-import { and, asc, desc, eq, ilike, or, sql, lt, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, or, sql, lt, type SQL } from "drizzle-orm";
 import type { ProductRow } from "@/types/grid";
 
 /** Colonnes autorisées au tri — liste blanche, jamais l'entrée utilisateur brute. */
@@ -145,6 +145,37 @@ export async function upsertGridRows(codeFournisseur: string, rows: ProductRow[]
     );
 
     return written;
+}
+
+/**
+ * Reporte des gammes enregistrées dans l'instantané persisté (colonne et payload),
+ * pour que /api/v1 les voie sans attendre un recalcul complet de la grille.
+ */
+export async function updateGridRowsGamme(
+    codeFournisseur: string,
+    changes: ReadonlyArray<{ codein: string; codeGamme: string }>,
+): Promise<void> {
+    const parGamme = new Map<string, string[]>();
+    for (const c of changes) {
+        const codeins = parGamme.get(c.codeGamme) ?? [];
+        codeins.push(c.codein);
+        parGamme.set(c.codeGamme, codeins);
+    }
+    const CHUNK = 5000; // bien en deçà des 65 535 paramètres liés de PostgreSQL
+    for (const [gamme, codeins] of parGamme) {
+        for (let i = 0; i < codeins.length; i += CHUNK) {
+            await db
+                .update(gridRows)
+                .set({
+                    codeGamme: gamme,
+                    payload: sql`jsonb_set(${gridRows.payload}, '{codeGamme}', to_jsonb(${gamme}::text))`,
+                })
+                .where(and(
+                    eq(gridRows.codeFournisseur, codeFournisseur),
+                    inArray(gridRows.codein, codeins.slice(i, i + CHUNK)),
+                ));
+        }
+    }
 }
 
 /** Construit la clause WHERE commune à la grille et à la recherche transversale. */

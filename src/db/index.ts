@@ -4,12 +4,19 @@ import * as schema from "./schema";
 import fs from "fs";
 import path from "path";
 
-let pool: Pool | null = null;
-let currentDb: NodePgDatabase<typeof schema> | null = null;
+/**
+ * Pool unique par processus, rangé dans `globalThis` : l'instrumentation (synchro
+ * nocturne) et les routes peuvent être compilées dans des lots distincts, chacun
+ * avec sa propre copie de ce module — et donc son propre pool de 20 connexions.
+ * Même chose à chaque rechargement à chaud en développement.
+ */
+type DbState = { pool: Pool | null; db: NodePgDatabase<typeof schema> | null };
+const globalForDb = globalThis as typeof globalThis & { __collectflowDb?: DbState };
+const state: DbState = (globalForDb.__collectflowDb ??= { pool: null, db: null });
 
 export function getPool(): Pool {
     getDb(); // ensure pool is initialized
-    return pool!;
+    return state.pool!;
 }
 
 function maskUrl(url: string | undefined) {
@@ -21,7 +28,7 @@ function maskUrl(url: string | undefined) {
  * Initializes or returns the current database instance.
  */
 export function getDb() {
-    if (currentDb) return currentDb;
+    if (state.db) return state.db;
 
     let connectionString = "";
 
@@ -54,19 +61,37 @@ export function getDb() {
     const connectionHostname = connectionString.match(/@([^:/]+)/)?.[1] || "unknown";
     console.log(`[DB] Target Hostname: ${connectionHostname}`);
 
-    pool = new Pool({
+    // Délai maximal par requête : opt-in (les calculs nocturnes des plus gros
+    // fournisseurs peuvent être longs), pour qu'une requête emballée ne monopolise
+    // pas indéfiniment une des 20 connexions.
+    const statementTimeout = Number(process.env.PG_STATEMENT_TIMEOUT_MS) || undefined;
+
+    const pool = new Pool({
         connectionString,
         max: 20,
         idleTimeoutMillis: 30000,
         connectionTimeoutMillis: 10000,
+        application_name: "collectflow",
+        ...(statementTimeout ? { statement_timeout: statementTimeout } : {}),
     });
 
     pool.on('error', (err) => {
         console.error('[DB] Unexpected error on idle client', err);
     });
 
-    currentDb = drizzle(pool, { schema });
-    return currentDb;
+    // Pas de workers parallèles PostgreSQL : ils consomment /dev/shm, trop petit
+    // dans le conteneur, et font échouer les grosses agrégations. Réglé une fois
+    // par connexion (la requête est mise en file avant toute autre sur ce client)
+    // au lieu d'une transaction BEGIN / SET LOCAL / COMMIT autour de chaque requête.
+    pool.on('connect', (client) => {
+        client.query("SET max_parallel_workers_per_gather = 0").catch((err) => {
+            console.error('[DB] SET max_parallel_workers_per_gather failed:', err?.message);
+        });
+    });
+
+    state.pool = pool;
+    state.db = drizzle(pool, { schema });
+    return state.db;
 }
 
 /**
@@ -75,11 +100,11 @@ export function getDb() {
  */
 export function refreshDb() {
     console.log("[DB] Refreshing database connection...");
-    if (pool) {
-        pool.end().catch(err => console.error("[DB] Error closing pool:", err));
-        pool = null;
+    if (state.pool) {
+        state.pool.end().catch(err => console.error("[DB] Error closing pool:", err));
+        state.pool = null;
     }
-    currentDb = null;
+    state.db = null;
 }
 
 /**

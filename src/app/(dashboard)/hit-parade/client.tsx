@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useMemo } from "react";
-import * as XLSX from "xlsx";
 import type { HitParadePivotRow } from "./page";
 
 type SortKey = "caTotal" | "ca292" | "ca579" | "qteTotal" | "qte292" | "qte579" | "stockTotal" | "stock292" | "stock579";
@@ -136,7 +135,9 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
         { qte292: 0, ca292: 0, marge292: 0, qte579: 0, ca579: 0, marge579: 0, qteTotal: 0, caTotal: 0, margeTotal: 0, stock292: 0, stock579: 0, stockTotal: 0 }
     ), [sorted]);
 
-    function exportToExcel() {
+    async function exportToExcel() {
+        // Chargée au clic seulement : la bibliothèque pèse plusieurs centaines de Ko.
+        const XLSX = await import("xlsx");
         const headers = [
             "Code", "Désignation", "Fournisseur", "Nomenclature",
             "Qté Nancy", "CA TTC Nancy", "% Marge Nancy", "Stock Nancy",

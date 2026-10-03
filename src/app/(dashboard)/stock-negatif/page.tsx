@@ -1,5 +1,6 @@
 import { pgGetStockNegatif, PgStockNegatifRow, pgGetStockSansVente, PgStockSansVenteRow, pgGetSansVente6Mois, PgSansVente6MoisRow } from "@/lib/pg-ff-client";
 import { GestionStockClient } from "./client";
+import { cachedFF } from "@/lib/ff-cache";
 
 export type { PgStockNegatifRow, PgStockSansVenteRow, PgSansVente6MoisRow };
 
@@ -15,10 +16,12 @@ export default async function GestionStockPage(props: {
     const magasin = (searchParams.magasin as string) || "";
     const tab = (searchParams.tab as string) || "negatif";
 
+    // Données FF recopiées chaque nuit : mises en cache (cf. lib/ff-cache.ts).
+    const site = magasin || undefined;
     const [rowsNegatif, rowsSansVente, rowsSansVente6Mois] = await Promise.all([
-        pgGetStockNegatif(magasin || undefined),
-        pgGetStockSansVente(magasin || undefined),
-        pgGetSansVente6Mois(magasin || undefined),
+        cachedFF(`stock-negatif:${magasin}`, () => pgGetStockNegatif(site)),
+        cachedFF(`stock-sans-vente:${magasin}`, () => pgGetStockSansVente(site)),
+        cachedFF(`stock-sans-vente-6-mois:${magasin}`, () => pgGetSansVente6Mois(site)),
     ]);
 
     return (

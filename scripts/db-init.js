@@ -61,6 +61,15 @@ async function main() {
                 "created_at" timestamp DEFAULT now()
             );
         `);
+        // Index : la Grille relit le dernier snapshot du fournisseur à chaque calcul
+        // et à chaque enregistrement, et l'historique liste ceux de l'utilisateur.
+        // Sans eux, chaque lecture parcourait toute la table (qui ne fait que grossir).
+        await tempPool.query(`
+            CREATE INDEX IF NOT EXISTS "idx_snapshots_fournisseur_date"
+                ON "session_snapshots" ("code_fournisseur", "created_at" DESC);
+            CREATE INDEX IF NOT EXISTS "idx_snapshots_user_type_date"
+                ON "session_snapshots" ("user_id", "type", "created_at" DESC);
+        `);
         console.log("[DB Init] Table session_snapshots is verified/created.");
 
         await tempPool.query(`

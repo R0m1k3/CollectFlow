@@ -4,8 +4,10 @@ import type { GridFilters } from "@/types/grid";
 
 export const dynamic = "force-dynamic";
 
+const encoder = new TextEncoder();
+
 function writeNdjson(controller: ReadableStreamDefaultController<Uint8Array>, value: unknown) {
-    controller.enqueue(new TextEncoder().encode(`${JSON.stringify(value)}\n`));
+    controller.enqueue(encoder.encode(`${JSON.stringify(value)}\n`));
 }
 
 export async function GET(request: NextRequest) {
@@ -26,14 +28,25 @@ export async function GET(request: NextRequest) {
     };
     const forceRefresh = searchParams.get("refresh") === "1";
 
+    // Client parti (changement de fournisseur, page quittée) : on arrête de
+    // sérialiser et d'envoyer. Le calcul lui-même continue — il est partagé et
+    // mis en cache, la prochaine ouverture en profitera.
+    let cancelled = false;
+    request.signal.addEventListener("abort", () => { cancelled = true; });
+
     const stream = new ReadableStream<Uint8Array>({
+        cancel() {
+            cancelled = true;
+        },
         async start(controller) {
             try {
                 writeNdjson(controller, { type: "start", loaded: 0, total: null });
                 const rows = await getProductRows({ codeFournisseur, magasin, filters, forceRefresh });
+                if (cancelled) return;
                 const total = rows.length;
 
                 for (let start = 0; start < total; start += chunkSize) {
+                    if (cancelled) return;
                     const chunk = rows.slice(start, start + chunkSize);
                     writeNdjson(controller, {
                         type: "chunk",
@@ -46,12 +59,17 @@ export async function GET(request: NextRequest) {
 
                 writeNdjson(controller, { type: "done", loaded: total, total });
             } catch (error) {
+                if (cancelled) return;
                 writeNdjson(controller, {
                     type: "error",
                     error: error instanceof Error ? error.message : "Unknown error",
                 });
             } finally {
-                controller.close();
+                try {
+                    controller.close();
+                } catch {
+                    /* flux déjà fermé côté client */
+                }
             }
         },
     });

@@ -104,11 +104,10 @@ export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
         router.replace(`/grid?${params.toString()}`, { scroll: false });
     };
 
+    const requestRefresh = useGridStore((s) => s.requestRefresh);
     const handleRefresh = () => {
         setIsRefreshing(true);
-        const params = new URLSearchParams(searchParams.toString());
-        params.set("_refresh", Date.now().toString());
-        router.replace(`/grid?${params.toString()}`, { scroll: false });
+        requestRefresh();
         // Visual feedback delay
         setTimeout(() => setIsRefreshing(false), 800);
     };

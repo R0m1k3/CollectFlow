@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import {
     AlertTriangle,
     CalendarClock,
@@ -162,17 +161,17 @@ function SiteSection({
     rows: CadenceView[];
     fournisseurs: { code: string; nom: string }[];
 }) {
-    const router = useRouter();
     const [pending, startTransition] = useTransition();
 
     const sorted = useMemo(() => trier(rows), [rows]);
     const existingCodes = useMemo(() => new Set(rows.map((r) => r.codefou)), [rows]);
     const nbACommander = rows.filter((r) => r.actif && r.statut === "a_commander").length;
 
+    // Pas de router.refresh() : les actions appellent déjà revalidatePath, dont
+    // la réponse rafraîchit la page. Les deux ensemble rechargeaient tout deux fois.
     function run(fn: () => Promise<unknown>) {
         startTransition(async () => {
             await fn();
-            router.refresh();
         });
     }
 

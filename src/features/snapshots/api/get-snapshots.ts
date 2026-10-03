@@ -27,6 +27,8 @@ export async function getSnapshots(type?: "snapshot" | "export") {
     } catch (err: any) {
         const msg = (err?.message || String(err)).split("\n")[0];
         console.error(`[getSnapshots] ERROR (type=${type}):`, msg, err);
-        return [];
+        // Remonter l'erreur : une liste vide faisait afficher « Aucun snapshot »
+        // au lieu de signaler que le chargement a échoué.
+        throw new Error("Chargement de l'historique impossible.");
     }
 }

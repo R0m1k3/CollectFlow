@@ -16,6 +16,15 @@ const CONFIG_FILE = path.join(process.cwd(), "data", ".db-config.json");
 const FF_API_BASE_DEFAULT = "https://api.ffnancy.fr";
 const FF_API_BASE_TTL_MS = 30_000;
 
+/**
+ * Options de tout appel à l'API FF : jamais de cache HTTP, et un délai maximal.
+ * Sans délai, une API muette figeait indéfiniment la page qui l'attendait.
+ */
+const FF_FETCH_TIMEOUT_MS = Number(process.env.FF_API_TIMEOUT_MS) || 30_000;
+export function ffFetchInit(): RequestInit {
+    return { cache: "no-store", signal: AbortSignal.timeout(FF_FETCH_TIMEOUT_MS) };
+}
+
 let ffApiBaseCache: { value: string; at: number } | null = null;
 
 /**
@@ -201,7 +210,7 @@ async function fetchAllPages<T>(
     // Page 1 — récupère les items et tente d'obtenir le total pour paralléliser
     const url1 = buildUrl(1);
     console.log(`[api-ff] GET ${url1}`);
-    const res1 = await fetch(url1, { cache: "no-store" });
+    const res1 = await fetch(url1, ffFetchInit());
     if (!res1.ok) {
         console.error(`[api-ff] HTTP ${res1.status} — ${url1}`);
         return [];
@@ -227,7 +236,7 @@ async function fetchAllPages<T>(
             const results = await Promise.all(chunk.map(async (p) => {
                 const url = buildUrl(p);
                 console.log(`[api-ff] GET ${url}`);
-                const res = await fetch(url, { cache: "no-store" });
+                const res = await fetch(url, ffFetchInit());
                 if (!res.ok) return [] as T[];
                 const data = await res.json();
                 return extractList(data) as T[];
@@ -245,7 +254,7 @@ async function fetchAllPages<T>(
         const results = await Promise.all(chunk.map(async (p) => {
             const url = buildUrl(p);
             console.log(`[api-ff] GET ${url}`);
-            const res = await fetch(url, { cache: "no-store" });
+            const res = await fetch(url, ffFetchInit());
             if (!res.ok) return { p, items: [] as T[] };
             const data = await res.json();
             return { p, items: extractList(data) as T[] };
@@ -311,7 +320,7 @@ export async function getFournisseursFromApi(
             : `${FF_API_BASE}/api/fournisseurs?limit=500`;
 
         console.log(`[api-ff] GET ${url}`);
-        const res = await fetch(url, { cache: "no-store" });
+        const res = await fetch(url, ffFetchInit());
         if (!res.ok) throw new Error(`HTTP ${res.status} on ${url}`);
         const data = await res.json();
 
@@ -468,7 +477,7 @@ export async function getMensuelByArticles(
                 if (!noId) return;
                 try {
                     const url = `${FF_API_BASE}/api/articles/${encodeURIComponent(String(noId))}/mensuel?dateDebut=${dateDebut}&dateFin=${dateFin}`;
-                    const res = await fetch(url, { cache: "no-store" });
+                    const res = await fetch(url, ffFetchInit());
                     if (!res.ok) return;
                     const data = await res.json();
                     const entries: FfMensuelEntry[] = Array.isArray(data.data) ? data.data : [];
@@ -555,7 +564,7 @@ export async function getReferentielByArticles(
                 if (!noId) return;
                 try {
                     const url = `${FF_API_BASE}/api/articles/${encodeURIComponent(String(noId))}/referentiel`;
-                    const res = await fetch(url, { cache: "no-store" });
+                    const res = await fetch(url, ffFetchInit());
                     if (!res.ok) return;
                     const data: FfReferentiel = await res.json();
                     if (data?.article) result.set(art.codein, data);
@@ -581,7 +590,7 @@ export async function getCommandesByFournisseur(
     try {
         const res = await fetch(
             `${FF_API_BASE}/api/commandes/articles?codefou=${encodeURIComponent(codefou)}`,
-            { cache: "no-store" }
+            ffFetchInit()
         );
         if (!res.ok) return result;
         const data = await res.json();
@@ -602,7 +611,7 @@ export async function getCommandesByFournisseur(
 export async function getSyncStatus(): Promise<FfSyncStatus | null> {
     try {
     const FF_API_BASE = await getFfApiBase();
-        const res = await fetch(`${FF_API_BASE}/api/sync/status`, { cache: "no-store" });
+        const res = await fetch(`${FF_API_BASE}/api/sync/status`, ffFetchInit());
         if (!res.ok) return null;
         return normalizeSyncStatus(await res.json());
     } catch (err) {

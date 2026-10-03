@@ -36,7 +36,10 @@ export function FloatingSummaryBar() {
     const summary = useGridStore((s) => s.summary);
     const resetDrafts = useGridStore((s) => s.resetDrafts);
     const rows = useGridStore((s) => s.rows);
-    const filters = useGridStore((s) => s.filters);
+    const filterFournisseur = useGridStore((s) => s.filters.codeFournisseur);
+    // Magasin affiché (bascule de la Grille). `filters.magasin` n'est jamais
+    // renseigné : les sessions et validations étaient toutes notées « TOTAL ».
+    const activeMagasin = useGridStore((s) => s.activeMagasin);
     const draftChanges = useGridStore((s) => s.draftChanges);
     const [isPending, startTransition] = useTransition();
     const [isSavingSnapshot, setIsSavingSnapshot] = useState(false);
@@ -54,9 +57,9 @@ export function FloatingSummaryBar() {
     });
 
     const visibleCodeins = useMemo(() => rows.map(r => r.codein), [rows]);
-    const { save, hasDrafts, count } = useSaveDrafts(filters.magasin || "TOTAL", visibleCodeins);
+    const { save, hasDrafts, count } = useSaveDrafts(activeMagasin || "TOTAL", visibleCodeins);
 
-    const supplierCode = filters.codeFournisseur || rows[0]?.codeFournisseur;
+    const supplierCode = filterFournisseur || rows[0]?.codeFournisseur;
     const lastQlikUpdate = useMemo(() => {
         let max: string | null = null;
         for (const r of rows) {
@@ -99,9 +102,9 @@ export function FloatingSummaryBar() {
             );
 
             const res = await saveSnapshot({
-                codeFournisseur: filters.codeFournisseur || rows[0].codeFournisseur,
+                codeFournisseur: filterFournisseur || rows[0].codeFournisseur,
                 nomFournisseur: rows[0].nomFournisseur,
-                magasin: filters.magasin || "TOTAL",
+                magasin: activeMagasin || "TOTAL",
                 label: labelOverride || `${type === 'export' ? 'Export' : 'Session'} ${rows[0].nomFournisseur} — ${new Date().toLocaleTimeString()}`,
                 changes,
                 type,

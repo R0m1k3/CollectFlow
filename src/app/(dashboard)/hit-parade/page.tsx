@@ -1,5 +1,6 @@
 import { pgGetHitParade, HitParadeRow } from "@/lib/pg-ff-client";
 import { HitParadeClient } from "./client";
+import { cachedFF } from "@/lib/ff-cache";
 
 export interface HitParadePivotRow {
     codein: string;
@@ -80,7 +81,7 @@ export default async function HitParadePage(props: {
     const dateDebut = (searchParams.debut as string) || defaults.debut;
     const dateFin = (searchParams.fin as string) || defaults.fin;
 
-    const rows = await pgGetHitParade(dateDebut, dateFin);
+    const rows = await cachedFF(`hit-parade:${dateDebut}:${dateFin}`, () => pgGetHitParade(dateDebut, dateFin));
     const pivotted = pivotHitParade(rows);
 
     return (

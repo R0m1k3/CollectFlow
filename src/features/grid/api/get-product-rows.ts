@@ -15,7 +15,7 @@ import {
 import { db } from "@/db";
 import { sessionSnapshots } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
-import { getNetworkMetricsByCodeCentrale } from "@/lib/qlik-network-cache";
+import { getNetworkMetricsByCodeCentrale, type NetworkMetricCached } from "@/lib/qlik-network-cache";
 import { NB_MAGASINS_RESEAU } from "@/features/grid/lib/network-trend";
 // Persiste l'instantané lu par /api/v1 : sans lui, l'API n'aurait aucune donnée.
 import { upsertGridRows } from "@/lib/grid-store";
@@ -28,8 +28,32 @@ interface GetProductRowsInput {
 }
 
 const GRID_ROWS_CACHE_TTL_MS = 10 * 60 * 1000;
+/**
+ * Bornes du cache mémoire. La synchro nocturne et le préchauffage passent par
+ * `getProductRows()` pour CHAQUE fournisseur : sans plafond, le processus finissait
+ * par garder toutes les grilles en mémoire (plusieurs centaines de Mo), ce qui
+ * ralentissait toutes les requêtes (ramasse-miettes). Ordre d'insertion de la Map
+ * = ordre d'usage : on évince les entrées les moins récemment servies.
+ */
+const GRID_ROWS_CACHE_MAX_ENTRIES = Number(process.env.GRID_ROWS_CACHE_MAX_ENTRIES ?? 30);
+const GRID_ROWS_CACHE_MAX_ROWS = Number(process.env.GRID_ROWS_CACHE_MAX_ROWS ?? 150_000);
 const gridRowsCache = new Map<string, { rows: ProductRow[]; createdAt: number }>();
 const gridRowsPending = new Map<string, Promise<ProductRow[]>>();
+/** Nombre d'enregistrements de gammes par fournisseur (cf. patchGridRowsCache). */
+const gammeSaveVersion = new Map<string, number>();
+
+function cacheGridRows(key: string, rows: ProductRow[]): void {
+    gridRowsCache.delete(key);
+    gridRowsCache.set(key, { rows, createdAt: Date.now() });
+    let totalRows = 0;
+    for (const entry of gridRowsCache.values()) totalRows += entry.rows.length;
+    for (const [oldKey, entry] of gridRowsCache) {
+        if (gridRowsCache.size <= 1) break;
+        if (gridRowsCache.size <= GRID_ROWS_CACHE_MAX_ENTRIES && totalRows <= GRID_ROWS_CACHE_MAX_ROWS) break;
+        gridRowsCache.delete(oldKey);
+        totalRows -= entry.rows.length;
+    }
+}
 
 function gridRowsCacheKey(input: GetProductRowsInput): string {
     return `${input.codeFournisseur}:${input.magasin ?? "TOTAL"}`;
@@ -47,6 +71,31 @@ export function invalidateGridRowsCache(codeFournisseur?: string) {
     }
     gridRowsCache.clear();
     gridRowsPending.clear();
+}
+
+/**
+ * Reporte des gammes enregistrées sur les lignes déjà en cache, au lieu de jeter
+ * le cache : l'invalidation forçait un recalcul complet (jusqu'à ~40 s sur un gros
+ * fournisseur) à la réouverture suivante. Le résultat est celui qu'aurait donné
+ * ce recalcul : la colonne Gamme reprend la valeur du dernier snapshot (Phase 9),
+ * la colonne INIT reste l'état serveur.
+ */
+export function patchGridRowsCache(
+    codeFournisseur: string,
+    changes: ReadonlyArray<{ codein: string; codeGamme: string }>,
+): void {
+    if (changes.length === 0) return;
+    // Un calcul en cours pour ce fournisseur a lu les gammes avant cet
+    // enregistrement : le compteur lui signale de les relire avant d'être caché.
+    gammeSaveVersion.set(codeFournisseur, (gammeSaveVersion.get(codeFournisseur) ?? 0) + 1);
+    const byCodein = new Map(changes.map((c) => [c.codein, c.codeGamme as GammeCode]));
+    for (const [key, entry] of gridRowsCache) {
+        if (!key.startsWith(`${codeFournisseur}:`)) continue;
+        for (const row of entry.rows) {
+            const gamme = byCodein.get(row.codein);
+            if (gamme !== undefined) row.codeGamme = gamme;
+        }
+    }
 }
 
 /**
@@ -90,19 +139,30 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
     const cacheKey = gridRowsCacheKey(input);
     const cached = gridRowsCache.get(cacheKey);
     if (!input.forceRefresh && cached && Date.now() - cached.createdAt < GRID_ROWS_CACHE_TTL_MS) {
+        // Remonte l'entrée en tête de l'ordre d'usage (éviction LRU).
+        gridRowsCache.delete(cacheKey);
+        gridRowsCache.set(cacheKey, cached);
         // La colonne INIT doit refléter l'état serveur à CHAQUE chargement,
         // y compris sur un hit de cache (les données lourdes restent, elles, cachées).
         await refreshGammeInit(cached.rows, input.codeFournisseur);
         return cached.rows;
     }
 
+    // Un calcul déjà en cours est réutilisé même en rechargement forcé : il part
+    // de données fraîches, et en lancer un second en parallèle doublait la charge
+    // (double clic, onglet rouvert…) sans rien apporter.
     const pending = gridRowsPending.get(cacheKey);
-    if (!input.forceRefresh && pending) {
+    if (pending) {
         return pending;
     }
 
-    const promise = buildProductRows(input).then((rows) => {
-        gridRowsCache.set(cacheKey, { rows, createdAt: Date.now() });
+    const versionAuDepart = gammeSaveVersion.get(input.codeFournisseur) ?? 0;
+    const promise = buildProductRows(input).then(async (rows) => {
+        if ((gammeSaveVersion.get(input.codeFournisseur) ?? 0) !== versionAuDepart) {
+            // Gammes enregistrées pendant le calcul : on reprend le dernier snapshot.
+            applySnapshotChanges(rows, await loadLatestSnapshotChanges(input.codeFournisseur));
+        }
+        cacheGridRows(cacheKey, rows);
         gridRowsPending.delete(cacheKey);
         // Persiste l'instantané pour /api/v1 : le calcul vient d'avoir lieu, on
         // arrête simplement de jeter le résultat. Volontairement NON bloquant —
@@ -127,6 +187,15 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
 
         // ─── Phase 1 : 7 requêtes SQL en parallèle ────────────────────────────
         // Remplace des centaines/milliers d'appels HTTP per-article.
+        const articlesPromise = pgGetArticlesByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetArticlesByFournisseur ERROR:", e); return []; });
+        // Phases 8 et 9 lancées dès maintenant : elles n'attendent que la liste des
+        // articles (codes centraux) ou le seul code fournisseur. Exécutées après la
+        // Phase 1, elles ajoutaient deux allers-retours en série à chaque calcul.
+        const networkPromise = articlesPromise.then((arts) =>
+            fetchNetworkMetrics(arts.map((a) => (a.codeCentrale ? String(a.codeCentrale).trim() : ""))),
+        );
+        const snapshotPromise = loadLatestSnapshotChanges(codeFournisseur);
+
         const [
             articles,
             mensuelRows,
@@ -136,7 +205,7 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
             commandesMap,
             prixVenteMap,
         ] = await Promise.all([
-            pgGetArticlesByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetArticlesByFournisseur ERROR:", e); return []; }),
+            articlesPromise,
             pgGetMensuelByFournisseur(codeFournisseur, dateDebut, dateFin).catch(e => { console.error("[getProductRows] pgGetMensuelByFournisseur ERROR:", e); return []; }),
             pgGetGammesByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetGammesByFournisseur ERROR:", e); return new Map<string, string>(); }),
             pgGetNomenclatureByFournisseur(codeFournisseur).catch(e => { console.error("[getProductRows] pgGetNomenclatureByFournisseur ERROR:", e); return new Map(); }),
@@ -407,34 +476,13 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
         }
 
         // ─── Phase 8 : Données réseau Qlik (CA / Qté / nb magasins par code centrale) ──
-        await enrichWithNetworkMetrics(productMap);
+        enrichWithNetworkMetrics(productMap, await networkPromise);
 
         // ─── Phase 9 : Restaurer gammes depuis dernier snapshot ──────────────
         // La colonne Gamme (codeGamme) conserve la valeur du snapshot telle quelle.
         // La colonne INIT (codeGammeInit) reste, elle, l'état LIVE du serveur
         // rechargé en Phase 6 — jamais écrasée ici.
-        try {
-            const snaps = await db
-                .select()
-                .from(sessionSnapshots)
-                .where(eq(sessionSnapshots.codeFournisseur, codeFournisseur))
-                .orderBy(desc(sessionSnapshots.createdAt))
-                .limit(1);
-
-            if (snaps.length > 0) {
-                const changes = snaps[0].changes as Record<string, { before: string | null; after: string }>;
-                for (const [codein, change] of Object.entries(changes)) {
-                    const product = productMap.get(codein);
-                    if (product && change.after) {
-                        // codeGammeInit reste figé (état serveur) — seul codeGamme est overridé
-                        product.codeGamme = change.after as GammeCode;
-                    }
-                }
-                console.log(`[getProductRows] Gammes restaurées depuis snapshot`);
-            }
-        } catch (snapErr) {
-            console.error("[getProductRows] Snapshot restore error:", snapErr);
-        }
+        applySnapshotChanges(productMap.values(), await snapshotPromise);
 
         // ─── Phase 10 : Filtrer gamme Y sans ventes ──────────────────────────
         const allRows = Array.from(productMap.values());
@@ -601,41 +649,74 @@ function nbMagParMois(
     return Object.keys(parMois).length > 0 ? parMois : null;
 }
 
-/**
- * Enrichit les produits avec les metriques reseau Qlik (cache qlik_network_metrics),
- * jointes par code centrale. Degradation propre si la sync Qlik n'a jamais tourne
- * ou si le code centrale n'est pas encore disponible.
- */
-async function enrichWithNetworkMetrics(productMap: Map<string, ProductRow>): Promise<void> {
-    try {
-        const byCodeCentrale = new Map<string, ProductRow[]>();
-        for (const product of productMap.values()) {
-            const cc = product.codeCentrale;
-            if (!cc) continue;
-            if (!byCodeCentrale.has(cc)) byCodeCentrale.set(cc, []);
-            byCodeCentrale.get(cc)!.push(product);
-        }
-        if (byCodeCentrale.size === 0) return;
+type SnapshotChanges = Record<string, { before: string | null; after: string }>;
 
-        const metrics = await getNetworkMetricsByCodeCentrale([...byCodeCentrale.keys()]);
-        const sampleKey = [...byCodeCentrale.keys()].find((cc) => (metrics.get(cc)?.caReseau ?? 0) > 0) ?? [...byCodeCentrale.keys()].find((cc) => metrics.has(cc));
-        console.log(`[getProductRows] réseau: ${byCodeCentrale.size} codes centraux → ${metrics.size} matchés en cache. Sample:`, sampleKey ? JSON.stringify(metrics.get(sampleKey)) : "aucun match");
-        for (const [cc, products] of byCodeCentrale.entries()) {
-            const m = metrics.get(cc);
-            if (!m) continue;
-            for (const product of products) {
-                product.caReseau = m.caReseau;
-                product.qteReseau = m.qteReseau;
-                product.nbMagasinsReseau = m.nbMagasinsReseau;
-                product.caParMagasinReseau = m.caParMagasinReseau;
-                product.margePctReseau = m.margePctReseau;
-                product.tauxPresenceReseau = m.nbMagasinsReseau / NB_MAGASINS_RESEAU;
-                product.qteReseauByMonth = m.qteByMonth ?? null;
-                product.nbMagReseauByMonth = nbMagParMois(m.metricsByMonth);
-                product.networkFetchedAt = m.fetchedAt ?? undefined;
-            }
-        }
+/**
+ * Phase 9 : la colonne Gamme (codeGamme) reprend la valeur du snapshot ;
+ * codeGammeInit reste figé (état serveur).
+ */
+function applySnapshotChanges(rows: Iterable<ProductRow>, changes: SnapshotChanges | null): void {
+    if (!changes) return;
+    for (const row of rows) {
+        const change = changes[row.codein];
+        if (change?.after) row.codeGamme = change.after as GammeCode;
+    }
+}
+
+/** Dernières gammes enregistrées pour ce fournisseur (Phase 9), ou `null`. */
+async function loadLatestSnapshotChanges(codeFournisseur: string): Promise<SnapshotChanges | null> {
+    try {
+        const snaps = await db
+            .select({ changes: sessionSnapshots.changes })
+            .from(sessionSnapshots)
+            .where(eq(sessionSnapshots.codeFournisseur, codeFournisseur))
+            .orderBy(desc(sessionSnapshots.createdAt))
+            .limit(1);
+        return snaps.length > 0 ? (snaps[0].changes as SnapshotChanges) : null;
+    } catch (snapErr) {
+        console.error("[getProductRows] Snapshot restore error:", snapErr);
+        return null;
+    }
+}
+
+/**
+ * Lit les metriques reseau Qlik (cache qlik_network_metrics) des codes centraux
+ * donnes. `null` en cas d'erreur : la grille s'affiche alors sans donnees reseau.
+ */
+async function fetchNetworkMetrics(
+    codesCentrale: string[],
+): Promise<Map<string, NetworkMetricCached> | null> {
+    try {
+        const codes = [...new Set(codesCentrale.filter(Boolean))];
+        if (codes.length === 0) return null;
+        return await getNetworkMetricsByCodeCentrale(codes);
     } catch (error) {
         console.error("[getProductRows] enrichWithNetworkMetrics error:", error);
+        return null;
+    }
+}
+
+/**
+ * Enrichit les produits avec les metriques reseau Qlik, jointes par code centrale.
+ * Degradation propre si la sync Qlik n'a jamais tourne ou si le code centrale
+ * n'est pas encore disponible.
+ */
+function enrichWithNetworkMetrics(
+    productMap: Map<string, ProductRow>,
+    metrics: Map<string, NetworkMetricCached> | null,
+): void {
+    if (!metrics || metrics.size === 0) return;
+    for (const product of productMap.values()) {
+        const m = product.codeCentrale ? metrics.get(product.codeCentrale) : undefined;
+        if (!m) continue;
+        product.caReseau = m.caReseau;
+        product.qteReseau = m.qteReseau;
+        product.nbMagasinsReseau = m.nbMagasinsReseau;
+        product.caParMagasinReseau = m.caParMagasinReseau;
+        product.margePctReseau = m.margePctReseau;
+        product.tauxPresenceReseau = m.nbMagasinsReseau / NB_MAGASINS_RESEAU;
+        product.qteReseauByMonth = m.qteByMonth ?? null;
+        product.nbMagReseauByMonth = nbMagParMois(m.metricsByMonth);
+        product.networkFetchedAt = m.fetchedAt ?? undefined;
     }
 }

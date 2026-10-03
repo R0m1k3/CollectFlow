@@ -13,6 +13,22 @@ import { ApiConnectionInfo } from "@/features/admin/components/api-connection-in
 import { GridWarmup } from "@/features/admin/components/grid-warmup";
 import { ServerLogs } from "@/features/settings/components/server-logs";
 
+/**
+ * Configuration enregistrée, lue UNE fois pour toute la page : trois sections
+ * (connexion, API FF, Qlik) la demandaient chacune au montage, et les actions
+ * serveur s'exécutent les unes après les autres.
+ */
+let savedConfigPromise: ReturnType<typeof getSavedDatabaseConfig> | null = null;
+function loadSavedConfig(force = false): ReturnType<typeof getSavedDatabaseConfig> {
+    if (force || !savedConfigPromise) {
+        savedConfigPromise = getSavedDatabaseConfig().catch((e) => {
+            savedConfigPromise = null;
+            throw e;
+        });
+    }
+    return savedConfigPromise;
+}
+
 function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
     return (
         <section className="apple-card">
@@ -51,7 +67,7 @@ function FfApiStatusSection() {
 
     // Charge l'URL enregistrée pour la préremplir (vide = valeur par défaut).
     useEffect(() => {
-        getSavedDatabaseConfig()
+        loadSavedConfig()
             .then((cfg) => {
                 setSavedUrl(cfg?.ffApiBaseUrl ?? null);
                 if (cfg?.ffApiBaseUrl) setUrl(cfg.ffApiBaseUrl);
@@ -177,7 +193,7 @@ function QlikSettingsSection() {
     const [status, setStatus] = useState<{ type: "ok" | "err"; msg: string } | null>(null);
 
     useEffect(() => {
-        getSavedDatabaseConfig().then((c) => {
+        loadSavedConfig().then((c) => {
             if (!c) return;
             setHost(c.qlikHost ?? "");
             setUser(c.qlikUser ?? "");
@@ -265,8 +281,8 @@ export default function SettingsPage() {
         getDatabaseUrl
     } = useDbSettingsStore();
 
-    const reloadFromServer = useCallback(async () => {
-        const config = await getSavedDatabaseConfig();
+    const reloadFromServer = useCallback(async (force = false) => {
+        const config = await loadSavedConfig(force);
         if (config) {
             if (config.url) {
                 // Parser l'URL pour remettre dans le store
@@ -290,7 +306,9 @@ export default function SettingsPage() {
         // au montage, ce que la règle déconseille en général mais qui est ici le but.
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setIsMounted(true);
-        reloadFromServer();
+        // Lecture fraîche à chaque ouverture de la page ; les sections, montées
+        // juste après (cf. `isMounted`), réutilisent cette même requête.
+        reloadFromServer(true);
     }, [reloadFromServer]);
 
     const testDb = async () => {
@@ -410,7 +428,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="pt-2">
                     <button
-                        onClick={reloadFromServer}
+                        onClick={() => reloadFromServer(true)}
                         className="apple-btn-secondary h-8 px-3 text-[11px] opacity-80 hover:opacity-100"
                     >
                         <RotateCcw className="w-3 h-3" />

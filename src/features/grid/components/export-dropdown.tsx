@@ -2,17 +2,19 @@
 
 import { useState } from "react";
 import { Download, FileSpreadsheet, FileText, ChevronDown, Table2 } from "lucide-react";
-import * as ExcelJS from "exceljs";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
+
+// exceljs, jspdf et jspdf-autotable (~1 Mo) ne sont chargés qu'au clic : importés
+// en tête de fichier, ils alourdissaient la page Grille pour tous les utilisateurs.
+// Les lignes sont lues dans le store au moment de l'export, sans abonnement : le
+// menu n'a pas à se redessiner à chaque modification de la Grille.
 
 export function ExportDropdown({ nomFournisseur }: { nomFournisseur?: string }) {
     const [isOpen, setIsOpen] = useState(false);
-    const { rows, draftChanges } = useGridStore();
 
     const handleExportAllProducts = async () => {
         setIsOpen(false);
+        const { rows, draftChanges } = useGridStore.getState();
         if (rows.length === 0) {
             alert("Aucune donnée à exporter.");
             return;
@@ -59,7 +61,9 @@ export function ExportDropdown({ nomFournisseur }: { nomFournisseur?: string }) 
 
     const handleExportExcel = async () => {
         setIsOpen(false);
-        const workbook = new ExcelJS.Workbook();
+        const { rows, draftChanges } = useGridStore.getState();
+        const { Workbook } = await import("exceljs");
+        const workbook = new Workbook();
         const worksheet = workbook.addWorksheet("Gamme A");
 
         worksheet.columns = [
@@ -100,8 +104,13 @@ export function ExportDropdown({ nomFournisseur }: { nomFournisseur?: string }) 
         URL.revokeObjectURL(url);
     };
 
-    const handlePrintPDF = () => {
+    const handlePrintPDF = async () => {
         setIsOpen(false);
+        const { rows, draftChanges } = useGridStore.getState();
+        const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+            import("jspdf"),
+            import("jspdf-autotable"),
+        ]);
         const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
 
         doc.setFontSize(16);

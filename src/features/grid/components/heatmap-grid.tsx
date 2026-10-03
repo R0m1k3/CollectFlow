@@ -46,6 +46,7 @@ import {
     NB_MAGASINS_RESEAU,
 } from "@/features/grid/lib/network-trend";
 import { TrendSparkline, NetworkLineChart } from "@/features/grid/components/network-charts";
+import { fmtDecimal1, fmtEntier, fmtEur0, fmtEur2 } from "@/lib/format";
 
 interface HeatmapGridProps {
     onSelectionChange?: (codeins: string[]) => void;
@@ -94,8 +95,7 @@ function prixMoyenReseau(row: ProductRow): number | null {
 }
 
 /** Montant en euros au centime — l'usage sur des prix unitaires. */
-const fmtEuro2 = (v: number) =>
-    v.toLocaleString("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtEuro2 = fmtEur2;
 
 /**
  * Prix de vente à montrer pour le magasin consulté.
@@ -315,7 +315,9 @@ const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnsKey
             data-index={virtualRow.index}
             onClick={() => row.toggleSelected()}
             className={cn(
-                "absolute w-full flex items-center cursor-pointer transition-all duration-200 group/row",
+                // Pas de `transition-all` : la ligne est positionnée par `transform`
+                // et chaque défilement l'aurait animée pendant 200 ms.
+                "absolute w-full flex items-center cursor-pointer transition-[opacity,filter] duration-200 group/row",
                 effectiveGamme === "Z" && "opacity-40 grayscale-[0.5] hover:grayscale-0 hover:opacity-100"
             )}
             style={{
@@ -625,7 +627,10 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
     // totaux sont figés sur la fenêtre du serveur, les colonnes doivent l'être
     // aussi, sinon un mois manque aux cases mais pas au total (cf. months.ts).
     // Le calcul local ne sert que tant qu'aucune ligne n'est chargée.
-    const MONTHS_12 = useMemo(() => getMonthsFromRows(rows) ?? getLast12Months(), [rows]);
+    // Mémorisé sur sa clé texte : un nouveau tableau à chaque arrivée de lignes
+    // reconstruisait toutes les définitions de colonnes (donc tout le tableau).
+    const monthsKey = useMemo(() => (getMonthsFromRows(rows) ?? getLast12Months()).join(","), [rows]);
+    const MONTHS_12 = useMemo(() => monthsKey.split(","), [monthsKey]);
 
     useEffect(() => {
         setIsMounted(true);
@@ -646,28 +651,6 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
     useEffect(() => {
         setRowSelection({});
     }, [rows]);
-
-    const prevSelectionRef = useRef<string[]>([]);
-
-    // Propagate selection changes via useEffect to avoid "update during render" error
-    useEffect(() => {
-        if (!onSelectionChange) return;
-
-        const selectedIdxs = Object.keys(rowSelection).filter((k) => rowSelection[k]);
-        const selectedCodeins = selectedIdxs
-            .map((idx) => filteredData[parseInt(idx)]?.codein ?? "")
-            .filter(Boolean);
-
-        // Only update if selection actually changed to avoid re-render loops & console warnings
-        const currentString = JSON.stringify(selectedCodeins);
-        const prevString = JSON.stringify(prevSelectionRef.current);
-
-        if (currentString !== prevString) {
-            prevSelectionRef.current = selectedCodeins;
-            // Delay update to next tick to ensure we're out of any render cycles
-            setTimeout(() => onSelectionChange(selectedCodeins), 0);
-        }
-    }, [rowSelection, onSelectionChange, filteredData]);
 
     const columns = React.useMemo<ColumnDef<ProductRow>[]>(() => [
         {
@@ -807,7 +790,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                 const val = row.original.caReseau;
                 return (
                     <div className="text-center tabular-nums text-[12px] font-bold text-emerald-600 dark:text-emerald-400">
-                        {val != null ? val.toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }) : "-"}
+                        {val != null ? fmtEur0(val) : "-"}
                     </div>
                 );
             },
@@ -822,7 +805,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                 const val = row.original.qteReseau;
                 return (
                     <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
-                        {val != null ? Math.round(val).toLocaleString("fr-FR") : "-"}
+                        {val != null ? fmtEntier(val) : "-"}
                     </div>
                 );
             },
@@ -936,7 +919,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                 const val = row.original.caParMagasinReseau;
                 return (
                     <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
-                        {val != null ? val.toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }) : "-"}
+                        {val != null ? fmtEur0(val) : "-"}
                     </div>
                 );
             },
@@ -954,7 +937,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                 const color = pct >= 30 ? "text-emerald-500" : pct >= 15 ? "text-amber-500" : "text-rose-500";
                 return (
                     <div className={cn("text-center font-bold text-[12px] tabular-nums", color)}>
-                        {pct.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}%
+                        {fmtDecimal1(pct)}%
                     </div>
                 );
             },
@@ -1017,7 +1000,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                             borderColor: "var(--border-strong)"
                         }}
                     >
-                        {Math.round(qty).toLocaleString("fr-FR")}
+                        {fmtEntier(qty)}
                     </button>
                 );
             },
@@ -1033,7 +1016,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                     : (row.original.caByStore?.[activeMagasin] ?? 0);
                 return (
                     <div className="text-center tabular-nums text-[13px] font-bold" style={{ color: "var(--text-primary)" }}>
-                        {Math.round(ca).toLocaleString("fr-FR")}&nbsp;€
+                        {fmtEntier(ca)}&nbsp;€
                     </div>
                 );
             },
@@ -1054,7 +1037,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                 return (
                     <div className="flex flex-col items-center justify-center">
                         <span className="tabular-nums text-[13px] font-bold" style={{ color: "var(--text-primary)" }}>
-                            {Math.round(marge).toLocaleString("fr-FR")}&nbsp;€
+                            {fmtEntier(marge)}&nbsp;€
                         </span>
                         <span className="tabular-nums text-[10px] font-bold opacity-70" style={{
                             color: taux >= 40 ? "var(--accent-success)" : taux >= 25 ? "var(--accent-warning)" : "var(--accent-error)"
@@ -1095,10 +1078,17 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
         onColumnVisibilityChange: setColumnVisibility,
         onColumnSizingChange: setColumnSizing,
         columnResizeMode: "onChange",
+        // Identifiant stable : avec l'index par défaut, la sélection désignait
+        // d'autres produits dès qu'un filtre changeait l'ordre des lignes.
+        getRowId: (row) => row.codein,
         getCoreRowModel: getCoreRowModel(),
         getSortedRowModel: getSortedRowModel(),
         getFilteredRowModel: getFilteredRowModel(),
         enableRowSelection: true,
+        // La recherche ne dépend pas de la colonne (elle lit libellé, code, référence
+        // et GTIN de la ligne) : un seul passage par ligne suffit, au lieu d'un par
+        // colonne filtrable (une quinzaine) à chaque frappe.
+        getColumnCanGlobalFilter: (column) => column.id === "codein",
         globalFilterFn: (row, _columnId, filterValue) => {
             const search = String(filterValue).toLowerCase();
             const libelle = String(row.original.libelle1 || "").toLowerCase();
@@ -1110,6 +1100,31 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
     });
 
     const { rows: tableRows } = table.getRowModel();
+
+    const prevSelectionRef = useRef<string[]>([]);
+
+    // Propagate selection changes via useEffect to avoid "update during render" error
+    useEffect(() => {
+        if (!onSelectionChange) return;
+
+        // La sélection est indexée par code article (`getRowId`), et seules les
+        // lignes encore affichées comptent : une action groupée ne doit jamais
+        // toucher un produit masqué par un filtre ou par la recherche.
+        const selectedCodeins = table
+            .getFilteredSelectedRowModel()
+            .rows.map((r) => r.original.codein);
+
+        // Only update if selection actually changed to avoid re-render loops & console warnings
+        const currentString = JSON.stringify(selectedCodeins);
+        const prevString = JSON.stringify(prevSelectionRef.current);
+
+        if (currentString !== prevString) {
+            prevSelectionRef.current = selectedCodeins;
+            // Delay update to next tick to ensure we're out of any render cycles
+            setTimeout(() => onSelectionChange(selectedCodeins), 0);
+        }
+    }, [table, rowSelection, onSelectionChange, filteredData, filters.search]);
+
 
     const rowVirtualizer = useVirtualizer({
         count: tableRows.length,
@@ -1291,8 +1306,6 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                     <thead className="sticky top-0 z-10 block" style={{
                         background: "linear-gradient(to bottom, var(--bg-elevated), var(--bg-surface))",
                         borderBottom: "1px solid var(--border-strong)",
-                        backdropFilter: "blur(10px)",
-                        WebkitBackdropFilter: "blur(10px)"
                     }}>
                         {table.getHeaderGroups().map((headerGroup) => (
                             <tr key={headerGroup.id} className="flex w-full">

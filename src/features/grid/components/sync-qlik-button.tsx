@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { Loader2, RefreshCw, CheckCircle, AlertCircle } from "lucide-react";
 import { useQlikSyncJob } from "@/features/qlik-sync/use-qlik-sync-job";
 
@@ -28,21 +27,12 @@ function formatLastUpdate(iso?: string | null): string {
  * dans `useQlikSyncJob`, partagée avec la fiche produit.
  */
 export function SyncQlikButton({ codeFournisseur, lastUpdate }: SyncQlikButtonProps) {
-    const router = useRouter();
-    const pathname = usePathname();
-    const searchParams = useSearchParams();
-
-    /** Force le refresh de la grille (avec cache-buster) et de la barre de résumé. */
-    const refreshGrid = useCallback(() => {
-        const params = new URLSearchParams(searchParams.toString());
-        params.set("_refresh", String(Date.now()));
-        router.replace(`${pathname}?${params.toString()}`);
-        router.refresh();
-    }, [pathname, router, searchParams]);
+    /** Recharge la grille en ignorant le cache serveur (la barre de résumé suit). */
+    const requestRefresh = useGridStore((s) => s.requestRefresh);
 
     const { status, message, start } = useQlikSyncJob({
         target: { mode: "fournisseur", fournisseur: codeFournisseur },
-        onSuccess: refreshGrid,
+        onSuccess: requestRefresh,
     });
 
     return (

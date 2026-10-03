@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     CalendarClock, Play, Square, RefreshCw, Loader2, AlertTriangle,
     CheckCircle, Database, Network, Search,
@@ -114,6 +114,10 @@ export function SynchronisationClient() {
         return () => clearInterval(id);
     }, [state?.enCours, rafraichirEtat]);
 
+    // Saisie numérique pas encore envoyée (cf. majSettingsDifferee).
+    const patchEnAttente = useRef<Partial<SyncSettings>>({});
+    const minuteurPatch = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     const majSettings = async (patch: Partial<SyncSettings>) => {
         setErreur(null);
         try {
@@ -122,8 +126,24 @@ export function SynchronisationClient() {
             });
             const d = await res.json();
             if (!res.ok) throw new Error(d.error ?? `Erreur ${res.status}`);
-            setSettings(d.settings);
+            // Une saisie faite pendant l'envoi ne doit pas être écrasée par la réponse.
+            setSettings({ ...d.settings, ...patchEnAttente.current });
         } catch (e) { setErreur(e instanceof Error ? e.message : String(e)); }
+    };
+
+    // Champs numériques : la valeur s'affiche tout de suite et l'envoi au serveur
+    // est regroupé 600 ms après la dernière frappe. Avant, chaque chiffre tapé
+    // partait en PATCH, et une réponse tardive pouvait écraser la saisie en cours.
+    const majSettingsDifferee = (patch: Partial<SyncSettings>) => {
+        setSettings((prev) => (prev ? { ...prev, ...patch } : prev));
+        patchEnAttente.current = { ...patchEnAttente.current, ...patch };
+        if (minuteurPatch.current) clearTimeout(minuteurPatch.current);
+        minuteurPatch.current = setTimeout(() => {
+            const aEnvoyer = patchEnAttente.current;
+            patchEnAttente.current = {};
+            minuteurPatch.current = null;
+            void majSettings(aEnvoyer);
+        }, 600);
     };
 
     const action = async (act: "start" | "stop" | "seed", forcer = false) => {
@@ -207,7 +227,7 @@ export function SynchronisationClient() {
                                 <div>
                                     <label className="block text-[11px] mb-1" style={{ color: "var(--text-muted)" }}>De</label>
                                     <input type="number" min={0} max={23} value={settings.heureDebut}
-                                        onChange={(e) => majSettings({ heureDebut: Number(e.target.value) })}
+                                        onChange={(e) => majSettingsDifferee({ heureDebut: Number(e.target.value) })}
                                         className="w-16 rounded-lg px-2 py-1.5 text-[13px]"
                                         style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)" }} />
                                 </div>
@@ -215,7 +235,7 @@ export function SynchronisationClient() {
                                 <div>
                                     <label className="block text-[11px] mb-1" style={{ color: "var(--text-muted)" }}>À</label>
                                     <input type="number" min={0} max={23} value={settings.heureFin}
-                                        onChange={(e) => majSettings({ heureFin: Number(e.target.value) })}
+                                        onChange={(e) => majSettingsDifferee({ heureFin: Number(e.target.value) })}
                                         className="w-16 rounded-lg px-2 py-1.5 text-[13px]"
                                         style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)" }} />
                                 </div>
@@ -225,14 +245,14 @@ export function SynchronisationClient() {
                             <div>
                                 <label className="block text-[11px] mb-1" style={{ color: "var(--text-muted)" }}>Qlik / nuit</label>
                                 <input type="number" min={0} max={200} value={settings.qlikParNuit}
-                                    onChange={(e) => majSettings({ qlikParNuit: Number(e.target.value) })}
+                                    onChange={(e) => majSettingsDifferee({ qlikParNuit: Number(e.target.value) })}
                                     className="w-20 rounded-lg px-2 py-1.5 text-[13px]"
                                     style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)" }} />
                             </div>
                             <div>
                                 <label className="block text-[11px] mb-1" style={{ color: "var(--text-muted)" }}>Qlik si + vieux que</label>
                                 <input type="number" min={0} max={365} value={settings.qlikMinJours}
-                                    onChange={(e) => majSettings({ qlikMinJours: Number(e.target.value) })}
+                                    onChange={(e) => majSettingsDifferee({ qlikMinJours: Number(e.target.value) })}
                                     className="w-20 rounded-lg px-2 py-1.5 text-[13px]"
                                     style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)" }} />
                             </div>

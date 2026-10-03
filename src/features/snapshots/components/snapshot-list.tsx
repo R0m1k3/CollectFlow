@@ -13,6 +13,7 @@ import {
     History,
     ChevronRight,
     Loader2,
+    AlertCircle,
 } from "lucide-react";
 import { SuccessModal } from "@/components/shared/success-modal";
 import { isStaleServerActionError, STALE_ACTION_MESSAGE } from "@/lib/stale-action";
@@ -78,6 +79,7 @@ export function SnapshotList({ type }: SnapshotListProps) {
 
     const fetchSnapshots = async () => {
         setLoading(true);
+        setError(null);
         try {
             const data = await getSnapshots(type);
             setSnapshots(data);
@@ -142,6 +144,19 @@ export function SnapshotList({ type }: SnapshotListProps) {
             <div className="flex flex-col items-center justify-center p-20 space-y-4">
                 <Loader2 className="w-8 h-8 text-[var(--accent)] animate-spin" />
                 <p className="text-[var(--text-muted)] text-sm">Récupération de l&apos;historique...</p>
+            </div>
+        );
+    }
+
+    if (error && snapshots.length === 0) {
+        return (
+            <div className="border border-[var(--accent-error)] rounded-2xl p-10 text-center bg-[var(--accent-error-bg)]">
+                <AlertCircle className="w-8 h-8 mx-auto mb-3 text-[var(--accent-error)]" />
+                <h3 className="text-[var(--text-primary)] font-bold mb-1">L&apos;historique n&apos;a pas pu être chargé</h3>
+                <p className="text-[var(--text-secondary)] text-sm mb-4">{error}</p>
+                <button onClick={fetchSnapshots} className="btn-action btn-action-secondary">
+                    Réessayer
+                </button>
             </div>
         );
     }

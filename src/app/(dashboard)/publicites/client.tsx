@@ -26,6 +26,8 @@ function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; s
 const STATUT_LABELS: Record<string, { label: string; cls: string }> = {
     en_cours:  { label: "En cours",  cls: "bg-emerald-100 text-emerald-700" },
     passee:    { label: "Passée",    cls: "bg-gray-100 text-gray-600" },
+    // Le filtre envoie `passees` à l'API : la même valeur peut revenir sur les lignes.
+    passees:   { label: "Passée",    cls: "bg-gray-100 text-gray-600" },
     a_venir:   { label: "À venir",   cls: "bg-blue-100 text-blue-700" },
 };
 

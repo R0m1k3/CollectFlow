@@ -1,5 +1,6 @@
 import { pgGetCaByFournisseur, pgGetCaByNomenclature } from "@/lib/pg-ff-client";
 import { AnalyticsClient } from "./client";
+import { cachedFF } from "@/lib/ff-cache";
 
 // Calcul du mois N-1 (même mois année précédente)
 function getMoisN1(mois: string): string {
@@ -84,7 +85,7 @@ export default async function AnalyticsPage(props: {
         [];
 
     if (mode === "fournisseur") {
-        const result = await pgGetCaByFournisseur(mois, moisN1);
+        const result = await cachedFF(`ca-fournisseur:${mois}:${moisN1}`, () => pgGetCaByFournisseur(mois, moisN1));
         rows = result.map((r) => ({
             code: r.code,
             label: r.nom,
@@ -93,7 +94,7 @@ export default async function AnalyticsPage(props: {
             ca_ttc: r.ca_ttc,
         }));
     } else {
-        const result = await pgGetCaByNomenclature(mois, moisN1);
+        const result = await cachedFF(`ca-nomenclature:${mois}:${moisN1}`, () => pgGetCaByNomenclature(mois, moisN1));
         rows = result.map((r) => ({
             code: r.code,
             label: `${r.code} — ${r.libelle}`,
