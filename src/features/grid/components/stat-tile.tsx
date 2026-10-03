@@ -21,7 +21,7 @@ export function TuileStat({ label, valeur, indice, couleur, icone: Icone }: {
 }) {
     return (
         <div className="rounded-xl px-3.5 py-3 flex-1 min-w-[160px]" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
-            <div className="text-[12px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+            <div className="text-[13px] font-medium" style={{ color: "var(--text-muted)" }}>
                 {label}
             </div>
             <div className="flex items-center gap-1.5 mt-1">

@@ -26,7 +26,7 @@ export const GLOSSAIRE = {
     },
     reseau: {
         terme: "Réseau",
-        definition: `Les ${NB_MAGASINS_RESEAU} magasins du réseau La Foir'Fouille (données Qlik).`,
+        definition: `Les ${NB_MAGASINS_RESEAU} magasins du réseau La Foir'Fouille, toutes enseignes confondues.`,
     },
     nosMagasins: {
         terme: "Nos magasins",

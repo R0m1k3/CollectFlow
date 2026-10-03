@@ -1,55 +1,95 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useMemo, useTransition, type ReactNode } from "react";
+import { Loader2 } from "lucide-react";
+import { DataTable, type DataColumn } from "@/components/ui/data-table";
+import { Segmented, type TabItem } from "@/components/ui/tabs";
+import { Select } from "@/components/ui/form-controls";
+import { DeltaBadge } from "@/components/ui/badge";
+import { Terme } from "@/components/ui/tooltip";
+import { MAGASINS, nomMagasin } from "@/lib/magasins";
+import { fmtEur0 } from "@/lib/format";
+import { telechargerExcel } from "@/lib/export-excel";
+import { cn } from "@/lib/utils";
+
+export type ModeAnalytics = "fournisseur" | "nomenclature";
+
+export interface OptionMois {
+    value: string;
+    label: string;
+}
+
+export interface AnalyticsRow {
+    key: string;
+    label: string;
+    ca292: number;
+    caN1_292: number;
+    ca579: number;
+    caN1_579: number;
+    caTotal: number;
+    caN1Total: number;
+    evolutionTotal: number | null;
+}
 
 interface AnalyticsClientProps {
-    mode: string;
+    mode: ModeAnalytics;
+    /** Mois affiché, « AAAA-MM ». */
     mois: string;
-    moisN1: string;
-    currentMois: string;
-    pivotted: Array<{
-        key: string;
-        label: string;
-        ca292: number;
-        caN1_292: number;
-        ca579: number;
-        caN1_579: number;
-        caTotal: number;
-        caN1Total: number;
-        evolutionTotal: number | null;
-    }>;
-    totals: {
-        ca292: number;
-        caN1_292: number;
-        ca579: number;
-        caN1_579: number;
-        caTotal: number;
-        caN1Total: number;
-    };
-    evolutionTotal292: number | null;
-    evolutionTotal579: number | null;
-    evolutionTotalReseau: number | null;
+    /** Mois en clair : « octobre 2026 ». */
+    libelleMois: string;
+    libelleMoisN1: string;
+    moisDisponibles: OptionMois[];
+    pivotted: AnalyticsRow[];
 }
 
-function formatCA(value: number): string {
-    return new Intl.NumberFormat("fr-FR", {
-        style: "currency",
-        currency: "EUR",
-        maximumFractionDigits: 0,
-    }).format(value);
+/** Champs numériques de la ligne pivotée. */
+type Champ = { [K in keyof AnalyticsRow]: AnalyticsRow[K] extends number ? K : never }[keyof AnalyticsRow];
+
+interface Groupe {
+    id: string;
+    titre: string;
+    ca: Champ;
+    caN1: Champ;
 }
 
-function EvolutionBadge({ value }: { value: number | null }) {
-    if (value === null) return <span className="text-gray-400">N/A</span>;
+/** Champs de la ligne pivotée pour chaque magasin (la requête en fournit un jeu par magasin). */
+const CHAMPS_MAGASIN: Record<string, Pick<Groupe, "ca" | "caN1">> = {
+    "292": { ca: "ca292", caN1: "caN1_292" },
+    "579": { ca: "ca579", caN1: "caN1_579" },
+};
 
-    const isPositive = value >= 0;
-    const bgColor = isPositive ? "bg-green-100" : "bg-red-100";
-    const textColor = isPositive ? "text-green-700" : "text-red-700";
+const GROUPES: Groupe[] = [
+    ...MAGASINS.filter((m) => CHAMPS_MAGASIN[m.code]).map((m) => ({
+        id: m.code,
+        titre: nomMagasin(m.code),
+        ...CHAMPS_MAGASIN[m.code],
+    })),
+    { id: "total", titre: "Total nos magasins", ca: "caTotal", caN1: "caN1Total" },
+];
 
+const MODES: TabItem<ModeAnalytics>[] = [
+    { value: "fournisseur", label: "Fournisseur" },
+    { value: "nomenclature", label: "Famille" },
+];
+
+const somme = (rows: readonly AnalyticsRow[], champ: Champ) => rows.reduce((acc, r) => acc + r[champ], 0);
+
+/** Évolution en % par rapport à N-1 ; `null` sans chiffre d'affaires N-1. */
+const evolution = (ca: number, caN1: number) => (caN1 > 0 ? ((ca - caN1) / caN1) * 100 : null);
+
+const recherche = (r: AnalyticsRow) => [r.label, r.key];
+
+function Montant({ v }: { v: number }) {
+    return <span className={cn("whitespace-nowrap", v === 0 && "text-[var(--text-muted)]")}>{fmtEur0(v)}</span>;
+}
+
+/** En-tête sur deux lignes : magasin au-dessus, mesure en dessous. */
+function EnTete({ groupe, children }: { groupe: string; children: ReactNode }) {
     return (
-        <span className={`${bgColor} ${textColor} inline-block rounded px-2 py-1 text-sm font-semibold`}>
-            {isPositive ? "+" : ""}
-            {value.toFixed(1)}%
+        <span className="flex flex-col items-end leading-tight">
+            <span className="text-xs font-normal text-[var(--text-muted)]">{groupe}</span>
+            <span className="inline-flex items-center gap-1">{children}</span>
         </span>
     );
 }
@@ -57,193 +97,159 @@ function EvolutionBadge({ value }: { value: number | null }) {
 export function AnalyticsClient({
     mode,
     mois,
-    moisN1,
-    currentMois,
+    libelleMois,
+    libelleMoisN1,
+    moisDisponibles,
     pivotted,
-    totals,
-    evolutionTotal292,
-    evolutionTotal579,
-    evolutionTotalReseau,
 }: AnalyticsClientProps) {
     const router = useRouter();
+    const [navigation, demarrerNavigation] = useTransition();
 
     const handleModeChange = (newMode: string) => {
-        router.push(`/analytics?mode=${newMode}&mois=${mois}`);
+        demarrerNavigation(() => {
+            router.push(`/analytics?mode=${newMode}&mois=${mois}`);
+        });
     };
 
     const handleMonthChange = (newMois: string) => {
-        router.push(`/analytics?mode=${mode}&mois=${newMois}`);
+        demarrerNavigation(() => {
+            router.push(`/analytics?mode=${mode}&mois=${newMois}`);
+        });
     };
 
-    // Générer liste des 24 derniers mois
-    const months: { value: string; label: string }[] = [];
-    const now = new Date();
-    for (let i = 0; i < 24; i++) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i);
-        const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-        const label = new Intl.DateTimeFormat("fr-FR", { year: "numeric", month: "long" }).format(d);
-        months.push({ value, label: label.charAt(0).toUpperCase() + label.slice(1) });
+    const libelleColonne = mode === "fournisseur" ? "Fournisseur" : "Famille";
+
+    const colonnes = useMemo<DataColumn<AnalyticsRow>[]>(() => [
+        {
+            id: "label",
+            header: libelleColonne,
+            sortValue: (r) => r.label,
+            cell: (r) => <span className="font-medium">{r.label}</span>,
+            footer: () => "Total",
+            className: "min-w-[220px]",
+        },
+        ...GROUPES.flatMap((g): DataColumn<AnalyticsRow>[] => {
+            const total = g.id === "total";
+            const bord = "border-l border-[var(--border)]";
+            return [
+                {
+                    id: `${g.id}-ca`,
+                    header: <EnTete groupe={g.titre}>{libelleMois}</EnTete>,
+                    hint: `Chiffre d'affaires TTC (${g.titre}) en ${libelleMois}, retours déduits`,
+                    align: "right",
+                    sortValue: (r) => r[g.ca],
+                    cell: (r) => <Montant v={r[g.ca]} />,
+                    footer: (rows) => <Montant v={somme(rows, g.ca)} />,
+                    className: cn(bord, total && "font-semibold"),
+                    headerClassName: bord,
+                },
+                {
+                    id: `${g.id}-n1`,
+                    header: (
+                        <EnTete groupe={g.titre}>
+                            {libelleMoisN1} · <Terme id="n1" />
+                        </EnTete>
+                    ),
+                    hint: `Chiffre d'affaires TTC (${g.titre}) en ${libelleMoisN1}, même mois l'année précédente`,
+                    align: "right",
+                    sortValue: (r) => r[g.caN1],
+                    cell: (r) => <Montant v={r[g.caN1]} />,
+                    footer: (rows) => <Montant v={somme(rows, g.caN1)} />,
+                    className: cn(total && "font-semibold"),
+                },
+                {
+                    id: `${g.id}-evolution`,
+                    header: <EnTete groupe={g.titre}>Évolution</EnTete>,
+                    hint: `Évolution du chiffre d'affaires (${g.titre}) entre ${libelleMoisN1} et ${libelleMois}`,
+                    align: "right",
+                    sortValue: (r) => evolution(r[g.ca], r[g.caN1]),
+                    cell: (r) => <DeltaBadge pct={evolution(r[g.ca], r[g.caN1])} />,
+                    footer: (rows) => <DeltaBadge pct={evolution(somme(rows, g.ca), somme(rows, g.caN1))} />,
+                },
+            ];
+        }),
+    ], [libelleColonne, libelleMois, libelleMoisN1]);
+
+    async function exporter(rows: readonly AnalyticsRow[]) {
+        const arrondi = (v: number) => Math.round(v * 100) / 100;
+        const evol = (ca: number, caN1: number) => {
+            const e = evolution(ca, caN1);
+            return e === null ? null : Math.round(e * 10) / 10;
+        };
+        await telechargerExcel({
+            feuille: "Ventes par mois",
+            fichier: `ventes-par-mois_${mode === "fournisseur" ? "fournisseurs" : "familles"}_${mois}`,
+            entetes: [
+                libelleColonne,
+                ...GROUPES.flatMap((g) => [
+                    `${g.titre} — CA ${libelleMois}`,
+                    `${g.titre} — CA ${libelleMoisN1} (N-1)`,
+                    `${g.titre} — Évolution (%)`,
+                ]),
+            ],
+            largeurs: [40, ...GROUPES.flatMap(() => [22, 22, 16])],
+            lignes: rows.map((r) => [
+                r.label,
+                ...GROUPES.flatMap((g) => [arrondi(r[g.ca]), arrondi(r[g.caN1]), evol(r[g.ca], r[g.caN1])]),
+            ]),
+            totaux: [
+                "Total",
+                ...GROUPES.flatMap((g) => {
+                    const ca = somme(rows, g.ca);
+                    const caN1 = somme(rows, g.caN1);
+                    return [arrondi(ca), arrondi(caN1), evol(ca, caN1)];
+                }),
+            ],
+        });
     }
 
     return (
-        <div className="space-y-6">
-            {/* Controls */}
-            <div className="flex items-center gap-6 rounded-lg bg-white p-4 shadow">
-                <div className="flex items-center gap-2">
-                    <label className="font-semibold text-gray-700">Vue :</label>
-                    <select
-                        value={mode}
-                        onChange={(e) => handleModeChange(e.target.value)}
-                        className="rounded border border-gray-300 px-3 py-2 text-sm"
-                    >
-                        <option value="fournisseur">Fournisseur</option>
-                        <option value="nomenclature">Nomenclature</option>
-                    </select>
+        <div className="space-y-4" aria-busy={navigation}>
+            {/* Contrôles (relancent le calcul côté serveur) */}
+            <div className="flex flex-wrap items-end gap-4">
+                <div role="group" aria-labelledby="analytics-vue">
+                    <span id="analytics-vue" className="mb-1 block text-[13px] font-medium text-[var(--text-secondary)]">
+                        Afficher par
+                    </span>
+                    <Segmented items={MODES} value={mode} onChange={handleModeChange} disabled={navigation} />
                 </div>
-
-                <div className="flex items-center gap-2">
-                    <label className="font-semibold text-gray-700">Mois :</label>
-                    <select
-                        value={mois}
-                        onChange={(e) => handleMonthChange(e.target.value)}
-                        className="rounded border border-gray-300 px-3 py-2 text-sm"
-                    >
-                        {months.map((m) => (
-                            <option key={m.value} value={m.value}>
-                                {m.label}
-                            </option>
-                        ))}
-                    </select>
-                </div>
-
-                <div className="text-sm text-gray-600">
-                    Comparaison N-1 : {moisN1}
-                </div>
+                <Select
+                    id="analytics-mois"
+                    label="Mois"
+                    value={mois}
+                    onChange={handleMonthChange}
+                    options={moisDisponibles}
+                    disabled={navigation}
+                />
+                {navigation && (
+                    <span role="status" className="inline-flex h-9 items-center gap-2 text-[13px] text-[var(--text-secondary)]">
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                        Chargement…
+                    </span>
+                )}
             </div>
 
-            {/* Table */}
-            <div className="overflow-x-auto rounded-lg bg-white shadow">
-                <table className="w-full">
-                    <thead>
-                        <tr className="border-b-2 border-gray-200 bg-gray-50">
-                            <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                                {mode === "fournisseur" ? "Fournisseur" : "Nomenclature"}
-                            </th>
-                            <th colSpan={3} className="px-4 py-3 text-center text-sm font-semibold text-gray-700">
-                                Frouard/Nancy (292)
-                            </th>
-                            <th colSpan={3} className="px-4 py-3 text-center text-sm font-semibold text-gray-700">
-                                Houdemont (579)
-                            </th>
-                            <th colSpan={3} className="px-4 py-3 text-center text-sm font-semibold text-gray-700">
-                                Total Réseau
-                            </th>
-                        </tr>
-                        <tr className="border-b border-gray-200 bg-gray-50">
-                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600"></th>
-                            <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">
-                                {mois}
-                            </th>
-                            <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">
-                                {moisN1}
-                            </th>
-                            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">
-                                Évol.
-                            </th>
-                            <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">
-                                {mois}
-                            </th>
-                            <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">
-                                {moisN1}
-                            </th>
-                            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">
-                                Évol.
-                            </th>
-                            <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">
-                                {mois}
-                            </th>
-                            <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">
-                                {moisN1}
-                            </th>
-                            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">
-                                Évol.
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {pivotted.map((row, idx) => (
-                            <tr
-                                key={row.key}
-                                className={idx % 2 === 0 ? "border-b border-gray-100 bg-white" : "border-b border-gray-100 bg-gray-50"}
-                            >
-                                <td className="px-4 py-3 text-sm font-medium text-gray-900">{row.label}</td>
-                                <td className="px-4 py-3 text-right text-sm text-gray-800">{formatCA(row.ca292)}</td>
-                                <td className="px-4 py-3 text-right text-sm text-gray-800">{formatCA(row.caN1_292)}</td>
-                                <td className="px-4 py-3 text-center text-sm">
-                                    <EvolutionBadge
-                                        value={
-                                            row.caN1_292 > 0
-                                                ? ((row.ca292 - row.caN1_292) / row.caN1_292) * 100
-                                                : null
-                                        }
-                                    />
-                                </td>
-                                <td className="px-4 py-3 text-right text-sm text-gray-800">{formatCA(row.ca579)}</td>
-                                <td className="px-4 py-3 text-right text-sm text-gray-800">{formatCA(row.caN1_579)}</td>
-                                <td className="px-4 py-3 text-center text-sm">
-                                    <EvolutionBadge
-                                        value={
-                                            row.caN1_579 > 0
-                                                ? ((row.ca579 - row.caN1_579) / row.caN1_579) * 100
-                                                : null
-                                        }
-                                    />
-                                </td>
-                                <td className="px-4 py-3 text-right text-sm font-semibold text-gray-900">
-                                    {formatCA(row.caTotal)}
-                                </td>
-                                <td className="px-4 py-3 text-right text-sm font-semibold text-gray-900">
-                                    {formatCA(row.caN1Total)}
-                                </td>
-                                <td className="px-4 py-3 text-center text-sm">
-                                    <EvolutionBadge value={row.evolutionTotal} />
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                    <tfoot>
-                        <tr className="border-t-2 border-gray-300 bg-gray-50">
-                            <td className="px-4 py-3 text-sm font-bold text-gray-900">TOTAL</td>
-                            <td className="px-4 py-3 text-right text-sm font-bold text-gray-900">
-                                {formatCA(totals.ca292)}
-                            </td>
-                            <td className="px-4 py-3 text-right text-sm font-bold text-gray-900">
-                                {formatCA(totals.caN1_292)}
-                            </td>
-                            <td className="px-4 py-3 text-center text-sm">
-                                <EvolutionBadge value={evolutionTotal292} />
-                            </td>
-                            <td className="px-4 py-3 text-right text-sm font-bold text-gray-900">
-                                {formatCA(totals.ca579)}
-                            </td>
-                            <td className="px-4 py-3 text-right text-sm font-bold text-gray-900">
-                                {formatCA(totals.caN1_579)}
-                            </td>
-                            <td className="px-4 py-3 text-center text-sm">
-                                <EvolutionBadge value={evolutionTotal579} />
-                            </td>
-                            <td className="px-4 py-3 text-right text-sm font-bold text-gray-900">
-                                {formatCA(totals.caTotal)}
-                            </td>
-                            <td className="px-4 py-3 text-right text-sm font-bold text-gray-900">
-                                {formatCA(totals.caN1Total)}
-                            </td>
-                            <td className="px-4 py-3 text-center text-sm">
-                                <EvolutionBadge value={evolutionTotalReseau} />
-                            </td>
-                        </tr>
-                    </tfoot>
-                </table>
+            <p className="text-sm text-[var(--text-secondary)]">
+                Chiffre d&apos;affaires TTC de <strong className="font-semibold text-[var(--text-primary)]">{libelleMois}</strong>,
+                comparé à <strong className="font-semibold text-[var(--text-primary)]">{libelleMoisN1}</strong> (même mois
+                l&apos;année précédente). Les retours clients sont déduits.
+            </p>
+
+            <div className={cn("transition-opacity", navigation && "pointer-events-none opacity-50")}>
+                <DataTable<AnalyticsRow>
+                    key={mode}
+                    rows={pivotted}
+                    columns={colonnes}
+                    rowKey={(r) => `${r.key}|${r.label}`}
+                    searchIn={recherche}
+                    searchPlaceholder={mode === "fournisseur" ? "Rechercher un fournisseur…" : "Rechercher une famille…"}
+                    pageSize={100}
+                    unite={mode === "fournisseur" ? "fournisseurs" : "familles"}
+                    showFooter
+                    emptyTitle={`Aucune vente en ${libelleMois}`}
+                    emptyDescription="Aucun chiffre d'affaires n'est enregistré pour ce mois ni pour le même mois de l'année précédente. Choisissez un autre mois."
+                    onExport={exporter}
+                />
             </div>
         </div>
     );

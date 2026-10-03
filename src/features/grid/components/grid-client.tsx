@@ -1,16 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
 import { HeatmapGrid } from "@/features/grid/components/heatmap-grid";
 import { FloatingSummaryBar } from "@/features/grid/components/floating-summary-bar";
 import { BulkActionToolbar } from "@/features/grid/components/bulk-action-toolbar";
 import { GridFilterBar } from "@/features/grid/components/grid-filter-bar";
-import { ExportDropdown } from "@/features/grid/components/export-dropdown";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
-import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
 import type { ProductRow } from "@/types/grid";
-import { CheckCircle, AlertCircle, Loader2, RefreshCw } from "lucide-react";
-import { useSession } from "next-auth/react";
+import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { nomMagasin } from "@/lib/magasins";
 
 import { useSearchParams } from "next/navigation";
 import type { GridFilters } from "@/types/grid";
@@ -22,6 +21,8 @@ interface GridClientProps {
     magasins: { code: string; nom: string }[];
     magasin: string;
     filters: Pick<GridFilters, "code1" | "code2" | "code3">;
+    /** Calculé côté serveur : les droits ne changent plus d'un rendu à l'autre. */
+    isAdmin: boolean;
 }
 
 type GridRowsStreamMessage =
@@ -34,14 +35,14 @@ type GridRowsStreamMessage =
 function MetricPill({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
     return (
         <div
-            className="flex flex-col items-start px-2.5 py-1 rounded-lg shrink-0"
+            className="flex flex-col items-start px-3 py-1.5 rounded-lg shrink-0"
             style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
         >
-            <span className="text-[8.5px] font-semibold uppercase tracking-wider leading-none mb-1" style={{ color: "var(--text-muted)" }}>
+            <span className="text-xs leading-none mb-1" style={{ color: "var(--text-muted)" }}>
                 {label}
             </span>
             <span
-                className="text-[12px] font-bold leading-none tabular-nums max-w-[160px] truncate"
+                className="text-sm font-semibold leading-none tabular-nums max-w-[180px] truncate"
                 style={{ color: accent ? "var(--accent)" : "var(--text-primary)" }}
                 title={value}
             >
@@ -51,11 +52,11 @@ function MetricPill({ label, value, accent = false }: { label: string; value: st
     );
 }
 
-export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, magasins, magasin }: GridClientProps) {
-    const { data: session } = useSession();
-    const isAdmin = (session?.user as { role?: string } | undefined)?.role === "admin";
+export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, magasins, magasin, isAdmin }: GridClientProps) {
     const setRows = useGridStore((s) => s.setRows);
-    const rows = useGridStore((s) => s.rows);
+    // Seul le nombre de lignes sert ici : un abonnement au tableau entier
+    // redessinait toute la page à chaque modification de gamme.
+    const nbRows = useGridStore((s) => s.rows.length);
     const setActiveGridQuery = useGridStore((s) => s.setActiveGridQuery);
     const setFilter = useGridStore((s) => s.setFilter);
     const setCode3Filter = useGridStore((s) => s.setCode3Filter);
@@ -63,16 +64,10 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
     const searchParams = useSearchParams();
 
     const [selectedCodeins, setSelectedCodeins] = useState<string[]>([]);
-    const [isPending, startTransition] = useTransition();
-    const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle");
     const [isLoadingRows, setIsLoadingRows] = useState(false);
     const [rowsLoaded, setRowsLoaded] = useState(0);
     const [totalRows, setTotalRows] = useState<number | null>(null);
     const [loadError, setLoadError] = useState<string | null>(null);
-    const [showStartOverlay, setShowStartOverlay] = useState(false);
-
-    const visibleCodeins = useMemo(() => rows.map(r => r.codein), [rows]);
-    const { save, hasDrafts, count } = useSaveDrafts(magasin, visibleCodeins);
 
     const [isMounted, setIsMounted] = useState(false);
 
@@ -126,7 +121,6 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
         setTotalRows(null);
         setLoadError(null);
         setIsLoadingRows(true);
-        setShowStartOverlay(true);
 
         // Chaque mise à jour du store reconstruit tout le tableau (index, tri,
         // filtres, compteurs) : la faire à chaque paquet de 150 lignes rendait le
@@ -213,14 +207,6 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
         setActiveMagasin(magasin || "TOTAL");
     }, [magasin, setActiveMagasin, isMounted]);
 
-    const handleSave = () => {
-        startTransition(async () => {
-            const result = await save();
-            setSaveStatus(result.success ? "success" : "error");
-            setTimeout(() => setSaveStatus("idle"), 3000);
-        });
-    };
-
     // Force le rechargement des données depuis le serveur en ignorant le cache
     // 10 min (`refresh=1` → forceRefresh) et remonte l'état serveur à jour (INIT).
     const handleForceRefresh = () => {
@@ -229,91 +215,72 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
     };
 
     if (!isMounted) {
-        return <div className="p-8 text-center animate-pulse text-muted italic">Initialisation de la grille...</div>;
+        return <div className="p-8 text-center text-sm text-[var(--text-secondary)]">Préparation de la grille…</div>;
     }
 
-    const activeStoreNom = magasins.find(m => m.code === magasin)?.nom || "National (Total)";
+    const nbReferences = totalRows ?? nbRows;
+    const progression = totalRows ? Math.round((rowsLoaded / totalRows) * 100) : null;
 
     return (
         <div className="flex flex-col h-full space-y-3 min-h-0">
-            {/* Header — chrome raffiné (eyebrow teal + fournisseur héro + pastilles métriques) */}
-            <header className="shrink-0 flex items-center justify-between gap-4 pb-2.5" style={{ borderBottom: "1px solid var(--border)" }}>
-                <div className="flex items-center gap-3.5 min-w-0">
-                    <div
-                        className="h-10 w-[3px] rounded-full shrink-0"
-                        style={{ background: "linear-gradient(to bottom, var(--accent), var(--accent-success))" }}
-                    />
+            <header className="shrink-0 flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[var(--border)]">
+                <div className="flex items-center gap-4 min-w-0">
                     <div className="min-w-0">
-                        <div className="text-[10px] font-bold uppercase tracking-[0.18em] leading-none mb-1.5" style={{ color: "var(--accent)" }}>
-                            Révision d&apos;assortiment
-                        </div>
-                        <h1 className="text-[19px] font-bold tracking-tight truncate leading-none" style={{ color: "var(--text-primary)" }}>
+                        <p className="text-[13px] text-[var(--text-secondary)]">Révision d&apos;assortiment</p>
+                        <h1 className="text-xl font-bold tracking-tight truncate text-[var(--text-primary)]" title={nomFournisseur}>
                             {nomFournisseur}
                         </h1>
                     </div>
-                    <div className="hidden md:flex items-center gap-2 ml-1 pl-3 shrink-0" style={{ borderLeft: "1px solid var(--border)" }}>
-                        <MetricPill label="Magasin" value={activeStoreNom} />
-                        <MetricPill label="Références" value={(totalRows ?? rows.length).toLocaleString("fr-FR")} accent />
+                    <div className="hidden md:flex items-center gap-2 pl-4 shrink-0 border-l border-[var(--border)]">
+                        <MetricPill label="Magasin" value={nomMagasin(magasin)} />
+                        <MetricPill label="Produits" value={nbReferences.toLocaleString("fr-FR")} accent />
                     </div>
                 </div>
-                <div className="flex items-center gap-2.5 shrink-0">
-                    {(isLoadingRows || loadError) && (
-                        <div
-                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold tabular-nums"
-                            style={{
-                                background: loadError ? "var(--accent-error-bg)" : "var(--accent-bg)",
-                                border: `1px solid ${loadError ? "var(--accent-error)" : "var(--accent-border)"}`,
-                                color: loadError ? "var(--accent-error)" : "var(--accent)",
-                            }}
-                        >
-                            {isLoadingRows && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                            {loadError
-                                ? loadError
-                                : totalRows
-                                    ? `${rowsLoaded.toLocaleString("fr-FR")} / ${totalRows.toLocaleString("fr-FR")}`
-                                    : "Chargement…"}
-                        </div>
+                <div className="flex items-center gap-2 shrink-0">
+                    {loadError && (
+                        <span className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[13px] font-medium border-[var(--accent-error)] bg-[var(--accent-error-bg)] text-[var(--accent-error)]">
+                            <AlertCircle className="h-4 w-4" /> {loadError}
+                        </span>
                     )}
-                    <button
+                    <Button
+                        variant="outline"
+                        size="sm"
                         onClick={handleForceRefresh}
                         disabled={isLoadingRows}
-                        title="Forcer le rafraîchissement — recharge les données depuis le serveur en ignorant le cache (met à jour la colonne INIT)"
-                        className="flex items-center gap-2 px-3 h-9 text-[13px] font-semibold rounded-xl disabled:opacity-50 transition-all hover:brightness-110 active:scale-[0.97]"
-                        style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+                        title="Recharger les données depuis le serveur (gammes FF à jour comprises)"
                     >
-                        <RefreshCw className={`w-4 h-4 ${isLoadingRows ? "animate-spin" : ""}`} />
-                        <span className="hidden sm:inline">Rafraîchir</span>
-                    </button>
+                        <RefreshCw className={isLoadingRows ? "animate-spin" : undefined} />
+                        Actualiser
+                    </Button>
                     <div id="grid-toolbar-actions"></div>
-                    {isAdmin && <ExportDropdown nomFournisseur={nomFournisseur} />}
-                    {isAdmin && hasDrafts && (
-                        <button
-                            onClick={handleSave}
-                            disabled={isPending}
-                            className="flex items-center gap-2 px-4 h-9 text-white text-[13px] font-semibold rounded-xl disabled:opacity-60 transition-all hover:brightness-110 active:scale-[0.97]"
-                            style={{
-                                background: "linear-gradient(180deg, var(--brand-solid), var(--brand-hover))",
-                                boxShadow: "0 4px 12px rgba(16,185,129,0.25), inset 0 1px 1px rgba(255,255,255,0.2)",
-                            }}
-                        >
-                            {isPending ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : saveStatus === "success" ? (
-                                <CheckCircle className="w-4 h-4" />
-                            ) : saveStatus === "error" ? (
-                                <AlertCircle className="w-4 h-4" />
-                            ) : null}
-                            {isPending
-                                ? "Sauvegarde…"
-                                : saveStatus === "success"
-                                    ? "Sauvegardé !"
-                                    : saveStatus === "error"
-                                        ? "Erreur"
-                                        : `Valider ${count} changement${count > 1 ? "s" : ""}`}
-                        </button>
-                    )}
                 </div>
             </header>
+
+            {/* Chargement : bandeau discret, la grille reste utilisable. */}
+            {isLoadingRows && (
+                <div
+                    role="status"
+                    className="shrink-0 rounded-lg border px-4 py-2 border-[var(--accent-border)] bg-[var(--accent-bg)]"
+                >
+                    <div className="flex items-center justify-between gap-3 text-[13px] text-[var(--text-primary)]">
+                        <span className="flex items-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin text-[var(--accent)]" />
+                            Chargement des produits de {nomFournisseur}…
+                        </span>
+                        <span className="tabular-nums text-[var(--text-secondary)]">
+                            {totalRows
+                                ? `${rowsLoaded.toLocaleString("fr-FR")} sur ${totalRows.toLocaleString("fr-FR")}`
+                                : "Calcul en cours sur le serveur"}
+                        </span>
+                    </div>
+                    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--bg-elevated)]">
+                        <div
+                            className={progression == null ? "h-full w-1/3 animate-pulse rounded-full bg-[var(--accent)]" : "h-full rounded-full bg-[var(--accent)] transition-[width] duration-300"}
+                            style={progression == null ? undefined : { width: `${progression}%` }}
+                        />
+                    </div>
+                </div>
+            )}
 
             {/* Filters */}
             <div className="shrink-0 print:hidden">
@@ -339,77 +306,8 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
 
             {/* Summary bar */}
             <div className="print:hidden">
-                <FloatingSummaryBar />
+                <FloatingSummaryBar isAdmin={isAdmin} nomFournisseur={nomFournisseur} />
             </div>
-
-            {/* Overlay de démarrage premium (Glassmorphism semi-bloquant) */}
-            {showStartOverlay && isLoadingRows && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 backdrop-blur-md bg-slate-950/30 dark:bg-black/40 animate-fade-in">
-                    <div 
-                        className="w-full max-w-md rounded-2xl border p-6 shadow-2xl flex flex-col items-center text-center space-y-5 transition-transform duration-300 transform scale-100"
-                        style={{
-                            background: "rgba(255, 255, 255, 0.75)",
-                            borderColor: "var(--border)",
-                            backdropFilter: "blur(20px)",
-                            boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)"
-                        }}
-                    >
-                        {/* Header avec logo ou icône animée */}
-                        <div className="relative flex items-center justify-center w-16 h-16 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                            <Loader2 className="w-8 h-8 animate-spin" />
-                            <div className="absolute inset-0 rounded-full border border-emerald-500/20 animate-ping duration-1000" />
-                        </div>
-
-                        {/* Titre et descriptions */}
-                        <div className="space-y-1">
-                            <h3 className="text-lg font-bold tracking-tight text-emerald-800 dark:text-emerald-400">
-                                Flux d'Assortiment en cours
-                            </h3>
-                            <p className="text-xs text-muted-foreground max-w-[280px] mx-auto animate-pulse" style={{ color: "var(--text-muted)" }}>
-                                Chargement progressif et en temps réel des données pour <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>{nomFournisseur}</span>.
-                            </p>
-                        </div>
-
-                        {/* Barre de progression dynamique */}
-                        <div className="w-full space-y-2">
-                            <div className="flex justify-between text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
-                                <span>Progression</span>
-                                <span>
-                                    {totalRows 
-                                        ? `${Math.round((rowsLoaded / totalRows) * 100)}%` 
-                                        : `${rowsLoaded.toLocaleString("fr-FR")} réfs`}
-                                </span>
-                            </div>
-                            <div className="w-full h-2 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-800" style={{ border: "1px solid var(--border)" }}>
-                                <div 
-                                    className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-300 ease-out rounded-full"
-                                    style={{
-                                        width: totalRows ? `${(rowsLoaded / totalRows) * 100}%` : "40%",
-                                    }}
-                                />
-                            </div>
-                            <p className="text-[11px] font-medium animate-pulse" style={{ color: "var(--text-muted)" }}>
-                                {totalRows 
-                                    ? `${rowsLoaded.toLocaleString("fr-FR")} sur ${totalRows.toLocaleString("fr-FR")} références chargées`
-                                    : `${rowsLoaded.toLocaleString("fr-FR")} références récupérées...`}
-                            </p>
-                        </div>
-
-                        {/* Boutons d'action */}
-                        <div className="w-full pt-2 flex flex-col gap-2">
-                            <button
-                                onClick={() => setShowStartOverlay(false)}
-                                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 active:scale-95 hover:shadow-lg hover:shadow-emerald-500/20 transition-all duration-200"
-                            >
-                                Explorer les premières données
-                            </button>
-                            <p className="text-[10px] text-muted italic" style={{ color: "var(--text-muted)" }}>
-                                Le chargement continuera en arrière-plan sans bloquer votre navigation.
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

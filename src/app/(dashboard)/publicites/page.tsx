@@ -1,5 +1,10 @@
+import type { Metadata } from "next";
+import { Megaphone } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { PublicitesClient } from "./client";
 import { cachedFF } from "@/lib/ff-cache";
+
+export const metadata: Metadata = { title: "Publicités" };
 
 export interface Publicite {
     tcr_code: string;
@@ -114,27 +119,25 @@ export default async function PublicitesPage(props: {
         fetchHistorique(),
     ]);
 
-    const error = pubResult.error ?? histoResult.error;
-
     return (
-        <div className="min-h-screen bg-gray-50 p-6">
-            <div className="mx-auto max-w-screen-xl">
-                <h1 className="mb-6 text-3xl font-bold text-gray-900">Publicités</h1>
-                {error && (
-                    <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
-                        {error}
-                    </div>
-                )}
-                <PublicitesClient
-                    vue={vue}
-                    statut={statut}
-                    page={page}
-                    publicites={pubResult.data}
-                    total={pubResult.total}
-                    pages={pubResult.pages}
-                    historique={histoResult.data}
-                />
-            </div>
+        <div className="mx-auto w-full max-w-screen-2xl">
+            <PageHeader
+                icon={Megaphone}
+                title="Publicités"
+                description="Résultats des opérations publicitaires (en cours, passées, à venir) et leur poids dans les ventes de vos magasins."
+            />
+            <PublicitesClient
+                vueInitiale={vue === "historique" ? "historique" : "publicites"}
+                statut={statut}
+                page={page}
+                pageSize={PAGE_SIZE}
+                publicites={pubResult.data}
+                total={pubResult.total}
+                pages={pubResult.pages}
+                erreurPublicites={pubResult.error}
+                historique={histoResult.data}
+                erreurHistorique={histoResult.error}
+            />
         </div>
     );
 }

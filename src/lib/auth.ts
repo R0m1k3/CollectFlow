@@ -59,6 +59,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
                     return {
                         id: user.id.toString(),
+                        // `name` est repris dans la session : sans lui, l'en-tête ne
+                        // pouvait pas afficher qui est connecté.
+                        name: user.username,
                         username: user.username,
                         role: user.role,
                     };

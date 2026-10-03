@@ -54,7 +54,7 @@ export function Sidebar() {
         <aside
             className={cn(
                 "flex-shrink-0 flex flex-col h-screen z-30 glass transition-[width] duration-200 relative border-r border-[var(--border)]",
-                isExpanded ? "w-[272px]" : "w-16",
+                isExpanded ? "w-[280px]" : "w-16",
             )}
             aria-label="Menu principal"
         >
@@ -78,7 +78,7 @@ export function Sidebar() {
             </div>
 
             {/* Navigation */}
-            <nav className={cn("flex-1 overflow-y-auto py-3", isExpanded ? "px-3" : "px-2")}>
+            <nav className={cn("flex-1 overflow-y-auto py-3 px-2")}>
                 {groupes.map((groupe, gi) => (
                     <div key={groupe.title} className={cn(gi > 0 && "mt-4")}>
                         {isExpanded ? (

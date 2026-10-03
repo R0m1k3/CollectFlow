@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { Search, X, RotateCw } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { cn } from "@/lib/utils";
+import { trouverGamme } from "@/lib/gammes";
 
 import { SupplierCombobox } from "./supplier-combobox";
 import { StoreCombobox } from "./store-combobox";
@@ -24,7 +25,6 @@ export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
     const draftChanges = useGridStore((s) => s.filters.codeGamme ? s.draftChanges : EMPTY_DRAFT_CHANGES);
     const router = useRouter();
     const searchParams = useSearchParams();
-    const [isRefreshing, setIsRefreshing] = React.useState(false);
     const [searchValue, setSearchValue] = React.useState(filters.search);
 
     React.useEffect(() => {
@@ -104,30 +104,9 @@ export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
         router.replace(`/grid?${params.toString()}`, { scroll: false });
     };
 
-    const requestRefresh = useGridStore((s) => s.requestRefresh);
-    const handleRefresh = () => {
-        setIsRefreshing(true);
-        requestRefresh();
-        // Visual feedback delay
-        setTimeout(() => setIsRefreshing(false), 800);
-    };
 
     return (
         <div className="flex items-center gap-3 flex-wrap">
-            {/* Refresh Button */}
-            <button
-                onClick={handleRefresh}
-                title="Rafraîchir les données SQL"
-                className={cn(
-                    "flex items-center justify-center w-9 h-9 rounded-lg transition-all",
-                    "bg-[var(--bg-elevated)] border border-[var(--border)]",
-                    "hover:bg-[var(--bg-surface)] hover:text-emerald-500",
-                    isRefreshing && "opacity-50"
-                )}
-            >
-                <RotateCw className={cn("w-4 h-4", isRefreshing && "animate-spin")} />
-            </button>
-
             {/* Supplier Selector */}
             <SupplierCombobox
                 fournisseurs={fournisseurs}
@@ -141,7 +120,6 @@ export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
                 magasins={magasins}
                 selectedCode={activeMagasin === "TOTAL" ? null : activeMagasin}
                 onSelect={handleStoreSelect}
-                className="w-[170px] xl:w-[220px]"
             />
 
             {/* Search */}
@@ -152,7 +130,8 @@ export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
                 />
                 <input
                     type="search"
-                    placeholder="Rechercher (code, désignation...)"
+                    placeholder="Rechercher un produit (code, nom…)"
+                    aria-label="Rechercher un produit dans la grille"
                     value={searchValue}
                     onChange={(e) => setSearchValue(e.target.value)}
                     // La croix native de `type="search"` (WebKit/Blink) est masquée :
@@ -184,43 +163,36 @@ export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
                     const count = value === null ? rows.length : gammeCounts[value] || 0;
                     const isActive = filters.codeGamme === value;
 
-                    // Semantic colors for the badge based on Gamme
-                    const getBadgeStyles = () => {
-                        if (!isActive) return { background: "rgba(0,0,0,0.05)", color: "var(--text-muted)" };
-                        switch (value) {
-                            case "A": return { background: "rgba(16, 185, 129, 0.15)", color: "rgb(5, 150, 105)" }; // Emerald
-                            case "B": return { background: "rgba(59, 130, 246, 0.15)", color: "rgb(37, 99, 235)" }; // Blue
-                            case "C": return { background: "rgba(245, 158, 11, 0.15)", color: "rgb(217, 119, 6)" }; // Amber
-                            case "Y": return { background: "rgba(139, 92, 246, 0.15)", color: "rgb(109, 40, 217)" }; // Violet
-                            case "Z": return { background: "rgba(244, 63, 94, 0.15)", color: "rgb(225, 29, 72)" };  // Rose
-                            case "Aucune": return { background: "rgba(100, 116, 139, 0.15)", color: "rgb(71, 85, 105)" }; // Slate
-                            default: return { background: "rgba(0,0,0,0.1)", color: "var(--text-primary)" };
-                        }
-                    };
-
-                    const badgeStyles = getBadgeStyles();
+                    const gamme = value ? trouverGamme(value) : undefined;
+                    const titre = value === null
+                        ? "Toutes les gammes"
+                        : gamme
+                            ? `${gamme.code} — ${gamme.nom} : ${gamme.description}`
+                            : "Produits sans gamme";
 
                     return (
                         <button
                             key={label}
                             onClick={() => setFilter("codeGamme", value)}
+                            title={titre}
+                            aria-pressed={isActive}
                             className={cn(
-                                "flex items-center gap-2 px-2.5 py-1 text-[11px] font-semibold rounded-[6px] transition-all duration-200",
+                                "flex items-center gap-1.5 px-2.5 py-1 text-[13px] font-semibold rounded-md transition-colors",
                                 isActive
                                     ? "shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
-                                    : "hover:bg-[var(--bg-surface)] opacity-70 hover:opacity-100"
+                                    : "hover:bg-[var(--bg-surface)]"
                             )}
                             style={{
                                 background: isActive ? "var(--bg-surface)" : "transparent",
                                 color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
                             }}
                         >
-                            <span>{label}</span>
-                            <span
-                                className="inline-flex items-center justify-center min-w-[20px] px-1.5 py-0.5 rounded-full text-[9px] font-bold tabular-nums tracking-tight transition-colors"
-                                style={badgeStyles}
-                            >
-                                {count}
+                            {gamme ? (
+                                <span className={cn("rounded border px-1 text-xs font-bold", gamme.classes)}>{gamme.code}</span>
+                            ) : null}
+                            <span>{value === null ? "Toutes" : gamme ? gamme.nom : "Sans gamme"}</span>
+                            <span className="text-xs font-medium tabular-nums text-[var(--text-muted)]">
+                                {count.toLocaleString("fr-FR")}
                             </span>
                         </button>
                     );

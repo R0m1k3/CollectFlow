@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Download, Loader2, RefreshCw, FileText, AlertCircle } from "lucide-react";
+import { Download, Loader2, RefreshCw, FileText } from "lucide-react";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
+import { fmtDecimal1 } from "@/lib/format";
 
 interface LogEntry {
     id: string;
@@ -13,7 +18,7 @@ interface LogEntry {
 function formatTaille(octets: number): string {
     if (octets < 1024) return `${octets} o`;
     if (octets < 1024 * 1024) return `${Math.round(octets / 1024)} Ko`;
-    return `${(octets / (1024 * 1024)).toFixed(1)} Mo`;
+    return `${fmtDecimal1(octets / (1024 * 1024))} Mo`;
 }
 
 function formatDate(iso: string): string {
@@ -80,69 +85,61 @@ export function ServerLogs() {
     }, [appliquer]);
 
     return (
-        <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
-                <p className="text-[12px] text-[var(--text-secondary)]">
-                    Journal complet de chaque extraction Qlik (le plus récent en premier).
-                    Conservés le temps de la vie du serveur, 20 au maximum.
-                </p>
-                <button
-                    onClick={recharger}
-                    disabled={etat === "chargement"}
-                    className="btn-action btn-action-secondary flex items-center gap-1.5 shrink-0 disabled:opacity-60"
-                >
-                    {etat === "chargement"
-                        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        : <RefreshCw className="w-3.5 h-3.5" />}
-                    Actualiser
-                </button>
-            </div>
-
-            {etat === "erreur" && (
-                <div className="flex items-center gap-2 text-[12px] text-[var(--accent-error)]">
-                    <AlertCircle className="w-4 h-4 shrink-0" />
-                    <span>{erreur}</span>
-                </div>
-            )}
-
-            {etat !== "erreur" && logs.length === 0 && (
-                <p className="text-[12px] text-[var(--text-muted)]">
-                    Aucun journal pour l&apos;instant — lancez une synchronisation Qlik depuis la Grille.
-                </p>
-            )}
-
-            {logs.length > 0 && (
-                <ul className="divide-y divide-[var(--border-subtle)] rounded-lg border border-[var(--border-subtle)]">
-                    {logs.map((log) => (
-                        <li key={log.id} className="flex items-center gap-3 px-3 py-2">
-                            <FileText className="w-4 h-4 shrink-0 text-[var(--text-muted)]" />
-                            <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-[12px] font-medium text-[var(--text-primary)] truncate">
-                                        {log.id}
-                                    </span>
-                                    {log.enCours && (
-                                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--brand-solid)] text-white shrink-0">
-                                            en cours
+        <Card>
+            <CardHeader
+                title="Journal serveur"
+                description="Le détail de chaque mise à jour des données du réseau (extraction Qlik), à télécharger pour comprendre une erreur. Les 20 derniers journaux sont conservés jusqu'au prochain redémarrage du serveur ; le plus récent est en premier."
+                actions={
+                    <Button variant="outline" size="sm" onClick={recharger} disabled={etat === "chargement"}>
+                        {etat === "chargement" ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+                        Actualiser
+                    </Button>
+                }
+            />
+            <CardContent>
+                {etat === "erreur" ? (
+                    <ErrorState
+                        title="Les journaux n'ont pas pu être chargés"
+                        detail={erreur}
+                        action={<Button variant="outline" onClick={recharger}>Réessayer</Button>}
+                    />
+                ) : etat === "chargement" && logs.length === 0 ? (
+                    <div className="space-y-2" aria-busy="true" aria-label="Chargement des journaux">
+                        {Array.from({ length: 3 }, (_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+                    </div>
+                ) : logs.length === 0 ? (
+                    <EmptyState
+                        icon={FileText}
+                        title="Aucun journal pour l'instant"
+                        description="Un journal est créé à chaque mise à jour des données du réseau : lancez-en une depuis la Grille (bouton « Mettre à jour le réseau ») ou attendez la synchronisation nocturne."
+                    />
+                ) : (
+                    <ul className="divide-y divide-[var(--border)] rounded-lg border border-[var(--border)]">
+                        {logs.map((log) => (
+                            <li key={log.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
+                                <FileText className="h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden />
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2">
+                                        <span className="truncate font-mono text-sm font-medium text-[var(--text-primary)]">
+                                            {log.id}
                                         </span>
-                                    )}
+                                        {log.enCours && <Badge ton="accent">En cours</Badge>}
+                                    </div>
+                                    <span className="text-[13px] text-[var(--text-muted)]">
+                                        {formatDate(log.modifieLe)} · {formatTaille(log.octets)}
+                                    </span>
                                 </div>
-                                <span className="text-[11px] text-[var(--text-muted)]">
-                                    {formatDate(log.modifieLe)} · {formatTaille(log.octets)}
-                                </span>
-                            </div>
-                            <a
-                                href={`/api/logs?id=${encodeURIComponent(log.id)}`}
-                                download
-                                className="btn-action btn-action-secondary flex items-center gap-1.5 shrink-0"
-                            >
-                                <Download className="w-3.5 h-3.5" />
-                                Télécharger
-                            </a>
-                        </li>
-                    ))}
-                </ul>
-            )}
-        </div>
+                                <Button asChild variant="outline" size="sm">
+                                    <a href={`/api/logs?id=${encodeURIComponent(log.id)}`} download>
+                                        <Download />
+                                        Télécharger
+                                    </a>
+                                </Button>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </CardContent>
+        </Card>
     );
 }

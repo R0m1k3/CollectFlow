@@ -14,24 +14,30 @@ interface SupplierComboboxProps {
     selectedCode: string | null;
     onSelect: (code: string) => void;
     className?: string;
+    /** Libellé du bouton quand rien n'est choisi. */
+    placeholder?: string;
 }
 
-export function SupplierCombobox({ fournisseurs, selectedCode, onSelect, className }: SupplierComboboxProps) {
+/** Nombre de fournisseurs listés : la liste complète (plusieurs milliers) figeait l'ouverture. */
+const AFFICHAGE_MAX = 50;
+
+/** Choix d'un fournisseur, avec recherche par nom ou par code. */
+export function SupplierCombobox({ fournisseurs, selectedCode, onSelect, className, placeholder = "Choisir un fournisseur…" }: SupplierComboboxProps) {
     const [open, setOpen] = React.useState(false);
     const [search, setSearch] = React.useState("");
     const containerRef = React.useRef<HTMLDivElement>(null);
 
     const selectedSupplier = fournisseurs.find((f) => f.code === selectedCode);
 
-    const filtered = React.useMemo(() => {
-        if (!search) return fournisseurs;
-        const s = search.toLowerCase();
-        return fournisseurs.filter(f =>
-            f.nom.toLowerCase().includes(s) || f.code.toLowerCase().includes(s)
-        ).slice(0, 50); // Limit display for performance
+    const { affiches, total } = React.useMemo(() => {
+        const s = search.trim().toLowerCase();
+        const trouves = s
+            ? fournisseurs.filter((f) => f.nom.toLowerCase().includes(s) || f.code.toLowerCase().includes(s))
+            : fournisseurs;
+        return { affiches: trouves.slice(0, AFFICHAGE_MAX), total: trouves.length };
     }, [fournisseurs, search]);
 
-    // Handle click outside to close
+    // Fermeture au clic à l'extérieur
     React.useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
             if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
@@ -47,60 +53,62 @@ export function SupplierCombobox({ fournisseurs, selectedCode, onSelect, classNa
             <button
                 type="button"
                 onClick={() => setOpen(!open)}
-                className="flex items-center justify-between w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg hover:border-emerald-500/50 transition-all shadow-sm group"
+                aria-haspopup="listbox"
+                aria-expanded={open}
+                className="flex h-9 w-full items-center justify-between rounded-lg border px-3 text-sm shadow-sm bg-[var(--bg-surface)] border-[var(--border-strong)] hover:border-[var(--accent)]"
             >
-                <span className="truncate font-medium text-slate-700 dark:text-slate-200">
-                    {selectedSupplier ? selectedSupplier.nom : "Sélectionner un fournisseur..."}
+                <span className={cn("truncate", selectedSupplier ? "font-medium text-[var(--text-primary)]" : "text-[var(--text-muted)]")}>
+                    {selectedSupplier ? selectedSupplier.nom : placeholder}
                 </span>
-                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50 group-hover:opacity-100 transition-opacity" />
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-[var(--text-muted)]" />
             </button>
 
             {open && (
-                <div className="absolute top-full left-0 z-50 w-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-200">
-                    <div className="p-2 border-bottom border-slate-100 dark:border-slate-800 flex items-center gap-2">
-                        <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                <div className="absolute left-0 top-full z-50 mt-1 w-full min-w-[300px] overflow-hidden rounded-xl border shadow-[var(--shadow-lg)] bg-[var(--bg-surface)] border-[var(--border-strong)] animate-in fade-in slide-in-from-top-1 duration-150">
+                    <div className="flex items-center gap-2 border-b border-[var(--border)] p-2">
+                        <Search className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
                         <input
                             autoFocus
-                            placeholder="Rechercher..."
+                            placeholder="Nom ou code du fournisseur…"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            className="w-full bg-transparent border-none outline-none text-sm py-1 placeholder:text-slate-500 dark:text-white"
+                            className="w-full border-none bg-transparent py-1 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
                         />
                     </div>
-                    <div className="max-h-[300px] overflow-auto py-1 custom-scrollbar">
-                        {filtered.length === 0 ? (
-                            <div className="px-4 py-3 text-sm text-slate-500 text-center italic">
-                                Aucun résultat
+                    <div role="listbox" className="max-h-[320px] overflow-auto py-1">
+                        {affiches.length === 0 ? (
+                            <div className="px-4 py-3 text-center text-sm text-[var(--text-muted)]">
+                                Aucun fournisseur ne correspond.
                             </div>
                         ) : (
-                            filtered.map((f) => (
+                            affiches.map((f) => (
                                 <button
                                     key={f.code}
+                                    role="option"
+                                    aria-selected={f.code === selectedCode}
                                     onClick={() => {
                                         onSelect(f.code);
                                         setOpen(false);
                                         setSearch("");
                                     }}
                                     className={cn(
-                                        "flex items-center justify-between w-full px-3 py-2 text-sm transition-colors text-left",
+                                        "flex w-full items-center justify-between px-3 py-2 text-left text-sm",
                                         f.code === selectedCode
-                                            ? "bg-emerald-500/10 text-emerald-600 font-bold"
-                                            : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+                                            ? "bg-[var(--accent-bg)] font-semibold text-[var(--text-primary)]"
+                                            : "text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]",
                                     )}
                                 >
-                                    <div className="flex flex-col min-w-0 pr-2">
+                                    <div className="flex min-w-0 flex-col pr-2">
                                         <span className="truncate">{f.nom}</span>
-                                        <span className="text-[10px] opacity-50 font-mono">Code: {f.code}</span>
+                                        <span className="text-xs text-[var(--text-muted)]">Code {f.code}</span>
                                     </div>
-                                    {f.code === selectedCode && (
-                                        <Check className="h-4 w-4 shrink-0" />
-                                    )}
+                                    {f.code === selectedCode && <Check className="h-4 w-4 shrink-0 text-[var(--accent)]" />}
                                 </button>
                             ))
                         )}
-                        {fournisseurs.length > 50 && !search && (
-                            <div className="px-4 py-2 text-[10px] text-center text-slate-400 uppercase tracking-widest font-bold bg-slate-50/50 dark:bg-slate-800/50">
-                                Saisissez pour filtrer les {fournisseurs.length} entrées
+                        {total > affiches.length && (
+                            <div className="border-t border-[var(--border)] px-4 py-2 text-center text-xs text-[var(--text-muted)]">
+                                {affiches.length} premiers sur {total.toLocaleString("fr-FR")} — précisez la recherche
                             </div>
                         )}
                     </div>

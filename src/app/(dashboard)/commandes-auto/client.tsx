@@ -1,199 +1,187 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ChevronUp, ChevronDown, ChevronsUpDown, CheckCircle2, AlertCircle, Minus } from "lucide-react";
+import { useMemo } from "react";
+import { ShoppingCart } from "lucide-react";
 import type { PgCommandeAutoRow } from "./page";
+import { Badge, type Ton } from "@/components/ui/badge";
+import { DataTable, type DataColumn, type DataFilter } from "@/components/ui/data-table";
+import { EmptyState } from "@/components/ui/states";
+import { Terme } from "@/components/ui/tooltip";
+import { fmtEntier, fmtEur2 } from "@/lib/format";
+import { MAGASINS, nomMagasin } from "@/lib/magasins";
 
-type SortDir = "asc" | "desc";
+type EtatFranco = "oui" | "non" | "inconnu";
 
-const SITES: { code: string; label: string }[] = [
-    { code: "292", label: "292 — Frouard / Nancy" },
-    { code: "579", label: "579 — Houdemont" },
+/**
+ * Franco atteint ? Sans montant de franco connu (0), on ne peut pas répondre,
+ * quel que soit l'indicateur renvoyé par l'API.
+ */
+function etatFranco(r: PgCommandeAutoRow): EtatFranco {
+    if (!(Number(r.franco) > 0)) return "inconnu";
+    if (r.franco_atteint === true) return "oui";
+    if (r.franco_atteint === false) return "non";
+    return "inconnu";
+}
+
+const ETATS_FRANCO: Record<EtatFranco, { libelle: string; ton: Ton }> = {
+    oui: { libelle: "Oui", ton: "succes" },
+    non: { libelle: "Non", ton: "alerte" },
+    inconnu: { libelle: "Inconnu", ton: "neutre" },
+};
+
+function explicationFranco(r: PgCommandeAutoRow): string {
+    switch (etatFranco(r)) {
+        case "oui":
+            return "Le montant proposé atteint le franco : livraison sans frais de port.";
+        case "non":
+            return "Le montant proposé n'atteint pas le franco : des frais de port peuvent s'appliquer.";
+        default:
+            return Number(r.franco) > 0
+                ? "Le franco est connu, mais FF n'indique pas s'il est atteint."
+                : "Aucun montant de franco connu pour ce fournisseur.";
+    }
+}
+
+/** Écart entre le montant proposé et le franco, toujours positif. */
+function ecartFranco(r: PgCommandeAutoRow): number {
+    return Math.abs(Number(r.ecart_franco)) || Math.abs(Number(r.franco) - Number(r.montant_cde)) || 0;
+}
+
+function EcartFranco({ r }: { r: PgCommandeAutoRow }) {
+    const etat = etatFranco(r);
+    const ecart = ecartFranco(r);
+    if (etat === "non") {
+        return <span className="font-semibold text-[var(--accent-warning)]">Il manque {fmtEur2(ecart)}</span>;
+    }
+    if (etat === "oui") {
+        return <span className="text-[var(--accent-success)]">{ecart > 0 ? `Dépassé de ${fmtEur2(ecart)}` : "Atteint"}</span>;
+    }
+    return <span className="text-[var(--text-muted)]">—</span>;
+}
+
+const somme = (rows: readonly PgCommandeAutoRow[], valeur: (r: PgCommandeAutoRow) => number) =>
+    rows.reduce((s, r) => s + (Number(valeur(r)) || 0), 0);
+
+const COLONNES: DataColumn<PgCommandeAutoRow>[] = [
+    {
+        id: "fournisseur",
+        header: "Fournisseur",
+        sortValue: (r) => r.nomfou,
+        cell: (r) => (
+            <div className="min-w-[200px]">
+                <div className="font-medium text-[var(--text-primary)]">{r.nomfou || "Fournisseur sans nom"}</div>
+                {r.codefou && <div className="text-xs text-[var(--text-muted)]">Code {r.codefou}</div>}
+            </div>
+        ),
+        footer: (rows) => `Total · ${fmtEntier(rows.length)} fournisseur${rows.length > 1 ? "s" : ""}`,
+    },
+    {
+        id: "articles",
+        header: "Nb articles",
+        align: "right",
+        sortValue: (r) => Number(r.nb_articles),
+        cell: (r) => fmtEntier(Number(r.nb_articles)),
+        footer: (rows) => fmtEntier(somme(rows, (r) => r.nb_articles)),
+    },
+    {
+        id: "montant",
+        header: "Montant proposé",
+        hint: "Montant hors taxes de la commande automatique proposée par FF.",
+        align: "right",
+        sortValue: (r) => Number(r.montant_cde),
+        cell: (r) => <span className="font-semibold">{fmtEur2(Number(r.montant_cde))}</span>,
+        footer: (rows) => fmtEur2(somme(rows, (r) => r.montant_cde)),
+    },
+    {
+        id: "franco",
+        header: <Terme id="franco" />,
+        align: "right",
+        sortValue: (r) => (Number(r.franco) > 0 ? Number(r.franco) : null),
+        cell: (r) =>
+            Number(r.franco) > 0 ? (
+                fmtEur2(Number(r.franco))
+            ) : (
+                <span className="text-[var(--text-muted)]" title="Aucun montant de franco connu pour ce fournisseur.">—</span>
+            ),
+    },
+    {
+        id: "atteint",
+        header: "Franco atteint",
+        align: "center",
+        // Oui avant Non, inconnus toujours en fin de liste.
+        sortValue: (r) => {
+            const etat = etatFranco(r);
+            return etat === "oui" ? 1 : etat === "non" ? 0 : null;
+        },
+        cell: (r) => {
+            const { libelle, ton } = ETATS_FRANCO[etatFranco(r)];
+            return <Badge ton={ton} title={explicationFranco(r)}>{libelle}</Badge>;
+        },
+    },
+    {
+        id: "ecart",
+        header: "Écart au franco",
+        hint: "Ce qu'il manque pour atteindre le franco, ou de combien il est dépassé.",
+        align: "right",
+        sortValue: (r) => {
+            const etat = etatFranco(r);
+            if (etat === "inconnu") return null;
+            return etat === "oui" ? ecartFranco(r) : -ecartFranco(r);
+        },
+        cell: (r) => <EcartFranco r={r} />,
+    },
 ];
 
-function fmt(n: number) {
-    return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
-}
+const FILTRES: DataFilter<PgCommandeAutoRow>[] = [
+    {
+        id: "atteint",
+        label: "Franco atteint",
+        valueOf: (r) => ETATS_FRANCO[etatFranco(r)].libelle,
+        allLabel: "Tous",
+    },
+];
 
-function SortIcon({ col, sortKey, sortDir }: { col: string; sortKey: string; sortDir: SortDir }) {
-    if (col !== sortKey) return <ChevronsUpDown className="inline w-3 h-3 ml-1 opacity-30" />;
-    return sortDir === "asc"
-        ? <ChevronUp className="inline w-3 h-3 ml-1" />
-        : <ChevronDown className="inline w-3 h-3 ml-1" />;
-}
-
-type SK = keyof PgCommandeAutoRow;
-const NUMERIC: SK[] = ["franco", "nb_articles", "montant_cde"];
-
-function FrancoCell({ atteint, ecart, franco }: { atteint: boolean | null; ecart: number; franco: number }) {
-    // franco === 0 : aucune donnée franco disponible
-    // atteint === null ET franco === 0 : pas de franco (N/A ou données manquantes)
-    // atteint === null ET franco > 0 : franco connu mais statut non déterminé → on affiche quand même le montant
-    if (franco === 0) {
-        return (
-            <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500">
-                <Minus className="w-3 h-3" /> Pas de franco
-            </span>
-        );
-    }
-    if (atteint === null) {
-        // Franco connu mais statut non calculé par l'API
-        return (
-            <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500">
-                <Minus className="w-3 h-3" /> N/A ({fmt(franco)})
-            </span>
-        );
-    }
-    if (atteint) {
-        return (
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
-                <CheckCircle2 className="w-3 h-3" /> Atteint
-            </span>
-        );
-    }
-    return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
-            <AlertCircle className="w-3 h-3" /> −{fmt(Math.abs(ecart))} manquant
-        </span>
-    );
-}
-
-function StoreTable({ site, label, rows }: { site: string; label: string; rows: PgCommandeAutoRow[] }) {
-    const [sortKey, setSortKey] = useState<SK>("nomfou");
-    const [sortDir, setSortDir] = useState<SortDir>("asc");
-    const [search, setSearch] = useState("");
-
-    function handleSort(key: SK) {
-        if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
-        else { setSortKey(key); setSortDir("asc"); }
-    }
-
-    const filtered = useMemo(() => {
-        const q = search.toLowerCase();
-        return rows.filter(r => !q || r.nomfou.toLowerCase().includes(q) || r.codefou.toLowerCase().includes(q));
-    }, [rows, search]);
-
-    const sorted = useMemo(() => [...filtered].sort((a, b) => {
-        const av = a[sortKey];
-        const bv = b[sortKey];
-        if (NUMERIC.includes(sortKey)) {
-            return sortDir === "asc" ? Number(av) - Number(bv) : Number(bv) - Number(av);
-        }
-        return sortDir === "asc"
-            ? String(av ?? "").localeCompare(String(bv ?? ""), "fr")
-            : String(bv ?? "").localeCompare(String(av ?? ""), "fr");
-    }), [filtered, sortKey, sortDir]);
-
-    const nbFrancoAtteint = rows.filter(r => r.franco_atteint === true).length;
-    const totalMontant = rows.reduce((s, r) => s + Number(r.montant_cde), 0);
-
-    const th = (key: SK, label: string, right = false) => (
-        <th
-            className={[
-                "cursor-pointer select-none whitespace-nowrap px-3 py-2.5 text-xs font-semibold text-gray-600 uppercase tracking-wide hover:text-gray-900",
-                right ? "text-right" : "text-left",
-            ].join(" ")}
-            onClick={() => handleSort(key)}
-        >
-            {label}<SortIcon col={key as string} sortKey={sortKey as string} sortDir={sortDir} />
-        </th>
-    );
+function SectionMagasin({ nom, rows }: { nom: string; rows: PgCommandeAutoRow[] }) {
+    const nbAtteint = rows.filter((r) => etatFranco(r) === "oui").length;
+    const totalMontant = somme(rows, (r) => r.montant_cde);
 
     return (
-        <div className="space-y-3">
-            {/* En-tête magasin */}
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                    <h2 className="text-lg font-bold text-gray-900">{label}</h2>
-                    <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700">
-                        {rows.length} fournisseur{rows.length !== 1 ? "s" : ""}
-                    </span>
-                    {nbFrancoAtteint > 0 && (
-                        <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
-                            {nbFrancoAtteint} franco atteint
-                        </span>
-                    )}
-                    <span className="text-sm text-gray-500">
-                        Total : <span className="font-semibold text-gray-800">{fmt(totalMontant)}</span>
-                    </span>
-                </div>
-                <input
-                    type="text"
-                    placeholder="Rechercher un fournisseur…"
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
-                    className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[220px]"
-                />
+        <section className="space-y-3" aria-label={`Propositions de commande — ${nom}`}>
+            <div className="flex flex-wrap items-center gap-2">
+                <h2 className="mr-1 text-lg font-semibold text-[var(--text-primary)]">{nom}</h2>
+                <Badge>
+                    {fmtEntier(rows.length)} fournisseur{rows.length > 1 ? "s" : ""}
+                </Badge>
+                {nbAtteint > 0 && (
+                    <Badge ton="succes">
+                        {fmtEntier(nbAtteint)} franco{nbAtteint > 1 ? "s" : ""} atteint{nbAtteint > 1 ? "s" : ""}
+                    </Badge>
+                )}
+                <span className="text-[13px] text-[var(--text-secondary)]">
+                    Montant total proposé :{" "}
+                    <span className="font-semibold tabular-nums text-[var(--text-primary)]">{fmtEur2(totalMontant)}</span>
+                </span>
             </div>
-
-            {/* Tableau */}
-            <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-                <table className="min-w-full text-sm">
-                    <thead className="bg-gray-50 border-b border-gray-200">
-                        <tr>
-                            {th("codefou", "Code")}
-                            {th("nomfou", "Fournisseur")}
-                            {th("nb_articles", "Articles", true)}
-                            {th("montant_cde", "Montant CDE auto", true)}
-                            {th("franco", "Franco", true)}
-                            <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                                Statut franco
-                            </th>
-
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                        {sorted.length === 0 && (
-                            <tr>
-                                <td colSpan={6} className="px-3 py-8 text-center text-gray-400">
-                                    Aucun fournisseur en commande automatique
-                                </td>
-                            </tr>
-                        )}
-                        {sorted.map(row => {
-                            const francoAtteint = row.franco_atteint === true;
-                            const hasFranco = row.franco > 0 && row.franco_atteint !== null;
-                            return (
-                                <tr
-                                    key={`${row.site}-${row.codefou}`}
-                                    className={[
-                                        "transition-colors",
-                                        francoAtteint
-                                            ? "bg-emerald-50/50 hover:bg-emerald-50"
-                                            : "hover:bg-gray-50",
-                                    ].join(" ")}
-                                >
-                                    <td className="px-3 py-2.5 font-mono text-xs text-gray-500">{row.codefou}</td>
-                                    <td className="px-3 py-2.5 font-medium text-gray-900">{row.nomfou}</td>
-                                    <td className="px-3 py-2.5 text-right tabular-nums text-gray-700">{row.nb_articles}</td>
-                                    <td className={[
-                                        "px-3 py-2.5 text-right tabular-nums font-semibold",
-                                        francoAtteint ? "text-emerald-700" : "text-blue-700",
-                                    ].join(" ")}>
-                                        {fmt(Number(row.montant_cde))}
-                                    </td>
-                                    <td className="px-3 py-2.5 text-right tabular-nums text-gray-600">
-                                        {row.franco > 0 ? fmt(Number(row.franco)) : <span className="text-gray-400">—</span>}
-                                    </td>
-                                    <td className="px-3 py-2.5">
-                                        <FrancoCell
-                                            atteint={row.franco_atteint}
-                                            ecart={Number(row.ecart_franco)}
-                                            franco={Number(row.franco)}
-                                        />
-                                    </td>
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
-            </div>
-        </div>
+            <DataTable
+                rows={rows}
+                columns={COLONNES}
+                rowKey={(r) => `${r.site}-${r.codefou}`}
+                searchIn={(r) => [r.nomfou, r.codefou]}
+                searchPlaceholder="Rechercher un fournisseur…"
+                filters={FILTRES}
+                pageSize={0}
+                unite="fournisseurs"
+                showFooter
+                initialSort={{ id: "fournisseur", dir: "asc" }}
+                emptyTitle="Aucune proposition pour ce magasin"
+                emptyDescription="FF ne propose aucune commande automatique pour ce magasin en ce moment."
+            />
+        </section>
     );
 }
 
 export function CommandesAutoClient({ rows }: { rows: PgCommandeAutoRow[] }) {
-    const bySite = useMemo(() => {
+    const parMagasin = useMemo(() => {
         const map = new Map<string, PgCommandeAutoRow[]>();
         for (const r of rows) {
             if (!map.has(r.site)) map.set(r.site, []);
@@ -204,20 +192,19 @@ export function CommandesAutoClient({ rows }: { rows: PgCommandeAutoRow[] }) {
 
     if (rows.length === 0) {
         return (
-            <div className="rounded-xl border border-gray-200 bg-white p-12 text-center text-gray-400 shadow-sm">
-                Aucune commande automatique trouvée.
-            </div>
+            <EmptyState
+                icon={ShoppingCart}
+                title="Aucune proposition de commande"
+                description="FF ne propose aucune commande automatique pour le moment. Si vous en attendiez, le serveur FF est peut-être momentanément indisponible : rechargez la page dans quelques minutes."
+            />
         );
     }
 
     return (
-        <div className="space-y-8">
-            {SITES.map(({ code, label }) => {
-                const siteRows = bySite.get(code) ?? [];
-                return (
-                    <StoreTable key={code} site={code} label={label} rows={siteRows} />
-                );
-            })}
+        <div className="space-y-10">
+            {MAGASINS.map((m) => (
+                <SectionMagasin key={m.code} nom={nomMagasin(m.code)} rows={parMagasin.get(m.code) ?? []} />
+            ))}
         </div>
     );
 }

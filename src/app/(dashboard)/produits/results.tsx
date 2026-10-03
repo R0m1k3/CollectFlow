@@ -1,19 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { PackageSearch, Loader2, RefreshCw, AlertTriangle, Database, Globe } from "lucide-react";
 import { TrendSparkline } from "@/features/grid/components/network-charts";
-import { computeNetworkTrend, NB_MAGASINS_RESEAU } from "@/features/grid/lib/network-trend";
+import { computeNetworkTrend, NB_MAGASINS_RESEAU, type NetworkTrend } from "@/features/grid/lib/network-trend";
 import type { ProduitRechercheResultat, ProduitRechercheRow } from "@/features/produits/types";
-
-const fmtQte = (v: number) => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(v);
-const fmtDec = (v: number, d = 1) =>
-    new Intl.NumberFormat("fr-FR", { minimumFractionDigits: d, maximumFractionDigits: d }).format(v);
-const fmtEur = (v: number) =>
-    new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(v);
-const fmtEur2 = (v: number) =>
-    new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 2 }).format(v);
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { DataTable, type DataColumn } from "@/components/ui/data-table";
+import { EmptyState, ErrorState } from "@/components/ui/states";
+import { Terme } from "@/components/ui/tooltip";
+import { GLOSSAIRE } from "@/lib/glossaire";
+import { fmtDecimal1, fmtEntier, fmtEur0, fmtEur2 } from "@/lib/format";
+import { couleurMarge } from "@/lib/marge";
 
 /** Intervalle d'interrogation de l'état du job de recherche. */
 const POLL_MS = 2000;
@@ -55,6 +55,38 @@ async function lireJson(res: Response): Promise<Record<string, unknown>> {
     }
     if (!res.ok) throw new Error(String(data.error ?? `HTTP ${res.status}`));
     return data;
+}
+
+/**
+ * Les messages du serveur nomment l'outil source (Qlik) : l'utilisateur lit
+ * « données du réseau », le message d'origine reste dans le détail technique.
+ */
+const mentionneOutil = (texte: string | null | undefined) => /qlik/i.test(texte ?? "");
+
+function libelleEtape(etape: string | null): string {
+    if (!etape || mentionneOutil(etape)) return "Recherche dans les données du réseau…";
+    return etape;
+}
+
+/** Bandeau d'avertissement : explication en clair, détail technique replié. */
+function Avertissement({ children, detail }: { children: ReactNode; detail?: string | null }) {
+    return (
+        <div
+            role="status"
+            className="flex items-start gap-2.5 rounded-xl border border-[var(--accent-warning)]/40 bg-[var(--accent-warning-bg)] px-4 py-3 text-sm text-[var(--text-primary)]"
+        >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent-warning)]" aria-hidden />
+            <div className="min-w-0">
+                {children}
+                {detail && (
+                    <details className="mt-1 text-xs text-[var(--text-secondary)]">
+                        <summary className="cursor-pointer">Détail technique</summary>
+                        <p className="mt-1 break-words">{detail}</p>
+                    </details>
+                )}
+            </div>
+        </div>
+    );
 }
 
 /**
@@ -144,36 +176,31 @@ export function ProduitResults({ query }: { query: string }) {
 
     if (!query) {
         return (
-            <div
-                className="rounded-xl p-10 text-center"
-                style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
-            >
-                <PackageSearch className="w-8 h-8 mx-auto mb-3" style={{ color: "var(--text-muted)" }} strokeWidth={1.5} />
-                <p className="text-[14px] font-medium" style={{ color: "var(--text-secondary)" }}>
-                    Recherchez un produit dans le réseau
-                </p>
-                <p className="text-[12px] mt-1 max-w-lg mx-auto" style={{ color: "var(--text-muted)" }}>
-                    La recherche interroge <strong>Qlik Sense</strong> (les ~{NB_MAGASINS_RESEAU} magasins du réseau),
-                    puis rapproche chaque produit trouvé de notre catalogue.
-                    Saisissez un libellé (ex. « poêle 28 ») ou un code centrale (ex. « 10000167303 »).
-                </p>
-            </div>
+            <EmptyState
+                icon={PackageSearch}
+                title="Recherchez un produit"
+                description={
+                    <>
+                        Saisissez le nom d&apos;un produit (ex. « poêle 28 ») ou son code centrale
+                        (ex. « 10000167303 »). Vous verrez ses ventes dans les {NB_MAGASINS_RESEAU} magasins
+                        du réseau, puis chez nous s&apos;il est dans notre catalogue.
+                    </>
+                }
+            />
         );
     }
 
     if (loading) {
         return (
             <div
-                className="rounded-xl p-10 text-center"
-                style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
+                aria-busy="true"
+                className="flex flex-col items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] px-6 py-12 text-center"
             >
-                <Loader2 className="w-6 h-6 mx-auto mb-3 animate-spin" style={{ color: "var(--accent)" }} />
-                <p className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>
-                    {etape ?? "Interrogation de Qlik Sense…"}
-                </p>
-                <p className="text-[12px] mt-1" style={{ color: "var(--text-muted)" }}>
-                    Recherche des articles du réseau puis extraction de leurs ventes sur 12 mois glissants.
-                    Cela peut prendre plus d&apos;une minute — vous pouvez laisser la page ouverte.
+                <Loader2 className="h-7 w-7 animate-spin text-[var(--accent)]" aria-hidden />
+                <p className="text-base font-semibold text-[var(--text-primary)]">{libelleEtape(etape)}</p>
+                <p className="max-w-lg text-sm text-[var(--text-secondary)]">
+                    Recherche des produits puis de leurs ventes sur les 12 derniers mois.
+                    Cela peut prendre plus d&apos;une minute : vous pouvez laisser la page ouverte.
                 </p>
             </div>
         );
@@ -181,21 +208,20 @@ export function ProduitResults({ query }: { query: string }) {
 
     if (error) {
         return (
-            <div className="rounded-xl p-6" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
-                <div className="flex items-start gap-3">
-                    <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" style={{ color: "var(--accent-error)" }} />
-                    <div className="min-w-0">
-                        <p className="text-[13px] font-medium" style={{ color: "var(--text-primary)" }}>
-                            La recherche a échoué
-                        </p>
-                        <p className="text-[12px] mt-0.5 break-words" style={{ color: "var(--text-muted)" }}>{error}</p>
-                        <button onClick={relancer} className="btn-action btn-action-secondary mt-3 flex items-center gap-1.5">
-                            <RefreshCw className="w-3.5 h-3.5" />
-                            Réessayer
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <ErrorState
+                title="La recherche a échoué"
+                description={
+                    mentionneOutil(error)
+                        ? "Les données du réseau n'ont pas répondu. Réessayez dans un instant ; si la recherche est très large, ajoutez un mot plus précis."
+                        : error
+                }
+                detail={mentionneOutil(error) ? error : undefined}
+                action={
+                    <Button variant="outline" onClick={relancer}>
+                        <RefreshCw /> Réessayer
+                    </Button>
+                }
+            />
         );
     }
 
@@ -204,196 +230,227 @@ export function ProduitResults({ query }: { query: string }) {
     const { rows, source, qlikError, tronque, locauxHorsReseau, dureeMs } = data;
 
     return (
-        <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[12px] flex items-center gap-1.5" style={{ color: "var(--text-muted)" }}>
-                    {source === "qlik" ? (
-                        <Globe className="w-3.5 h-3.5" style={{ color: "var(--accent)" }} />
-                    ) : (
-                        <Database className="w-3.5 h-3.5" />
-                    )}
-                    {rows.length} produit{rows.length > 1 ? "s" : ""}
-                    {source === "qlik" ? " trouvé(s) dans Qlik" : " trouvé(s) dans le catalogue local"}
-                    {tronque && " (liste tronquée — affinez la recherche)"}
-                    {" · "}{(dureeMs / 1000).toFixed(1)} s
+        <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                    {source === "qlik"
+                        ? <Globe className="h-4 w-4 text-[var(--accent)]" aria-hidden />
+                        : <Database className="h-4 w-4 text-[var(--text-muted)]" aria-hidden />}
+                    <span>
+                        <span className="font-semibold text-[var(--text-primary)]">{fmtEntier(rows.length)}</span>{" "}
+                        produit{rows.length > 1 ? "s" : ""} trouvé{rows.length > 1 ? "s" : ""}
+                        {source === "qlik" ? " dans le réseau" : " dans notre catalogue"}
+                        {tronque && " (liste limitée : précisez la recherche pour tout voir)"}
+                        <span className="text-[var(--text-muted)]"> · recherche en {fmtDecimal1(dureeMs / 1000)} s</span>
+                    </span>
                 </p>
-                <button onClick={relancer} className="btn-action btn-action-secondary flex items-center gap-1.5">
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    Relancer
-                </button>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={relancer}
+                    title="Interroger à nouveau les données du réseau, sans réutiliser le dernier résultat"
+                >
+                    <RefreshCw /> Relancer la recherche
+                </Button>
             </div>
 
             {source === "db" && (
-                <div
-                    className="rounded-xl p-3 text-[12px] flex items-start gap-2"
-                    style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
-                >
-                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" style={{ color: "var(--accent-error)" }} />
-                    <span>
-                        Qlik n&apos;a pas pu être interrogé, la recherche s&apos;est repliée sur le catalogue local
-                        (les chiffres réseau affichés viennent du dernier cache).
-                        {qlikError && <span className="block mt-0.5" style={{ color: "var(--text-muted)" }}>{qlikError}</span>}
-                    </span>
-                </div>
+                <Avertissement detail={qlikError}>
+                    Les données du réseau n&apos;ont pas pu être interrogées : seuls les produits de notre catalogue
+                    sont affichés, avec les chiffres du réseau de la dernière mise à jour.
+                </Avertissement>
             )}
 
             {source === "qlik" && qlikError && (
-                <div
-                    className="rounded-xl p-3 text-[12px] flex items-start gap-2"
-                    style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
-                >
-                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" style={{ color: "var(--accent-error)" }} />
-                    <span>
-                        {rows.length === 0
-                            ? qlikError
-                            : `Articles trouvés, mais l'extraction des mesures réseau a échoué : ${qlikError}`}
-                    </span>
-                </div>
+                <Avertissement detail={qlikError}>
+                    {rows.length === 0
+                        ? "La recherche n'a pas pu être appliquée aux données du réseau. Essayez un terme plus précis (deux mots, ou le code centrale)."
+                        : "Produits trouvés, mais leurs ventes dans le réseau n'ont pas pu être chargées."}
+                </Avertissement>
             )}
 
             {rows.length === 0 ? (
-                <div
-                    className="rounded-xl p-8 text-center text-[13px]"
-                    style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
-                >
-                    Aucun article du réseau ne correspond à « {query} ».
-                </div>
+                <EmptyState
+                    title={<>Aucun produit ne correspond à « {query} »</>}
+                    description="Vérifiez l'orthographe, essayez un mot plus court ou le code centrale du produit."
+                />
             ) : (
-                <ResultTable rows={rows} query={query} />
+                <>
+                    <ResultTable rows={rows} query={query} />
+                    <p className="text-[13px] text-[var(--text-secondary)]">
+                        Chiffres des magasins du <Terme id="reseau">réseau</Terme> sur les 12 derniers mois
+                        (mois en cours exclu). Cliquez sur un produit pour ouvrir sa fiche.
+                    </p>
+                </>
             )}
 
             {locauxHorsReseau.length > 0 && (
-                <details className="rounded-xl" style={{ border: "1px solid var(--border)" }}>
-                    <summary className="cursor-pointer px-3 py-2.5 text-[12px]" style={{ color: "var(--text-secondary)" }}>
-                        {locauxHorsReseau.length} produit{locauxHorsReseau.length > 1 ? "s" : ""} de notre catalogue
-                        sans correspondance réseau (pas de code centrale, ou non vendu par le réseau)
+                <details className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)]">
+                    <summary className="cursor-pointer px-4 py-3 text-sm text-[var(--text-secondary)]">
+                        {fmtEntier(locauxHorsReseau.length)} produit{locauxHorsReseau.length > 1 ? "s" : ""} de notre catalogue
+                        sans ventes connues dans le réseau (pas de code centrale, ou pas vendu par le réseau)
                     </summary>
-                    <div className="px-3 pb-3">
-                        <ul className="space-y-1">
-                            {locauxHorsReseau.slice(0, 30).map((l) => (
-                                <li key={l.codein} className="text-[12px]">
-                                    <Link
-                                        href={`/produits?codein=${encodeURIComponent(l.codein)}&q=${encodeURIComponent(query)}`}
-                                        className="hover:underline"
-                                        style={{ color: "var(--accent)" }}
-                                    >
-                                        {l.libelle1 || l.codein}
-                                    </Link>
-                                    <span style={{ color: "var(--text-muted)" }}>
-                                        {" · "}{l.fournisseur}{" · "}<span className="font-mono">{l.codein}</span>
-                                    </span>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
+                    <ul className="space-y-1.5 px-4 pb-4">
+                        {locauxHorsReseau.slice(0, 30).map((l) => (
+                            <li key={l.codein} className="text-sm">
+                                <Link
+                                    href={`/produits?codein=${encodeURIComponent(l.codein)}&q=${encodeURIComponent(query)}`}
+                                    className="font-medium text-[var(--accent)] hover:underline"
+                                >
+                                    {l.libelle1 || l.codein}
+                                </Link>
+                                <span className="text-[var(--text-muted)]">
+                                    {" · "}{l.fournisseur}{" · "}code article <span className="font-mono">{l.codein}</span>
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
                 </details>
             )}
         </div>
     );
 }
 
-function ResultTable({ rows, query }: { rows: ProduitRechercheRow[]; query: string }) {
-    return (
-        <div className="overflow-x-auto rounded-xl" style={{ border: "1px solid var(--border)" }}>
-            <table className="w-full text-[13px] border-collapse">
-                <thead>
-                    <tr style={{ background: "var(--bg-elevated)" }}>
-                        <Th>Libellé</Th>
-                        <Th>Fournisseur</Th>
-                        <Th>Code centrale</Th>
-                        <Th align="right">Magasins</Th>
-                        <Th align="right">Qté réseau</Th>
-                        <Th align="right">Qté / mag.</Th>
-                        <Th align="right">Prix moyen</Th>
-                        <Th align="right">CA / mag.</Th>
-                        <Th align="right">Marge %</Th>
-                        <Th align="center">Tendance</Th>
-                        <Th align="right">Nous</Th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {rows.map((r) => {
-                        const trend = computeNetworkTrend(r.qteByMonth, r.nbMagByMonth);
-                        const href = r.codein
-                            ? `/produits?codein=${encodeURIComponent(r.codein)}&q=${encodeURIComponent(query)}`
-                            : `/produits?cc=${encodeURIComponent(r.codeCentrale)}&q=${encodeURIComponent(query)}`;
-                        return (
-                            <tr
-                                key={r.codeCentrale}
-                                className="transition-colors hover:bg-[var(--bg-elevated)]"
-                                style={{ borderTop: "1px solid var(--border)" }}
-                            >
-                                <td className="px-3 py-2 max-w-[280px]">
-                                    <Link href={href} className="font-medium hover:underline" style={{ color: "var(--accent)" }}>
-                                        {r.libelle || "—"}
-                                    </Link>
-                                    {r.nomenclature && (
-                                        <div className="text-[11px] truncate" style={{ color: "var(--text-muted)" }}>{r.nomenclature}</div>
-                                    )}
-                                </td>
-                                <td className="px-3 py-2 text-[12px]" style={{ color: "var(--text-secondary)" }}>
-                                    {r.fournisseur || "—"}
-                                </td>
-                                <td className="px-3 py-2 font-mono text-[12px]" style={{ color: "var(--text-muted)" }}>
-                                    {r.codeCentrale}
-                                </td>
-                                <td className="px-3 py-2 text-right tabular-nums" style={{ color: "var(--text-secondary)" }}>
-                                    {fmtQte(r.nbMagasinsReseau)}
-                                    <span className="text-[11px] ml-1" style={{ color: "var(--text-muted)" }}>
-                                        {fmtDec(r.tauxPresence * 100, 0)} %
-                                    </span>
-                                </td>
-                                <td className="px-3 py-2 text-right tabular-nums font-semibold" style={{ color: "var(--text-primary)" }}>
-                                    {fmtQte(r.qteReseau)}
-                                </td>
-                                <td className="px-3 py-2 text-right tabular-nums" style={{ color: "var(--text-secondary)" }}>
-                                    {fmtDec(r.qteParMagasinReseau)}
-                                </td>
-                                <td className="px-3 py-2 text-right tabular-nums" style={{ color: "var(--text-secondary)" }}>
-                                    {r.prixMoyenReseau != null ? fmtEur2(r.prixMoyenReseau) : "—"}
-                                </td>
-                                <td className="px-3 py-2 text-right tabular-nums" style={{ color: "var(--text-secondary)" }}>
-                                    {r.caParMagasinReseau > 0 ? fmtEur(r.caParMagasinReseau) : "—"}
-                                </td>
-                                <td className="px-3 py-2 text-right tabular-nums" style={{ color: "var(--text-secondary)" }}>
-                                    {r.margePctReseau != null ? `${fmtDec(r.margePctReseau)} %` : "—"}
-                                </td>
-                                <td className="px-2 py-2 text-center">
-                                    {trend.hasData ? <TrendSparkline trend={trend} /> : <span style={{ color: "var(--text-muted)" }}>—</span>}
-                                </td>
-                                <td className="px-3 py-2 text-right text-[12px]">
-                                    {r.codein ? (
-                                        <span style={{ color: "var(--text-secondary)" }} title={`Code article ${r.codein}`}>
-                                            stock {fmtQte(r.stockLocal ?? 0)}
-                                        </span>
-                                    ) : (
-                                        <span
-                                            className="rounded-md px-1.5 py-0.5 text-[11px]"
-                                            style={{ background: "var(--bg-elevated)", color: "var(--text-muted)", border: "1px solid var(--border)" }}
-                                            title="Le réseau travaille ce produit, notre catalogue ne le référence pas"
-                                        >
-                                            non référencé
-                                        </span>
-                                    )}
-                                </td>
-                            </tr>
-                        );
-                    })}
-                </tbody>
-            </table>
-        </div>
-    );
-}
+// ─── Tableau des résultats ──────────────────────────────────────────────────
 
-function Th({ children, align = "left" }: { children: React.ReactNode; align?: "left" | "right" | "center" }) {
-    // Classes littérales : Tailwind ne génère pas les classes construites dynamiquement.
-    const alignClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
+type Ligne = ProduitRechercheRow & { trend: NetworkTrend };
+
+const rechercherDans = (r: Ligne) => [r.libelle, r.fournisseur, r.codeCentrale, r.codein, r.nomenclature];
+
+function ResultTable({ rows, query }: { rows: ProduitRechercheRow[]; query: string }) {
+    // Tendance calculée une fois par ligne (et non à chaque tri ou rendu).
+    const lignes = useMemo<Ligne[]>(
+        () => rows.map((r) => ({ ...r, trend: computeNetworkTrend(r.qteByMonth, r.nbMagByMonth) })),
+        [rows],
+    );
+
+    const colonnes = useMemo<DataColumn<Ligne>[]>(() => [
+        {
+            id: "produit",
+            header: "Produit",
+            sortValue: (r) => r.libelle,
+            className: "max-w-[320px]",
+            cell: (r) => {
+                const href = r.codein
+                    ? `/produits?codein=${encodeURIComponent(r.codein)}&q=${encodeURIComponent(query)}`
+                    : `/produits?cc=${encodeURIComponent(r.codeCentrale)}&q=${encodeURIComponent(query)}`;
+                return (
+                    <>
+                        <Link href={href} className="font-medium text-[var(--accent)] hover:underline">
+                            {r.libelle || "—"}
+                        </Link>
+                        {r.nomenclature && (
+                            <div className="truncate text-xs text-[var(--text-muted)]" title={r.nomenclature}>{r.nomenclature}</div>
+                        )}
+                    </>
+                );
+            },
+        },
+        {
+            id: "fournisseur",
+            header: "Fournisseur",
+            sortValue: (r) => r.fournisseur,
+            cell: (r) => <span className="text-[var(--text-secondary)]">{r.fournisseur || "—"}</span>,
+        },
+        {
+            id: "codeCentrale",
+            header: "Code centrale",
+            hint: GLOSSAIRE.codeCentrale.definition,
+            cell: (r) => <span className="font-mono text-[13px] text-[var(--text-secondary)]">{r.codeCentrale}</span>,
+        },
+        {
+            id: "magasins",
+            header: "Magasins vendeurs",
+            hint: GLOSSAIRE.presenceReseau.definition,
+            align: "right",
+            sortValue: (r) => r.nbMagasinsReseau,
+            cell: (r) => (
+                <>
+                    {fmtEntier(r.nbMagasinsReseau)}
+                    <span className="ml-1 text-xs text-[var(--text-muted)]">({fmtEntier(r.tauxPresence * 100)} %)</span>
+                </>
+            ),
+        },
+        {
+            id: "qteReseau",
+            header: "Quantité vendue",
+            hint: "Quantité vendue par l'ensemble des magasins du réseau sur les 12 derniers mois.",
+            align: "right",
+            sortValue: (r) => r.qteReseau,
+            cell: (r) => <span className="font-semibold">{fmtEntier(r.qteReseau)}</span>,
+        },
+        {
+            id: "qteParMagasin",
+            header: "Quantité par magasin",
+            hint: "Quantité moyenne vendue sur 12 mois par un magasin du réseau qui a ce produit.",
+            align: "right",
+            sortValue: (r) => r.qteParMagasinReseau,
+            cell: (r) => fmtDecimal1(r.qteParMagasinReseau),
+        },
+        {
+            id: "prixMoyen",
+            header: "Prix moyen",
+            hint: "Prix de vente moyen constaté dans le réseau (chiffre d'affaires divisé par la quantité).",
+            align: "right",
+            sortValue: (r) => r.prixMoyenReseau,
+            cell: (r) => (r.prixMoyenReseau != null ? fmtEur2(r.prixMoyenReseau) : "—"),
+        },
+        {
+            id: "caParMagasin",
+            header: "CA par magasin",
+            hint: GLOSSAIRE.caParMagasin.definition,
+            align: "right",
+            sortValue: (r) => (r.caParMagasinReseau > 0 ? r.caParMagasinReseau : null),
+            cell: (r) => (r.caParMagasinReseau > 0 ? fmtEur0(r.caParMagasinReseau) : "—"),
+        },
+        {
+            id: "marge",
+            header: "Taux de marge",
+            hint: GLOSSAIRE.marge.definition,
+            align: "right",
+            sortValue: (r) => r.margePctReseau,
+            cell: (r) =>
+                r.margePctReseau != null ? (
+                    <span className="font-medium" style={{ color: couleurMarge(r.margePctReseau) }}>
+                        {fmtDecimal1(r.margePctReseau)} %
+                    </span>
+                ) : "—",
+        },
+        {
+            id: "tendance",
+            header: "Tendance",
+            hint: "Ventes par magasin des 4 derniers mois comparées aux 4 premiers mois de la période de 12 mois.",
+            align: "center",
+            sortValue: (r) => (r.trend.hasData ? r.trend.pct : null),
+            cell: (r) => (r.trend.hasData ? <TrendSparkline trend={r.trend} /> : <span className="text-[var(--text-muted)]">—</span>),
+        },
+        {
+            id: "nous",
+            header: "Chez nous",
+            hint: "Notre stock (tous nos magasins) si le produit est dans notre catalogue.",
+            align: "right",
+            sortValue: (r) => (r.codein ? (r.stockLocal ?? 0) : null),
+            cell: (r) =>
+                r.codein ? (
+                    <span className="text-[var(--text-secondary)]" title={`Code article ${r.codein}`}>
+                        Stock {fmtEntier(r.stockLocal ?? 0)}
+                    </span>
+                ) : (
+                    <Badge title="Le réseau vend ce produit, mais il n'est pas dans notre catalogue">Non référencé</Badge>
+                ),
+        },
+    ], [query]);
+
     return (
-        <th
-            className={`px-3 py-2.5 ${alignClass} text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap`}
-            style={{ color: "var(--text-muted)" }}
-        >
-            {children}
-        </th>
+        <DataTable
+            rows={lignes}
+            columns={colonnes}
+            rowKey={(r) => r.codeCentrale}
+            searchIn={rechercherDans}
+            searchPlaceholder="Filtrer les résultats…"
+            pageSize={50}
+            unite={lignes.length > 1 ? "produits" : "produit"}
+            emptyTitle="Aucun produit"
+        />
     );
 }

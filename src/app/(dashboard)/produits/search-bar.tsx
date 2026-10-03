@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/form-controls";
 
 /**
  * Champ de recherche produit.
@@ -35,43 +37,42 @@ export function ProduitSearchBar({ initialQuery }: { initialQuery: string }) {
 
     return (
         <div className="space-y-1.5">
-            <div className="flex items-center gap-2">
-                <div className="relative flex-1 max-w-xl">
+            <label htmlFor="recherche-produit" className="block text-sm font-medium text-[var(--text-primary)]">
+                Nom du produit ou code centrale
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
+                <div className="relative w-full max-w-xl flex-1">
                     <Search
-                        className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none"
-                        style={{ color: "var(--text-muted)" }}
+                        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]"
+                        aria-hidden
                     />
-                    <input
+                    <Input
+                        id="recherche-produit"
                         type="text"
                         value={term}
                         onChange={(e) => setTerm(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-                        placeholder="Libellé produit ou code centrale…"
-                        aria-label="Rechercher un produit par libellé ou code centrale"
-                        className="apple-input h-10 text-[14px]"
-                        style={{ paddingLeft: "38px", paddingRight: term ? "36px" : undefined }}
+                        placeholder="Ex. « poêle 28 » ou « 10000167303 »"
+                        aria-describedby={tooShort ? "recherche-produit-aide" : undefined}
+                        className="h-10 w-full pl-9 pr-9"
                     />
                     {term && (
                         <button
+                            type="button"
                             onClick={clear}
                             aria-label="Effacer la recherche"
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 transition-colors hover:bg-[var(--bg-elevated)]"
-                            style={{ color: "var(--text-muted)" }}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
                         >
-                            <X className="w-3.5 h-3.5" />
+                            <X className="h-4 w-4" />
                         </button>
                     )}
                 </div>
-                <button
-                    onClick={submit}
-                    disabled={term.trim().length < 3}
-                    className="btn-action btn-action-primary disabled:opacity-50"
-                >
-                    Rechercher
-                </button>
+                <Button onClick={submit} disabled={term.trim().length < 3} className="h-10">
+                    <Search /> Rechercher
+                </Button>
             </div>
             {tooShort && (
-                <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                <p id="recherche-produit-aide" className="text-[13px] text-[var(--text-secondary)]">
                     Saisissez au moins 3 caractères.
                 </p>
             )}

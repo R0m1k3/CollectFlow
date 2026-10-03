@@ -40,12 +40,12 @@ export function TrendSparkline({ trend }: { trend: NetworkTrend }) {
                 <Arrow className="w-3.5 h-3.5 shrink-0" style={{ color }} strokeWidth={2.5} />
             </div>
             {pct != null && (
-                <span className="text-[9px] font-bold tabular-nums leading-none" style={{ color }}>
+                <span className="text-xs font-bold tabular-nums leading-none" style={{ color }}>
                     {pct >= 0 ? "+" : ""}{Math.round(pct * 100)}%
                 </span>
             )}
             {pct == null && nouveau && (
-                <span className="text-[9px] font-bold leading-none" style={{ color }}>Nouveau</span>
+                <span className="text-xs font-bold leading-none" style={{ color }}>Nouveau</span>
             )}
         </div>
     );
@@ -432,7 +432,7 @@ export function DualLineChart({
                     );
                 })}
                 {labels.map((lab, i) => (
-                    <text key={lab} x={x(i)} y={H - 10} textAnchor="middle" fontSize={8} fill="var(--text-muted)">
+                    <text key={lab} x={x(i)} y={H - 10} textAnchor="middle" fontSize={12} fill="var(--text-muted)">
                         {fmtMonthShort(lab)}
                     </text>
                 ))}

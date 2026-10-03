@@ -103,7 +103,7 @@ export function NomenclatureFilter({ options, className }: NomenclatureFilterPro
                                 style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
                             />
                         </div>
-                        <div className="flex items-center gap-2 text-[11px]">
+                        <div className="flex items-center gap-2 text-xs">
                             <button
                                 type="button"
                                 onClick={() => setCode3Filter(null)}

@@ -47,6 +47,9 @@ import {
 } from "@/features/grid/lib/network-trend";
 import { TrendSparkline, NetworkLineChart } from "@/features/grid/components/network-charts";
 import { fmtDecimal1, fmtEntier, fmtEur0, fmtEur2 } from "@/lib/format";
+import { CLASSES_SANS_GAMME, trouverGamme } from "@/lib/gammes";
+import { couleurMarge } from "@/lib/marge";
+import { Button } from "@/components/ui/button";
 
 interface HeatmapGridProps {
     onSelectionChange?: (codeins: string[]) => void;
@@ -211,17 +214,13 @@ const GammeCell = React.memo(({ row, isAdmin }: { row: ProductRow; isAdmin?: boo
     const displayValue = (!effectiveGamme || effectiveGamme.trim() === "") ? "Aucune" : effectiveGamme;
 
     if (!isAdmin) {
+        const gamme = trouverGamme(displayValue);
         return (
-            <div className={[
-                "w-full text-xs font-bold rounded-lg py-1.5 px-2 text-center",
-                displayValue === "A" ? "bg-emerald-500/10 text-emerald-700" :
-                displayValue === "B" ? "bg-blue-500/10 text-blue-700" :
-                displayValue === "C" ? "bg-amber-500/10 text-amber-700" :
-                displayValue === "Y" ? "bg-violet-500/10 text-violet-700" :
-                displayValue === "Z" ? "bg-rose-500/10 text-rose-700" :
-                "bg-slate-500/10 text-slate-500"
-            ].join(" ")}>
-                {displayValue === "Aucune" ? "—" : displayValue}
+            <div
+                className={cn("w-full rounded-lg border py-1.5 px-2 text-center text-xs font-bold", gamme ? gamme.classes : CLASSES_SANS_GAMME)}
+                title={gamme ? `${gamme.code} — ${gamme.nom} : ${gamme.description}` : "Aucune gamme"}
+            >
+                {gamme ? gamme.code : "—"}
             </div>
         );
     }
@@ -242,6 +241,38 @@ const GammeCell = React.memo(({ row, isAdmin }: { row: ProductRow; isAdmin?: boo
     );
 });
 GammeCell.displayName = "GammeCell";
+
+/**
+ * Libellés du menu « Colonnes ». Les en-têtes de colonnes sont des fonctions
+ * (deux lignes, infobulles) : le menu affichait leur identifiant technique
+ * (« caReseau », « gammeInitial »…).
+ */
+const LIBELLES_COLONNES: Record<string, string> = {
+    codein: "Code article",
+    libelle1: "Désignation",
+    reference: "Référence",
+    gtin: "Code-barres",
+    libelle3: "Famille",
+    caReseau: "CA réseau",
+    qteReseau: "Quantité réseau",
+    nbMagasinsReseau: "Magasins vendeurs (réseau)",
+    tendanceReseau: "Tendance réseau (12 mois)",
+    prixMoyenReseau: "Prix moyen réseau",
+    prixVente: "Prix de vente de nos magasins",
+    caParMagasinReseau: "CA par magasin (réseau)",
+    margePctReseau: "Marge % réseau",
+    totalQuantite: "Total 12 mois",
+    totalCa: "Chiffre d'affaires",
+    totalMarge: "Marge",
+    gammeInitial: "Gamme actuelle (FF)",
+    gamme: "Gamme",
+};
+
+function libelleColonne(id: string, header: unknown): string {
+    if (LIBELLES_COLONNES[id]) return LIBELLES_COLONNES[id];
+    if (id.startsWith("month_")) return `Ventes ${formatMonthLabel(id.replace("month_", ""))}`;
+    return typeof header === "string" ? header : id;
+}
 
 import { Cell, Column, Row } from "@tanstack/react-table";
 import { VirtualItem } from "@tanstack/react-virtual";
@@ -317,7 +348,7 @@ const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnsKey
             className={cn(
                 // Pas de `transition-all` : la ligne est positionnée par `transform`
                 // et chaque défilement l'aurait animée pendant 200 ms.
-                "absolute w-full flex items-center cursor-pointer transition-[opacity,filter] duration-200 group/row",
+                "absolute top-0 left-0 w-full flex items-center cursor-pointer transition-[opacity,filter] duration-200 group/row",
                 effectiveGamme === "Z" && "opacity-40 grayscale-[0.5] hover:grayscale-0 hover:opacity-100"
             )}
             style={{
@@ -345,7 +376,10 @@ const GridRow = React.memo(({ virtualRow, row, rowHeight, isSelected, columnsKey
                             // pas par le voile `bg-white/5` des cellules ordinaires.
                             estFige
                                 ? (isSelected
-                                    ? "bg-[var(--accent-bg)]"
+                                    // Teinte de sélection rendue OPAQUE (mélangée au fond) : la
+                                    // variable --accent-bg est translucide, et les cellules qui
+                                    // défilent dessous apparaissaient à travers.
+                                    ? "bg-[color-mix(in_srgb,var(--accent)_12%,var(--bg-surface))]"
                                     : "bg-[var(--bg-surface)] group-hover/row:bg-[var(--bg-elevated)]")
                                 : cn("group-hover/row:bg-white/5", isSelected && "bg-transparent"),
                         )}
@@ -482,7 +516,7 @@ function CellDetailModal({ d, activeMagasin, onClose }: { d: CellDetailData; act
                     <span className="text-[22px] font-black tabular-nums leading-none" style={{ color: "var(--text-primary)" }}>
                         {d.qty != null ? Math.round(d.qty).toLocaleString("fr-FR") : "—"}
                     </span>
-                    <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Ventes</span>
+                    <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>Ventes</span>
                 </div>
 
                 {/* Entrées */}
@@ -497,7 +531,7 @@ function CellDetailModal({ d, activeMagasin, onClose }: { d: CellDetailData; act
                     <span className="text-[22px] font-black tabular-nums leading-none" style={{ color: hasReceptions ? "rgb(16,185,129)" : "var(--text-primary)" }}>
                         {hasReceptions ? `+${Math.round(d.receptions!).toLocaleString("fr-FR")}` : "—"}
                     </span>
-                    <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Entrées</span>
+                    <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>Entrées</span>
                 </div>
 
                 {/* Stock fin de mois */}
@@ -506,7 +540,7 @@ function CellDetailModal({ d, activeMagasin, onClose }: { d: CellDetailData; act
                     <span className="text-[22px] font-black tabular-nums leading-none" style={{ color: "var(--text-primary)" }}>
                         {d.stock != null ? Math.round(d.stock).toLocaleString("fr-FR") : "—"}
                     </span>
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-center" style={{ color: "var(--text-muted)" }}>Stock fin mois</span>
+                    <span className="text-xs font-medium text-center" style={{ color: "var(--text-muted)" }}>Stock fin de mois</span>
                 </div>
             </div>
 
@@ -532,7 +566,7 @@ function VentilationParMagasin({ d }: { d: CellDetailData }) {
 
     return (
         <div className="mt-3 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-            <table className="w-full text-[11px]">
+            <table className="w-full text-xs">
                 <thead>
                     <tr style={{ background: "var(--bg-elevated)" }}>
                         <th className="text-left px-2.5 py-1.5 font-semibold" style={{ color: "var(--text-secondary)" }}>Magasin</th>
@@ -677,7 +711,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
         },
         {
             accessorKey: "codein",
-            header: "Code interne",
+            header: "Code article",
             size: 90,
             cell: ({ getValue }) => (
                 <CopiableCell
@@ -722,7 +756,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                                     <div
                                         key={magasin}
                                         title={tooltipTitle}
-                                        className="px-1.5 py-0.5 rounded-md flex items-center gap-1 text-[10px] font-black border shadow-sm transition-transform hover:scale-110"
+                                        className="px-1.5 py-0.5 rounded-md flex items-center gap-1 text-xs font-bold border shadow-sm"
                                         style={{
                                             background: config.bg,
                                             borderColor: config.border,
@@ -754,7 +788,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
         },
         {
             accessorKey: "gtin",
-            header: "EAN / GTIN",
+            header: "Code-barres",
             size: 120,
             cell: ({ getValue }) => (
                 <CopiableCell
@@ -784,7 +818,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
             id: "caReseau",
             accessorFn: (row) => valeurTriable(row.caReseau),
             sortUndefined: "last" as const,
-            header: () => <div className="text-center w-full">CA<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
+            header: () => <div className="text-center w-full" title="Chiffre d'affaires du produit dans les magasins du réseau, sur 12 mois">CA<br/><span className="text-xs font-normal opacity-75">réseau</span></div>,
             size: 90,
             cell: ({ row }) => {
                 const val = row.original.caReseau;
@@ -799,7 +833,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
             id: "qteReseau",
             accessorFn: (row) => valeurTriable(row.qteReseau),
             sortUndefined: "last" as const,
-            header: () => <div className="text-center w-full">Qté<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
+            header: () => <div className="text-center w-full" title="Quantités vendues dans les magasins du réseau, sur 12 mois">Qté<br/><span className="text-xs font-normal opacity-75">réseau</span></div>,
             size: 80,
             cell: ({ row }) => {
                 const val = row.original.qteReseau;
@@ -814,7 +848,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
             id: "nbMagasinsReseau",
             accessorFn: (row) => valeurTriable(row.nbMagasinsReseau),
             sortUndefined: "last" as const,
-            header: () => <div className="text-center w-full">Magasins<br/><span className="text-[9px] opacity-60">/ 270</span></div>,
+            header: () => <div className="text-center w-full" title={`Nombre de magasins du réseau (sur ${NB_MAGASINS_RESEAU}) qui vendent ce produit`}>Magasins<br/><span className="text-xs font-normal opacity-75">sur {NB_MAGASINS_RESEAU}</span></div>,
             size: 80,
             cell: ({ row }) => {
                 const val = row.original.nbMagasinsReseau;
@@ -836,7 +870,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                 if (t.nouveau) return Number.POSITIVE_INFINITY;
                 return t.pct ?? Number.NEGATIVE_INFINITY;
             },
-            header: () => <div className="text-center w-full">Tendance<br/><span className="text-[9px] opacity-60">Réseau · 12 m</span></div>,
+            header: () => <div className="text-center w-full" title="Évolution des ventes du réseau sur 12 mois — cliquer pour le détail">Tendance<br/><span className="text-xs font-normal opacity-75">réseau</span></div>,
             size: 78,
             cell: ({ row }) => {
                 const trend = computeNetworkTrend(row.original.qteReseauByMonth, row.original.nbMagReseauByMonth);
@@ -867,7 +901,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                 // Sous-titre tenu court : les en-têtes ne rognent pas leur texte et
                 // un libellé trop long chevauche la colonne voisine. Le détail
                 // (« CA réseau ÷ quantité ») est dans l'infobulle des cellules.
-                header: () => <div className="text-center w-full">PV moyen<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
+                header: () => <div className="text-center w-full" title="Prix de vente moyen constaté dans le réseau">Prix moyen<br/><span className="text-xs font-normal opacity-75">réseau</span></div>,
                 size: 88,
                 cell: ({ row }: { row: { original: ProductRow } }) => {
                     const val = prixMoyenReseau(row.original);
@@ -888,7 +922,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                 id: "prixVente",
                 accessorFn: (row: ProductRow) => valeurTriable(prixVenteAffiche(row, activeMagasin).valeur),
                 sortUndefined: "last" as const,
-                header: () => <div className="text-center w-full">PV<br/><span className="text-[9px] opacity-60">Magasin</span></div>,
+                header: () => <div className="text-center w-full" title="Prix de vente pratiqué dans nos magasins (≠ : prix différents selon le magasin)">Prix vente<br/><span className="text-xs font-normal opacity-75">magasin</span></div>,
                 size: 88,
                 cell: ({ row }: { row: { original: ProductRow } }) => {
                     const { valeur, divergent, detail } = prixVenteAffiche(row.original, activeMagasin);
@@ -903,7 +937,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                             {valeur != null ? fmtEuro2(valeur) : "-"}
                             {/* Prix différents d'un magasin à l'autre : le signaler, la
                                 cellule ne peut en afficher qu'un. */}
-                            {divergent && <span className="text-[10px] font-black" style={{ color: "var(--accent-warning)" }}>≠</span>}
+                            {divergent && <span className="text-xs font-bold" style={{ color: "var(--accent-warning)" }}>≠</span>}
                         </div>
                     );
                 },
@@ -913,7 +947,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
             id: "caParMagasinReseau",
             accessorFn: (row) => valeurTriable(row.caParMagasinReseau),
             sortUndefined: "last" as const,
-            header: () => <div className="text-center w-full">CA / Mag<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
+            header: () => <div className="text-center w-full" title="Chiffre d'affaires moyen d'un magasin du réseau qui vend ce produit">CA / magasin<br/><span className="text-xs font-normal opacity-75">réseau</span></div>,
             size: 85,
             cell: ({ row }) => {
                 const val = row.original.caParMagasinReseau;
@@ -928,7 +962,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
             id: "margePctReseau",
             accessorFn: (row) => valeurTriable(row.margePctReseau),
             sortUndefined: "last" as const,
-            header: () => <div className="text-center w-full">Marge %<br/><span className="text-[9px] opacity-60">Réseau</span></div>,
+            header: () => <div className="text-center w-full" title="Taux de marge du produit dans le réseau">Marge %<br/><span className="text-xs font-normal opacity-75">réseau</span></div>,
             size: 75,
             cell: ({ row }) => {
                 const val = row.original.margePctReseau;
@@ -977,7 +1011,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
         {
             id: "totalQuantite",
             accessorFn: (row: ProductRow) => activeMagasin === "TOTAL" ? row.totalQuantite : (row.quantiteByStore?.[activeMagasin] ?? 0),
-            header: () => <div className="text-center w-full">Tot. 12m</div>,
+            header: () => <div className="text-center w-full" title="Quantités vendues sur les 12 derniers mois — cliquer pour le détail mois par mois">Total 12 m</div>,
             size: 90,
             cell: ({ row }: { row: { original: ProductRow } }) => {
                 const qty = activeMagasin === "TOTAL"
@@ -1008,7 +1042,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
         {
             id: "totalCa",
             accessorFn: (row: ProductRow) => activeMagasin === "TOTAL" ? row.totalCa : (row.caByStore?.[activeMagasin] ?? 0),
-            header: () => <div className="text-center w-full">CA</div>,
+            header: () => <div className="text-center w-full" title="Chiffre d'affaires sur 12 mois">CA</div>,
             size: 90,
             cell: ({ row }: { row: { original: ProductRow } }) => {
                 const ca = activeMagasin === "TOTAL"
@@ -1024,7 +1058,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
         {
             id: "totalMarge",
             accessorFn: (row: ProductRow) => activeMagasin === "TOTAL" ? row.totalMarge : (row.margeByStore?.[activeMagasin] ?? 0),
-            header: () => <div className="text-center w-full">Marge</div>,
+            header: () => <div className="text-center w-full" title="Marge en euros et taux de marge sur 12 mois">Marge</div>,
             size: 110,
             cell: ({ row }: { row: { original: ProductRow } }) => {
                 const marge = activeMagasin === "TOTAL"
@@ -1039,9 +1073,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                         <span className="tabular-nums text-[13px] font-bold" style={{ color: "var(--text-primary)" }}>
                             {fmtEntier(marge)}&nbsp;€
                         </span>
-                        <span className="tabular-nums text-[10px] font-bold opacity-70" style={{
-                            color: taux >= 40 ? "var(--accent-success)" : taux >= 25 ? "var(--accent-warning)" : "var(--accent-error)"
-                        }}>
+                        <span className="tabular-nums text-xs font-semibold" style={{ color: couleurMarge(taux) }}>
                             {taux.toFixed(1)}%
                         </span>
                     </div>
@@ -1050,7 +1082,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
         },
         {
             id: "gammeInitial",
-            header: () => <div className="text-center w-full print:hidden">Init.</div>,
+            header: () => <div className="text-center w-full print:hidden" title="Gamme enregistrée aujourd'hui dans FF, avant vos modifications">Actuelle</div>,
             size: 56,
             cell: ({ row }) => (
                 <div className="text-center font-bold text-[12px] print:hidden" style={{ color: "var(--text-secondary)" }}>
@@ -1060,7 +1092,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
         },
         {
             id: "gamme",
-            header: () => <div className="text-center w-full">Gamme</div>,
+            header: () => <div className="text-center w-full" title="Gamme choisie : A Cœur, B Complémentaire, C Saisonnier, Y En veille, Z Sortie">Gamme</div>,
             size: 110,
             cell: ({ row }) => <GammeCell row={row.original} isAdmin={isAdmin} />,
         },
@@ -1173,7 +1205,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                     border: "1px solid var(--border)",
                 }}
             >
-                <div className="text-muted text-sm italic opacity-50">Chargement de la grille...</div>
+                <div className="text-sm text-[var(--text-secondary)]">Préparation de la grille…</div>
             </div>
         );
     }
@@ -1182,41 +1214,38 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
         <>
         <div className="h-full w-full relative">
             {portalContainer && createPortal(
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2">
                 {/* Trous d'assortiment — lit le classement affiché, tri compris. */}
-                <button
+                <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => setGapsOpen(true)}
                     disabled={tableRows.length === 0}
-                    title="Voir les produits qu'un magasin ne travaille pas — ni vente ni stock — en haut du classement affiché"
-                    className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-semibold border transition-all shadow-sm apple-btn-secondary disabled:opacity-50"
-                    style={{ background: "var(--action-secondary-bg)", borderColor: "var(--border-strong)", color: "var(--action-secondary-text)" }}
+                    title="Les produits du haut du classement affiché qu'un de nos magasins ne vend pas et n'a pas en stock"
                 >
-                    <PackageX className="w-4 h-4" />
+                    <PackageX />
                     <span className="hidden lg:inline">Non travaillés</span>
-                </button>
+                </Button>
                 {/*
-                  * « Vues » replie des BLOCS de colonnes d'un geste, là où le menu
-                  * « Colonnes » voisin agit colonne par colonne. Douze cellules
-                  * mensuelles ou deux prix ne se masquent pas une par une.
+                  * « Blocs de colonnes » replie des BLOCS de colonnes d'un geste, là
+                  * où le menu « Colonnes » voisin agit colonne par colonne. Douze
+                  * cellules mensuelles ou deux prix ne se masquent pas une par une.
                   */}
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <button
-                            className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-semibold border transition-all shadow-sm apple-btn-secondary"
-                            style={nbVues > 0
-                                ? { background: "var(--accent-bg)", borderColor: "var(--accent-border)", color: "var(--accent)" }
-                                : { background: "var(--action-secondary-bg)", borderColor: "var(--border-strong)", color: "var(--action-secondary-text)" }}
-                            title="Afficher ou masquer les blocs de colonnes : ventes mensuelles, prix"
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            title="Afficher ou masquer les ventes mois par mois et les prix"
                             aria-label="Afficher ou masquer les blocs de colonnes"
                         >
-                            {nbVues > 0 ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                            <span className="hidden lg:inline">Vues</span>
-                            <span className="text-[11px] font-bold tabular-nums opacity-70">{nbVues}/2</span>
-                        </button>
+                            {nbVues > 0 ? <Eye /> : <EyeOff />}
+                            <span className="hidden lg:inline">Affichage</span>
+                        </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-[280px] z-50">
-                        <DropdownMenuLabel className="text-[11px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-                            Blocs de colonnes
+                    <DropdownMenuContent align="end" className="w-[300px] z-50">
+                        <DropdownMenuLabel className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+                            Blocs de colonnes affichés
                         </DropdownMenuLabel>
                         <DropdownMenuCheckboxItem
                             checked={showMonthlySales}
@@ -1225,11 +1254,11 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                             className="cursor-pointer"
                         >
                             <span className="flex items-center gap-2">
-                                <CalendarRange className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--text-muted)" }} />
+                                <CalendarRange className="w-4 h-4 shrink-0" style={{ color: "var(--text-muted)" }} />
                                 <span className="flex flex-col">
-                                    <span className="text-xs font-semibold">Ventes mensuelles</span>
-                                    <span className="text-[10.5px]" style={{ color: "var(--text-muted)" }}>
-                                        12 mois · détail au clic sur le total
+                                    <span className="text-sm font-medium">Ventes mois par mois</span>
+                                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                                        Les 12 derniers mois
                                     </span>
                                 </span>
                             </span>
@@ -1241,11 +1270,11 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                             className="cursor-pointer"
                         >
                             <span className="flex items-center gap-2">
-                                <Tag className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--text-muted)" }} />
+                                <Tag className="w-4 h-4 shrink-0" style={{ color: "var(--text-muted)" }} />
                                 <span className="flex flex-col">
-                                    <span className="text-xs font-semibold">Prix</span>
-                                    <span className="text-[10.5px]" style={{ color: "var(--text-muted)" }}>
-                                        PV moyen réseau · PV central
+                                    <span className="text-sm font-medium">Prix</span>
+                                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                                        Prix moyen du réseau et prix de vente de nos magasins
                                     </span>
                                 </span>
                             </span>
@@ -1254,32 +1283,28 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                 </DropdownMenu>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <button
-                            className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm font-semibold bg-[var(--action-secondary-bg)] text-[var(--action-secondary-text)] border border-[var(--border-strong)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-all shadow-sm apple-btn-secondary"
-                            aria-label="Afficher/masquer les colonnes"
-                        >
-                            <SlidersHorizontal className="w-4 h-4" />
-                            Colonnes
-                        </button>
+                        <Button variant="outline" size="sm" aria-label="Choisir les colonnes affichées">
+                            <SlidersHorizontal />
+                            <span className="hidden lg:inline">Colonnes</span>
+                        </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-[220px] max-h-[50vh] overflow-y-auto z-50">
+                    <DropdownMenuContent align="end" className="w-[260px] max-h-[60vh] overflow-y-auto z-50">
+                        <DropdownMenuLabel className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+                            Colonnes affichées
+                        </DropdownMenuLabel>
                         {table
                             .getAllLeafColumns()
-                            .filter((column: Column<ProductRow, unknown>) => column.getCanHide())
+                            .filter((column: Column<ProductRow, unknown>) => column.getCanHide() && column.id !== "select")
                             .map((column: Column<ProductRow, unknown>) => {
                                 return (
                                     <DropdownMenuCheckboxItem
                                         key={column.id}
-                                        className="capitalize text-xs cursor-pointer font-medium"
+                                        className="text-sm cursor-pointer"
                                         checked={column.getIsVisible()}
                                         onCheckedChange={(value) => column.toggleVisibility(!!value)}
                                         onSelect={(e: Event) => e.preventDefault()}
                                     >
-                                        {typeof column.columnDef.header === 'string'
-                                            ? column.columnDef.header
-                                            : column.id.startsWith('month_')
-                                                ? formatMonthLabel(column.id.replace('month_', ''))
-                                                : column.id}
+                                        {libelleColonne(column.id, column.columnDef.header)}
                                     </DropdownMenuCheckboxItem>
                                 );
                             })}
@@ -1324,7 +1349,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                                         <th
                                             key={header.id}
                                             className={cn(
-                                                "px-2 py-3 text-[10px] font-black uppercase tracking-[0.05em] whitespace-nowrap select-none flex items-center transition-colors relative group/header",
+                                                "px-2 py-2 text-xs font-semibold leading-tight whitespace-nowrap select-none flex items-center transition-colors relative group/header",
                                                 !enteteFigee && "hover:bg-white/5",
                                             )}
                                             style={{
@@ -1332,7 +1357,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                                                 flex: isFlexible ? `1 1 ${size}px` : `0 0 ${size}px`,
                                                 minWidth: size,
                                                 maxWidth: isFlexible ? "none" : size,
-                                                color: "var(--text-muted)",
+                                                color: "var(--text-secondary)",
                                                 justifyContent: isCenter ? "center" : "flex-start",
                                                 ...(enteteFigee ? {
                                                     position: "sticky" as const,
@@ -1393,16 +1418,17 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                             const isSelected = row.getIsSelected();
 
                             return (
-                                <div key={row.id} style={{ position: 'absolute', top: 0, left: 0, width: '100%' }}>
-                                    <GridRow
-                                        virtualRow={virtualRow}
-                                        row={row}
-                                        rowHeight={rowHeight}
-                                        isSelected={isSelected}
-                                        columnsKey={columnsKey}
-                                        columnSizing={columnSizing}
-                                    />
-                                </div>
+                                // Pas de <div> autour de la ligne : un <div> dans un <tbody>
+                                // est du HTML invalide (erreur d'hydratation signalée par React).
+                                <GridRow
+                                    key={row.id}
+                                    virtualRow={virtualRow}
+                                    row={row}
+                                    rowHeight={rowHeight}
+                                    isSelected={isSelected}
+                                    columnsKey={columnsKey}
+                                    columnSizing={columnSizing}
+                                />
                             );
                         })}
                     </tbody>

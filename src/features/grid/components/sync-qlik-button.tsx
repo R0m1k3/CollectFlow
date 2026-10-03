@@ -38,21 +38,23 @@ export function SyncQlikButton({ codeFournisseur, lastUpdate }: SyncQlikButtonPr
     return (
         <div className="flex items-center gap-2">
             <span
-                className="text-[10px] leading-tight text-right whitespace-nowrap hidden lg:block"
+                className="text-xs leading-tight text-right whitespace-nowrap hidden xl:block"
                 style={{ color: status === "error" ? "var(--accent-error)" : "var(--text-muted)" }}
                 title={message || undefined}
             >
                 {status === "error"
                     ? message
                     : status === "running"
-                        ? (message || `Extraction Qlik…`)
-                        : `MAJ Qlik · ${formatLastUpdate(lastUpdate)}`}
+                        ? (message || "Récupération des données réseau…")
+                        : lastUpdate
+                            ? `Réseau mis à jour le ${formatLastUpdate(lastUpdate)}`
+                            : "Réseau jamais mis à jour"}
             </span>
             <button
                 onClick={start}
                 disabled={status === "running"}
                 className="btn-action btn-action-secondary flex items-center gap-1.5 disabled:opacity-60"
-                title={message || `Synchroniser les données réseau Qlik · MAJ ${formatLastUpdate(lastUpdate)}`}
+                title={message || `Mettre à jour les ventes du réseau (Qlik) pour ce fournisseur — dernière mise à jour : ${formatLastUpdate(lastUpdate)}`}
             >
                 {status === "running" ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -63,7 +65,7 @@ export function SyncQlikButton({ codeFournisseur, lastUpdate }: SyncQlikButtonPr
                 ) : (
                     <RefreshCw className="w-3.5 h-3.5" />
                 )}
-                {status === "running" ? "Sync en cours…" : "Sync Qlik"}
+                {status === "running" ? "Mise à jour…" : "Mettre à jour le réseau"}
             </button>
         </div>
     );

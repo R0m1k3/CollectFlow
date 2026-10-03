@@ -304,3 +304,32 @@ Règle commune à chaque page :
   - pages d'erreur (`error.tsx`) et « page introuvable » en français ;
   - après connexion, arrivée sur l'Accueil, comme pour `/`.
 - **Écart** : les en-têtes Excel de la page Stocks (CODEIN, GENCODE, QTE, CODMV, avec les codes 503 / 412) **ne seront pas renommés**. C'est vraisemblablement un format d'import de régularisation dans FF.
+
+## Suivi — Lot 3 réalisé
+
+Toutes les pages utilisent désormais :
+- `PageHeader` avec une phrase d'explication ;
+- les couleurs du thème (plus de pages figées en blanc) ;
+- des textes d'au moins 12 px ;
+- les noms de magasins, `toast` et `confirmer`.
+
+Vérifié dans un navigateur : sur les pages visitées, en clair et en sombre, aucun texte n'est sous 12 px.
+
+| Page | Changements principaux |
+|---|---|
+| Accueil | Cartes « Nos 2 magasins » : CA, tickets et panier moyen, avec l'évolution N-1. Une carte par magasin. Top 10 lisible, avec un lien vers la fiche produit. |
+| Révision d'assortiment | **Barre du bas** : seul endroit pour enregistrer et exporter, avec les mêmes droits pour tous. Le menu Export regroupe les deux anciens. Bouton « Annuler » avec confirmation. **Filtres** : sens des gammes affiché (A Cœur…), magasin choisi en un clic, menu « Colonnes » en clair. **Chargement** : bandeau de progression au lieu de la fenêtre floue. **Droits** : lus côté serveur. |
+| Recherche produit | Fiche lisible (Secteur / Rayon / Famille), infobulles PCB, PRMP, code-barres, réseau. Plus de mention technique de Qlik. |
+| Stocks à surveiller | `DataTable` avec trois onglets et une explication pour chacun. **Export Excel inchangé** (format d'import FF). |
+| Meilleures ventes | `DataTable` avec un tri sur toutes les colonnes et une ligne de totaux. Export via exceljs (`xlsx` n'est plus utilisé). |
+| Ventes par mois | Dernier mois complet par défaut, mois en clair, bascule Fournisseur / Famille, recherche, tri, export. |
+| Publicités | Onglets, statuts lisibles, part du CA calculée en pied de tableau. Le tri ne porte que sur la page affichée, et la page le signale. |
+| Commandes fournisseurs | Onglets dans l'URL, confirmation avant suppression, retours de toutes les actions. |
+| Historique | « Reprendre dans la Grille », chiffres visibles, états vides et d'erreur. |
+| Paramètres | Onglets Connexions / Utilisateurs / Accès API / Journal serveur, un bouton Enregistrer par section. |
+| Synchronisation | Vocabulaire clair, unités affichées, résumé en indicateurs. |
+| Connexion | Libellés lisibles, fond sobre. |
+
+Autres changements :
+- **Composants retirés** : `SuccessModal`, `ConfirmModal`, `ChangePasswordModal`, `LoadingModal`, `export-dropdown`, `financial-cell` et `supplier-selection`, qui n'étaient plus utilisés.
+- **Correction** : le nom de l'utilisateur est maintenant transmis à la session, et l'en-tête l'affiche.

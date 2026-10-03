@@ -1,8 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { SupplierCombobox } from "./supplier-combobox";
+import { LayoutGrid } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { SupplierCombobox } from "./supplier-combobox";
+import { GAMMES } from "@/lib/gammes";
+import { cn } from "@/lib/utils";
 
 interface Supplier {
     code: string;
@@ -13,37 +16,48 @@ interface SupplierSelectionLandingProps {
     fournisseurs: Supplier[];
 }
 
+/** Entrée de la Grille : une seule question, « quel fournisseur ? ». */
 export function SupplierSelectionLanding({ fournisseurs }: SupplierSelectionLandingProps) {
     const router = useRouter();
 
     const handleSelect = (code: string) => {
-        router.push(`/grid?fournisseur=${code}`);
+        router.push(`/grid?fournisseur=${encodeURIComponent(code)}`);
     };
 
     return (
-        <div className="h-full flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in duration-500">
-            <div className="max-w-md space-y-6">
-                <div className="space-y-4">
-                    <div className="w-16 h-16 bg-emerald-500/10 rounded-2xl flex items-center justify-center mx-auto mb-2 text-emerald-600">
-                        <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2" />
-                        </svg>
+        <div className="flex h-full flex-col items-center justify-center p-6 text-center">
+            <div className="w-full max-w-xl space-y-6">
+                <div className="space-y-3">
+                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-[var(--accent-border)] bg-[var(--accent-bg)] text-[var(--accent)]">
+                        <LayoutGrid className="h-7 w-7" />
                     </div>
-                    <h1 className="text-4xl font-black tracking-tight text-slate-900 dark:text-white">CollectFlow</h1>
-                    <p className="text-lg text-slate-500 dark:text-slate-400">
-                        Optimisez votre assortiment en quelques clics. Sélectionnez un fournisseur pour commencer.
+                    <h1 className="text-3xl font-bold tracking-tight text-[var(--text-primary)]">Révision d&apos;assortiment</h1>
+                    <p className="text-base text-[var(--text-secondary)]">
+                        Choisissez un fournisseur : vous verrez tous ses produits avec leurs ventes, et vous pourrez
+                        attribuer à chacun sa gamme.
                     </p>
                 </div>
-                <div className="flex justify-center pt-4">
+                <div className="flex justify-center">
                     <SupplierCombobox
                         fournisseurs={fournisseurs}
                         selectedCode={null}
                         onSelect={handleSelect}
-                        className="w-[400px] !h-12 text-lg shadow-xl"
+                        className="w-full max-w-md"
                     />
                 </div>
-                <div className="pt-8 text-[11px] text-slate-400 uppercase tracking-[0.2em] font-bold">
-                    Accès Rapide • {fournisseurs.length} Fournisseurs Disponibles
+                <p className="text-[13px] text-[var(--text-muted)]">
+                    {fournisseurs.length.toLocaleString("fr-FR")} fournisseurs disponibles
+                </p>
+                <div className="flex flex-wrap justify-center gap-2 pt-2" aria-label="Signification des gammes">
+                    {GAMMES.map((g) => (
+                        <span
+                            key={g.code}
+                            title={g.description}
+                            className={cn("inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[13px]", g.classes)}
+                        >
+                            <span className="font-bold">{g.code}</span> {g.nom}
+                        </span>
+                    ))}
                 </div>
             </div>
         </div>

@@ -2,27 +2,19 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useMemo, useEffect, useTransition, type ReactNode } from "react";
-import {
-    ChevronUp,
-    ChevronDown,
-    ChevronsUpDown,
-    ChevronLeft,
-    ChevronRight,
-    ChevronsLeft,
-    ChevronsRight,
-    Download,
-    Search,
-} from "lucide-react";
-import LoadingModal from "@/components/shared/loading-modal";
+import { Loader2 } from "lucide-react";
+import { DataTable, type DataColumn, type DataFilter } from "@/components/ui/data-table";
+import { Tabs, type TabItem } from "@/components/ui/tabs";
+import { Select } from "@/components/ui/form-controls";
+import { StoreBadge } from "@/components/ui/badge";
+import { Terme } from "@/components/ui/tooltip";
+import { MAGASINS, LIBELLE_TOUS_MAGASINS, nomMagasin } from "@/lib/magasins";
+import { fmtDecimal1, fmtEntier } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import type { PgStockNegatifRow, PgStockSansVenteRow, PgSansVente6MoisRow } from "./page";
-
-type SortDir = "asc" | "desc";
 
 /** Nombre de lignes rendues simultanément : au-delà, le navigateur fige. */
 const PAGE_SIZE = 50;
-
-/** Un seul collateur réutilisé : `localeCompare` en crée un par appel (très coûteux sur 17 000 lignes). */
-const collator = new Intl.Collator("fr", { numeric: true, sensitivity: "base" });
 
 function fmtDate(raw: string | null) {
     if (!raw) return "—";
@@ -40,7 +32,7 @@ function getYear(raw: string | null): string {
 
 /**
  * Passe à `true` seulement si `active` reste vrai plus de `delay` ms.
- * Évite le clignotement du modal sur les transitions instantanées.
+ * Évite le clignotement de l'indicateur sur les transitions instantanées.
  */
 function useDelayedFlag(active: boolean, delay = 120) {
     const [elapsed, setElapsed] = useState(false);
@@ -63,16 +55,14 @@ function useDelayedFlag(active: boolean, delay = 120) {
 }
 
 // ---------------------------------------------------------------------------
-// Tableau générique (les 3 onglets partagent filtres, tri, pagination, export)
+// Export Excel — format d'import de régularisation dans FF.
+//
+// En-têtes (CODEIN / GENCODE / QTE / CODMV), codes mouvement (503 / 412),
+// colonnes, valeurs et nom de fichier : à ne pas modifier, le fichier est
+// importé tel quel dans FF. (`telechargerExcel` n'est pas utilisé : il fige la
+// ligne d'en-tête et renseigne les propriétés du classeur, le fichier ne
+// serait donc plus strictement identique.)
 // ---------------------------------------------------------------------------
-
-interface Column<T> {
-    key: Extract<keyof T, string>;
-    label: string;
-    /** Tri numérique au lieu du tri alphabétique. */
-    numeric?: boolean;
-    render?: (row: T) => ReactNode;
-}
 
 interface ExcelSpec<T> {
     sheet: string;
@@ -82,421 +72,233 @@ interface ExcelSpec<T> {
     row: (r: T) => (string | number)[];
 }
 
-interface StockTableProps<T> {
-    rows: T[];
-    magasin: string;
-    columns: Column<T>[];
-    fournisseurOf: (r: T) => string;
-    /** Source du filtre « Année » — omis, le filtre n'est pas affiché. */
-    anneeOf?: (r: T) => string;
-    anneeLabel?: string;
-    searchIn: (r: T) => (string | null | undefined)[];
-    emptyLabel: string;
-    excel: ExcelSpec<T>;
+async function exporterPourFF<T>(excel: ExcelSpec<T>, rows: readonly T[], magasin: string) {
+    const ExcelJS = (await import("exceljs")).default;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet(excel.sheet);
+    ws.addRow(excel.header);
+    ws.getRow(1).eachCell(cell => {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
+        cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
+        cell.alignment = { vertical: "middle", horizontal: "center" };
+    });
+    ws.getRow(1).height = 22;
+    // L'export reprend l'intégralité des lignes filtrées, pas seulement la page affichée.
+    for (const r of rows) ws.addRow(excel.row(r));
+    ws.columns = excel.widths.map(width => ({ width }));
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${excel.filePrefix}_${magasin || "Tous"}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
 }
 
-function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
-    if (!active) return <ChevronsUpDown className="inline w-3 h-3 ml-1 opacity-30" />;
-    return dir === "asc"
-        ? <ChevronUp className="inline w-3 h-3 ml-1" />
-        : <ChevronDown className="inline w-3 h-3 ml-1" />;
-}
+const EXCEL_NEGATIF: ExcelSpec<PgStockNegatifRow> = {
+    sheet: "Stock Négatif",
+    filePrefix: "Stock_Negatif",
+    header: ["CODEIN", "GENCODE", "QTE", "CODMV", "Dernière vente", "Dernière entrée"],
+    widths: [16, 16, 10, 10, 16, 22],
+    row: r => [r.codein, "", Math.abs(r.stockdispo), "503", fmtDate(r.dernierevente), fmtDate(r.derniereentree)],
+};
 
-function FilterSelect({ label, value, onChange, options }: {
-    label: string;
-    value: string;
-    onChange: (v: string) => void;
-    options: string[];
-}) {
-    return (
-        <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-gray-600 whitespace-nowrap">{label}</label>
-            <select
-                value={value}
-                onChange={e => onChange(e.target.value)}
-                className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[150px]"
-            >
-                <option value="">Tous</option>
-                {options.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
-        </div>
-    );
-}
+const EXCEL_SANS_VENTE: ExcelSpec<PgStockSansVenteRow> = {
+    sheet: "Entrées sans vente",
+    filePrefix: "Entrees_Sans_Vente",
+    header: ["CODEIN", "GENCODE", "QTE", "CODMV", "Dernière entrée"],
+    widths: [16, 16, 10, 10, 22],
+    row: r => [r.codein, "", r.stock_actuel, "412", fmtDate(r.derniere_entree)],
+};
 
-function Pagination({ page, totalPages, total, from, to, onChange }: {
-    page: number;
-    totalPages: number;
-    total: number;
-    from: number;
-    to: number;
-    onChange: (p: number) => void;
-}) {
-    if (total === 0) return null;
-
-    const btn = "rounded-lg border border-gray-200 bg-white p-1.5 text-gray-600 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40";
-
-    return (
-        <div className="flex flex-wrap items-center justify-between gap-3 px-1">
-            <span className="text-xs text-gray-500">
-                Lignes <span className="font-medium text-gray-700">{from.toLocaleString("fr-FR")}</span>
-                {" à "}
-                <span className="font-medium text-gray-700">{to.toLocaleString("fr-FR")}</span>
-                {" sur "}
-                <span className="font-medium text-gray-700">{total.toLocaleString("fr-FR")}</span>
-            </span>
-            <div className="flex items-center gap-1.5">
-                <button className={btn} onClick={() => onChange(1)} disabled={page <= 1} aria-label="Première page">
-                    <ChevronsLeft className="w-4 h-4" />
-                </button>
-                <button className={btn} onClick={() => onChange(page - 1)} disabled={page <= 1} aria-label="Page précédente">
-                    <ChevronLeft className="w-4 h-4" />
-                </button>
-                <span className="px-2 text-xs text-gray-600 tabular-nums">
-                    Page {page.toLocaleString("fr-FR")} / {totalPages.toLocaleString("fr-FR")}
-                </span>
-                <button className={btn} onClick={() => onChange(page + 1)} disabled={page >= totalPages} aria-label="Page suivante">
-                    <ChevronRight className="w-4 h-4" />
-                </button>
-                <button className={btn} onClick={() => onChange(totalPages)} disabled={page >= totalPages} aria-label="Dernière page">
-                    <ChevronsRight className="w-4 h-4" />
-                </button>
-            </div>
-        </div>
-    );
-}
-
-function StockTable<T extends object>({
-    rows,
-    magasin,
-    columns,
-    fournisseurOf,
-    anneeOf,
-    anneeLabel = "Année entrée",
-    searchIn,
-    emptyLabel,
-    excel,
-}: StockTableProps<T>) {
-    const [filterFournisseur, setFilterFournisseur] = useState("");
-    const [filterAnnee, setFilterAnnee] = useState("");
-    const [search, setSearch] = useState("");
-    // `null` = ordre renvoyé par la base (le plus pertinent : stock le plus négatif,
-    // entrée la plus récente…). Aucun tri client tant que l'utilisateur n'en demande pas.
-    const [sortKey, setSortKey] = useState<Extract<keyof T, string> | null>(null);
-    const [sortDir, setSortDir] = useState<SortDir>("asc");
-    const [page, setPage] = useState(1);
-    const [exporting, setExporting] = useState(false);
-
-    const fournisseurs = useMemo(
-        () => [...new Set(rows.map(fournisseurOf).filter(Boolean))].sort((a, b) => collator.compare(a, b)),
-        [rows, fournisseurOf]
-    );
-    const annees = useMemo(
-        () => anneeOf ? [...new Set(rows.map(anneeOf).filter(Boolean))].sort((a, b) => b.localeCompare(a)) : [],
-        [rows, anneeOf]
-    );
-
-    const filtered = useMemo(() => {
-        const q = search.trim().toLowerCase();
-        if (!filterFournisseur && !filterAnnee && !q) return rows;
-        return rows.filter(r =>
-            (!filterFournisseur || fournisseurOf(r) === filterFournisseur) &&
-            (!filterAnnee || (anneeOf ? anneeOf(r) === filterAnnee : true)) &&
-            (!q || searchIn(r).some(v => v?.toLowerCase().includes(q)))
-        );
-    }, [rows, filterFournisseur, filterAnnee, search, fournisseurOf, anneeOf, searchIn]);
-
-    const numericKeys = useMemo(
-        () => new Set(columns.filter(c => c.numeric).map(c => c.key as string)),
-        [columns]
-    );
-
-    const sorted = useMemo(() => {
-        if (!sortKey) return filtered;
-        const numeric = numericKeys.has(sortKey);
-        const dir = sortDir === "asc" ? 1 : -1;
-        return [...filtered].sort((a, b) => {
-            const av = (a as Record<string, unknown>)[sortKey];
-            const bv = (b as Record<string, unknown>)[sortKey];
-            if (numeric) {
-                const an = Number(av);
-                const bn = Number(bv);
-                if (Number.isNaN(an) && Number.isNaN(bn)) return 0;
-                if (Number.isNaN(an)) return 1;
-                if (Number.isNaN(bn)) return -1;
-                return (an - bn) * dir;
-            }
-            return collator.compare(String(av ?? ""), String(bv ?? "")) * dir;
-        });
-    }, [filtered, sortKey, sortDir, numericKeys]);
-
-    // Toute modification des filtres / du tri ramène à la première page.
-    // Ajustement pendant le rendu : pas d'effet, donc pas de rendu en cascade.
-    const [pagedSet, setPagedSet] = useState(sorted);
-    if (pagedSet !== sorted) {
-        setPagedSet(sorted);
-        setPage(1);
-    }
-
-    const total = sorted.length;
-    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    const currentPage = Math.min(page, totalPages);
-    const pageRows = useMemo(
-        () => sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
-        [sorted, currentPage]
-    );
-
-    function handleSort(key: Extract<keyof T, string>) {
-        if (sortKey === key) setSortDir(d => (d === "asc" ? "desc" : "asc"));
-        else { setSortKey(key); setSortDir("asc"); }
-    }
-
-    const hasFilters = Boolean(filterFournisseur || filterAnnee || search);
-
-    async function handleExport() {
-        if (exporting) return;
-        setExporting(true);
-        try {
-            const ExcelJS = (await import("exceljs")).default;
-            const wb = new ExcelJS.Workbook();
-            const ws = wb.addWorksheet(excel.sheet);
-            ws.addRow(excel.header);
-            ws.getRow(1).eachCell(cell => {
-                cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
-                cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
-                cell.alignment = { vertical: "middle", horizontal: "center" };
-            });
-            ws.getRow(1).height = 22;
-            // L'export reprend l'intégralité des lignes filtrées, pas seulement la page affichée.
-            for (const r of sorted) ws.addRow(excel.row(r));
-            ws.columns = excel.widths.map(width => ({ width }));
-            const buffer = await wb.xlsx.writeBuffer();
-            const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${excel.filePrefix}_${magasin || "Tous"}_${new Date().toISOString().slice(0, 10)}.xlsx`;
-            a.click();
-            URL.revokeObjectURL(url);
-        } finally {
-            setExporting(false);
-        }
-    }
-
-    return (
-        <div className="space-y-4">
-            {exporting && (
-                <LoadingModal
-                    message="Génération du fichier Excel"
-                    subMessage={`${total.toLocaleString("fr-FR")} ligne${total !== 1 ? "s" : ""} en cours d'écriture…`}
-                />
-            )}
-
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-3">
-                    <div className="relative">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-                        <input
-                            type="text"
-                            value={search}
-                            onChange={e => setSearch(e.target.value)}
-                            placeholder="Code article ou libellé…"
-                            className="rounded-lg border border-gray-200 bg-white pl-8 pr-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[220px]"
-                        />
-                    </div>
-                    <FilterSelect label="Fournisseur" value={filterFournisseur} onChange={setFilterFournisseur} options={fournisseurs} />
-                    {anneeOf && (
-                        <FilterSelect label={anneeLabel} value={filterAnnee} onChange={setFilterAnnee} options={annees} />
-                    )}
-                    {hasFilters && (
-                        <button
-                            onClick={() => { setFilterFournisseur(""); setFilterAnnee(""); setSearch(""); }}
-                            className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-medium text-orange-700 hover:bg-orange-100 transition-colors"
-                        >
-                            ✕ Réinitialiser
-                        </button>
-                    )}
-                </div>
-                <div className="flex items-center gap-3">
-                    <span className="text-sm text-gray-500">
-                        {total.toLocaleString("fr-FR")} article{total !== 1 ? "s" : ""}
-                        {hasFilters && total !== rows.length && (
-                            <span className="text-gray-400"> / {rows.length.toLocaleString("fr-FR")}</span>
-                        )}
-                    </span>
-                    <button
-                        onClick={handleExport}
-                        disabled={exporting || total === 0}
-                        className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                        <Download className="w-4 h-4" />Exporter Excel
-                    </button>
-                </div>
-            </div>
-
-            <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-                <table className="min-w-full text-sm">
-                    <thead className="bg-gray-50 border-b border-gray-200">
-                        <tr>
-                            {columns.map(c => (
-                                <th
-                                    key={c.key}
-                                    onClick={() => handleSort(c.key)}
-                                    className="cursor-pointer select-none whitespace-nowrap px-3 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide hover:text-gray-900"
-                                >
-                                    {c.label}
-                                    <SortIcon active={sortKey === c.key} dir={sortDir} />
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                        {pageRows.length === 0 && (
-                            <tr>
-                                <td colSpan={columns.length} className="px-3 py-8 text-center text-gray-400">{emptyLabel}</td>
-                            </tr>
-                        )}
-                        {pageRows.map((row, i) => (
-                            <tr key={`${String((row as Record<string, unknown>).codein)}-${String((row as Record<string, unknown>).site)}-${i}`}
-                                className="hover:bg-gray-50 transition-colors">
-                                {columns.map(c => (
-                                    <td key={c.key} className="px-3 py-2">
-                                        {c.render
-                                            ? c.render(row)
-                                            : String((row as Record<string, unknown>)[c.key] ?? "")}
-                                    </td>
-                                ))}
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-
-            <Pagination
-                page={currentPage}
-                totalPages={totalPages}
-                total={total}
-                from={total === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1}
-                to={Math.min(currentPage * PAGE_SIZE, total)}
-                onChange={p => setPage(Math.min(Math.max(1, p), totalPages))}
-            />
-        </div>
-    );
-}
+const EXCEL_SANS_VENTE_6MOIS: ExcelSpec<PgSansVente6MoisRow> = {
+    sheet: "Sans vente 6 mois",
+    filePrefix: "Sans_Vente_6Mois",
+    header: ["CODEIN", "GENCODE", "QTE", "CODMV", "Dernière vente"],
+    widths: [16, 16, 10, 10, 22],
+    row: r => [r.codein, "", r.stock_actuel, "412", fmtDate(r.derniere_vente)],
+};
 
 // ---------------------------------------------------------------------------
-// Cellules partagées
-// ---------------------------------------------------------------------------
-
-const cellCode = (v: string) => <span className="font-mono text-xs text-gray-700">{v}</span>;
-const cellSite = (v: string) => (
-    <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">{v}</span>
-);
-const cellDate = (v: string | null) => <span className="text-gray-600 text-xs">{fmtDate(v)}</span>;
-
-// ---------------------------------------------------------------------------
-// Configuration des 3 onglets
+// Colonnes et filtres des 3 onglets
 //
-// Définies au niveau module : leur identité doit rester stable d'un rendu à
-// l'autre, sinon les `useMemo` de StockTable se recalculent en boucle.
+// Définis au niveau module : leur identité doit rester stable d'un rendu à
+// l'autre, sinon les `useMemo` du tableau se recalculent en boucle.
 // ---------------------------------------------------------------------------
 
-type TabConfig<T> = Omit<StockTableProps<T>, "rows" | "magasin">;
+interface LigneStock {
+    codein: string;
+    libelle1: string;
+    fournisseur: string;
+    site: string;
+}
 
-const NEGATIF_CONFIG: TabConfig<PgStockNegatifRow> = {
-    fournisseurOf: r => r.fournisseur,
-    anneeOf: r => getYear(r.derniereentree),
-    searchIn: r => [r.codein, r.libelle1],
-    emptyLabel: "Aucun article en stock négatif",
-    columns: [
-        { key: "codein", label: "Code article", render: r => cellCode(r.codein) },
-        { key: "libelle1", label: "Libellé", render: r => <span className="text-gray-900">{r.libelle1}</span> },
-        { key: "fournisseur", label: "Fournisseur", render: r => <span className="text-gray-700">{r.fournisseur}</span> },
-        { key: "site", label: "Magasin", render: r => cellSite(r.site) },
-        { key: "stockdispo", label: "Stock", numeric: true, render: r => <span className="font-semibold text-red-600">{r.stockdispo}</span> },
-        { key: "dernierevente", label: "Dernière vente", render: r => cellDate(r.dernierevente) },
-        { key: "derniereentree", label: "Dernière entrée", render: r => cellDate(r.derniereentree) },
-    ],
-    excel: {
-        sheet: "Stock Négatif",
-        filePrefix: "Stock_Negatif",
-        header: ["CODEIN", "GENCODE", "QTE", "CODMV", "Dernière vente", "Dernière entrée"],
-        widths: [16, 16, 10, 10, 16, 22],
-        row: r => [r.codein, "", Math.abs(r.stockdispo), "503", fmtDate(r.dernierevente), fmtDate(r.derniereentree)],
-    },
-};
-
-const SANS_VENTE_CONFIG: TabConfig<PgStockSansVenteRow> = {
-    fournisseurOf: r => r.fournisseur,
-    anneeOf: r => getYear(r.derniere_entree),
-    searchIn: r => [r.codein, r.libelle1],
-    emptyLabel: "Aucun article trouvé",
-    columns: [
-        { key: "codein", label: "Code article", render: r => cellCode(r.codein) },
-        { key: "libelle1", label: "Libellé", render: r => <span className="text-gray-900">{r.libelle1}</span> },
-        { key: "fournisseur", label: "Fournisseur", render: r => <span className="text-gray-700">{r.fournisseur}</span> },
-        { key: "site", label: "Magasin", render: r => cellSite(r.site) },
-        { key: "stock_actuel", label: "Stock actuel", numeric: true, render: r => <span className="font-semibold text-amber-600">{r.stock_actuel}</span> },
-        { key: "derniere_entree", label: "Dernière entrée", render: r => cellDate(r.derniere_entree) },
-    ],
-    excel: {
-        sheet: "Entrées sans vente",
-        filePrefix: "Entrees_Sans_Vente",
-        header: ["CODEIN", "GENCODE", "QTE", "CODMV", "Dernière entrée"],
-        widths: [16, 16, 10, 10, 22],
-        row: r => [r.codein, "", r.stock_actuel, "412", fmtDate(r.derniere_entree)],
-    },
-};
-
-const SANS_VENTE_6MOIS_CONFIG: TabConfig<PgSansVente6MoisRow> = {
-    fournisseurOf: r => r.fournisseur,
-    searchIn: r => [r.codein, r.libelle1],
-    emptyLabel: "Aucun article trouvé",
-    columns: [
-        { key: "codein", label: "Code article", render: r => cellCode(r.codein) },
-        { key: "libelle1", label: "Libellé", render: r => <span className="text-gray-900">{r.libelle1}</span> },
-        { key: "fournisseur", label: "Fournisseur", render: r => <span className="text-gray-700">{r.fournisseur}</span> },
-        { key: "site", label: "Magasin", render: r => cellSite(r.site) },
-        { key: "stock_actuel", label: "Stock actuel", numeric: true, render: r => <span className="font-semibold text-amber-600">{r.stock_actuel}</span> },
-        { key: "derniere_vente", label: "Dernière vente", render: r => cellDate(r.derniere_vente) },
+/** Colonnes communes aux 3 onglets : code, libellé, fournisseur, magasin. */
+function colonnesIdentite<T extends LigneStock>(): DataColumn<T>[] {
+    return [
         {
-            key: "jours_sans_vente",
-            label: "Jours sans vente",
-            numeric: true,
-            render: r => (
-                <span
-                    className="tabular-nums font-medium"
-                    style={{ color: r.jours_sans_vente && r.jours_sans_vente > 365 ? "#ef4444" : "#6b7280" }}
-                >
-                    {r.jours_sans_vente != null ? r.jours_sans_vente.toLocaleString("fr-FR") : "—"}
-                </span>
-            ),
+            id: "codein",
+            header: "Code article",
+            sortValue: r => r.codein,
+            cell: r => <span className="font-mono text-[13px] text-[var(--text-secondary)]">{r.codein}</span>,
+            className: "whitespace-nowrap",
         },
-        { key: "derniere_entree", label: "Dernière entrée", render: r => cellDate(r.derniere_entree) },
-    ],
-    excel: {
-        sheet: "Sans vente 6 mois",
-        filePrefix: "Sans_Vente_6Mois",
-        header: ["CODEIN", "GENCODE", "QTE", "CODMV", "Dernière vente"],
-        widths: [16, 16, 10, 10, 22],
-        row: r => [r.codein, "", r.stock_actuel, "412", fmtDate(r.derniere_vente)],
+        {
+            id: "libelle1",
+            header: "Libellé",
+            sortValue: r => r.libelle1,
+            cell: r => r.libelle1,
+            className: "min-w-[220px]",
+        },
+        {
+            id: "fournisseur",
+            header: "Fournisseur",
+            sortValue: r => r.fournisseur,
+            cell: r => <span className="text-[var(--text-secondary)]">{r.fournisseur}</span>,
+        },
+        {
+            id: "site",
+            header: "Magasin",
+            sortValue: r => nomMagasin(r.site),
+            cell: r => <StoreBadge code={r.site} />,
+        },
+    ];
+}
+
+/** Quantité en stock : rouge si négative, en clair sinon. */
+function celluleStock(v: number) {
+    return (
+        <span
+            className={cn("font-semibold", v < 0 ? "text-[var(--accent-error)]" : "text-[var(--text-primary)]")}
+        >
+            {fmtDecimal1(v)}
+        </span>
+    );
+}
+
+const celluleDate = (v: string | null) => (
+    <span className="whitespace-nowrap text-[13px] text-[var(--text-secondary)]">{fmtDate(v)}</span>
+);
+
+const rechercheStock = (r: LigneStock) => [r.codein, r.libelle1];
+
+function filtreFournisseur<T extends LigneStock>(): DataFilter<T> {
+    return { id: "fournisseur", label: "Fournisseur", valueOf: r => r.fournisseur, allLabel: "Tous les fournisseurs" };
+}
+
+function filtreAnneeEntree<T>(anneeOf: (r: T) => string): DataFilter<T> {
+    return { id: "annee", label: "Année d'entrée", valueOf: anneeOf, allLabel: "Toutes les années", order: "desc" };
+}
+
+const COLONNES_NEGATIF: DataColumn<PgStockNegatifRow>[] = [
+    ...colonnesIdentite<PgStockNegatifRow>(),
+    {
+        id: "stockdispo",
+        header: "Stock",
+        hint: "Stock calculé dans FF : il est négatif quand des ventes ont été enregistrées sans l'entrée de marchandise correspondante.",
+        align: "right",
+        sortValue: r => r.stockdispo,
+        cell: r => celluleStock(r.stockdispo),
     },
-};
+    { id: "dernierevente", header: "Dernière vente", sortValue: r => r.dernierevente, cell: r => celluleDate(r.dernierevente) },
+    { id: "derniereentree", header: "Dernière entrée", sortValue: r => r.derniereentree, cell: r => celluleDate(r.derniereentree) },
+];
+const FILTRES_NEGATIF: DataFilter<PgStockNegatifRow>[] = [
+    filtreFournisseur<PgStockNegatifRow>(),
+    filtreAnneeEntree<PgStockNegatifRow>(r => getYear(r.derniereentree)),
+];
+
+const COLONNES_SANS_VENTE: DataColumn<PgStockSansVenteRow>[] = [
+    ...colonnesIdentite<PgStockSansVenteRow>(),
+    {
+        id: "stock_actuel",
+        header: "Stock actuel",
+        align: "right",
+        sortValue: r => r.stock_actuel,
+        cell: r => celluleStock(r.stock_actuel),
+    },
+    { id: "derniere_entree", header: "Dernière entrée", sortValue: r => r.derniere_entree, cell: r => celluleDate(r.derniere_entree) },
+];
+const FILTRES_SANS_VENTE: DataFilter<PgStockSansVenteRow>[] = [
+    filtreFournisseur<PgStockSansVenteRow>(),
+    filtreAnneeEntree<PgStockSansVenteRow>(r => getYear(r.derniere_entree)),
+];
+
+const COLONNES_SANS_VENTE_6MOIS: DataColumn<PgSansVente6MoisRow>[] = [
+    ...colonnesIdentite<PgSansVente6MoisRow>(),
+    {
+        id: "stock_actuel",
+        header: "Stock actuel",
+        align: "right",
+        sortValue: r => r.stock_actuel,
+        cell: r => celluleStock(r.stock_actuel),
+    },
+    { id: "derniere_vente", header: "Dernière vente", sortValue: r => r.derniere_vente, cell: r => celluleDate(r.derniere_vente) },
+    {
+        id: "jours_sans_vente",
+        header: "Jours sans vente",
+        hint: "Nombre de jours depuis la dernière vente. En rouge : plus d'un an.",
+        align: "right",
+        sortValue: r => r.jours_sans_vente,
+        cell: r =>
+            r.jours_sans_vente != null ? (
+                <span
+                    className={cn(
+                        "font-medium",
+                        r.jours_sans_vente > 365 ? "text-[var(--accent-error)]" : "text-[var(--text-secondary)]",
+                    )}
+                >
+                    {fmtEntier(r.jours_sans_vente)}
+                </span>
+            ) : (
+                <span className="text-[13px] text-[var(--text-muted)]">Jamais vendu</span>
+            ),
+    },
+    { id: "derniere_entree", header: "Dernière entrée", sortValue: r => r.derniere_entree, cell: r => celluleDate(r.derniere_entree) },
+];
+const FILTRES_SANS_VENTE_6MOIS: DataFilter<PgSansVente6MoisRow>[] = [filtreFournisseur<PgSansVente6MoisRow>()];
+
+const cleLigne = (r: LigneStock, i: number) => `${r.codein}-${r.site}-${i}`;
 
 // ---------------------------------------------------------------------------
 // Composant principal avec onglets
 // ---------------------------------------------------------------------------
 
-const TABS = [
-    { key: "negatif", label: "Stock négatif" },
-    { key: "sans-vente", label: "Entrées sans vente" },
-    { key: "sans-vente-6mois", label: "Sans vente 6 mois" },
-] as const;
+const TAB_KEYS = ["negatif", "sans-vente", "sans-vente-6mois"] as const;
 
-type TabKey = typeof TABS[number]["key"];
+type TabKey = typeof TAB_KEYS[number];
 
 function isTabKey(v: string): v is TabKey {
-    return TABS.some(t => t.key === v);
+    return (TAB_KEYS as readonly string[]).includes(v);
 }
+
+/** Ce que liste chaque onglet, et quoi en faire. */
+const EXPLICATIONS: Record<TabKey, ReactNode> = {
+    "negatif": (
+        <>
+            Produits dont le <Terme id="stockNegatif">stock est négatif</Terme> : des ventes ont été enregistrées sans
+            l&apos;entrée de marchandise correspondante. Vérifiez s&apos;il manque une réception, puis exportez la
+            liste : le fichier Excel est prêt à être importé dans FF pour régulariser le stock.
+        </>
+    ),
+    "sans-vente": (
+        <>
+            Produits reçus avant ce mois-ci, encore en stock, mais qui n&apos;ont jamais été vendus dans ce magasin.
+            Vérifiez qu&apos;ils sont bien en rayon et étiquetés ; si le stock est erroné, exportez la liste : le
+            fichier Excel est prêt à être importé dans FF pour le régulariser.
+        </>
+    ),
+    "sans-vente-6mois": (
+        <>
+            Produits en stock qui ne se sont pas vendus depuis plus de 6 mois (ou jamais) et qui n&apos;ont pas été
+            réapprovisionnés depuis. Mettez-les en avant ou en promotion ; si le stock est erroné, le fichier Excel
+            exporté est prêt à être importé dans FF pour le régulariser.
+        </>
+    ),
+};
+
+const OPTIONS_MAGASINS = MAGASINS.map(m => ({ value: m.code, label: nomMagasin(m.code) }));
 
 interface Props {
     rowsNegatif: PgStockNegatifRow[];
@@ -504,10 +306,9 @@ interface Props {
     rowsSansVente6Mois: PgSansVente6MoisRow[];
     magasin: string;
     tab: string;
-    sites: { code: string; label: string }[];
 }
 
-export function GestionStockClient({ rowsNegatif, rowsSansVente, rowsSansVente6Mois, magasin, tab, sites }: Props) {
+export function GestionStockClient({ rowsNegatif, rowsSansVente, rowsSansVente6Mois, magasin, tab }: Props) {
     const router = useRouter();
     const initialTab: TabKey = isTabKey(tab) ? tab : "negatif";
 
@@ -531,8 +332,7 @@ export function GestionStockClient({ rowsNegatif, rowsSansVente, rowsSansVente6M
         return `/stock-negatif?${params.toString()}`;
     }
 
-    function handleMagasinChange(e: React.ChangeEvent<HTMLSelectElement>) {
-        const val = e.target.value;
+    function handleMagasinChange(val: string) {
         startNavigation(() => {
             router.push(buildUrl(activeTab, val));
         });
@@ -545,83 +345,87 @@ export function GestionStockClient({ rowsNegatif, rowsSansVente, rowsSansVente6M
         startSwitch(() => setActiveTab(key));
     }
 
-    const counts: Record<TabKey, number> = useMemo(() => ({
-        "negatif": rowsNegatif.length,
-        "sans-vente": rowsSansVente.length,
-        "sans-vente-6mois": rowsSansVente6Mois.length,
-    }), [rowsNegatif, rowsSansVente, rowsSansVente6Mois]);
+    const tabs: TabItem<TabKey>[] = useMemo(() => [
+        { value: "negatif", label: "Stock négatif", count: rowsNegatif.length, alert: true },
+        { value: "sans-vente", label: "Entrées sans vente", count: rowsSansVente.length },
+        { value: "sans-vente-6mois", label: "Sans vente depuis 6 mois", count: rowsSansVente6Mois.length },
+    ], [rowsNegatif, rowsSansVente, rowsSansVente6Mois]);
 
     const busy = switching || navigating;
     const showLoader = useDelayedFlag(busy);
-    const loaderMessage = navigating ? "Chargement des données" : "Préparation de l'onglet";
-    const loaderSubMessage = navigating
-        ? "Interrogation du stock pour le magasin sélectionné…"
-        : "Application des filtres et du tri…";
 
     return (
         <div className="space-y-4" aria-busy={busy}>
-            {showLoader && <LoadingModal message={loaderMessage} subMessage={loaderSubMessage} />}
-
-            {/* Toolbar */}
-            <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-2">
-                    <label className="text-sm font-medium text-gray-700">Magasin</label>
-                    <select
-                        value={magasin}
-                        onChange={handleMagasinChange}
-                        disabled={navigating}
-                        className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-wait disabled:opacity-60"
-                    >
-                        <option value="">Tous les magasins</option>
-                        {sites.map(s => (
-                            <option key={s.code} value={s.code}>{s.label}</option>
-                        ))}
-                    </select>
-                </div>
+            {/* Choix du magasin */}
+            <div className="flex flex-wrap items-end gap-3">
+                <Select
+                    id="stock-magasin"
+                    label="Magasin"
+                    value={magasin}
+                    onChange={handleMagasinChange}
+                    disabled={navigating}
+                    placeholder={LIBELLE_TOUS_MAGASINS}
+                    options={OPTIONS_MAGASINS}
+                />
+                {showLoader && (
+                    <span role="status" className="inline-flex h-9 items-center gap-2 text-[13px] text-[var(--text-secondary)]">
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                        Chargement…
+                    </span>
+                )}
             </div>
 
-            {/* Tabs */}
-            <div className="border-b border-gray-200">
-                <nav className="-mb-px flex gap-1">
-                    {TABS.map(t => {
-                        const isActive = activeTab === t.key;
-                        return (
-                            <button
-                                key={t.key}
-                                onClick={() => handleTabChange(t.key)}
-                                disabled={busy}
-                                aria-current={isActive ? "page" : undefined}
-                                className={[
-                                    "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
-                                    isActive
-                                        ? "border-blue-600 text-blue-600"
-                                        : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300",
-                                    busy ? "cursor-wait" : "",
-                                ].join(" ")}
-                            >
-                                {t.label}
-                                <span className={[
-                                    "ml-2 rounded-full px-2 py-0.5 text-xs font-semibold",
-                                    isActive ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500",
-                                ].join(" ")}>
-                                    {counts[t.key].toLocaleString("fr-FR")}
-                                </span>
-                            </button>
-                        );
-                    })}
-                </nav>
-            </div>
+            <Tabs items={tabs} value={activeTab} onChange={handleTabChange} disabled={busy} />
 
-            {/* Tab content */}
-            {activeTab === "negatif" && (
-                <StockTable<PgStockNegatifRow> rows={rowsNegatif} magasin={magasin} {...NEGATIF_CONFIG} />
-            )}
-            {activeTab === "sans-vente" && (
-                <StockTable<PgStockSansVenteRow> rows={rowsSansVente} magasin={magasin} {...SANS_VENTE_CONFIG} />
-            )}
-            {activeTab === "sans-vente-6mois" && (
-                <StockTable<PgSansVente6MoisRow> rows={rowsSansVente6Mois} magasin={magasin} {...SANS_VENTE_6MOIS_CONFIG} />
-            )}
+            <p className="max-w-4xl text-sm text-[var(--text-secondary)]">{EXPLICATIONS[activeTab]}</p>
+
+            <div className={cn("transition-opacity", showLoader && "pointer-events-none opacity-50")}>
+                {activeTab === "negatif" && (
+                    <DataTable<PgStockNegatifRow>
+                        rows={rowsNegatif}
+                        columns={COLONNES_NEGATIF}
+                        rowKey={cleLigne}
+                        searchIn={rechercheStock}
+                        searchPlaceholder="Code article ou libellé…"
+                        filters={FILTRES_NEGATIF}
+                        pageSize={PAGE_SIZE}
+                        unite="articles"
+                        emptyTitle="Aucun article en stock négatif"
+                        emptyDescription="Aucun stock n'est inférieur à zéro pour ce choix de magasin : rien à régulariser."
+                        onExport={rows => exporterPourFF(EXCEL_NEGATIF, rows, magasin)}
+                    />
+                )}
+                {activeTab === "sans-vente" && (
+                    <DataTable<PgStockSansVenteRow>
+                        rows={rowsSansVente}
+                        columns={COLONNES_SANS_VENTE}
+                        rowKey={cleLigne}
+                        searchIn={rechercheStock}
+                        searchPlaceholder="Code article ou libellé…"
+                        filters={FILTRES_SANS_VENTE}
+                        pageSize={PAGE_SIZE}
+                        unite="articles"
+                        emptyTitle="Aucun article reçu sans vente"
+                        emptyDescription="Tous les produits reçus et encore en stock ont été vendus au moins une fois."
+                        onExport={rows => exporterPourFF(EXCEL_SANS_VENTE, rows, magasin)}
+                    />
+                )}
+                {activeTab === "sans-vente-6mois" && (
+                    <DataTable<PgSansVente6MoisRow>
+                        rows={rowsSansVente6Mois}
+                        columns={COLONNES_SANS_VENTE_6MOIS}
+                        rowKey={cleLigne}
+                        searchIn={rechercheStock}
+                        searchPlaceholder="Code article ou libellé…"
+                        filters={FILTRES_SANS_VENTE_6MOIS}
+                        pageSize={PAGE_SIZE}
+                        unite="articles"
+                        emptyTitle="Aucun article sans vente depuis 6 mois"
+                        emptyDescription="Tous les produits en stock se sont vendus ou ont été réapprovisionnés ces 6 derniers mois."
+                        onExport={rows => exporterPourFF(EXCEL_SANS_VENTE_6MOIS, rows, magasin)}
+                    />
+                )}
+            </div>
         </div>
     );
 }

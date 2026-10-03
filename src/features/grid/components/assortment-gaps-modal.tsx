@@ -307,7 +307,7 @@ export function AssortmentGapsModal({ classement, critereId, mois, magasinInitia
             {/* Réglages : quel magasin, et jusqu'où dans le classement */}
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
                 <div className="flex items-center gap-2">
-                    <span className="text-[12px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Magasin</span>
+                    <span className="text-[13px] font-medium" style={{ color: "var(--text-muted)" }}>Magasin</span>
                     <div className="inline-flex rounded-lg p-0.5" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
                         {sites.map((s) => (
                             <button
@@ -327,7 +327,7 @@ export function AssortmentGapsModal({ classement, critereId, mois, magasinInitia
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <span className="text-[12px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Profondeur</span>
+                    <span className="text-[13px] font-medium" style={{ color: "var(--text-muted)" }}>Profondeur</span>
                     <div className="inline-flex rounded-lg p-0.5" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
                         {PROFONDEURS.map((p) => (
                             <button
@@ -345,7 +345,7 @@ export function AssortmentGapsModal({ classement, critereId, mois, magasinInitia
                         ))}
                     </div>
                     {classement.length < profondeur && (
-                        <span className="text-[11.5px]" style={{ color: "var(--text-muted)" }}>
+                        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
                             ({classement.length} lignes affichées seulement)
                         </span>
                     )}
@@ -420,13 +420,13 @@ export function AssortmentGapsModal({ classement, critereId, mois, magasinInitia
                                 <tr key={row.codein} style={{ borderTop: "1px solid var(--border)" }}>
                                     <td className="px-2.5 py-1.5 text-right tabular-nums" style={{ color: "var(--text-muted)" }}>{rang}</td>
                                     <td className="px-2.5 py-1.5 tabular-nums font-semibold whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{row.codein}</td>
-                                    <td className="px-2.5 py-1.5 font-mono text-[11.5px] whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
+                                    <td className="px-2.5 py-1.5 font-mono text-xs whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
                                         {row.reference || "—"}
                                     </td>
                                     <td className="px-2.5 py-1.5" style={{ color: "var(--text-primary)" }} title={row.libelle1}>
                                         <span className="font-semibold">{row.libelle1}</span>
                                         {row.libelle3 && (
-                                            <span className="ml-1.5 text-[10.5px]" style={{ color: "var(--text-muted)" }}>{row.libelle3}</span>
+                                            <span className="ml-1.5 text-xs" style={{ color: "var(--text-muted)" }}>{row.libelle3}</span>
                                         )}
                                     </td>
                                     <td className="px-2.5 py-1.5 text-right tabular-nums font-semibold whitespace-nowrap" style={{ color: "var(--text-primary)" }}>
@@ -449,7 +449,7 @@ export function AssortmentGapsModal({ classement, critereId, mois, magasinInitia
                 </div>
             )}
 
-            <p className="text-[11.5px] leading-snug" style={{ color: "var(--text-muted)" }}>
+            <p className="text-xs leading-snug" style={{ color: "var(--text-muted)" }}>
                 Non travaillé = aucune vente sur les 12 mois glissants ET aucun stock au dernier mois connu, à {nomMagasin}.
                 Un produit sans vente mais en stock n&apos;apparaît pas ici : le magasin le détient, c&apos;est un invendu, pas un trou d&apos;assortiment.
             </p>

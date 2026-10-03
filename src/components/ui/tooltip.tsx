@@ -74,3 +74,15 @@ export function Terme({ id, children, className }: TermeProps) {
         </Tooltip>
     );
 }
+
+/** Texte suivi d'un « i » : explication libre au survol (hors glossaire). */
+export function InfoBulle({ children, explication, className }: { children: ReactNode; explication: ReactNode; className?: string }) {
+    return (
+        <Tooltip content={explication}>
+            <span tabIndex={0} className={cn("inline-flex items-center gap-1 cursor-help outline-none", className)}>
+                {children}
+                <Info className="h-3.5 w-3.5 shrink-0 opacity-60" aria-hidden />
+            </span>
+        </Tooltip>
+    );
+}

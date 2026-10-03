@@ -1,7 +1,14 @@
+import type { Metadata } from "next";
+import { PackageSearch, SearchX } from "lucide-react";
 import { getProduitFiche, getProduitFicheByCodeCentrale } from "@/features/produits/api/get-produit-fiche";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/states";
+import { Terme } from "@/components/ui/tooltip";
 import { ProduitSearchBar } from "./search-bar";
 import { ProduitResults } from "./results";
 import { ProduitFicheView } from "./fiche";
+
+export const metadata: Metadata = { title: "Recherche produit" };
 
 export const dynamic = "force-dynamic";
 
@@ -30,40 +37,44 @@ export default async function ProduitsPage(props: {
     const ficheDemandee = Boolean(codein || codeCentrale);
 
     return (
-        <div className="w-full max-w-screen-2xl mx-auto space-y-6">
-            <header className="space-y-1">
-                <h1 className="text-2xl font-semibold tracking-[-0.4px]" style={{ color: "var(--text-primary)" }}>
-                    Recherche produit
-                </h1>
-                <p className="text-[13px]" style={{ color: "var(--text-muted)" }}>
-                    Recherche dans Qlik Sense (réseau) puis rapprochement avec notre catalogue —
-                    performance réseau et ventes locales sur 12 mois glissants.
-                </p>
-            </header>
+        <div className="mx-auto w-full max-w-screen-2xl">
+            <PageHeader
+                icon={PackageSearch}
+                title="Recherche produit"
+                description={
+                    <>
+                        Cherchez un produit par son nom ou son code, puis comparez ses ventes à celles des
+                        magasins du <Terme id="reseau">réseau.</Terme>
+                    </>
+                }
+            />
 
-            {/* key : remonte le champ quand l'URL change (retour arrière, lien partagé) */}
-            <ProduitSearchBar key={q} initialQuery={q} />
+            <div className="space-y-6">
+                {/* key : remonte le champ quand l'URL change (retour arrière, lien partagé) */}
+                <ProduitSearchBar key={q} initialQuery={q} />
 
-            {ficheDemandee && !fiche && (
-                <div
-                    className="rounded-xl p-6 text-center text-[13px]"
-                    style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
-                >
-                    Aucun produit trouvé pour{" "}
-                    {codein
-                        ? <>le code article <span className="font-mono">{codein}</span></>
-                        : <>le code centrale <span className="font-mono">{codeCentrale}</span></>}.
-                    {codeCentrale && !codein && (
-                        <div className="mt-1">
-                            Ce code n&apos;est ni dans notre catalogue, ni dans le cache réseau — relancez la recherche.
-                        </div>
-                    )}
-                </div>
-            )}
+                {ficheDemandee && !fiche && (
+                    <EmptyState
+                        icon={SearchX}
+                        title="Produit introuvable"
+                        description={
+                            codein ? (
+                                <>Aucun produit de notre catalogue ne porte le code article <span className="font-mono">{codein}</span>.</>
+                            ) : (
+                                <>
+                                    Le code centrale <span className="font-mono">{codeCentrale}</span> n&apos;est ni dans notre
+                                    catalogue, ni dans les données du réseau déjà chargées. Relancez une recherche par le nom
+                                    ou le code du produit.
+                                </>
+                            )
+                        }
+                    />
+                )}
 
-            {fiche && <ProduitFicheView fiche={fiche} backQuery={q} />}
+                {fiche && <ProduitFicheView fiche={fiche} backQuery={q} />}
 
-            {!ficheDemandee && <ProduitResults query={q} />}
+                {!ficheDemandee && <ProduitResults query={q} />}
+            </div>
         </div>
     );
 }

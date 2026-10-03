@@ -1,8 +1,7 @@
+import type { Metadata } from "next";
 import { SynchronisationClient } from "./client";
 
-export const metadata = {
-    title: "Synchronisation nocturne — CollectFlow",
-};
+export const metadata: Metadata = { title: "Synchronisation" };
 
 /**
  * Paramétrage de la synchronisation nocturne des fournisseurs.
