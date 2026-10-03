@@ -24,6 +24,13 @@ interface GridState {
      */
     refreshRequest: number;
     requestRefresh: () => void;
+    /**
+     * Ce que contiennent `rows` (fournisseur:magasin) et quand elles ont été
+     * chargées. Non persisté : sert à ne pas retélécharger la Grille quand on y
+     * revient, et à changer de magasin sans vider l'écran.
+     */
+    rowsMeta: { key: string; loadedAt: number } | null;
+    setRowsMeta: (meta: { key: string; loadedAt: number } | null) => void;
     /** Persisted column visibility state */
     columnVisibility: Record<string, boolean>;
     /** Persisted column sizing state */
@@ -135,6 +142,7 @@ export const useGridStore = create<GridState>()(
             displayDensity: "normal",
             activeGridQuery: "",
             refreshRequest: 0,
+            rowsMeta: null,
             columnVisibility: {},
             columnSizing: {},
             showMonthlySales: true,
@@ -222,6 +230,7 @@ export const useGridStore = create<GridState>()(
             setDisplayDensity: (density) => set({ displayDensity: density }),
             setActiveGridQuery: (query) => set({ activeGridQuery: sansParamRefresh(query) }),
             requestRefresh: () => set((state) => ({ refreshRequest: state.refreshRequest + 1 })),
+            setRowsMeta: (meta) => set({ rowsMeta: meta }),
             restoreSnapshot: (changes) => {
                 set({ draftChanges: changes, summary: computeSummary(get().rows, changes, get().activeMagasin) });
             },

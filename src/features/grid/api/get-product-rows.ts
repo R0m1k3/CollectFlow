@@ -18,7 +18,7 @@ import { eq, desc } from "drizzle-orm";
 import { getNetworkMetricsByCodeCentrale, type NetworkMetricCached } from "@/lib/qlik-network-cache";
 import { NB_MAGASINS_RESEAU } from "@/features/grid/lib/network-trend";
 // Persiste l'instantané lu par /api/v1 : sans lui, l'API n'aurait aucune donnée.
-import { upsertGridRows } from "@/lib/grid-store";
+import { readGridSnapshot, upsertGridRows } from "@/lib/grid-store";
 
 interface GetProductRowsInput {
     codeFournisseur: string;
@@ -156,6 +156,14 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
         return pending;
     }
 
+    // Instantané persisté (calcul de la nuit ou de la dernière ouverture) : servi
+    // en une lecture au lieu d'un recalcul de 10 à 40 s. Jamais en rechargement
+    // forcé — c'est précisément ce que l'utilisateur demande d'éviter.
+    if (!input.forceRefresh) {
+        const servi = await serveFromSnapshot(input, cacheKey);
+        if (servi) return servi;
+    }
+
     const versionAuDepart = gammeSaveVersion.get(input.codeFournisseur) ?? 0;
     const promise = buildProductRows(input).then(async (rows) => {
         if ((gammeSaveVersion.get(input.codeFournisseur) ?? 0) !== versionAuDepart) {
@@ -176,6 +184,65 @@ export async function getProductRows(input: GetProductRowsInput): Promise<Produc
 
     gridRowsPending.set(cacheKey, promise);
     return promise;
+}
+
+/** Au-delà, l'instantané est servi mais un recalcul est relancé en arrière-plan. */
+const SNAPSHOT_REFRESH_AFTER_MS = 20 * 60 * 60 * 1000;
+
+/**
+ * Sert la Grille depuis `grid_rows` quand c'est possible : mêmes lignes que le
+ * calcul en direct (elles en sont issues), avec la gamme FF du moment (INIT) et
+ * les dernières gammes enregistrées reportées dessus. Hors « tous magasins »,
+ * le rattrapage du magasin choisi est appliqué comme après un calcul.
+ *
+ * `null` = pas d'instantané utilisable (absent, ancien format, autre mois) :
+ * l'appelant recalcule.
+ */
+async function serveFromSnapshot(input: GetProductRowsInput, cacheKey: string): Promise<ProductRow[] | null> {
+    const { codeFournisseur, magasin = "TOTAL" } = input;
+    let snapshot: Awaited<ReturnType<typeof readGridSnapshot>>;
+    try {
+        snapshot = await readGridSnapshot(codeFournisseur);
+    } catch (e) {
+        console.error("[getProductRows] lecture grid_rows KO:", (e as Error).message?.slice(0, 200));
+        return null;
+    }
+    if (!snapshot || snapshot.rows.length === 0) return null;
+
+    const { rows } = snapshot;
+    const [changes] = await Promise.all([
+        loadLatestSnapshotChanges(codeFournisseur),
+        refreshGammeInit(rows, codeFournisseur),
+    ]);
+    applySnapshotChanges(rows, changes);
+
+    if (magasin !== "TOTAL") {
+        const { dateDebut, dateFin } = buildLast12MonthsRange();
+        await reconcileSelectedStoreFromMensuelApi(rows, magasin, dateDebut, dateFin, last12Periods());
+    }
+
+    cacheGridRows(cacheKey, rows);
+
+    // Instantané qui n'a pas été recalculé par la nuit : on le rafraîchit sans
+    // faire attendre l'utilisateur (la prochaine ouverture en profitera).
+    // Toujours le calcul « tous magasins » : c'est lui qui réécrit l'instantané.
+    if (Date.now() - snapshot.computedAt.getTime() > SNAPSHOT_REFRESH_AFTER_MS && !gridRowsPending.has(`${codeFournisseur}:TOTAL`)) {
+        void getProductRows({ codeFournisseur, magasin: "TOTAL", forceRefresh: true }).catch((e) =>
+            console.error("[getProductRows] rafraîchissement en arrière-plan KO:", (e as Error).message?.slice(0, 200)),
+        );
+    }
+    return rows;
+}
+
+/** Les 12 derniers mois complets, clés « YYYYMM » triées (même fenêtre que le calcul). */
+function last12Periods(): string[] {
+    const now = new Date();
+    const periods: string[] = [];
+    for (let i = 12; i >= 1; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        periods.push(`${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`);
+    }
+    return periods;
 }
 
 async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[]> {
@@ -217,13 +284,8 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
         console.log(`[getProductRows] ${articles.length} articles, ${mensuelRows.length} mensuel rows, ${gammeMap.size} gammes`);
 
         // ─── Phase 2 : Fenêtre temporelle 12 mois complets ───────────────────
-        const now = new Date();
-        const allowedPeriods = new Set<string>();
-        for (let i = 12; i >= 1; i--) {
-            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-            allowedPeriods.add(`${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`);
-        }
-        const sortedPeriods = [...allowedPeriods].sort();
+        const sortedPeriods = last12Periods();
+        const allowedPeriods = new Set(sortedPeriods);
 
         // ─── Phase 3 : Seed productMap depuis articles ────────────────────────
         const productMap = new Map<string, ProductRow>();

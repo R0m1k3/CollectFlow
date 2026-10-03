@@ -18,7 +18,8 @@ export const metadata: Metadata = { title: "Accueil" };
 const getCachedDashboardData = unstable_cache(
     pgGetDashboardData,
     ["dashboard-data"],
-    { revalidate: 600 } // 10 minutes
+    // 30 minutes : ce sont les ventes de la veille, elles ne changent pas dans la journée.
+    { revalidate: 1800 }
 );
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,7 @@
 "use client";
 
+import React from "react";
+
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { SyncQlikButton } from "./sync-qlik-button";
 import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
@@ -49,7 +51,7 @@ function messageErreur(err: unknown): string {
  * sur les gammes (annuler, enregistrer, exporter). Il y avait des doublons dans
  * l'en-tête, avec des droits différents.
  */
-export function FloatingSummaryBar({ isAdmin, nomFournisseur }: { isAdmin: boolean; nomFournisseur: string }) {
+function FloatingSummaryBarInner({ isAdmin, nomFournisseur }: { isAdmin: boolean; nomFournisseur: string }) {
     const summary = useGridStore((s) => s.summary);
     const resetDrafts = useGridStore((s) => s.resetDrafts);
     const rows = useGridStore((s) => s.rows);
@@ -272,3 +274,9 @@ export function FloatingSummaryBar({ isAdmin, nomFournisseur }: { isAdmin: boole
         </div>
     );
 }
+
+/**
+ * Mémoïsé : ses props sont stables, il n'a donc pas à se redessiner quand le
+ * parent change d'état (sélection, progression du chargement…).
+ */
+export const FloatingSummaryBar = React.memo(FloatingSummaryBarInner);

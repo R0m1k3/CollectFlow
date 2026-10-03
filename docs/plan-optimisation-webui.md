@@ -333,3 +333,46 @@ Vérifié dans un navigateur : sur les pages visitées, en clair et en sombre, a
 Autres changements :
 - **Composants retirés** : `SuccessModal`, `ConfirmModal`, `ChangePasswordModal`, `LoadingModal`, `export-dropdown`, `financial-cell` et `supplier-selection`, qui n'étaient plus utilisés.
 - **Correction** : le nom de l'utilisateur est maintenant transmis à la session, et l'en-tête l'affiche.
+
+## Suivi — Lot 4 réalisé
+
+**Grille servie depuis l'instantané `grid_rows`**
+- `getProductRows` lit d'abord l'instantané du fournisseur (`readGridSnapshot`), puis y reporte :
+  - la gamme FF du moment (INIT) ;
+  - les gammes du dernier enregistrement.
+- Hors « Nos 2 magasins », le rattrapage du magasin choisi est appliqué comme après un calcul complet.
+- L'instantané n'est pas utilisé dans trois cas, et la Grille est alors recalculée comme avant :
+  - il est absent ;
+  - il date d'un autre mois (la fenêtre des 12 mois a changé) ;
+  - il est d'un ancien format. Un numéro de version (`payloadVersion`) est désormais écrit dans chaque ligne, donc les instantanés existants seront recalculés une fois, à la première ouverture ou par la synchro de la nuit.
+- Instantané de plus de 20 h : il est servi tout de suite, et un recalcul part en arrière-plan.
+- « Actualiser » force toujours le calcul complet.
+- Mesure locale (30 lignes) : 43 ms depuis l'instantané, 1 ms depuis le cache mémoire.
+
+**Grille côté navigateur**
+- Retour sur la Grille (même fournisseur et même magasin, moins de 10 min) : les lignes en mémoire sont réutilisées, sans nouveau téléchargement.
+- Changement de magasin ou « Actualiser » sur le même fournisseur : la Grille reste affichée et utilisable. Les chiffres complétés remplacent l'affichage d'un bloc, une fois reçus.
+- `React.memo` sur la Grille, la barre de filtres et la barre du bas. En-tête du tableau mémorisé. Virtualiseur sans `flushSync`.
+
+**Requêtes**
+- **Fiche produit** : les sept lectures, y compris le réseau Qlik, partent en même temps au lieu de deux vagues successives.
+- **Ventes par mois** : filtre sur des plages de dates au lieu de `TO_CHAR(datmvt)`, ce qui permet à PostgreSQL d'utiliser un index sur `datmvt`. Résultats identiques vérifiés sur une base de test (colonnes `date` et `timestamp`, bornes de mois).
+- **Stock sans vente** : même principe pour la borne « avant le mois en cours ».
+- **Accueil** :
+  - enrichissement des produits par vagues de 12 appels au lieu de 5 ;
+  - cache porté à 30 min, puisque ce sont les ventes de la veille.
+- **API `/api/v1`** :
+  - le comptage et la page sont lus en parallèle ;
+  - `last_used_at` d'une clé est écrit au plus une fois par minute ;
+  - la version interne des lignes n'est pas exposée.
+
+**Non fait volontairement** (à reprendre avec un accès à la base réelle)
+- Réécritures SQL lourdes : Meilleures ventes par `artnoid`, Stock sans vente agrégé d'abord, tableau de bord en une requête SQL au lieu des appels HTTP. Sans le schéma ni les volumes de la base FF, impossible de vérifier l'équivalence des résultats et le gain par `EXPLAIN ANALYZE`.
+- Index sur les tables FF (`mouvements.datmvt`, `codein`) : ces tables ne sont pas gérées par CollectFlow. À proposer à l'administrateur de la base après `EXPLAIN ANALYZE`.
+- Pagination par curseur de `/api/v1/grid` : elle changerait le contrat public (`page`) utilisé par des appelants externes.
+- Suppression des dépendances inutilisées (`@tanstack/react-query`, `@google/genai`, `ai`, `react-markdown`, `xlsx`) : le dépôt a deux fichiers de verrouillage (npm et pnpm). À faire avec le gestionnaire de paquets réellement utilisé en production.
+
+**À vérifier en production**
+- Première ouverture d'un gros fournisseur après la synchro de la nuit : elle doit être quasi immédiate.
+- Changement de magasin : la Grille reste affichée, puis les chiffres se mettent à jour.
+- Enregistrer, quitter la Grille, puis y revenir : les gammes enregistrées sont bien là.

@@ -243,6 +243,100 @@ const GammeCell = React.memo(({ row, isAdmin }: { row: ProductRow; isAdmin?: boo
 GammeCell.displayName = "GammeCell";
 
 /**
+ * En-tête du tableau, mémoïsé : sans cela, chaque événement de défilement
+ * redessinait la trentaine d'en-têtes (tri, redimensionnement…). Il ne change
+ * qu'avec les colonnes, le tri ou les largeurs.
+ */
+const GridHeader = React.memo(function GridHeader({ table }: {
+    table: Table<ProductRow>;
+    // Les props suivantes ne sont pas lues directement : elles servent à la
+    // comparaison de React.memo (l'en-tête lit ces états via `table`).
+    columnsKey: string;
+    sorting: SortingState;
+    columnSizing: Record<string, number>;
+    /** Case « tout sélectionner ». */
+    rowSelection: RowSelectionState;
+    data: ProductRow[];
+}) {
+    return (
+        <thead className="sticky top-0 z-10 block" style={{
+            background: "linear-gradient(to bottom, var(--bg-elevated), var(--bg-surface))",
+            borderBottom: "1px solid var(--border-strong)",
+        }}>
+            {table.getHeaderGroups().map((headerGroup) => (
+                <tr key={headerGroup.id} className="flex w-full">
+                    {(() => {
+                        const figesEntete = decalagesFiges(
+                            headerGroup.headers.map((h) => ({ id: h.column.id, taille: h.getSize() })),
+                        );
+                        const dernierFigeEntete = [...figesEntete.keys()].at(-1);
+                        return headerGroup.headers.map((header) => {
+                        const gaucheEntete = figesEntete.get(header.column.id);
+                        const enteteFigee = gaucheEntete !== undefined;
+                        const isFlexible = header.column.id === "libelle1" || header.column.id === "libelle3";
+                        const isCenter = header.column.id === "totalQuantite" || header.column.id === "totalCa" || header.column.id === "totalMarge" || header.column.id.startsWith("month_") || header.column.id === "gammeInitial" || QLIK_NETWORK_COLUMN_IDS.has(header.column.id) || header.column.id === "prixVente" || header.column.id === "gamme";
+                        const size = header.getSize();
+                        return (
+                            <th
+                                key={header.id}
+                                className={cn(
+                                    "px-2 py-2 text-xs font-semibold leading-tight whitespace-nowrap select-none flex items-center transition-colors relative group/header",
+                                    !enteteFigee && "hover:bg-white/5",
+                                )}
+                                style={{
+                                    width: isFlexible ? "100%" : size,
+                                    flex: isFlexible ? `1 1 ${size}px` : `0 0 ${size}px`,
+                                    minWidth: size,
+                                    maxWidth: isFlexible ? "none" : size,
+                                    color: "var(--text-secondary)",
+                                    justifyContent: isCenter ? "center" : "flex-start",
+                                    ...(enteteFigee ? {
+                                        position: "sticky" as const,
+                                        left: gaucheEntete,
+                                        zIndex: 2,
+                                        // Le fond du <thead> est un dégradé translucide : sans
+                                        // fond propre, les autres intitulés défileraient à
+                                        // travers l'en-tête figé. On reprend le même dégradé
+                                        // pour que la bande reste d'un seul tenant.
+                                        background: "linear-gradient(to bottom, var(--bg-elevated), var(--bg-surface))",
+                                        borderRight: header.column.id === dernierFigeEntete
+                                            ? "1px solid var(--border-strong)"
+                                            : undefined,
+                                    } : {}),
+                                }}
+                                onClick={header.column.getToggleSortingHandler()}
+                            >
+                                <div className={`flex items-center gap-1.5 cursor-pointer ${isCenter ? "justify-center w-full" : ""}`}>
+                                    {flexRender(header.column.columnDef.header, header.getContext())}
+                                    {header.column.getCanSort() && (
+                                        <div className="shrink-0 opacity-40">
+                                            {header.column.getIsSorted() === "asc" ? <ChevronUp className="w-3 h-3 text-emerald-500" />
+                                                : header.column.getIsSorted() === "desc" ? <ChevronDown className="w-3 h-3 text-emerald-500" />
+                                                    : <ChevronsUpDown className="w-3 h-3" />
+                                            }
+                                        </div>
+                                    )}
+                                </div>
+                                {/* Handle de redimensionnement de la colonne */}
+                                {header.column.getCanResize() && (
+                                    <div
+                                        onMouseDown={header.getResizeHandler()}
+                                        onTouchStart={header.getResizeHandler()}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className={`absolute right-0 top-0 h-full w-1.5 cursor-col-resize user-select-none touch-none hover:bg-emerald-500/50 ${header.column.getIsResizing() ? "bg-emerald-500" : ""}`}
+                                    />
+                                )}
+                            </th>
+                        );
+                    });
+                    })()}
+                </tr>
+            ))}
+        </thead>
+    );
+});
+
+/**
  * Libellés du menu « Colonnes ». Les en-têtes de colonnes sont des fonctions
  * (deux lignes, infobulles) : le menu affichait leur identifiant technique
  * (« caReseau », « gammeInitial »…).
@@ -274,7 +368,7 @@ function libelleColonne(id: string, header: unknown): string {
     return typeof header === "string" ? header : id;
 }
 
-import { Cell, Column, Row } from "@tanstack/react-table";
+import { Cell, Column, Row, type Table } from "@tanstack/react-table";
 import { VirtualItem } from "@tanstack/react-virtual";
 
 // 2. Composant isolé pour la Ligne Virtuelle 
@@ -605,7 +699,7 @@ function VentilationParMagasin({ d }: { d: CellDetailData }) {
 
 // =========================================================================
 
-export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: HeatmapGridProps) {
+function HeatmapGridInner({ onSelectionChange, isAdmin, nomFournisseur }: HeatmapGridProps) {
     // L'abonnement doit être minimal ici ! PAS de draftChanges ni de setDraftGamme.
     const rows = useGridStore((s) => s.rows);
     const filters = useGridStore((s) => s.filters);
@@ -1159,6 +1253,9 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
 
 
     const rowVirtualizer = useVirtualizer({
+        // Pas de rendu synchrone à chaque événement de défilement (flushSync) :
+        // React regroupe les mises à jour, le défilement reste fluide.
+        useFlushSync: false,
         count: tableRows.length,
         getScrollElement: () => tableContainerRef.current,
         estimateSize: () => rowHeight,
@@ -1328,80 +1425,7 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
                 }}
             >
                 <table className="text-sm block" style={{ width: "100%", minWidth: totalWidth }}>
-                    <thead className="sticky top-0 z-10 block" style={{
-                        background: "linear-gradient(to bottom, var(--bg-elevated), var(--bg-surface))",
-                        borderBottom: "1px solid var(--border-strong)",
-                    }}>
-                        {table.getHeaderGroups().map((headerGroup) => (
-                            <tr key={headerGroup.id} className="flex w-full">
-                                {(() => {
-                                    const figesEntete = decalagesFiges(
-                                        headerGroup.headers.map((h) => ({ id: h.column.id, taille: h.getSize() })),
-                                    );
-                                    const dernierFigeEntete = [...figesEntete.keys()].at(-1);
-                                    return headerGroup.headers.map((header) => {
-                                    const gaucheEntete = figesEntete.get(header.column.id);
-                                    const enteteFigee = gaucheEntete !== undefined;
-                                    const isFlexible = header.column.id === "libelle1" || header.column.id === "libelle3";
-                                    const isCenter = header.column.id === "totalQuantite" || header.column.id === "totalCa" || header.column.id === "totalMarge" || header.column.id.startsWith("month_") || header.column.id === "gammeInitial" || QLIK_NETWORK_COLUMN_IDS.has(header.column.id) || header.column.id === "prixVente" || header.column.id === "gamme";
-                                    const size = header.getSize();
-                                    return (
-                                        <th
-                                            key={header.id}
-                                            className={cn(
-                                                "px-2 py-2 text-xs font-semibold leading-tight whitespace-nowrap select-none flex items-center transition-colors relative group/header",
-                                                !enteteFigee && "hover:bg-white/5",
-                                            )}
-                                            style={{
-                                                width: isFlexible ? "100%" : size,
-                                                flex: isFlexible ? `1 1 ${size}px` : `0 0 ${size}px`,
-                                                minWidth: size,
-                                                maxWidth: isFlexible ? "none" : size,
-                                                color: "var(--text-secondary)",
-                                                justifyContent: isCenter ? "center" : "flex-start",
-                                                ...(enteteFigee ? {
-                                                    position: "sticky" as const,
-                                                    left: gaucheEntete,
-                                                    zIndex: 2,
-                                                    // Le fond du <thead> est un dégradé translucide : sans
-                                                    // fond propre, les autres intitulés défileraient à
-                                                    // travers l'en-tête figé. On reprend le même dégradé
-                                                    // pour que la bande reste d'un seul tenant.
-                                                    background: "linear-gradient(to bottom, var(--bg-elevated), var(--bg-surface))",
-                                                    borderRight: header.column.id === dernierFigeEntete
-                                                        ? "1px solid var(--border-strong)"
-                                                        : undefined,
-                                                } : {}),
-                                            }}
-                                            onClick={header.column.getToggleSortingHandler()}
-                                        >
-                                            <div className={`flex items-center gap-1.5 cursor-pointer ${isCenter ? "justify-center w-full" : ""}`}>
-                                                {flexRender(header.column.columnDef.header, header.getContext())}
-                                                {header.column.getCanSort() && (
-                                                    <div className="shrink-0 opacity-40">
-                                                        {header.column.getIsSorted() === "asc" ? <ChevronUp className="w-3 h-3 text-emerald-500" />
-                                                            : header.column.getIsSorted() === "desc" ? <ChevronDown className="w-3 h-3 text-emerald-500" />
-                                                                : <ChevronsUpDown className="w-3 h-3" />
-                                                        }
-                                                    </div>
-                                                )}
-                                            </div>
-                                            {/* Handle de redimensionnement de la colonne */}
-                                            {header.column.getCanResize() && (
-                                                <div
-                                                    onMouseDown={header.getResizeHandler()}
-                                                    onTouchStart={header.getResizeHandler()}
-                                                    onClick={(e) => e.stopPropagation()}
-                                                    className={`absolute right-0 top-0 h-full w-1.5 cursor-col-resize user-select-none touch-none hover:bg-emerald-500/50 ${header.column.getIsResizing() ? "bg-emerald-500" : ""}`}
-                                                />
-                                            )}
-                                        </th>
-                                    );
-                                });
-                                })()}
-                            </tr>
-                        ))}
-                    </thead>
+                    <GridHeader table={table} columnsKey={columnsKey} sorting={sorting} columnSizing={columnSizing} rowSelection={rowSelection} data={filteredData} />
                     {/*
                       * La clé porte AUSSI la signature des colonnes : changer de jeu de
                       * colonnes remonte le corps du tableau au lieu de compter sur la
@@ -1470,3 +1494,9 @@ export function HeatmapGrid({ onSelectionChange, isAdmin, nomFournisseur }: Heat
         </>
     );
 }
+
+/**
+ * Mémoïsé : ses props sont stables, il n'a donc pas à se redessiner quand le
+ * parent change d'état (sélection, progression du chargement…).
+ */
+export const HeatmapGrid = React.memo(HeatmapGridInner);

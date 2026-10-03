@@ -114,9 +114,33 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
         const forceRefresh = refreshRequest !== servedRefreshRef.current;
         if (forceRefresh) params.set("refresh", "1");
 
+        const cle = `${codeFournisseur}:${magasin || "TOTAL"}`;
+        const { rowsMeta, rows: lignesEnMemoire, setRowsMeta } = useGridStore.getState();
+
+        // Retour sur la Grille (même fournisseur, même magasin, chargée il y a
+        // moins de 10 min) : les lignes sont encore en mémoire, rien à retélécharger.
+        if (!forceRefresh && rowsMeta?.key === cle && lignesEnMemoire.length > 0
+            && Date.now() - rowsMeta.loadedAt < 10 * 60 * 1000) {
+            setRowsLoaded(lignesEnMemoire.length);
+            setTotalRows(lignesEnMemoire.length);
+            setIsLoadingRows(false);
+            return;
+        }
+
+        // Changement de magasin (ou rechargement) sur le même fournisseur : la
+        // Grille reste affichée — les lignes portent déjà le détail par magasin,
+        // la bascule est immédiate — et les chiffres complétés pour ce magasin
+        // remplacent l'affichage d'un bloc, une fois reçus.
+        const memeFournisseur = rowsMeta?.key.startsWith(`${codeFournisseur}:`) === true && lignesEnMemoire.length > 0;
+
         const accumulatedRows: ProductRow[] = [];
         let lastFlush = 0;
-        setRows([]);
+        if (!memeFournisseur) {
+            setRows([]);
+            // Les lignes vont être remplacées : tant que ce chargement n'est pas
+            // terminé, elles ne correspondent plus à aucune clé.
+            setRowsMeta(null);
+        }
         setRowsLoaded(0);
         setTotalRows(null);
         setLoadError(null);
@@ -130,10 +154,12 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
         // Les lignes déjà poussées dans le store ne doivent plus bouger : on lui
         // passe une copie, et on continue d'accumuler dans le tableau privé.
         const flush = (loaded: number, total: number | null, final = false) => {
-            setRows(final ? accumulatedRows : accumulatedRows.slice());
             setRowsLoaded(loaded);
             setTotalRows(total);
             lastFlush = Date.now();
+            // Même fournisseur : on garde les lignes affichées jusqu'au bout.
+            if (memeFournisseur && !final) return;
+            setRows(final ? accumulatedRows : accumulatedRows.slice());
         };
 
         async function loadRows() {
@@ -184,6 +210,7 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
                 }
 
                 flush(loaded, total, true);
+                setRowsMeta({ key: cle, loadedAt: Date.now() });
                 if (forceRefresh) servedRefreshRef.current = refreshRequest;
             } catch (error) {
                 if (!controller.signal.aborted) {
@@ -265,7 +292,9 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
                     <div className="flex items-center justify-between gap-3 text-[13px] text-[var(--text-primary)]">
                         <span className="flex items-center gap-2">
                             <Loader2 className="h-4 w-4 animate-spin text-[var(--accent)]" />
-                            Chargement des produits de {nomFournisseur}…
+                            {nbRows > 0
+                                ? "Mise à jour des chiffres… la grille reste utilisable."
+                                : `Chargement des produits de ${nomFournisseur}…`}
                         </span>
                         <span className="tabular-nums text-[var(--text-secondary)]">
                             {totalRows

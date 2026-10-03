@@ -674,8 +674,11 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
 
     if (allCodeins.length > 0) {
         try {
-            for (let i = 0; i < allCodeins.length; i += 5) {
-                const batch = allCodeins.slice(i, i + 5);
+            // Vagues de 12 articles au lieu de 5 : chaque article coûte deux allers-
+            // retours successifs, et la page d'accueil attendait une douzaine de vagues.
+            const VAGUE = 12;
+            for (let i = 0; i < allCodeins.length; i += VAGUE) {
+                const batch = allCodeins.slice(i, i + VAGUE);
                 await Promise.all(batch.map(async (codein) => {
                     try {
                         const artRes = await fetch(`${FF_API_BASE}/api/articles?codein=${encodeURIComponent(codein)}`, ffFetchInit());
@@ -816,6 +819,27 @@ export interface CaByNomenclatureRow {
  * via une sous-requête artfou1 dédupliquée (DISTINCT ON) : un seul code par
  * article, aucune duplication possible des mouvements dans la somme.
  */
+/**
+ * Bornes d'un mois « YYYY-MM » : [premier jour, premier jour du mois suivant[.
+ *
+ * Filtrer `datmvt` sur ces bornes plutôt que sur `TO_CHAR(datmvt, 'YYYY-MM')`
+ * donne exactement les mêmes lignes, mais sans formater en texte la date de
+ * chaque mouvement de l'historique (et reste utilisable par un index sur datmvt).
+ */
+function bornesMois(mois: string): { debut: string; fin: string } {
+    const [annee, m] = mois.split("-").map(Number);
+    const suivant = m === 12 ? `${annee + 1}-01` : `${annee}-${String(m + 1).padStart(2, "0")}`;
+    return { debut: `${mois}-01`, fin: `${suivant}-01` };
+}
+
+/** Mouvements du mois OU du mois N-1 (cf. `bornesMois`). */
+function filtreDeuxMois(mois: string, moisN1: string): SQL {
+    const a = bornesMois(mois);
+    const b = bornesMois(moisN1);
+    return sql`((m.datmvt >= ${a.debut}::date AND m.datmvt < ${a.fin}::date)
+            OR (m.datmvt >= ${b.debut}::date AND m.datmvt < ${b.fin}::date))`;
+}
+
 export async function pgGetCaByFournisseur(
     mois: string,
     moisN1: string
@@ -836,7 +860,7 @@ export async function pgGetCaByFournisseur(
             ORDER BY art_no_id, code
         ) af ON af.art_no_id = a.no_id
         LEFT JOIN fouident fi ON fi.code     = af.code
-        WHERE (TO_CHAR(m.datmvt, 'YYYY-MM') = ${mois} OR TO_CHAR(m.datmvt, 'YYYY-MM') = ${moisN1})
+        WHERE ${filtreDeuxMois(mois, moisN1)}
           AND m.site IN ('292', '579')
           AND m.genremvt = 3
         GROUP BY af.code, fi.nom, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
@@ -865,7 +889,7 @@ export async function pgGetCaByNomenclature(
         FROM mvtart m
         JOIN articles      a ON a.no_id    = m.artnoid
         LEFT JOIN nomenclature n ON n.no_id = a.nom_no_id
-        WHERE (TO_CHAR(m.datmvt, 'YYYY-MM') = ${mois} OR TO_CHAR(m.datmvt, 'YYYY-MM') = ${moisN1})
+        WHERE ${filtreDeuxMois(mois, moisN1)}
           AND m.site IN ('292', '579')
           AND m.genremvt = 3
         GROUP BY n.no_id, n.code, n.libelle, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
@@ -1211,7 +1235,7 @@ export async function pgGetStockSansVente(site?: string): Promise<PgStockSansVen
         ${lastEntryJoin(link, sql`a.no_id`, sql`m.site`)}
         WHERE m.genremvt IN (1, 2)
           AND m.site IN ('292', '579')
-          AND date_trunc('month', m.datmvt) < date_trunc('month', CURRENT_DATE)
+          AND m.datmvt < date_trunc('month', CURRENT_DATE)
           ${siteFilter}
           AND NOT EXISTS (
               SELECT 1 FROM mvtart mv2

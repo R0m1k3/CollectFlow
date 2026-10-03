@@ -31,6 +31,10 @@ export interface AuthContext {
     subject: string;
 }
 
+/** Intervalle minimal entre deux mises à jour de `last_used_at` pour une même clé. */
+const TRACE_USAGE_MS = 60_000;
+const derniereTrace = new Map<number, number>();
+
 /** Préfixe des clés CollectFlow, pour les reconnaître d'un coup d'œil. */
 const KEY_PREFIX = "cf_";
 
@@ -93,9 +97,14 @@ export async function requireApiAuth(req: NextRequest): Promise<AuthContext | Re
             return fail("unauthorized", "Clé d'API révoquée.");
         }
 
-        // Trace d'usage — jamais bloquante pour la requête en cours.
-        void db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, row.id))
-            .catch((e) => console.error("[api-auth] lastUsedAt KO:", (e as Error).message?.slice(0, 120)));
+        // Trace d'usage — jamais bloquante, et au plus une écriture par minute et
+        // par clé : un script qui pagine ne déclenche plus un UPDATE par requête.
+        const maintenant = Date.now();
+        if (maintenant - (derniereTrace.get(row.id) ?? 0) >= TRACE_USAGE_MS) {
+            derniereTrace.set(row.id, maintenant);
+            void db.update(apiKeys).set({ lastUsedAt: new Date(maintenant) }).where(eq(apiKeys.id, row.id))
+                .catch((e) => console.error("[api-auth] lastUsedAt KO:", (e as Error).message?.slice(0, 120)));
+        }
 
         return { via: "api_key", role: row.role, subject: row.name };
     }

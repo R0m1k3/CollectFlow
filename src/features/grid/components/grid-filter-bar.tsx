@@ -18,7 +18,7 @@ interface GridFilterBarProps {
 
 const EMPTY_DRAFT_CHANGES: Record<string, string> = {};
 
-export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
+function GridFilterBarInner({ fournisseurs, magasins }: GridFilterBarProps) {
     const filters = useGridStore((s) => s.filters);
     const setFilter = useGridStore((s) => s.setFilter);
     const rows = useGridStore((s) => s.rows);
@@ -204,3 +204,9 @@ export function GridFilterBar({ fournisseurs, magasins }: GridFilterBarProps) {
         </div>
     );
 }
+
+/**
+ * Mémoïsé : ses props sont stables, il n'a donc pas à se redessiner quand le
+ * parent change d'état (sélection, progression du chargement…).
+ */
+export const GridFilterBar = React.memo(GridFilterBarInner);

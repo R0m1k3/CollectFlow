@@ -95,18 +95,27 @@ export async function getProduitFiche(codein: string): Promise<ProduitFiche | nu
     const cleaned = codein.trim();
     if (!cleaned) return null;
 
-    const detail = await pgGetProduitDetail(cleaned);
-    if (!detail) return null;
-
     const { dateDebut, dateFin } = buildLast12MonthsRange();
 
-    const [fournisseurs, stock, commandesEnCours, gammes, mensuelRows] = await Promise.all([
+    // Tout part en même temps : l'identité du produit était lue seule d'abord,
+    // puis les cinq autres lectures, puis les métriques réseau — trois attentes
+    // successives. Les métriques réseau n'attendent que l'identité (code centrale).
+    const detailPromise = pgGetProduitDetail(cleaned);
+    const reseauPromise = detailPromise.then(async (d) => {
+        if (!d?.code_centrale) return null;
+        const map = await getNetworkMetricsByCodeCentrale([d.code_centrale]);
+        return map.get(d.code_centrale) ?? null;
+    });
+    const [detail, fournisseurs, stock, commandesEnCours, gammes, mensuelRows, reseau] = await Promise.all([
+        detailPromise,
         pgGetFournisseursByCodein(cleaned),
         pgGetStockByCodein(cleaned),
         pgGetCommandesByCodein(cleaned),
         pgGetGammeHistoryByCodein(cleaned),
         pgGetMensuelByCodein(cleaned, dateDebut, dateFin),
+        reseauPromise,
     ]);
+    if (!detail) return null;
 
     const months = buildMonthKeys();
     const allowed = new Set(months);
@@ -179,12 +188,6 @@ export async function getProduitFiche(codein: string): Promise<ProduitFiche | nu
         .map(([site]) => site)
         .sort();
 
-    // Métriques réseau Qlik (jointure par code centrale).
-    let reseau = null;
-    if (detail.code_centrale) {
-        const map = await getNetworkMetricsByCodeCentrale([detail.code_centrale]);
-        reseau = map.get(detail.code_centrale) ?? null;
-    }
 
     return {
         detail,
