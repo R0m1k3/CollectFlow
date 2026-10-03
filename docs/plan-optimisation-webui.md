@@ -270,3 +270,37 @@ Règle commune à chaque page :
 - **Colonnes Qlik** : non modifié. `metricsByMonth` sert à la courbe « nombre de magasins vendeurs ».
 - **Carte KPI du tableau de bord** : non modifiée. La ligne « Hier / N-1 » est une comparaison voulue, pas un doublon.
 - **Préchauffage après la synchro** : reporté. L'invalidation suffit, la première visite recharge.
+
+## Suivi — Lot 2 réalisé
+
+- **Thème** :
+  - clair par défaut ; les classes `dark:` suivent le bouton de thème ;
+  - animations (`tw-animate-css`) réellement importées ;
+  - couleurs shadcn branchées sur les variables ;
+  - libellés gris au contraste AA dans les deux thèmes ;
+  - fond plein pour le menu et l'en-tête (le flou ne servait à rien).
+- **Composants partagés**, dans `src/components/ui/` :
+  - `PageHeader`, `Card`, `Field`, `StatCard` ;
+  - `Badge`, `DeltaBadge`, `StoreBadge`, `GammeBadge` ;
+  - `Tabs`, `Segmented`, `useUrlTab` ;
+  - `Select`, `SearchInput`, `Input` ;
+  - `EmptyState`, `ErrorState`, `Skeleton`, `PageSkeleton` ;
+  - `Tooltip`, `Terme` (glossaire) ;
+  - `toast` et `confirmer` (`feedback.tsx`) ;
+  - `Pagination`, `DataTable`.
+- **Sources uniques** :
+  - `lib/magasins.ts` (noms des magasins) ;
+  - `lib/gammes.ts` (A à Z, avec leur sens et leurs couleurs) ;
+  - `lib/glossaire.ts` ;
+  - `lib/marge.ts` (seuils 40 / 25 %, ceux de la Grille) ;
+  - `lib/export-excel.ts` (export unique, via exceljs).
+- **Navigation** :
+  - menu groupé (Au quotidien / Analyses / Suivi / Administration), déplié par défaut, libellés en français ;
+  - en-tête : nom de la page, thème, menu du compte (vrai nom, hauteur des lignes de la Grille pour tous, déconnexion) ;
+  - la recherche globale, qui ne filtrait que la Grille, est retirée.
+- **Historique** : nouvelle page `/historique` (sessions et exports), et redirection des anciennes adresses `/snapshots` et `/exports`. Les deux onglets sont visibles par tous : chacun n'y voit que ses propres enregistrements.
+- **Chargements et erreurs** :
+  - squelettes de page au lieu de la fenêtre plein écran ;
+  - pages d'erreur (`error.tsx`) et « page introuvable » en français ;
+  - après connexion, arrivée sur l'Accueil, comme pour `/`.
+- **Écart** : les en-têtes Excel de la page Stocks (CODEIN, GENCODE, QTE, CODMV, avec les codes 503 / 412) **ne seront pas renommés**. C'est vraisemblablement un format d'import de régularisation dans FF.

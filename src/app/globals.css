@@ -1,10 +1,44 @@
 @import "tailwindcss";
+/* Animations utilisées par les menus, fenêtres et notifications (animate-in,
+   fade-in, zoom-in-95…). Le paquet était installé mais jamais importé : ces
+   classes ne produisaient rien. */
+@import "tw-animate-css";
+
+/* Les variantes `dark:` suivent le thème choisi dans l'application (classe
+   `.dark` posée par next-themes sur <html>), et non le réglage du système :
+   sans cette ligne, un poste en clair affichait des éléments clairs dans
+   l'application en sombre, et inversement. */
+@custom-variant dark (&:where(.dark, .dark *));
 
 /* Police de l'app : Inter (chargée via <link> dans le layout, fallback système).
    Définie ici pour que l'utilitaire `font-sans` et var(--font-sans) la prennent
    sans recourir à next/font/google (pas de fetch réseau au build). */
 @theme {
   --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* Couleurs « shadcn » (bg-accent, text-muted-foreground, bg-primary…) branchées
+   sur les variables de l'application : elles n'étaient pas définies, et les
+   survols des menus déroulants, entre autres, ne se voyaient pas. */
+@theme inline {
+  --color-background: var(--bg-surface);
+  --color-foreground: var(--text-primary);
+  --color-card: var(--bg-surface);
+  --color-card-foreground: var(--text-primary);
+  --color-popover: var(--bg-surface);
+  --color-popover-foreground: var(--text-primary);
+  --color-primary: var(--brand-solid);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--bg-elevated);
+  --color-secondary-foreground: var(--text-primary);
+  --color-muted: var(--bg-elevated);
+  --color-muted-foreground: var(--text-secondary);
+  --color-accent: var(--bg-elevated);
+  --color-accent-foreground: var(--text-primary);
+  --color-destructive: var(--accent-error);
+  --color-border: var(--border);
+  --color-input: var(--border-strong);
+  --color-ring: var(--accent);
 }
 
 
@@ -42,8 +76,13 @@
   /* Slate 200 */
   --text-secondary: #94a3b8;
   /* Slate 400 */
-  --text-muted: #64748b;
-  /* Slate 500 */
+  --text-muted: #8494ab;
+  /* Entre Slate 400 et 500 : ≥ 4,5:1 sur toutes les surfaces sombres (AA).
+     L'ancien Slate 500 tombait à 3:1 sur --bg-elevated. */
+
+  /* Alias de variables utilisées par quelques écrans mais jamais définies. */
+  --border-subtle: var(--border);
+  --surface-tertiary: var(--bg-elevated);
 
   --accent: #2dd4bf;
   /* emerald-ish, Apple-tuned */
@@ -77,8 +116,8 @@
   --bg-surface: #ffffff;
   --bg-elevated: #f0f0f5;
   --bg-overlay: rgba(255, 255, 255, 0.82);
-  --border: rgba(0, 0, 0, 0.07);
-  --border-strong: rgba(0, 0, 0, 0.12);
+  --border: rgba(0, 0, 0, 0.10);
+  --border-strong: rgba(0, 0, 0, 0.16);
 
   /* Mêmes teintes, pas choisis pour le fond clair (et non un simple éclaircissement
      des valeurs sombres). L'aqua passe sous 3:1 sur blanc : la « règle de relief »
@@ -90,7 +129,9 @@
   --text-primary: #1d1d1f;
   /* Apple dark */
   --text-secondary: #515154;
-  --text-muted: #86868b;
+  /* ≥ 5:1 sur toutes les surfaces claires (AA). L'ancien #86868b, utilisé pour
+     la plupart des libellés, tombait à 3,2:1. */
+  --text-muted: #636366;
 
   --accent: #0d9488;
   /* deeper teal in light */
@@ -187,11 +228,11 @@
   padding: 20px;
 }
 
-/* ── Glass panels (sidebar, header) ── */
+/* ── Panneaux fixes (menu, en-tête) ──
+   Fond plein : le flou d'arrière-plan ne floutait rien (rien ne défile sous ces
+   panneaux) mais coûtait un recalcul GPU à chaque image. */
 .glass {
-  background: var(--bg-overlay);
-  backdrop-filter: saturate(180%) blur(20px);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  background: var(--bg-surface);
 }
 
 /* ── Apple border ── */
