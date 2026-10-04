@@ -14,7 +14,7 @@ import {
     type FilterFn,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, PackageX, Warehouse, AlertTriangle, TrendingUp, TrendingDown, Minus, CalendarRange, Tag, Eye, EyeOff } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, PackageX, Warehouse, AlertTriangle, CalendarRange, Tag, Eye, EyeOff } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -26,8 +26,8 @@ import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { GammeSelect } from "@/features/grid/components/gamme-select";
 import { HeatmapCell } from "@/features/grid/components/heatmap-cell";
-import { TuileStat } from "@/features/grid/components/stat-tile";
 import { ProductMonthlyModal } from "@/features/grid/components/product-monthly-modal";
+import { NetworkMonthlyModal } from "@/features/grid/components/network-monthly-modal";
 import { AssortmentGapsModal, PROFONDEUR_MAX, type LigneClassee } from "@/features/grid/components/assortment-gaps-modal";
 import type { ProductRow, GammeCode } from "@/types/grid";
 import { cn } from "@/lib/utils";
@@ -36,18 +36,14 @@ import {
     getMonthsFromRows,
     formatMonthLabel,
     formatDate,
-    fmtMonthShort,
     SITE_LABELS,
     getStoreConfig,
 } from "@/features/grid/lib/months";
 import {
     computeNetworkTrend,
-    computeStoresSeries,
-    trendLabel,
-    TREND_COLOR,
     NB_MAGASINS_RESEAU,
 } from "@/features/grid/lib/network-trend";
-import { TrendSparkline, NetworkLineChart } from "@/features/grid/components/network-charts";
+import { TrendSparkline } from "@/features/grid/components/network-charts";
 import type { NetworkTrend } from "@/features/grid/lib/network-trend";
 import { fmtDecimal1, fmtEntier, fmtEur0, fmtEur2 } from "@/lib/format";
 import { CLASSES_SANS_GAMME, trouverGamme } from "@/lib/gammes";
@@ -552,78 +548,6 @@ interface CellDetailData {
     qty: number | null;
     stock: number | null;
     receptions: number | null;
-}
-
-/**
- * Carte « tendance réseau » : le verdict en tuiles, puis les trois séries
- * mensuelles en petits multiples.
- *
- * La couleur de tendance (vert / rouge / gris) ne vit QUE dans la tuile de
- * verdict, accompagnée d'une flèche et d'un libellé : un état ne se signale
- * jamais par la couleur seule. Les courbes, elles, portent des teintes
- * d'identité — sans quoi la même couleur voudrait dire deux choses.
- */
-function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () => void }) {
-    const trend = tendanceDe(row);
-    const { values, labels, direction, pct } = trend;
-    const color = TREND_COLOR[direction];
-    const magasins = computeStoresSeries(row.nbMagReseauByMonth, labels);
-    const Fleche = direction === "up" ? TrendingUp : direction === "down" ? TrendingDown : Minus;
-
-    const dernier = values.length - 1;
-    const fmt = (v: number, d = 0) => v.toLocaleString("fr-FR", { minimumFractionDigits: d, maximumFractionDigits: d });
-    const verdict = trend.nouveau
-        ? "Nouveau"
-        : pct != null
-            ? `${pct >= 0 ? "+" : ""}${Math.round(pct * 100)} %`
-            : "—";
-
-    return (
-        <DialogContent className="max-w-2xl" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }} onInteractOutside={onClose}>
-            <DialogHeader>
-                <DialogTitle className="text-lg leading-snug pr-6" style={{ color: "var(--text-primary)" }}>
-                    {row.libelle1}
-                </DialogTitle>
-                <p className="text-[13px] mt-1" style={{ color: "var(--text-muted)" }}>
-                    Réseau · 12 mois glissants, mois en cours exclu
-                    {trend.enRetard && labels.length > 0 && ` · jusqu'à ${fmtMonthShort(labels[labels.length - 1])}, le dernier mois n'est pas encore synchronisé`}
-                </p>
-            </DialogHeader>
-
-            {!trend.hasData ? (
-                <div className="mt-3 rounded-xl p-4 text-center text-[13px]" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
-                    Pas encore de détail mensuel pour ce produit.<br />Relancez un Sync Qlik pour le remplir.
-                </div>
-            ) : (
-                <>
-                    <div className="flex flex-wrap gap-2 mt-1">
-                        <TuileStat
-                            label="Tendance"
-                            valeur={verdict}
-                            indice={trend.surQteParMagasin
-                                ? `${trendLabel(pct, trend.nouveau)} · sur la qté/magasin`
-                                : `${trendLabel(pct, trend.nouveau)} · sur les volumes (magasins inconnus)`}
-                            couleur={color}
-                            icone={Fleche}
-                        />
-                        {trend.perStore && (
-                            <TuileStat
-                                label="Qté / magasin"
-                                valeur={fmt(trend.perStore[dernier], trend.perStore[dernier] < 10 ? 1 : 0)}
-                                indice={`dernier mois · ${fmt(trend.perStore.reduce((t, v) => t + v, 0) / trend.perStore.length, 1)} en moyenne`}
-                            />
-                        )}
-                        <TuileStat
-                            label="Magasins vendeurs"
-                            valeur={magasins ? fmt(magasins.values[dernier]) : fmt(row.nbMagasinsReseau ?? 0)}
-                            indice={`sur ${NB_MAGASINS_RESEAU} du réseau`}
-                        />
-                    </div>
-                    <NetworkLineChart labels={labels} values={values} stores={magasins?.values} perStore={trend.perStore} />
-                </>
-            )}
-        </DialogContent>
-    );
 }
 
 function CellDetailModal({ d, activeMagasin, onClose }: { d: CellDetailData; activeMagasin: string; onClose: () => void }) {
@@ -1507,7 +1431,14 @@ function HeatmapGridInner({ codeFournisseur, onSelectionChange, isAdmin, nomFour
             {cellDetail !== null && <CellDetailModal d={cellDetail!} activeMagasin={activeMagasin} onClose={() => setCellDetail(null)} />}
         </Dialog>
         <Dialog open={networkModal !== null} onOpenChange={(open) => { if (!open) setNetworkModal(null); }}>
-            {networkModal !== null && <NetworkMonthlyModal row={networkModal} onClose={() => setNetworkModal(null)} />}
+            {networkModal !== null && (
+                <NetworkMonthlyModal
+                    row={networkModal}
+                    trend={tendanceDe(networkModal)}
+                    mois={MONTHS_12}
+                    onClose={() => setNetworkModal(null)}
+                />
+            )}
         </Dialog>
         {/* Trous d'assortiment sur le haut du classement affiché */}
         <Dialog open={gapsOpen} onOpenChange={setGapsOpen}>
