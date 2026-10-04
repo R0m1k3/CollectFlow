@@ -436,3 +436,31 @@ Autres changements :
   - et rien ne garantit que la base FF relie chaque mouvement à son fournisseur (colonne détectée au cas par cas) : le fournisseur affiché pourrait changer.
   - À reprendre après le diagnostic du lot 7.
 - **Largeurs de colonnes en variables CSS** : peu de gain maintenant que l'écriture des réglages est différée.
+
+## Suivi — Lot 7 réalisé (diagnostic de la base FF)
+
+Les réécritures SQL restantes demandent de connaître la vraie base FF : types des colonnes, index, volumes. Ce dépôt ne les contient pas. Elles concernent :
+- `TRIM(a.codein::text)` dans une quinzaine de requêtes ;
+- `TO_CHAR(datmvt)` dans les regroupements ;
+- la jointure par code plutôt que par identifiant dans Meilleures ventes.
+
+Le script `scripts/diagnostic-ff.js` les relève, en lecture seule :
+- version et réglages de PostgreSQL ;
+- taille des tables et date de dernière analyse ;
+- types des colonnes de jointure et de filtre ;
+- index existants ;
+- nombre de codes article contenant des espaces (pour savoir si `TRIM()` est utile) ;
+- plans d'exécution de six requêtes représentatives : recherche d'un article par code avec et sans `TRIM`, Meilleures ventes sur 7 jours, dernière réception, ventes mensuelles d'un fournisseur, stock sans vente.
+
+**À lancer sur le serveur de production** (conteneur `web` du docker-compose) :
+
+```bash
+docker compose exec web node scripts/diagnostic-ff.js > diagnostic-ff.txt
+# Avec les durées réelles (exécute les requêtes, à faire hors heures d'ouverture) :
+docker compose exec web node scripts/diagnostic-ff.js --analyze > diagnostic-ff-analyze.txt
+```
+
+Le fichier produit ne contient aucun mot de passe, seulement des noms de tables, de colonnes et d'index, et des plans d'exécution. Une fois transmis, il permet de décider :
+- quels `TRIM()` retirer ;
+- quels index proposer à l'administrateur de la base FF ;
+- s'il faut remplacer l'enrichissement HTTP de l'Accueil.
