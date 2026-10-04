@@ -19,6 +19,13 @@ import { getNetworkMetricsByCodeCentrale, type NetworkMetricCached } from "@/lib
 import { NB_MAGASINS_RESEAU } from "@/features/grid/lib/network-trend";
 // Persiste l'instantané lu par /api/v1 : sans lui, l'API n'aurait aucune donnée.
 import { readGridSnapshot, upsertGridRows } from "@/lib/grid-store";
+import {
+    applyStorePatchInPlace,
+    buildStorePatchEntries,
+    storePatchCandidates,
+    type StorePatch,
+    type StorePatchEntry,
+} from "@/features/grid/lib/store-patch";
 
 interface GetProductRowsInput {
     codeFournisseur: string;
@@ -568,28 +575,27 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
     }
 }
 
-async function reconcileSelectedStoreFromMensuelApi(
+/** Articles complétés par l'API FF, au plus, lors d'un changement de magasin. */
+function plafondComplement(): number {
+    return Number(process.env.GRID_STORE_RECONCILE_MAX ?? 300);
+}
+
+/** Interroge l'API FF pour les articles du magasin à compléter (cf. store-patch). */
+async function fetchStorePatchEntries(
     rows: ProductRow[],
     magasin: string,
     dateDebut: string,
     dateFin: string,
-    sortedPeriods: string[]
-) {
-    if (magasin === "TOTAL") return;
-
-    const candidates = rows.filter((row) => {
-        if (!row.noid) return false;
-        const storeQty = row.quantiteByStore?.[magasin] ?? 0;
-        return storeQty === 0;
-    });
-
-    if (candidates.length === 0) return;
+    periods: string[],
+): Promise<StorePatchEntry[]> {
+    const candidates = storePatchCandidates(rows, magasin);
+    if (candidates.length === 0) return [];
 
     // Ce rattrapage fait UNE requête HTTP par article : sur un gros fournisseur,
     // les candidats se comptent par milliers et le changement de magasin se fige
     // plusieurs minutes. On le borne, et on dit ce qui a été laissé de côté
     // plutôt que de tronquer en silence.
-    const PLAFOND = Number(process.env.GRID_STORE_RECONCILE_MAX ?? 300);
+    const PLAFOND = plafondComplement();
     const retenus = candidates.slice(0, PLAFOND);
     if (candidates.length > retenus.length) {
         console.warn(
@@ -598,94 +604,77 @@ async function reconcileSelectedStoreFromMensuelApi(
         );
     }
 
+    const mensuelMap = await getMensuelByArticles(
+        retenus.map((row) => ({
+            codein: row.codein,
+            libelle1: row.libelle1,
+            codefou: row.codeFournisseur,
+            noid: row.noid,
+        })),
+        dateDebut,
+        dateFin,
+        25
+    );
+    return buildStorePatchEntries(retenus, magasin, periods, mensuelMap);
+}
+
+async function reconcileSelectedStoreFromMensuelApi(
+    rows: ProductRow[],
+    magasin: string,
+    dateDebut: string,
+    dateFin: string,
+    sortedPeriods: string[]
+) {
+    if (magasin === "TOTAL") return;
     try {
-        const mensuelMap = await getMensuelByArticles(
-            retenus.map((row) => ({
-                codein: row.codein,
-                libelle1: row.libelle1,
-                codefou: row.codeFournisseur,
-                noid: row.noid,
-            })),
-            dateDebut,
-            dateFin,
-            25
-        );
-
-        let fixedRows = 0;
-        for (const row of retenus) {
-            const entries = (mensuelMap.get(row.codein) ?? []).filter((entry) => entry.site === magasin);
-            if (entries.length === 0) continue;
-
-            const byPeriod = new Map<string, { qty: number; ca: number; marge: number; stock: number; receptions: number }>();
-            for (const entry of entries) {
-                const period = entry.mois.replace("-", "");
-                if (!sortedPeriods.includes(period)) continue;
-                // qte_vendue / ca_ht sont NÉGATIFS côté API (ventes nettes) : on
-                // les nie au lieu de Math.abs pour que les retours restent déduits.
-                const qty = -(Number(entry.ventes?.qte_vendue ?? 0) || 0);
-                const ca = -(Number(entry.ventes?.ca_ht ?? 0) || 0);
-                const marge = Number(entry.ventes?.marge ?? 0) || 0;
-                const stock = Number(entry.stock_fin_mois ?? 0) || 0;
-                const receptions = Number(entry.receptions?.qte_recue ?? 0) || 0;
-                byPeriod.set(period, { qty, ca, marge, stock, receptions });
-            }
-
-            const apiQty = [...byPeriod.values()].reduce((sum, value) => sum + value.qty, 0);
-            if (apiQty === 0) continue;
-
-            row.sales12mByStore ??= {};
-            row.stock12mByStore ??= {};
-            row.receptions12mByStore ??= {};
-            row.caByStore ??= {};
-            row.quantiteByStore ??= {};
-            row.margeByStore ??= {};
-            row.sales12mByStore[magasin] ??= {};
-            row.stock12mByStore[magasin] ??= {};
-            row.receptions12mByStore[magasin] ??= {};
-
-            let storeQty = 0;
-            let storeCa = 0;
-            let storeMarge = 0;
-            let lastStock = 0;
-
-            for (const period of sortedPeriods) {
-                const value = byPeriod.get(period);
-                const currentQty = row.sales12mByStore[magasin][period] ?? 0;
-                const nextQty = value?.qty ?? 0;
-                const deltaQty = nextQty - currentQty;
-
-                row.sales12mByStore[magasin][period] = nextQty;
-                row.receptions12mByStore[magasin][period] = value?.receptions ?? 0;
-                if (value) lastStock = value.stock;
-                row.stock12mByStore[magasin][period] = lastStock;
-
-                row.sales12m[period] = (row.sales12m[period] ?? 0) + deltaQty;
-                storeQty += nextQty;
-                storeCa += value?.ca ?? 0;
-                storeMarge += value?.marge ?? 0;
-            }
-
-            const deltaTotalQty = storeQty - (row.quantiteByStore[magasin] ?? 0);
-            const deltaTotalCa = storeCa - (row.caByStore[magasin] ?? 0);
-            const deltaTotalMarge = storeMarge - (row.margeByStore[magasin] ?? 0);
-
-            row.quantiteByStore[magasin] = storeQty;
-            row.caByStore[magasin] = storeCa;
-            row.margeByStore[magasin] = storeMarge;
-            row.totalQuantite += deltaTotalQty;
-            row.totalCa += deltaTotalCa;
-            row.totalMarge += deltaTotalMarge;
-            row.tauxMarge = row.totalCa > 0 ? (row.totalMarge / row.totalCa) * 100 : 0;
-            if (!row.workingStores.includes(magasin)) row.workingStores.push(magasin);
-            fixedRows++;
-        }
-
+        const entries = await fetchStorePatchEntries(rows, magasin, dateDebut, dateFin, sortedPeriods);
+        const fixedRows = applyStorePatchInPlace(rows, magasin, sortedPeriods, entries);
         if (fixedRows > 0) {
             console.log(`[getProductRows] ${fixedRows} produits corrigés via API mensuelle pour magasin ${magasin}`);
         }
     } catch (error) {
         console.error("[getProductRows] Mensuel API reconciliation error:", error);
     }
+}
+
+/**
+ * Compléments par magasin, rattachés au tableau de lignes « tous magasins » en
+ * cache : ils vivent et meurent avec lui (expiration, « Actualiser », nouvel
+ * enregistrement), sans autre invalidation à gérer.
+ */
+const storePatches = new WeakMap<ProductRow[], Map<string, Promise<StorePatch>>>();
+
+/**
+ * Complément de l'API FF pour un magasin, calculé sur les lignes « tous
+ * magasins » (jamais modifiées ici). La Grille l'applique à son arrivée, sans
+ * recharger les lignes. Les demandes simultanées partagent le même calcul, et
+ * un échec n'est jamais gardé.
+ */
+export async function getStorePatch(codeFournisseur: string, magasin: string): Promise<StorePatch> {
+    const enCache = gridRowsCache.get(`${codeFournisseur}:TOTAL`);
+    const rows = enCache && Date.now() - enCache.createdAt < GRID_ROWS_CACHE_TTL_MS
+        ? enCache.rows
+        : await getProductRows({ codeFournisseur, magasin: "TOTAL" });
+
+    let parMagasin = storePatches.get(rows);
+    if (!parMagasin) {
+        parMagasin = new Map();
+        storePatches.set(rows, parMagasin);
+    }
+    let patch = parMagasin.get(magasin);
+    if (!patch) {
+        const periods = last12Periods();
+        const { dateDebut, dateFin } = buildLast12MonthsRange();
+        const enCours = fetchStorePatchEntries(rows, magasin, dateDebut, dateFin, periods)
+            .then((entries): StorePatch => ({ magasin, periods, entries }));
+        const table = parMagasin;
+        enCours.catch(() => {
+            if (table.get(magasin) === enCours) table.delete(magasin);
+        });
+        parMagasin.set(magasin, enCours);
+        patch = enCours;
+    }
+    return patch;
 }
 
 /**

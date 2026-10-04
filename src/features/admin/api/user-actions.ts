@@ -4,24 +4,14 @@ import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { hashPassword } from "@/features/auth/logic/auth-logic";
-import { auth } from "@/lib/auth";
+import { requireAdmin } from "@/lib/authz";
 import { revalidatePath } from "next/cache";
-
-/**
- * Vérifie si l'utilisateur actuel est un administrateur.
- */
-async function ensureAdmin() {
-    const session = await auth();
-    if ((session?.user as any)?.role !== "admin") {
-        throw new Error("Accès refusé : Droits administrateur requis.");
-    }
-}
 
 /**
  * Récupère tous les utilisateurs (Admin seulement).
  */
 export async function getUsers() {
-    await ensureAdmin();
+    await requireAdmin();
     return db.select({
         id: users.id,
         username: users.username,
@@ -34,7 +24,7 @@ export async function getUsers() {
  * Crée un nouvel utilisateur.
  */
 export async function createUser(username: string, password: string, role: "admin" | "user" = "user") {
-    await ensureAdmin();
+    await requireAdmin();
 
     try {
         await db.insert(users).values({
@@ -54,10 +44,8 @@ export async function createUser(username: string, password: string, role: "admi
  * Supprime un utilisateur.
  */
 export async function deleteUser(id: number) {
-    await ensureAdmin();
-
-    const session = await auth();
-    if (Number((session?.user as any)?.id) === id) {
+    const moi = await requireAdmin();
+    if (Number(moi.id) === id) {
         return { success: false, error: "Vous ne pouvez pas supprimer votre propre compte." };
     }
 
@@ -65,7 +53,7 @@ export async function deleteUser(id: number) {
         await db.delete(users).where(eq(users.id, id));
         revalidatePath("/settings");
         return { success: true };
-    } catch (err) {
+    } catch {
         return { success: false, error: "Erreur lors de la suppression." };
     }
 }
@@ -74,13 +62,13 @@ export async function deleteUser(id: number) {
  * Met à jour le mot de passe d'un utilisateur.
  */
 export async function updatePassword(id: number, newPassword: string) {
-    await ensureAdmin();
+    await requireAdmin();
     try {
         await db.update(users)
             .set({ passwordHash: hashPassword(newPassword) })
             .where(eq(users.id, id));
         return { success: true };
-    } catch (err) {
+    } catch {
         return { success: false, error: "Erreur lors de la mise à jour du mot de passe." };
     }
 }

@@ -24,7 +24,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 try {
                     console.log(`[AUTH] Checking user "${credentials.username}"...`);
                     
-                    let user: any = null;
+                    let user: { id: number | string; username: string; passwordHash: string; role: string } | undefined;
 
                     // Try DB first
                     try {
@@ -33,12 +33,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                             .where(eq(users.username, credentials.username as string));
                         user = dbUser;
                         console.log(`[AUTH] DB check: User found: ${!!user}`);
-                    } catch (dbErr) {
+                    } catch {
+                        // Base injoignable uniquement : un compte absent de la base ne doit
+                        // pas pouvoir se connecter avec le fichier de secours (admin/admin).
                         console.warn("[AUTH] DB unreachable, falling back to JSON.");
-                    }
-
-                    // Fallback to JSON if DB failed or user not found
-                    if (!user) {
                         const fallbackUsers = getFallbackUsers();
                         user = fallbackUsers.find(u => u.username === credentials.username);
                         console.log(`[AUTH] JSON check: User found: ${!!user}`);

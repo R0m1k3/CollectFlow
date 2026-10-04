@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
+import { adminOuReponse } from "@/lib/authz";
 import { readSyncSettings, saveSyncSettings } from "@/features/admin/api/sync-settings";
 import {
     getSyncSchedulerState,
@@ -15,19 +15,10 @@ export const dynamic = "force-dynamic";
 // Un lancement manuel peut enchaîner plusieurs fournisseurs.
 export const maxDuration = 300;
 
-async function requireAdmin(): Promise<NextResponse | null> {
-    const session = await auth();
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if ((session.user as { role?: string } | undefined)?.role !== "admin") {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    return null;
-}
-
 /** GET — réglages, état courant, et prochaine ouverture de fenêtre. */
 export async function GET() {
-    const denied = await requireAdmin();
-    if (denied) return denied;
+    const denied = await adminOuReponse();
+    if (denied instanceof Response) return denied;
 
     const settings = await readSyncSettings();
     const maintenant = new Date();
@@ -55,8 +46,8 @@ const settingsSchema = z.object({
 
 /** PATCH — met à jour les réglages. */
 export async function PATCH(req: NextRequest) {
-    const denied = await requireAdmin();
-    if (denied) return denied;
+    const denied = await adminOuReponse();
+    if (denied instanceof Response) return denied;
 
     let body: unknown;
     try {
@@ -87,8 +78,8 @@ const actionSchema = z.object({
 
 /** POST — démarre un round manuellement, l'arrête, ou resynchronise la liste. */
 export async function POST(req: NextRequest) {
-    const denied = await requireAdmin();
-    if (denied) return denied;
+    const denied = await adminOuReponse();
+    if (denied instanceof Response) return denied;
 
     let body: unknown;
     try {

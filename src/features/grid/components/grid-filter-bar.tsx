@@ -97,11 +97,15 @@ function GridFilterBarInner({ fournisseurs, magasins }: GridFilterBarProps) {
     const setActiveMagasin = useGridStore((s) => s.setActiveMagasin);
     const activeMagasin = useGridStore((s) => s.activeMagasin);
 
+    // Changement de magasin sans aller-retour serveur : les lignes portent déjà
+    // le détail par magasin. L'URL suit (lien partageable, retour par le menu),
+    // via l'historique du navigateur, que Next répercute sur useSearchParams.
     const handleStoreSelect = (code: string) => {
+        if (code === activeMagasin) return;
         setActiveMagasin(code);
         const params = new URLSearchParams(searchParams.toString());
         params.set("magasin", code);
-        router.replace(`/grid?${params.toString()}`, { scroll: false });
+        window.history.replaceState(null, "", `?${params.toString()}`);
     };
 
 

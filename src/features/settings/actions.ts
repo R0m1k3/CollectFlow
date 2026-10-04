@@ -1,43 +1,114 @@
 "use server";
 
+/**
+ * Actions des Paramètres — réservées aux administrateurs.
+ *
+ * Aucun secret ne repart vers le navigateur : les mots de passe (base, Qlik) et
+ * les clés d'IA restent dans `data/.db-config.json`. Un mot de passe laissé vide
+ * dans le formulaire signifie « conserver celui qui est enregistré ».
+ */
+
 import { Pool } from "pg";
-import fs from "fs/promises";
-import path from "path";
+import { requireAdmin, verifierAdmin } from "@/lib/authz";
+import { CONFIG_FILE, readConfig, writeConfig } from "./config-file";
+import { diagnostiquerApiFf } from "./ff-api-diagnostic";
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const CONFIG_FILE = path.join(DATA_DIR, ".db-config.json");
-
-export interface DbConfig {
-    url: string;
-    openRouterKey?: string;
-    openRouterModel?: string;
-    aiProvider?: "openrouter" | "google";
-    googleAiKey?: string;
-    googleAiModel?: string;
-    /** Qlik Sense — données réseau */
-    qlikHost?: string;
-    qlikUser?: string;
-    qlikPassword?: string;
-    /**
-     * API REST FF Nancy (ex. https://api.ffnancy.fr). Sert au panneau de statut et
-     * au rattrapage des ventes par magasin dans la Grille. Configurable ici pour
-     * ne pas dépendre d'une variable d'environnement qu'on ne peut pas changer
-     * sans redéployer.
-     */
-    ffApiBaseUrl?: string;
+export interface ChampsBaseDeDonnees {
+    host: string;
+    port: string;
+    database: string;
+    user: string;
+    /** Vide ou absent : le mot de passe enregistré est conservé. */
+    password?: string;
+    ssl: boolean;
 }
 
-/** Lit la config existante (ou {} si absente). */
-async function readConfig(): Promise<Partial<DbConfig>> {
+/** Ce que le formulaire peut afficher : jamais de mot de passe ni de clé. */
+export interface ParametresAffichables {
+    db: {
+        host: string;
+        port: string;
+        database: string;
+        user: string;
+        ssl: boolean;
+        motDePasseEnregistre: boolean;
+    } | null;
+    qlik: { host: string; user: string; motDePasseEnregistre: boolean };
+    ffApiBaseUrl: string;
+}
+
+/** Décode un composant d'URL, ou le garde tel quel s'il n'est pas encodé proprement. */
+function decoder(valeur: string): string {
     try {
-        const data = await fs.readFile(CONFIG_FILE, "utf-8");
-        return JSON.parse(data);
+        return decodeURIComponent(valeur);
     } catch {
-        return {};
+        return valeur;
     }
 }
 
-export async function testDatabaseConnection(url: string) {
+/** Découpe l'URL `postgres://` enregistrée en champs du formulaire. */
+function lireUrlPostgres(url: string) {
+    try {
+        const u = new URL(url);
+        return {
+            host: u.hostname,
+            port: u.port || "5432",
+            database: decoder(u.pathname.slice(1)),
+            user: decoder(u.username),
+            password: decoder(u.password),
+            ssl: url.includes("sslmode=require"),
+        };
+    } catch (e) {
+        console.error("[Settings] URL de base enregistrée illisible :", (e as Error).message);
+        return null;
+    }
+}
+
+function construireUrlPostgres(champs: ChampsBaseDeDonnees, motDePasse: string): string {
+    const user = encodeURIComponent(champs.user.trim());
+    const identifiants = motDePasse ? `${user}:${encodeURIComponent(motDePasse)}` : user;
+    const port = champs.port.trim() || "5432";
+    return `postgres://${identifiants}@${champs.host.trim()}:${port}/${champs.database.trim()}${champs.ssl ? "?sslmode=require" : ""}`;
+}
+
+/** Mot de passe saisi, sinon celui de l'URL enregistrée. */
+async function motDePasseBase(champs: ChampsBaseDeDonnees): Promise<string> {
+    if (champs.password) return champs.password;
+    const { url } = await readConfig();
+    return (url && lireUrlPostgres(url)?.password) || "";
+}
+
+/** Réglages enregistrés, sans aucun secret. */
+export async function getParametresAffichables(): Promise<ParametresAffichables> {
+    await requireAdmin();
+    const config = await readConfig();
+    const base = config.url ? lireUrlPostgres(config.url) : null;
+    return {
+        db: base
+            ? {
+                host: base.host,
+                port: base.port,
+                database: base.database,
+                user: base.user,
+                ssl: base.ssl,
+                motDePasseEnregistre: base.password !== "",
+            }
+            : null,
+        qlik: {
+            host: config.qlikHost ?? "",
+            user: config.qlikUser ?? "",
+            // Même ordre de priorité que getQlikConfig() : réglage enregistré, puis variable d'environnement.
+            motDePasseEnregistre: Boolean(config.qlikPassword || process.env.QLIK_PWD),
+        },
+        ffApiBaseUrl: config.ffApiBaseUrl ?? "",
+    };
+}
+
+export async function testDatabaseConnection(champs: ChampsBaseDeDonnees) {
+    const acces = await verifierAdmin();
+    if (!acces.ok) return { success: false, error: acces.message };
+
+    const url = construireUrlPostgres(champs, await motDePasseBase(champs));
     console.log("Testing connection to:", url.replace(/:([^@]+)@/, ":****@"));
     const pool = new Pool({
         connectionString: url,
@@ -58,24 +129,15 @@ export async function testDatabaseConnection(url: string) {
     }
 }
 
-export async function saveDatabaseSettings(
-    url: string,
-    openRouterKey?: string,
-    openRouterModel?: string,
-    aiProvider?: "openrouter" | "google",
-    googleAiKey?: string,
-    googleAiModel?: string,
-) {
+export async function saveDatabaseSettings(champs: ChampsBaseDeDonnees) {
+    const acces = await verifierAdmin();
+    if (!acces.ok) return { success: false, error: acces.message };
+
     try {
-        // Merge avec l'existant pour préserver les autres réglages (ex: Qlik)
-        const existing = await readConfig();
-        const config: DbConfig = { ...existing, url, openRouterKey, openRouterModel, aiProvider, googleAiKey, googleAiModel };
-
-        // S'assurer que le dossier data existe
-        await fs.mkdir(DATA_DIR, { recursive: true });
-
+        const url = construireUrlPostgres(champs, await motDePasseBase(champs));
+        // Seule l'URL change : les clés d'IA et les réglages Qlik / API FF sont conservés.
         console.log(`[Settings] Saving config to ${CONFIG_FILE}`);
-        await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2));
+        await writeConfig({ url });
         console.log("[Settings] Database configuration saved successfully.");
 
         // Refresh the shared DB instance immediately
@@ -90,12 +152,13 @@ export async function saveDatabaseSettings(
     }
 }
 
-export async function saveQlikSettings(qlikHost: string, qlikUser: string, qlikPassword: string) {
+/** Mot de passe vide ou absent : celui qui est enregistré est conservé. */
+export async function saveQlikSettings(qlikHost: string, qlikUser: string, qlikPassword?: string) {
+    const acces = await verifierAdmin();
+    if (!acces.ok) return { success: false, error: acces.message };
+
     try {
-        const existing = await readConfig();
-        const config = { ...existing, qlikHost, qlikUser, qlikPassword } as DbConfig;
-        await fs.mkdir(DATA_DIR, { recursive: true });
-        await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2));
+        await writeConfig({ qlikHost, qlikUser, ...(qlikPassword ? { qlikPassword } : {}) });
         console.log("[Settings] Qlik configuration saved.");
         return { success: true };
     } catch (error: unknown) {
@@ -105,10 +168,15 @@ export async function saveQlikSettings(qlikHost: string, qlikUser: string, qlikP
     }
 }
 
-export async function testQlikConnection(qlikHost: string, qlikUser: string, qlikPassword: string) {
+/** Mot de passe vide ou absent : on teste avec celui qui est enregistré. */
+export async function testQlikConnection(qlikHost: string, qlikUser: string, qlikPassword?: string) {
+    const acces = await verifierAdmin();
+    if (!acces.ok) return { success: false, error: acces.message };
+
     try {
         const { getQlikConfig, qlikNtlmSession } = await import("@/lib/qlik-client");
-        const cfg = { ...getQlikConfig(), user: qlikUser, password: qlikPassword };
+        const enregistre = getQlikConfig();
+        const cfg = { ...enregistre, user: qlikUser, password: qlikPassword || enregistre.password };
         if (qlikHost) cfg.host = qlikHost;
         await qlikNtlmSession(cfg);
         return { success: true };
@@ -120,15 +188,15 @@ export async function testQlikConnection(qlikHost: string, qlikUser: string, qli
 
 /** Enregistre l'URL de l'API FF Nancy. Chaîne vide = revenir au défaut. */
 export async function saveFfApiSettings(ffApiBaseUrl: string) {
+    const acces = await verifierAdmin();
+    if (!acces.ok) return { success: false, error: acces.message };
+
     try {
         const cleaned = ffApiBaseUrl.trim().replace(/\/+$/, "");
         if (cleaned && !/^https?:\/\//i.test(cleaned)) {
             return { success: false, error: "L'URL doit commencer par http:// ou https://" };
         }
-        const existing = await readConfig();
-        const config = { ...existing, ffApiBaseUrl: cleaned || undefined } as DbConfig;
-        await fs.mkdir(DATA_DIR, { recursive: true });
-        await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2));
+        await writeConfig({ ffApiBaseUrl: cleaned || undefined });
         // Sans cela, l'ancienne URL resterait servie jusqu'à 30 s après la sauvegarde.
         const { resetFfApiBaseCache } = await import("@/lib/api-ff-client");
         resetFfApiBaseCache();
@@ -141,71 +209,9 @@ export async function saveFfApiSettings(ffApiBaseUrl: string) {
     }
 }
 
-/**
- * Teste l'API FF Nancy et renvoie un diagnostic **exploitable**.
- *
- * L'ancien panneau se contentait d'un « HTTP 503 » opaque : impossible de savoir
- * si l'hôte était injoignable, l'URL erronée ou le service en panne. On distingue
- * donc ici l'échec réseau (DNS, refus de connexion, délai dépassé) du code HTTP.
- */
-export async function testFfApiConnection(ffApiBaseUrl?: string) {
-    const base = (ffApiBaseUrl?.trim() || (await readConfig()).ffApiBaseUrl || process.env.FF_API_BASE_URL || "https://api.ffnancy.fr").replace(/\/+$/, "");
-    const url = `${base}/api/sync/status`;
-    const started = Date.now();
-    try {
-        const res = await fetch(url, {
-            cache: "no-store",
-            signal: AbortSignal.timeout(8000),
-        });
-        const ms = Date.now() - started;
-        if (!res.ok) {
-            return { success: false, url, error: `Le serveur a répondu HTTP ${res.status} (${res.statusText || "sans message"}) en ${ms} ms.` };
-        }
-        const body = await res.json().catch(() => null);
-        if (!body) {
-            return { success: false, url, error: `Réponse HTTP 200 mais corps illisible (JSON attendu).` };
-        }
-        // La réponse brute de l'API n'a pas la forme attendue par l'interface :
-        // sans cette normalisation, le panneau s'affiche vide malgré un HTTP 200.
-        const { normalizeSyncStatus } = await import("@/lib/api-ff-client");
-        const status = normalizeSyncStatus(body);
-        if (!status) {
-            return { success: false, url, error: `Réponse HTTP 200 mais format inattendu (ni « sync » ni « tables »).` };
-        }
-        return { success: true, url, ms, status };
-    } catch (error: unknown) {
-        const ms = Date.now() - started;
-        const raw = error instanceof Error ? error.message : String(error);
-        const name = error instanceof Error ? error.name : "";
-        // fetch masque la cause réelle derrière « fetch failed » : on la déplie.
-        const cause = (error as { cause?: { code?: string; message?: string } })?.cause;
-        let hint = raw;
-        if (name === "TimeoutError" || name === "AbortError") {
-            hint = `Aucune réponse en ${ms} ms — serveur injoignable ou trop lent.`;
-        } else if (cause?.code === "ENOTFOUND") {
-            hint = `Nom d'hôte introuvable (DNS) — vérifiez l'URL.`;
-        } else if (cause?.code === "ECONNREFUSED") {
-            hint = `Connexion refusée — le service n'écoute pas sur cette adresse.`;
-        } else if (cause?.code) {
-            hint = `${cause.code}${cause.message ? ` — ${cause.message}` : ""}`;
-        }
-        console.error(`[Settings] FF API test KO (${url}):`, raw);
-        return { success: false, url, error: hint };
-    }
-}
-
-export async function getSavedDatabaseConfig(): Promise<DbConfig | null> {
-    try {
-        if (!(await fs.stat(CONFIG_FILE).catch(() => null))) {
-            console.log(`[Settings] Config file not found at ${CONFIG_FILE}`);
-            return null;
-        }
-        const data = await fs.readFile(CONFIG_FILE, "utf-8");
-        const config = JSON.parse(data);
-        console.log(`[Settings] Config read from ${CONFIG_FILE}. Key present: ${!!config.openRouterKey}, Model: ${config.openRouterModel || "default"}`);
-        return config;
-    } catch (error) {
-        console.error(`[Settings] Error reading config from ${CONFIG_FILE}:`, error);
-        return null;
-    }
+/** Teste l'API FF Nancy (voir `diagnostiquerApiFf`). */
+export async function testFfApiConnection(ffApiBaseUrl?: string): Promise<Awaited<ReturnType<typeof diagnostiquerApiFf>>> {
+    const acces = await verifierAdmin();
+    if (!acces.ok) return { success: false, url: "", error: acces.message };
+    return diagnostiquerApiFf(ffApiBaseUrl);
 }

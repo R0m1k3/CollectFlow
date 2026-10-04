@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { verifierAdmin } from "@/lib/authz";
 import { ParametresClient } from "./client";
 
 export const metadata: Metadata = { title: "Paramètres" };
@@ -11,6 +13,9 @@ export const metadata: Metadata = { title: "Paramètres" };
  * lien se partage et survive au rechargement, puis rend la page cliente.
  */
 export default async function SettingsPage(props: { searchParams: Promise<{ onglet?: string }> }) {
+    // Le middleware filtre déjà sur le rôle du jeton ; ici, rôle relu en base.
+    if (!(await verifierAdmin()).ok) redirect("/dashboard");
+
     const { onglet } = await props.searchParams;
     return <ParametresClient onglet={onglet} />;
 }

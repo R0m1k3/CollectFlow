@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
+import { adminOuReponse } from "@/lib/authz";
 
 const FF_API_BASE = process.env.FF_API_BASE_URL ?? "https://api.ffnancy.fr";
 
@@ -31,6 +32,9 @@ async function probe(url: string) {
 }
 
 export async function GET(req: NextRequest) {
+    const acces = await adminOuReponse();
+    if (acces instanceof Response) return acces;
+
     const { searchParams } = new URL(req.url);
 
     // Date range: 12 derniers mois
@@ -55,7 +59,7 @@ export async function GET(req: NextRequest) {
 
     if (!firstCodein) {
         try {
-            const res = await fetch(`${FF_API_BASE}/api/articles?codefou=${codefou}&limit=1`, { cache: "no-store" });
+            const res = await fetch(`${FF_API_BASE}/api/articles?codefou=${encodeURIComponent(codefou)}&limit=1`, { cache: "no-store" });
             const data = await res.json();
             const list = Array.isArray(data) ? data : (Object.values(data).find(v => Array.isArray(v)) as unknown[] ?? []);
             if (list.length > 0) firstCodein = (list[0] as Record<string, unknown>).codein as string ?? null;
@@ -80,13 +84,13 @@ export async function GET(req: NextRequest) {
         referentiel_forced,
     ] = await Promise.all([
         probe(`${FF_API_BASE}/api/fournisseurs?limit=2`),
-        probe(`${FF_API_BASE}/api/articles?codefou=${codefou}&limit=2`),
-        probe(`${FF_API_BASE}/api/mouvements/articles?codefou=${codefou}&dateDebut=${dateDebut}&dateFin=${dateFin}&limit=2`),
+        probe(`${FF_API_BASE}/api/articles?codefou=${encodeURIComponent(codefou)}&limit=2`),
+        probe(`${FF_API_BASE}/api/mouvements/articles?codefou=${encodeURIComponent(codefou)}&dateDebut=${dateDebut}&dateFin=${dateFin}&limit=2`),
         // Test mensuel avec no_id auto-résolu
         firstCodein
             ? (async () => {
                 try {
-                    const res = await fetch(`${FF_API_BASE}/api/articles?codefou=${codefou}&limit=1`, { cache: "no-store" });
+                    const res = await fetch(`${FF_API_BASE}/api/articles?codefou=${encodeURIComponent(codefou)}&limit=1`, { cache: "no-store" });
                     const data = await res.json();
                     const list = Array.isArray(data) ? data : (Object.values(data).find(v => Array.isArray(v)) as unknown[] ?? []);
                     const noid = list[0] ? (list[0] as Record<string, unknown>).no_id as string : null;
@@ -99,7 +103,7 @@ export async function GET(req: NextRequest) {
         firstCodein
             ? (async () => {
                 try {
-                    const res = await fetch(`${FF_API_BASE}/api/articles?codefou=${codefou}&limit=5`, { cache: "no-store" });
+                    const res = await fetch(`${FF_API_BASE}/api/articles?codefou=${encodeURIComponent(codefou)}&limit=5`, { cache: "no-store" });
                     const data = await res.json();
                     const list = Array.isArray(data) ? data : (Object.values(data).find(v => Array.isArray(v)) as unknown[] ?? []);
                     const art = (list[4] ?? list[0]) as Record<string, unknown> | undefined;

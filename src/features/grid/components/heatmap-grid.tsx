@@ -52,6 +52,8 @@ import { couleurMarge } from "@/lib/marge";
 import { Button } from "@/components/ui/button";
 
 interface HeatmapGridProps {
+    /** Fournisseur affiché : la sélection est remise à zéro quand il change. */
+    codeFournisseur: string;
     onSelectionChange?: (codeins: string[]) => void;
     isAdmin?: boolean;
     /** Sert à nommer et documenter les extractions issues de la Grille. */
@@ -699,10 +701,14 @@ function VentilationParMagasin({ d }: { d: CellDetailData }) {
 
 // =========================================================================
 
-function HeatmapGridInner({ onSelectionChange, isAdmin, nomFournisseur }: HeatmapGridProps) {
+function HeatmapGridInner({ codeFournisseur, onSelectionChange, isAdmin, nomFournisseur }: HeatmapGridProps) {
     // L'abonnement doit être minimal ici ! PAS de draftChanges ni de setDraftGamme.
+    // Champs de filtre lus un par un : la recherche ne doit pas recalculer
+    // `filteredData` (donc reconstruire toutes les lignes) à chaque frappe.
     const rows = useGridStore((s) => s.rows);
-    const filters = useGridStore((s) => s.filters);
+    const code3 = useGridStore((s) => s.filters.code3);
+    const codeGamme = useGridStore((s) => s.filters.codeGamme);
+    const search = useGridStore((s) => s.filters.search);
     const displayDensity = useGridStore((s) => s.displayDensity);
     const draftChanges = useGridStore((s) => s.filters.codeGamme ? s.draftChanges : EMPTY_DRAFT_CHANGES);
     const activeMagasin = useGridStore((s) => s.activeMagasin);
@@ -713,12 +719,16 @@ function HeatmapGridInner({ onSelectionChange, isAdmin, nomFournisseur }: Heatma
 
     // Filtre client-side par code3 (famille) et codeGamme
     const filteredData = useMemo(() => {
-        const { code3, codeGamme } = filters;
+        // Changement de magasin : les accesseurs de tri (quantité, CA, marge, prix)
+        // dépendent du magasin, et TanStack garde la valeur de chaque ligne en cache
+        // sans jamais retrier sur un changement de colonnes. Un nouveau tableau
+        // donne de nouvelles lignes : tri juste, et cases redessinées aussitôt.
+        void activeMagasin;
         // Garde : un état persisté d'une version antérieure peut encore contenir
         // une chaîne. La migration du store le corrige, mais un `new Set("320211")`
         // produirait un ensemble de caractères et viderait la Grille sans rien dire.
         const codes = Array.isArray(code3) ? code3 : typeof code3 === "string" ? [code3] : null;
-        if (!codes && !codeGamme) return rows;
+        if (!codes && !codeGamme) return rows.slice();
         // Set plutôt que includes() : la liste peut compter des dizaines de
         // nomenclatures, et le filtre est réévalué pour chaque ligne.
         const nomenclatures = codes ? new Set(codes) : null;
@@ -731,7 +741,7 @@ function HeatmapGridInner({ onSelectionChange, isAdmin, nomFournisseur }: Heatma
             }
             return true;
         });
-    }, [rows, filters, draftChanges]);
+    }, [rows, code3, codeGamme, draftChanges, activeMagasin]);
 
     const [sorting, setSorting] = useState<SortingState>([]);
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
@@ -775,10 +785,12 @@ function HeatmapGridInner({ onSelectionChange, isAdmin, nomFournisseur }: Heatma
         []
     );
 
-    // Reset selection when rows change (e.g. supplier change)
+    // Sélection remise à zéro au changement de fournisseur seulement : elle est
+    // indexée par code article, et survit donc à un rechargement des lignes, à un
+    // enregistrement ou au complément des chiffres d'un magasin.
     useEffect(() => {
         setRowSelection({});
-    }, [rows]);
+    }, [codeFournisseur]);
 
     const columns = React.useMemo<ColumnDef<ProductRow>[]>(() => [
         {
@@ -1198,7 +1210,7 @@ function HeatmapGridInner({ onSelectionChange, isAdmin, nomFournisseur }: Heatma
     const table = useReactTable({
         data: filteredData,
         columns,
-        state: { sorting, globalFilter: filters.search, rowSelection, columnVisibility, columnSizing },
+        state: { sorting, globalFilter: search, rowSelection, columnVisibility, columnSizing },
         onSortingChange: setSorting,
         onRowSelectionChange: handleRowSelectionChange,
         onColumnVisibilityChange: setColumnVisibility,
@@ -1249,7 +1261,7 @@ function HeatmapGridInner({ onSelectionChange, isAdmin, nomFournisseur }: Heatma
             // Delay update to next tick to ensure we're out of any render cycles
             setTimeout(() => onSelectionChange(selectedCodeins), 0);
         }
-    }, [table, rowSelection, onSelectionChange, filteredData, filters.search]);
+    }, [table, rowSelection, onSelectionChange, filteredData, search]);
 
 
     const rowVirtualizer = useVirtualizer({

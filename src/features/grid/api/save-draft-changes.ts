@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { sessionSnapshots } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
+import { verifierSession } from "@/lib/authz";
 import { patchGridRowsCache } from "./get-product-rows";
 import { updateGridRowsGamme } from "@/lib/grid-store";
 
@@ -24,6 +24,9 @@ const SaveDraftsSchema = z.object({
 export async function saveDraftChanges(
     raw: unknown
 ): Promise<{ success: boolean; saved: number; error?: string }> {
+    const acces = await verifierSession();
+    if (!acces.ok) return { success: false, saved: 0, error: acces.message };
+
     const parsed = SaveDraftsSchema.safeParse(raw);
     if (!parsed.success) {
         return { success: false, saved: 0, error: "Validation failed: " + parsed.error.message };
@@ -31,9 +34,8 @@ export async function saveDraftChanges(
 
     const { codeFournisseur, nomFournisseur, magasin, changes } = parsed.data;
 
-    const session = await auth();
-    const rawUserId = (session?.user as { id?: string | number })?.id;
-    const userId = rawUserId ? parseInt(String(rawUserId), 10) : null;
+    const rawUserId = acces.utilisateur.id;
+    const userId = rawUserId ? parseInt(rawUserId, 10) : null;
     const finalUserId = userId && !isNaN(userId) ? userId : null;
 
     try {

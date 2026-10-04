@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { z } from "zod";
+import { sessionOuReponse } from "@/lib/authz";
 
 const ExportModifiedGammesSchema = z.object({
     nomFournisseur: z.string(),
@@ -13,6 +14,9 @@ const ExportModifiedGammesSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+    const acces = await sessionOuReponse();
+    if (acces instanceof Response) return acces;
+
     const body = await req.json();
     const parsed = ExportModifiedGammesSchema.safeParse(body);
     if (!parsed.success) {

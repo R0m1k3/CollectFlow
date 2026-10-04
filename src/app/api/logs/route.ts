@@ -11,24 +11,15 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { adminOuReponse } from "@/lib/authz";
 import { listCaptures, readCapture } from "@/lib/log-capture";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function requireAdmin(): Promise<NextResponse | null> {
-    const session = await auth();
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if ((session.user as { role?: string } | undefined)?.role !== "admin") {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    return null;
-}
-
 export async function GET(req: NextRequest) {
-    const refus = await requireAdmin();
-    if (refus) return refus;
+    const refus = await adminOuReponse();
+    if (refus instanceof Response) return refus;
 
     const id = req.nextUrl.searchParams.get("id");
     if (!id) {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { pgDiagFournisseurDerniereEntree } from "@/lib/pg-ff-client";
+import { adminOuReponse } from "@/lib/authz";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,9 @@ export const dynamic = "force-dynamic";
  * blanche `MVTART_FOU_CANDIDATES` si le nom diffère.
  */
 export async function GET() {
+    const acces = await adminOuReponse();
+    if (acces instanceof Response) return acces;
+
     try {
         return NextResponse.json(await pgDiagFournisseurDerniereEntree());
     } catch (e) {

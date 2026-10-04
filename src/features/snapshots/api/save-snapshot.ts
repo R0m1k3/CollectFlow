@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { sessionSnapshots } from "@/db/schema";
 import { z } from "zod";
 import { sql, and, eq } from "drizzle-orm";
-import { auth } from "@/lib/auth";
+import { verifierSession } from "@/lib/authz";
 import { revalidatePath } from "next/cache";
 
 const SaveSnapshotSchema = z.object({
@@ -26,6 +26,9 @@ const SaveSnapshotSchema = z.object({
 });
 
 export async function saveSnapshot(raw: unknown) {
+    const acces = await verifierSession();
+    if (!acces.ok) return { success: false, error: acces.message };
+
     const parsed = SaveSnapshotSchema.safeParse(raw);
     if (!parsed.success) {
         console.error("Snapshot validation failed:", parsed.error.format());
@@ -33,9 +36,8 @@ export async function saveSnapshot(raw: unknown) {
     }
 
     const { codeFournisseur, nomFournisseur, magasin, label, changes, summary, type } = parsed.data;
-    const session = await auth();
-    const rawUserId = (session?.user as any)?.id;
-    const userId = rawUserId ? parseInt(String(rawUserId), 10) : null;
+    const rawUserId = acces.utilisateur.id;
+    const userId = rawUserId ? parseInt(rawUserId, 10) : null;
 
     console.log(`[saveSnapshot] User: ${userId} (raw: ${rawUserId}), Supplier: ${codeFournisseur}, Type: ${type}`);
 
@@ -59,7 +61,7 @@ export async function saveSnapshot(raw: unknown) {
         revalidatePath("/snapshots");
         revalidatePath("/exports");
         return { success: true, snapshotId: created?.id };
-    } catch (err: any) {
+    } catch (err) {
         console.error("Initial snapshot save failed, attempting auto-repair...", err);
 
         try {
@@ -103,14 +105,10 @@ export async function saveSnapshot(raw: unknown) {
                 .returning({ id: sessionSnapshots.id });
 
             return { success: true, snapshotId: retryCreated?.id };
-        } catch (repairErr: any) {
+        } catch (repairErr) {
+            // Le détail technique (les deux erreurs) reste dans les journaux du serveur.
             console.error("Snapshot auto-repair/retry failed:", repairErr);
-            const origMsg = (err.message || String(err)).split('\n')[0];
-            const retryMsg = (repairErr.message || String(repairErr)).split('\n')[0];
-            return {
-                success: false,
-                error: `Erreur initiale: ${origMsg} | Erreur après réparation: ${retryMsg}`
-            };
+            return { success: false, error: "erreur technique sur le serveur" };
         }
     }
 }

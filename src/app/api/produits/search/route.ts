@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { sessionOuReponse } from "@/lib/authz";
 import { demarrerRecherche, etatRecherche } from "@/features/produits/api/search-produits";
 
 // Les réponses sont immédiates (le travail Qlik tourne en tâche de fond), mais on
@@ -21,14 +21,9 @@ export const dynamic = "force-dynamic";
  * d'erreur **HTML** — le client échouait alors sur « Unexpected token '<' … is
  * not valid JSON ». Même schéma que `POST /api/qlik/sync`.
  *
- * Le middleware Next ne protège pas `/api/*` : contrôle de session explicite.
+ * Contrôle de session explicite en plus du middleware : il répond ici en JSON,
+ * et relit le compte en base (cf. lib/authz).
  */
-
-async function requireSession(): Promise<NextResponse | null> {
-    const session = await auth();
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    return null;
-}
 
 function lireTerme(req: NextRequest): string | null {
     const q = (req.nextUrl.searchParams.get("q") ?? "").trim();
@@ -36,8 +31,8 @@ function lireTerme(req: NextRequest): string | null {
 }
 
 export async function POST(req: NextRequest) {
-    const denied = await requireSession();
-    if (denied) return denied;
+    const denied = await sessionOuReponse();
+    if (denied instanceof Response) return denied;
 
     const q = lireTerme(req);
     if (!q) return NextResponse.json({ error: "Saisissez au moins 3 caractères" }, { status: 400 });
@@ -54,8 +49,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-    const denied = await requireSession();
-    if (denied) return denied;
+    const denied = await sessionOuReponse();
+    if (denied instanceof Response) return denied;
 
     const q = lireTerme(req);
     if (!q) return NextResponse.json({ error: "Saisissez au moins 3 caractères" }, { status: 400 });

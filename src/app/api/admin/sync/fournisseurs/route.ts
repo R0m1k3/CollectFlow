@@ -1,21 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { asc, eq, inArray, sql } from "drizzle-orm";
-import { auth } from "@/lib/auth";
+import { adminOuReponse } from "@/lib/authz";
 import { db } from "@/db";
 import { syncFournisseurs } from "@/db/schema";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-async function requireAdmin(): Promise<NextResponse | null> {
-    const session = await auth();
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if ((session.user as { role?: string } | undefined)?.role !== "admin") {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    return null;
-}
 
 /**
  * GET — la liste complète des fournisseurs paramétrés, avec l'état de leur
@@ -25,8 +16,8 @@ async function requireAdmin(): Promise<NextResponse | null> {
  * besoin de la vue d'ensemble pour décider qui cadencer.
  */
 export async function GET() {
-    const denied = await requireAdmin();
-    if (denied) return denied;
+    const denied = await adminOuReponse();
+    if (denied instanceof Response) return denied;
 
     const rows = await db
         .select()
@@ -65,8 +56,8 @@ const patchSchema = z.object({
  * trompeur, alors même qu'il vient d'être rouvert volontairement.
  */
 export async function PATCH(req: NextRequest) {
-    const denied = await requireAdmin();
-    if (denied) return denied;
+    const denied = await adminOuReponse();
+    if (denied instanceof Response) return denied;
 
     let body: unknown;
     try {

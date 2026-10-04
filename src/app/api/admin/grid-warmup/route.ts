@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { adminOuReponse } from "@/lib/authz";
 import { pgGetFournisseurs } from "@/lib/pg-ff-client";
 import { getProductRows } from "@/features/grid/api/get-product-rows";
 import { listGridSuppliers } from "@/lib/grid-store";
@@ -43,15 +43,6 @@ function publicJob(j: WarmupJob | null) {
         return { status: "idle" as const, total: 0, done: 0, skipped: 0, failed: 0, lastErrors: [] };
     }
     return j;
-}
-
-async function requireAdmin(): Promise<NextResponse | null> {
-    const session = await auth();
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if ((session.user as { role?: string } | undefined)?.role !== "admin") {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    return null;
 }
 
 async function runWarmup(j: WarmupJob, staleHours: number): Promise<void> {
@@ -102,8 +93,8 @@ async function runWarmup(j: WarmupJob, staleHours: number): Promise<void> {
 
 /** GET /api/admin/grid-warmup — avancement du préchauffage. */
 export async function GET() {
-    const denied = await requireAdmin();
-    if (denied) return denied;
+    const denied = await adminOuReponse();
+    if (denied instanceof Response) return denied;
     return NextResponse.json({ success: true, ...publicJob(job) });
 }
 
@@ -112,8 +103,8 @@ export async function GET() {
  * Démarre le préchauffage en arrière-plan et répond immédiatement.
  */
 export async function POST(req: NextRequest) {
-    const denied = await requireAdmin();
-    if (denied) return denied;
+    const denied = await adminOuReponse();
+    if (denied instanceof Response) return denied;
 
     if (job?.status === "running") {
         return NextResponse.json({ success: true, ...publicJob(job) });

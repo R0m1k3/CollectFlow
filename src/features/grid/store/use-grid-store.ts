@@ -3,6 +3,19 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { GammeCode, GridFilters, GridSummary, ProductRow } from "@/types/grid";
+import { withStorePatch, type StorePatch } from "@/features/grid/lib/store-patch";
+import { getMonthsFromRows } from "@/features/grid/lib/months";
+
+/** Ce que décrit `rowsMeta` : les lignes d'un fournisseur, tous magasins. */
+export interface RowsMeta {
+    key: string;
+    loadedAt: number;
+    /** Magasins dont le complément de l'API FF est déjà appliqué à ces lignes. */
+    patchedStores: string[];
+}
+
+/** Clé des lignes chargées pour un fournisseur (toujours « tous magasins »). */
+export const rowsKeyFor = (codeFournisseur: string) => `${codeFournisseur}:TOTAL`;
 
 interface GridState {
     /** Source data from server */
@@ -25,12 +38,17 @@ interface GridState {
     refreshRequest: number;
     requestRefresh: () => void;
     /**
-     * Ce que contiennent `rows` (fournisseur:magasin) et quand elles ont été
-     * chargées. Non persisté : sert à ne pas retélécharger la Grille quand on y
-     * revient, et à changer de magasin sans vider l'écran.
+     * Ce que contiennent `rows` et quand elles ont été chargées. Non persisté :
+     * sert à ne pas retélécharger la Grille quand on y revient, et à savoir quels
+     * magasins ont déjà reçu leur complément.
      */
-    rowsMeta: { key: string; loadedAt: number } | null;
-    setRowsMeta: (meta: { key: string; loadedAt: number } | null) => void;
+    rowsMeta: RowsMeta | null;
+    setRowsMeta: (meta: RowsMeta | null) => void;
+    /**
+     * Applique le complément d'un magasin, s'il concerne encore les lignes
+     * affichées (`gen` = clé et date de chargement au moment de la demande).
+     */
+    applyStorePatch: (gen: { key: string; loadedAt: number }, patch: StorePatch) => void;
     /** Persisted column visibility state */
     columnVisibility: Record<string, boolean>;
     /** Persisted column sizing state */
@@ -231,6 +249,34 @@ export const useGridStore = create<GridState>()(
             setActiveGridQuery: (query) => set({ activeGridQuery: sansParamRefresh(query) }),
             requestRefresh: () => set((state) => ({ refreshRequest: state.refreshRequest + 1 })),
             setRowsMeta: (meta) => set({ rowsMeta: meta }),
+            applyStorePatch: (gen, patch) => {
+                const { rows, rowsByCodein, rowsMeta } = get();
+                if (!rowsMeta || rowsMeta.key !== gen.key || rowsMeta.loadedAt !== gen.loadedAt) return;
+                const patchedStores = rowsMeta.patchedStores.includes(patch.magasin)
+                    ? rowsMeta.patchedStores
+                    : [...rowsMeta.patchedStores, patch.magasin];
+                // Complément calculé sur une autre fenêtre de 12 mois (changement de
+                // mois entre les deux requêtes) : on le laisse de côté.
+                const mois = getMonthsFromRows(rows);
+                const memeFenetre = !mois || mois.join(",") === patch.periods.join(",");
+                const parCode = new Map(patch.entries.map((e) => [e.codein, e]));
+                if (!memeFenetre || !patch.entries.some((e) => rowsByCodein[e.codein])) {
+                    set({ rowsMeta: { ...rowsMeta, patchedStores } });
+                    return;
+                }
+                // Nouvelles lignes pour les seuls articles complétés : les autres
+                // gardent leur objet, et donc leur rendu mémorisé.
+                const nouvelles = rows.map((r) => {
+                    const e = parCode.get(r.codein);
+                    return e ? withStorePatch(r, patch.magasin, e) : r;
+                });
+                set({ rows: nouvelles, rowsByCodein: indexRows(nouvelles), rowsMeta: { ...rowsMeta, patchedStores } });
+                if (summaryTimer) clearTimeout(summaryTimer);
+                summaryTimer = setTimeout(() => {
+                    const state = get();
+                    set({ summary: computeSummary(state.rows, state.draftChanges, state.activeMagasin) });
+                }, 80);
+            },
             restoreSnapshot: (changes) => {
                 set({ draftChanges: changes, summary: computeSummary(get().rows, changes, get().activeMagasin) });
             },

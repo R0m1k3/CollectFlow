@@ -5,7 +5,8 @@ import { HeatmapGrid } from "@/features/grid/components/heatmap-grid";
 import { FloatingSummaryBar } from "@/features/grid/components/floating-summary-bar";
 import { BulkActionToolbar } from "@/features/grid/components/bulk-action-toolbar";
 import { GridFilterBar } from "@/features/grid/components/grid-filter-bar";
-import { useGridStore } from "@/features/grid/store/use-grid-store";
+import { rowsKeyFor, useGridStore } from "@/features/grid/store/use-grid-store";
+import { useStorePatch } from "@/features/grid/hooks/use-store-patch";
 import type { ProductRow } from "@/types/grid";
 import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -61,6 +62,7 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
     const setFilter = useGridStore((s) => s.setFilter);
     const setCode3Filter = useGridStore((s) => s.setCode3Filter);
     const setActiveMagasin = useGridStore((s) => s.setActiveMagasin);
+    const activeMagasin = useGridStore((s) => s.activeMagasin);
     const searchParams = useSearchParams();
 
     const [selectedCodeins, setSelectedCodeins] = useState<string[]>([]);
@@ -107,18 +109,21 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
         const controller = new AbortController();
         const params = new URLSearchParams();
         params.set("fournisseur", codeFournisseur);
-        params.set("magasin", magasin || "TOTAL");
+        // Toujours « tous magasins » : les lignes portent le détail de chaque
+        // magasin, le changement de magasin se fait donc sans rien recharger
+        // (les compléments de l'API FF arrivent à part, cf. useStorePatch).
+        params.set("magasin", "TOTAL");
         // Les filtres de nomenclature (code1/code2/code3) ne sont pas transmis : le
         // serveur ne s'en sert pas et la Grille les applique en local. Les faire
         // voyager relançait un chargement complet à chaque changement.
         const forceRefresh = refreshRequest !== servedRefreshRef.current;
         if (forceRefresh) params.set("refresh", "1");
 
-        const cle = `${codeFournisseur}:${magasin || "TOTAL"}`;
+        const cle = rowsKeyFor(codeFournisseur);
         const { rowsMeta, rows: lignesEnMemoire, setRowsMeta } = useGridStore.getState();
 
-        // Retour sur la Grille (même fournisseur, même magasin, chargée il y a
-        // moins de 10 min) : les lignes sont encore en mémoire, rien à retélécharger.
+        // Retour sur la Grille (même fournisseur, chargée il y a moins de 10 min) :
+        // les lignes sont encore en mémoire, rien à retélécharger.
         if (!forceRefresh && rowsMeta?.key === cle && lignesEnMemoire.length > 0
             && Date.now() - rowsMeta.loadedAt < 10 * 60 * 1000) {
             setRowsLoaded(lignesEnMemoire.length);
@@ -127,11 +132,9 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
             return;
         }
 
-        // Changement de magasin (ou rechargement) sur le même fournisseur : la
-        // Grille reste affichée — les lignes portent déjà le détail par magasin,
-        // la bascule est immédiate — et les chiffres complétés pour ce magasin
-        // remplacent l'affichage d'un bloc, une fois reçus.
-        const memeFournisseur = rowsMeta?.key.startsWith(`${codeFournisseur}:`) === true && lignesEnMemoire.length > 0;
+        // « Actualiser » (ou lignes de plus de 10 min) sur le même fournisseur : la
+        // Grille reste affichée, et les nouvelles lignes la remplacent d'un bloc.
+        const memeFournisseur = rowsMeta?.key === cle && lignesEnMemoire.length > 0;
 
         const accumulatedRows: ProductRow[] = [];
         let lastFlush = 0;
@@ -210,7 +213,7 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
                 }
 
                 flush(loaded, total, true);
-                setRowsMeta({ key: cle, loadedAt: Date.now() });
+                setRowsMeta({ key: cle, loadedAt: Date.now(), patchedStores: [] });
                 if (forceRefresh) servedRefreshRef.current = refreshRequest;
             } catch (error) {
                 if (!controller.signal.aborted) {
@@ -226,9 +229,13 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
         loadRows();
 
         return () => controller.abort();
-    }, [codeFournisseur, magasin, refreshRequest, setRows, isMounted]);
+    }, [codeFournisseur, refreshRequest, setRows, isMounted]);
 
-    // Synchroniser le magasin actif depuis la prop URL (changement de magasin sans rechargement)
+    // Compléments de l'API FF pour le magasin choisi, appliqués à leur arrivée.
+    useStorePatch(codeFournisseur, isMounted);
+
+    // Magasin initial (ou porté par un lien) : la prop vient de l'URL. Les
+    // changements suivants passent par le store et ne re-rendent pas la page.
     useEffect(() => {
         if (!isMounted) return;
         setActiveMagasin(magasin || "TOTAL");
@@ -259,7 +266,7 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
                         </h1>
                     </div>
                     <div className="hidden md:flex items-center gap-2 pl-4 shrink-0 border-l border-[var(--border)]">
-                        <MetricPill label="Magasin" value={nomMagasin(magasin)} />
+                        <MetricPill label="Magasin" value={nomMagasin(activeMagasin)} />
                         <MetricPill label="Produits" value={nbReferences.toLocaleString("fr-FR")} accent />
                     </div>
                 </div>
@@ -327,6 +334,7 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
             {/* Main content */}
             <div className="flex-1 min-h-0 min-w-0">
                 <HeatmapGrid
+                    codeFournisseur={codeFournisseur}
                     onSelectionChange={setSelectedCodeins}
                     isAdmin={isAdmin}
                     nomFournisseur={nomFournisseur}

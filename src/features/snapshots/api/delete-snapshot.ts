@@ -3,12 +3,14 @@
 import { db } from "@/db";
 import { sessionSnapshots } from "@/db/schema";
 import { and, eq, isNull } from "drizzle-orm";
-import { auth } from "@/lib/auth";
+import { verifierSession } from "@/lib/authz";
 
 export async function deleteSnapshot(id: number) {
-    const session = await auth();
-    const rawUserId = (session?.user as any)?.id;
-    const userId = rawUserId ? parseInt(String(rawUserId), 10) : null;
+    const acces = await verifierSession();
+    if (!acces.ok) return { success: false, error: acces.message };
+
+    const rawUserId = acces.utilisateur.id;
+    const userId = rawUserId ? parseInt(rawUserId, 10) : null;
 
     console.log(`[deleteSnapshot] Request for ID: ${id}, Session UserId: ${userId}`);
 
@@ -29,8 +31,9 @@ export async function deleteSnapshot(id: number) {
 
         console.log(`[deleteSnapshot] Successfully deleted ID: ${id}`);
         return { success: true };
-    } catch (err: any) {
+    } catch (err) {
+        // Le détail technique reste dans les journaux du serveur.
         console.error("[deleteSnapshot] DB Error:", err);
-        return { success: false, error: err.message || "Delete failed" };
+        return { success: false, error: "erreur technique sur le serveur" };
     }
 }

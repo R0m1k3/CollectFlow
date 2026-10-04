@@ -41,3 +41,6 @@ yarn-error.log*
 next-env.d.ts
 
 .playwright-mcp/
+
+# données locales (configuration avec mots de passe, comptes de secours)
+/data/

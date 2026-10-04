@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { commandeCadences } from "@/db/schema";
 import { getDerniereReceptionCached, getFournisseursCached } from "@/lib/ff-cache";
+import { requireSession, verifierSession } from "@/lib/authz";
 
 export type CadenceStatut = "a_commander" | "bientot" | "ok" | "inconnu";
 
@@ -37,6 +38,7 @@ function calcStatut(joursRestants: number | null): CadenceStatut {
 
 /** Liste des fournisseurs (référentiel) pour le sélecteur de cadence. */
 export async function getFournisseursPourCadence(): Promise<{ code: string; nom: string }[]> {
+    await requireSession();
     return getFournisseursCached();
 }
 
@@ -45,6 +47,7 @@ export async function getFournisseursPourCadence(): Promise<{ code: string; nom:
  * de la dernière réception (FF Nancy).
  */
 export async function listCadences(): Promise<CadenceView[]> {
+    await requireSession();
     let rows: typeof commandeCadences.$inferSelect[] = [];
     let receptions = new Map<string, string>();
     try {
@@ -95,6 +98,9 @@ export interface UpsertCadenceInput {
 
 /** Crée ou met à jour la cadence d'un fournisseur sur un site. */
 export async function upsertCadence(input: UpsertCadenceInput): Promise<{ ok: boolean; error?: string }> {
+    const acces = await verifierSession();
+    if (!acces.ok) return { ok: false, error: acces.message };
+
     const codefou = input.codefou?.trim();
     const site = input.site?.trim();
     const intervalle = Math.round(Number(input.intervalleSemaines));
@@ -132,7 +138,10 @@ export async function upsertCadence(input: UpsertCadenceInput): Promise<{ ok: bo
 }
 
 /** Active / désactive une cadence sans la supprimer. */
-export async function toggleCadence(codefou: string, site: string, actif: boolean): Promise<{ ok: boolean }> {
+export async function toggleCadence(codefou: string, site: string, actif: boolean): Promise<{ ok: boolean; error?: string }> {
+    const acces = await verifierSession();
+    if (!acces.ok) return { ok: false, error: acces.message };
+
     try {
         await db
             .update(commandeCadences)
@@ -147,7 +156,10 @@ export async function toggleCadence(codefou: string, site: string, actif: boolea
 }
 
 /** Supprime définitivement une cadence. */
-export async function removeCadence(codefou: string, site: string): Promise<{ ok: boolean }> {
+export async function removeCadence(codefou: string, site: string): Promise<{ ok: boolean; error?: string }> {
+    const acces = await verifierSession();
+    if (!acces.ok) return { ok: false, error: acces.message };
+
     try {
         await db
             .delete(commandeCadences)

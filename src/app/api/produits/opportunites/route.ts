@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { sessionOuReponse } from "@/lib/authz";
 import { pgGetOpportunitesFamille } from "@/lib/pg-ff-client";
 import { buildLast12MonthsRange } from "@/lib/api-ff-client";
 
@@ -12,14 +12,10 @@ export const dynamic = "force-dynamic";
  * et performance locale (quantités par magasin). Chargé à la demande depuis la
  * fiche produit : la requête agrège `mvtart` sur 12 mois pour toute la famille,
  * on ne veut pas la payer au chargement de la page.
- *
- * Le middleware Next ne protège pas `/api/*` : contrôle de session explicite.
  */
 export async function GET(req: NextRequest) {
-    const session = await auth();
-    if (!session) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const acces = await sessionOuReponse();
+    if (acces instanceof Response) return acces;
 
     const raw = req.nextUrl.searchParams.get("nomNoId");
     const nomNoId = Number(raw);

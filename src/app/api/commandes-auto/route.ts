@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { sessionOuReponse } from "@/lib/authz";
 
 const FF_API_BASE = process.env.FF_API_BASE_URL ?? "https://api.ffnancy.fr";
 
@@ -9,6 +10,9 @@ const FF_API_BASE = process.env.FF_API_BASE_URL ?? "https://api.ffnancy.fr";
  * Transfère les query params site et codefou si présents.
  */
 export async function GET(req: NextRequest) {
+    const acces = await sessionOuReponse();
+    if (acces instanceof Response) return acces;
+
     try {
         const { searchParams } = req.nextUrl;
         const params = new URLSearchParams();

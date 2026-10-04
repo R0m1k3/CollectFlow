@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { getProductRows } from "@/features/grid/api/get-product-rows";
+import { sessionOuReponse } from "@/lib/authz";
 import type { GridFilters } from "@/types/grid";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +12,9 @@ function writeNdjson(controller: ReadableStreamDefaultController<Uint8Array>, va
 }
 
 export async function GET(request: NextRequest) {
+    const acces = await sessionOuReponse();
+    if (acces instanceof Response) return acces;
+
     const searchParams = request.nextUrl.searchParams;
     const codeFournisseur = searchParams.get("fournisseur");
 

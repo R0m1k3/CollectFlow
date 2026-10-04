@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { adminOuReponse, sessionOuReponse } from "@/lib/authz";
 import { fetchNetworkMetricsPlaywright } from "@/lib/qlik-playwright";
 import { upsertNetworkMetrics } from "@/lib/qlik-network-cache";
 import { pgGetArticlesByFournisseur } from "@/lib/pg-ff-client";
@@ -119,34 +119,6 @@ function idleJob(fournisseur: string, codeCentrale?: string) {
         error: undefined,
         message: undefined,
     };
-}
-
-/**
- * Vérifie l'auth admin. Renvoie une réponse 403/401 si refusée, sinon null.
- */
-async function requireAdmin(): Promise<NextResponse | null> {
-    const session = await auth();
-    if (!session) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    if ((session.user as { role?: string } | undefined)?.role !== "admin") {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    return null;
-}
-
-/**
- * Vérifie qu'une session existe (sans exiger le rôle admin).
- *
- * Utilisé par le mode produit : le middleware Next ne couvre PAS les routes
- * `/api/*`, le contrôle doit donc être fait ici explicitement.
- */
-async function requireSession(): Promise<NextResponse | null> {
-    const session = await auth();
-    if (!session) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    return null;
 }
 
 /**
@@ -337,8 +309,8 @@ export async function GET(req: NextRequest) {
 
     // Mode produit : ouvert à tout utilisateur connecté.
     if (codeCentrale) {
-        const denied = await requireSession();
-        if (denied) return denied;
+        const denied = await sessionOuReponse();
+        if (denied instanceof Response) return denied;
         const job = jobs.get(jobKeyForProduct(codeCentrale));
         if (!job) {
             return NextResponse.json({ success: true, ...idleJob("", codeCentrale) });
@@ -347,8 +319,8 @@ export async function GET(req: NextRequest) {
     }
 
     // Mode fournisseur : admin uniquement (inchangé).
-    const denied = await requireAdmin();
-    if (denied) return denied;
+    const denied = await adminOuReponse();
+    if (denied instanceof Response) return denied;
 
     if (!fournisseur) {
         return NextResponse.json({ error: "Param 'fournisseur' ou 'codeCentrale' requis" }, { status: 400 });
@@ -371,8 +343,8 @@ export async function POST(req: NextRequest) {
 
     // ─── Mode produit : 1 code centrale, ouvert à tout utilisateur connecté ───
     if (codeCentraleParam) {
-        const denied = await requireSession();
-        if (denied) return denied;
+        const denied = await sessionOuReponse();
+        if (denied instanceof Response) return denied;
 
         // Même validation que la sync fournisseur (trim, rejet des vides / "-" /
         // codes hors charset) pour ne jamais envoyer de saleté à l'Engine Qlik.
@@ -414,8 +386,8 @@ export async function POST(req: NextRequest) {
     }
 
     // ─── Mode fournisseur : admin uniquement (inchangé) ──────────────────────
-    const denied = await requireAdmin();
-    if (denied) return denied;
+    const denied = await adminOuReponse();
+    if (denied instanceof Response) return denied;
 
     const fournisseur = req.nextUrl.searchParams.get("fournisseur");
     if (!fournisseur) {

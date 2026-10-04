@@ -117,7 +117,7 @@ export function SnapshotList({ type }: SnapshotListProps) {
                 setSnapshots((prev) => prev.filter((x) => x.id !== s.id));
                 toast.succes(estExport ? "L'export a été retiré de votre historique." : "La session a été supprimée de votre historique.");
             } else {
-                toast.erreur(`La suppression a échoué : ${res.error ?? "erreur inconnue"}.`);
+                toast.erreur(`La suppression a échoué : ${(res.error ?? "erreur inconnue").replace(/\.$/, "")}.`);
             }
         } catch (err) {
             if (isStaleServerActionError(err)) void proposerRechargement();

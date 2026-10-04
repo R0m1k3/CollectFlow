@@ -2,8 +2,12 @@ import { NextResponse } from 'next/server';
 import { db } from '@/db';
 import { sql } from 'drizzle-orm';
 import { pgGetStockForCodeins } from '@/lib/pg-ff-client';
+import { adminOuReponse } from '@/lib/authz';
 
 export async function GET(request: Request) {
+    const acces = await adminOuReponse();
+    if (acces instanceof Response) return acces;
+
     try {
         const { searchParams } = new URL(request.url);
         const codein = searchParams.get('codein') || '334152';
@@ -24,7 +28,9 @@ export async function GET(request: Request) {
             stock: Object.fromEntries(map),
             fou: fouResult.rows,
         });
-    } catch (e: any) {
-        return NextResponse.json({ error: e.message, stack: e.stack }, { status: 500 });
+    } catch (e) {
+        // Pas de pile d'appels dans la réponse : elle reste dans les journaux du serveur.
+        console.error('[api/test-db]', e);
+        return NextResponse.json({ error: (e as Error).message }, { status: 500 });
     }
 }

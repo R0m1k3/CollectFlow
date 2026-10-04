@@ -376,3 +376,36 @@ Autres changements :
 - Première ouverture d'un gros fournisseur après la synchro de la nuit : elle doit être quasi immédiate.
 - Changement de magasin : la Grille reste affichée, puis les chiffres se mettent à jour.
 - Enregistrer, quitter la Grille, puis y revenir : les gammes enregistrées sont bien là.
+
+## Suivi — Lot 5 réalisé (correctif Grille et sécurité)
+
+**Grille : changement de magasin**
+- **Corrige une régression du lot 4** : les lignes déjà affichées gardaient les chiffres de l'ancien magasin, et un tri actif n'était pas réappliqué, jusqu'à la fin du rechargement. Désormais, la liste est reconstruite à chaque changement de magasin : les chiffres et le tri sont justes tout de suite, et la sélection est conservée.
+- **Plus d'aller-retour serveur** : la Grille charge toujours « Nos 2 magasins », dont les lignes portent déjà le détail de chaque magasin. Changer de magasin met seulement à jour l'URL, qui reste partageable.
+- **Complément de l'API FF demandé à part** (`/api/grid/rows/store-patch`) et appliqué à son arrivée. Il couvre les articles sans vente SQL dans le magasin, comme avant.
+  - Le calcul est identique à l'ancien : comparaison automatique sur un jeu d'essai.
+  - Il ne modifie que les chiffres du magasin, pas les totaux « Nos 2 magasins ».
+  - Il n'est demandé qu'une fois par magasin et par chargement.
+- **Sélection** : remise à zéro seulement au changement de fournisseur.
+- **La recherche ne reconstruit plus toutes les lignes** à chaque frappe.
+
+**Sécurité**
+- **Contrôle commun `lib/authz.ts`** :
+  - le compte est relu en base, avec un cache d'une minute ; un compte supprimé ou rétrogradé perd ses droits sans attendre l'expiration de sa session ;
+  - si la base est injoignable, le jeton de session fait foi.
+- **Paramètres** : actions réservées aux administrateurs, avec la même vérification sur les pages Paramètres et Synchronisation.
+- **Toutes les autres actions et routes vérifient la session** : Grille, Commandes, Historique, exports, statut FF.
+- **Routes de diagnostic** (`/api/diag*`, `/api/test-db`) : réservées aux administrateurs, sans trace d'erreur technique.
+- **Mots de passe et clés d'IA** :
+  - ils ne sont plus envoyés au navigateur ; un champ laissé vide garde le mot de passe enregistré ;
+  - le mot de passe PostgreSQL n'est plus conservé dans le `localStorage`, et l'ancien est effacé ;
+  - enregistrer la connexion PostgreSQL n'efface plus les clés d'IA.
+- **Compte admin/admin** :
+  - il n'est créé qu'au premier démarrage (aucun utilisateur en base) ;
+  - le fichier de secours `data/users.json` ne sert que si la base est injoignable ;
+  - `data/` est ignoré par git.
+
+**À savoir après la mise en ligne**
+- Un utilisateur promu administrateur doit se reconnecter pour accéder à Paramètres.
+- Après avoir configuré la base depuis le compte de secours, il faut se reconnecter.
+- Un mot de passe enregistré ne peut plus être effacé depuis l'écran ; seul son remplacement est possible.

@@ -30,7 +30,7 @@ import { useDbSettingsStore } from "@/features/settings/store/use-db-settings-st
 import {
     testDatabaseConnection,
     saveDatabaseSettings,
-    getSavedDatabaseConfig,
+    getParametresAffichables,
     saveQlikSettings,
     testQlikConnection,
     saveFfApiSettings,
@@ -45,12 +45,13 @@ import { ServerLogs } from "@/features/settings/components/server-logs";
 /**
  * Configuration enregistrée, lue UNE fois pour toute la page : trois sections
  * (connexion, API FF, Qlik) la demandaient chacune au montage, et les actions
- * serveur s'exécutent les unes après les autres.
+ * serveur s'exécutent les unes après les autres. Elle ne contient aucun mot de
+ * passe : seulement l'indication qu'il y en a un d'enregistré.
  */
-let savedConfigPromise: ReturnType<typeof getSavedDatabaseConfig> | null = null;
-function loadSavedConfig(force = false): ReturnType<typeof getSavedDatabaseConfig> {
+let savedConfigPromise: ReturnType<typeof getParametresAffichables> | null = null;
+function loadSavedConfig(force = false): ReturnType<typeof getParametresAffichables> {
     if (force || !savedConfigPromise) {
-        savedConfigPromise = getSavedDatabaseConfig().catch((e) => {
+        savedConfigPromise = getParametresAffichables().catch((e) => {
             savedConfigPromise = null;
             throw e;
         });
@@ -142,6 +143,13 @@ function ResultatTest({ test }: { test: EtatTest }) {
     return null;
 }
 
+/** Texte indicatif d'un champ mot de passe, selon qu'un mot de passe est déjà enregistré. */
+function placeholderMotDePasse(enregistre: boolean): string {
+    return enregistre ? "•••••• (inchangé)" : "••••••••";
+}
+
+const AIDE_MOT_DE_PASSE_ENREGISTRE = "Laissez vide pour conserver le mot de passe enregistré.";
+
 // ── PostgreSQL ───────────────────────────────────────────────────────────────
 
 function SectionPostgres({ recharger }: { recharger: () => Promise<void> }) {
@@ -152,8 +160,11 @@ function SectionPostgres({ recharger }: { recharger: () => Promise<void> }) {
         user, setUser,
         password, setPassword,
         ssl, setSsl,
-        getDatabaseUrl,
+        motDePasseEnregistre, setMotDePasseEnregistre,
     } = useDbSettingsStore();
+
+    // Mot de passe vide : le serveur reprend celui qui est enregistré.
+    const champs = () => ({ host, port, database, user, password: password || undefined, ssl });
 
     const [test, setTest] = useState<EtatTest>({ etat: "idle" });
     const [enregistrement, setEnregistrement] = useState(false);
@@ -162,7 +173,7 @@ function SectionPostgres({ recharger }: { recharger: () => Promise<void> }) {
     const tester = async () => {
         setTest({ etat: "en-cours" });
         try {
-            const res = await testDatabaseConnection(getDatabaseUrl());
+            const res = await testDatabaseConnection(champs());
             setTest(res.success ? { etat: "ok" } : { etat: "erreur", message: res.error || "Erreur de connexion inconnue." });
         } catch (e) {
             setTest({ etat: "erreur", message: messageErreur(e) });
@@ -172,9 +183,14 @@ function SectionPostgres({ recharger }: { recharger: () => Promise<void> }) {
     const enregistrer = async () => {
         setEnregistrement(true);
         try {
-            const res = await saveDatabaseSettings(getDatabaseUrl());
-            if (res.success) toast.succes("Connexion à la base PostgreSQL enregistrée.");
-            else toast.erreur(`Enregistrement impossible : ${res.error ?? "erreur inconnue"}`);
+            const res = await saveDatabaseSettings(champs());
+            if (res.success) {
+                toast.succes("Connexion à la base PostgreSQL enregistrée.");
+                if (password) {
+                    setPassword("");
+                    setMotDePasseEnregistre(true);
+                }
+            } else toast.erreur(`Enregistrement impossible : ${res.error ?? "erreur inconnue"}`);
         } catch (e) {
             toast.erreur(`Enregistrement impossible : ${messageErreur(e)}`);
         } finally {
@@ -223,8 +239,8 @@ function SectionPostgres({ recharger }: { recharger: () => Promise<void> }) {
                         <Input id="pg-utilisateur" className="w-full font-mono" placeholder="postgres" value={user}
                             onChange={(e) => setUser(e.target.value)} autoComplete="off" />
                     </Champ>
-                    <Champ id="pg-mdp" label="Mot de passe">
-                        <Input id="pg-mdp" type="password" className="w-full font-mono" placeholder="••••••••"
+                    <Champ id="pg-mdp" label="Mot de passe" aide={motDePasseEnregistre ? AIDE_MOT_DE_PASSE_ENREGISTRE : undefined}>
+                        <Input id="pg-mdp" type="password" className="w-full font-mono" placeholder={placeholderMotDePasse(motDePasseEnregistre)}
                             value={password || ""} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
                     </Champ>
                 </div>
@@ -283,8 +299,8 @@ function SectionFfApi() {
     useEffect(() => {
         loadSavedConfig()
             .then((cfg) => {
-                setSavedUrl(cfg?.ffApiBaseUrl ?? null);
-                if (cfg?.ffApiBaseUrl) setUrl(cfg.ffApiBaseUrl);
+                setSavedUrl(cfg.ffApiBaseUrl || null);
+                if (cfg.ffApiBaseUrl) setUrl(cfg.ffApiBaseUrl);
             })
             .catch(() => { /* réglage optionnel ; l'échec de lecture est signalé par la page */ });
     }, []);
@@ -418,7 +434,9 @@ function SectionFfApi() {
 function SectionQlik() {
     const [host, setHost] = useState("");
     const [user, setUser] = useState("");
+    // Toujours vide au chargement : le mot de passe enregistré ne quitte pas le serveur.
     const [password, setPassword] = useState("");
+    const [motDePasseEnregistre, setMotDePasseEnregistre] = useState(false);
     const [showPwd, setShowPwd] = useState(false);
     const [saving, setSaving] = useState(false);
     const [test, setTest] = useState<EtatTest>({ etat: "idle" });
@@ -426,10 +444,9 @@ function SectionQlik() {
     useEffect(() => {
         loadSavedConfig()
             .then((c) => {
-                if (!c) return;
-                setHost(c.qlikHost ?? "");
-                setUser(c.qlikUser ?? "");
-                setPassword(c.qlikPassword ?? "");
+                setHost(c.qlik.host);
+                setUser(c.qlik.user);
+                setMotDePasseEnregistre(c.qlik.motDePasseEnregistre);
             })
             .catch(() => { /* l'échec de lecture est signalé par la page */ });
     }, []);
@@ -437,9 +454,14 @@ function SectionQlik() {
     const handleSave = async () => {
         setSaving(true);
         try {
-            const res = await saveQlikSettings(host.trim(), user.trim(), password);
-            if (res.success) toast.succes("Identifiants Qlik enregistrés.");
-            else toast.erreur(`Enregistrement impossible : ${res.error || "erreur inconnue"}`);
+            const res = await saveQlikSettings(host.trim(), user.trim(), password || undefined);
+            if (res.success) {
+                toast.succes("Identifiants Qlik enregistrés.");
+                if (password) {
+                    setPassword("");
+                    setMotDePasseEnregistre(true);
+                }
+            } else toast.erreur(`Enregistrement impossible : ${res.error || "erreur inconnue"}`);
         } catch (e) {
             toast.erreur(`Enregistrement impossible : ${messageErreur(e)}`);
         } finally {
@@ -450,14 +472,15 @@ function SectionQlik() {
     const handleTest = async () => {
         setTest({ etat: "en-cours" });
         try {
-            const res = await testQlikConnection(host.trim(), user.trim(), password);
+            const res = await testQlikConnection(host.trim(), user.trim(), password || undefined);
             setTest(res.success ? { etat: "ok" } : { etat: "erreur", message: res.error || "Échec de la connexion." });
         } catch (e) {
             setTest({ etat: "erreur", message: messageErreur(e) });
         }
     };
 
-    const testImpossible = !user || !password;
+    // Mot de passe vide accepté s'il y en a un d'enregistré : le serveur le reprend.
+    const testImpossible = !user || (!password && !motDePasseEnregistre);
 
     return (
         <Card>
@@ -488,9 +511,9 @@ function SectionQlik() {
                         <Input id="qlik-utilisateur" type="text" placeholder="FFSCH" value={user}
                             onChange={(e) => setUser(e.target.value)} className="w-full font-mono" autoComplete="off" />
                     </Champ>
-                    <Champ id="qlik-mdp" label="Mot de passe">
+                    <Champ id="qlik-mdp" label="Mot de passe" aide={motDePasseEnregistre ? AIDE_MOT_DE_PASSE_ENREGISTRE : undefined}>
                         <div className="relative">
-                            <Input id="qlik-mdp" type={showPwd ? "text" : "password"} placeholder="••••••••" value={password}
+                            <Input id="qlik-mdp" type={showPwd ? "text" : "password"} placeholder={placeholderMotDePasse(motDePasseEnregistre)} value={password}
                                 onChange={(e) => setPassword(e.target.value)} className="w-full pr-10 font-mono" autoComplete="new-password" />
                             <Button
                                 type="button"
@@ -542,24 +565,21 @@ export function ParametresClient({ onglet: ongletDemande }: { onglet?: string })
     const setUser = useDbSettingsStore((s) => s.setUser);
     const setPassword = useDbSettingsStore((s) => s.setPassword);
     const setSsl = useDbSettingsStore((s) => s.setSsl);
+    const setMotDePasseEnregistre = useDbSettingsStore((s) => s.setMotDePasseEnregistre);
 
     const reloadFromServer = useCallback(async (force = false) => {
-        const config = await loadSavedConfig(force);
-        if (config?.url) {
-            // Parser l'URL pour remettre dans le store
-            try {
-                const url = new URL(config.url.replace("postgres://", "http://")); // URL parser helper
-                setHost(url.hostname);
-                setPort(url.port || "5432");
-                setDatabase(url.pathname.slice(1).split("?")[0]);
-                setUser(url.username);
-                setPassword(decodeURIComponent(url.password));
-                setSsl(config.url.includes("sslmode=require"));
-            } catch (e) {
-                console.error("Failed to parse saved URL", e);
-            }
+        const { db } = await loadSavedConfig(force);
+        // Le mot de passe n'est jamais renvoyé : champ vide = conserver celui enregistré.
+        setPassword("");
+        setMotDePasseEnregistre(db?.motDePasseEnregistre ?? false);
+        if (db) {
+            setHost(db.host);
+            setPort(db.port);
+            setDatabase(db.database);
+            setUser(db.user);
+            setSsl(db.ssl);
         }
-    }, [setDatabase, setHost, setPassword, setPort, setSsl, setUser]);
+    }, [setDatabase, setHost, setMotDePasseEnregistre, setPassword, setPort, setSsl, setUser]);
 
     useEffect(() => {
         // `isMounted` sert à éviter un écart d'hydratation (réglages PostgreSQL
