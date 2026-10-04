@@ -140,19 +140,36 @@ async function prochainSql(depuis: Date) {
     return row ?? null;
 }
 
+/** Délai avant de retenter un fournisseur Qlik en échec : la nuit suivante. */
+const QLIK_REPRISE_ECHEC_MS = 18 * 3600 * 1000;
+
 /**
- * Le plus ancien fournisseur Qlik dont les données dépassent `qlikMinJours`.
- * Le seuil en jours, plutôt que la fenêtre courante, évite de relancer chaque
- * nuit une extraction de plusieurs minutes pour des agrégats mensuels.
+ * Le plus ancien fournisseur Qlik à rafraîchir. Il l'est si :
+ *  - ses données dépassent `qlikMinJours` (agrégats mensuels : inutile de
+ *    relancer chaque nuit une extraction de plusieurs minutes) ;
+ *  - ou elles datent d'avant le mois en cours : la fenêtre de 12 mois a glissé,
+ *    son dernier mois manque, sa tendance n'est plus à jour ;
+ *  - ou sa dernière extraction a échoué il y a plus de 18 h. Un échec attendait
+ *    jusqu'ici `qlikMinJours` (7 jours) avant un nouvel essai, alors que la
+ *    plupart sont passagers (serveur Qlik chargé, dernier mois pas encore
+ *    chargé). Le plus ancien passant en premier, un fournisseur qui échoue à
+ *    chaque fois repart en fin de file et ne bloque personne.
  */
 async function prochainQlik(qlikMinJours: number, maintenant: Date) {
-    const seuil = new Date(maintenant.getTime() - qlikMinJours * 24 * 3600 * 1000);
+    const seuilAge = new Date(maintenant.getTime() - qlikMinJours * 24 * 3600 * 1000);
+    const debutMois = new Date(maintenant.getFullYear(), maintenant.getMonth(), 1);
+    const seuil = seuilAge > debutMois ? seuilAge : debutMois;
+    const seuilEchec = new Date(maintenant.getTime() - QLIK_REPRISE_ECHEC_MS);
     const [row] = await db
         .select()
         .from(syncFournisseurs)
         .where(and(
             eq(syncFournisseurs.actifQlik, true),
-            or(isNull(syncFournisseurs.dernierQlikAt), lt(syncFournisseurs.dernierQlikAt, seuil)) as SQL,
+            or(
+                isNull(syncFournisseurs.dernierQlikAt),
+                lt(syncFournisseurs.dernierQlikAt, seuil),
+                and(eq(syncFournisseurs.dernierQlikStatut, "echec"), lt(syncFournisseurs.dernierQlikAt, seuilEchec)),
+            ) as SQL,
         ))
         .orderBy(asc(sql`${syncFournisseurs.dernierQlikAt} nulls first`))
         .limit(1);

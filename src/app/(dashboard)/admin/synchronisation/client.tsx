@@ -480,6 +480,8 @@ export function SynchronisationClient() {
                                 </div>
                                 <p className="mt-1 text-xs text-[var(--text-muted)]">
                                     Ce sont des chiffres mensuels : les refaire chaque nuit coûterait du temps pour rien.
+                                    Sont aussi refaits, sans attendre ce délai : les données d&apos;avant le mois en cours
+                                    (le dernier mois leur manque) et une extraction en échec, retentée la nuit suivante.
                                 </p>
                             </div>
                         </div>

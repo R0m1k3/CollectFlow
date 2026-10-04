@@ -13,23 +13,10 @@
  */
 
 import "server-only";
-import { chromium, type Browser } from "playwright-core";
+import { getQlikBrowser as getBrowser, dansLaFileQlik as dansLaFile } from "@/lib/qlik-browser";
 import { getQlikConfig, qlikNtlmSession, type QlikConfig, type NetworkMetric, type QlikMonthMetrics } from "@/lib/qlik-client";
 import { buildGridNetworkQlikDateFilter, getMonthRanges, type QlikDateFilter } from "@/lib/qlik-date-range";
-
-let browserPromise: Promise<Browser> | null = null;
-
-async function getBrowser(): Promise<Browser> {
-    if (!browserPromise) {
-        const execPath = process.env.PLAYWRIGHT_CHROMIUM_PATH;
-        browserPromise = chromium.launch({
-            headless: true,
-            executablePath: execPath || undefined,
-            args: ["--no-sandbox", "--disable-dev-shm-usage", "--ignore-certificate-errors"],
-        }).catch((e) => { browserPromise = null; throw e; });
-    }
-    return browserPromise;
-}
+import { assainirMetrique, controlerExtraction } from "@/lib/qlik-validation";
 
 interface InPageResult {
     ok: boolean;
@@ -86,7 +73,17 @@ function uniqueOrdered(values: number[]): number[] {
     return out;
 }
 
-export async function fetchNetworkMetricsPlaywright(
+export function fetchNetworkMetricsPlaywright(
+    codeCentraux?: string[],
+    cfg: QlikConfig = getQlikConfig(),
+    dateFilter: QlikDateFilter | null = buildGridNetworkQlikDateFilter(),
+    fournisseur?: string,
+): Promise<Map<string, NetworkMetric>> {
+    const libelle = fournisseur ? `fournisseur ${fournisseur}` : `${(codeCentraux ?? []).length} code(s)`;
+    return dansLaFile(libelle, () => extraire(codeCentraux, cfg, dateFilter, fournisseur));
+}
+
+async function extraire(
     codeCentraux?: string[],
     cfg: QlikConfig = getQlikConfig(),
     dateFilter: QlikDateFilter | null = buildGridNetworkQlikDateFilter(),
@@ -2477,6 +2474,20 @@ export async function fetchNetworkMetricsPlaywright(
         if (exVar) console.log(`[qlik-pw] exemple VARIE ${exVar.codeCentrale}:`, JSON.stringify(exVar.qteByMonth));
         if (exFlat) console.log(`[qlik-pw] exemple IDENTIQUE ${exFlat.codeCentrale}:`, JSON.stringify(exFlat.qteByMonth));
         console.log(`[qlik-pw] ${out.size} produits réseau (cube ${result.size})`);
+
+        // Contrôle de plausibilité AVANT toute écriture : des données complètes
+        // mais fausses (dernier mois pas encore chargé, mesure insensible au
+        // mois) laisseraient le cache faux jusqu'à la synchro suivante.
+        const corrections = [...out.values()].flatMap(assainirMetrique);
+        if (corrections.length) {
+            console.warn(`[qlik-pw] ${corrections.length} valeur(s) impossible(s) corrigée(s) : ${corrections.slice(0, 5).join(" ; ")}`);
+        }
+        if (dateFilter) {
+            const controle = controlerExtraction(out.values(), monthRanges.map((m) => m.label));
+            for (const a of controle.avertissements) console.warn(`[qlik-pw][contrôle] ${a}`);
+            if (!controle.ok) throw new Error(`[qlik-pw] ${controle.motif} — cache inchangé`);
+            console.log(`[qlik-pw][contrôle] extraction validée (${out.size} codes, ${monthRanges.length} mois)`);
+        }
         // Échantillon brut pour vérifier que les 4 nouvelles mesures (cols 4-7) renvoient des valeurs
         const sample = (result.rows ?? []).slice(0, 3).map((r) => ({
             code: r[0], ca: r[1], qte: r[2], nbMag: r[3], caMag: r[4], margePct: r[5],

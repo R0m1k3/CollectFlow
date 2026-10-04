@@ -35,7 +35,7 @@
  */
 
 import "server-only";
-import { chromium, type Browser } from "playwright-core";
+import { getQlikBrowser as getBrowser, dansLaFileQlik } from "@/lib/qlik-browser";
 import { getQlikConfig, qlikNtlmSession, type QlikConfig } from "@/lib/qlik-client";
 import { buildGridNetworkQlikDateFilter, QLIK_MONTHS_BACK_DEFAULT } from "@/lib/qlik-date-range";
 
@@ -112,20 +112,6 @@ const CHAMPS_FOURNISSEUR_PREFERES = ["Fournisseur", "code_fournisseur"];
  */
 const CHAMP_CODE_CENTRALE_ALT = "article_no_centrale";
 
-let browserPromise: Promise<Browser> | null = null;
-
-async function getBrowser(): Promise<Browser> {
-    if (!browserPromise) {
-        const execPath = process.env.PLAYWRIGHT_CHROMIUM_PATH;
-        browserPromise = chromium.launch({
-            headless: true,
-            executablePath: execPath || undefined,
-            args: ["--no-sandbox", "--disable-dev-shm-usage", "--ignore-certificate-errors"],
-        }).catch((e) => { browserPromise = null; throw e; });
-    }
-    return browserPromise;
-}
-
 interface InPageSearchResult {
     ok: boolean;
     error?: string;
@@ -152,10 +138,22 @@ interface InPageSearchResult {
  * ensuite extraites par `fetchNetworkMetricsPlaywright`, qui sait déjà produire
  * le détail mensuel sur 12 mois glissants.
  */
-export async function searchQlikArticles(
+export function searchQlikArticles(
     term: string,
     limit: number = QLIK_SEARCH_MAX_RESULTS,
     cfg: QlikConfig = getQlikConfig(),
+): Promise<QlikSearchOutcome> {
+    // Terme trop court : réponse vide immédiate, sans attendre la file.
+    if (term.trim().length < 3) return rechercher(term, limit, cfg);
+    // Même file que les extractions : deux sessions Engine simultanées font
+    // abandonner le serveur Qlik, et les deux requêtes échouent.
+    return dansLaFileQlik(`recherche « ${term.trim()} »`, () => rechercher(term, limit, cfg));
+}
+
+async function rechercher(
+    term: string,
+    limit: number,
+    cfg: QlikConfig,
 ): Promise<QlikSearchOutcome> {
     const cleaned = term.trim();
     if (cleaned.length < 3) return { matches: [], champUtilise: null, tronque: false, avertissement: null, periode: null };
