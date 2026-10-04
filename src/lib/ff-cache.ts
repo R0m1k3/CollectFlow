@@ -100,12 +100,15 @@ export function getFournisseursCached(): Promise<{ code: string; nom: string }[]
 }
 
 /**
- * Dernière réception par fournisseur et magasin (cadencier). Agrège tout
- * l'historique de `mvtart` : de loin la lecture la plus lourde de la page
- * Commandes. Vide = erreur avalée, non gardé.
+ * Dernière réception par fournisseur et magasin, pour les fournisseurs du
+ * cadencier seulement : de loin la lecture la plus lourde de la page Commandes.
+ * Clé = liste triée, donc recalculée quand une cadence est ajoutée ou retirée.
+ * Vide = erreur avalée (ou aucune réception), non gardé.
  */
-export function getDerniereReceptionCached(): Promise<Map<string, string>> {
-    return cachedFF("derniere-reception", () => pgGetDerniereReceptionParFournisseur(), {
+export function getDerniereReceptionCached(codes: string[]): Promise<Map<string, string>> {
+    const liste = [...new Set(codes.map((c) => c.trim()))].sort();
+    if (liste.length === 0) return Promise.resolve(new Map());
+    return cachedFF(`derniere-reception:${liste.join(",")}`, () => pgGetDerniereReceptionParFournisseur(liste), {
         cacheIf: (map) => map.size > 0,
     });
 }

@@ -7,13 +7,13 @@
  * produit (`/produits`). Aucun changement de comportement.
  */
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { fmtMonthShort } from "@/features/grid/lib/months";
 import { TREND_COLOR, type NetworkTrend } from "@/features/grid/lib/network-trend";
 
 /** Sparkline compacte 12 mois + flèche, teintée selon la tendance. */
-export function TrendSparkline({ trend }: { trend: NetworkTrend }) {
+function TrendSparklineInner({ trend }: { trend: NetworkTrend }) {
     if (!trend.hasData) return <div className="text-center text-[12px]" style={{ color: "var(--text-secondary)" }}>-</div>;
     const { values, direction, pct, nouveau } = trend;
     const color = TREND_COLOR[direction];
@@ -50,6 +50,9 @@ export function TrendSparkline({ trend }: { trend: NetworkTrend }) {
         </div>
     );
 }
+
+/** Mémorisée : la tendance d'une ligne est calculée une fois et ne change plus. */
+export const TrendSparkline = memo(TrendSparklineInner);
 
 /**
  * Couleurs des séries : slots 1-3 de la palette catégorielle validée, exposés en

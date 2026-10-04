@@ -25,6 +25,28 @@ let _nomenclatureParentCol: string | null | undefined = undefined; // undefined 
 // la transaction BEGIN / SET LOCAL / COMMIT qui entourait chaque requête coûtait
 // trois allers-retours de plus à chacune.
 // ---------------------------------------------------------------------------
+/**
+ * `fn` sur chaque élément, au plus `simultanes` à la fois, résultats dans l'ordre
+ * (même forme que Promise.allSettled). Évite de lancer des centaines d'appels à
+ * l'API FF d'un coup, qui la saturent et finissent en délais dépassés.
+ */
+async function parLots<T, R>(items: T[], simultanes: number, fn: (item: T) => Promise<R>): Promise<PromiseSettledResult<R>[]> {
+    const resultats: PromiseSettledResult<R>[] = new Array(items.length);
+    let suivant = 0;
+    const ouvrier = async () => {
+        while (suivant < items.length) {
+            const i = suivant++;
+            try {
+                resultats[i] = { status: "fulfilled", value: await fn(items[i]) };
+            } catch (reason) {
+                resultats[i] = { status: "rejected", reason };
+            }
+        }
+    };
+    await Promise.all(Array.from({ length: Math.min(simultanes, items.length) }, ouvrier));
+    return resultats;
+}
+
 async function pgNoParallel(query: SQL): Promise<{ rows: unknown[] }> {
     const r = await db.execute(query);
     return { rows: r.rows };
@@ -154,55 +176,6 @@ export async function pgGetArticlesByFournisseur(codefou: string): Promise<PgArt
 
     console.log(`[pg-ff] Articles: ${result.rows.length} pour ${codefou}`);
     return (result.rows as unknown as PgArticle[]).filter(r => r.codein);
-}
-
-/** Article local (FF Nancy) résolu depuis un code centrale — page Recherche réseau. */
-export interface PgArticleLocal {
-    codein: string;
-    codeCentrale: string;
-    libelle1?: string;
-    codefou?: string;
-    nomfou?: string;
-    pa?: number;
-    pv_central?: number;
-}
-
-/**
- * Résout des codes centraux vers NOS articles locaux.
- *
- * Sert à distinguer, dans les résultats de recherche Qlik, les produits que nous
- * référençons (« Chez moi ») de ceux qui n'existent que dans le réseau. Un code
- * absent de la Map = produit inconnu de FF Nancy.
- */
-export async function pgGetArticlesByCodeCentrale(codes: string[]): Promise<Map<string, PgArticleLocal>> {
-    const unique = [...new Set(codes.map(c => String(c ?? "").trim()).filter(Boolean))];
-    if (unique.length === 0) return new Map();
-
-    const result = await pgNoParallel(sql`
-        SELECT DISTINCT ON (a.artcentrale)
-            TRIM(a.codein::text) AS codein,
-            a.artcentrale        AS "codeCentrale",
-            a.libelle1,
-            af.code              AS codefou,
-            fi.nom               AS nomfou,
-            pa.pa,
-            ai.prix_vente_mini   AS pv_central
-        FROM articles a
-        LEFT JOIN artfou1 af ON af.art_no_id = a.no_id
-        LEFT JOIN fouident fi ON fi.code = af.code
-        LEFT JOIN cube_pa pa ON pa.artnoid = a.no_id
-        LEFT JOIN article_infosup ai ON ai.artnoid = a.no_id
-        WHERE TRIM(a.artcentrale::text) IN (${sql.join(unique.map(c => sql`${c}`), sql`, `)})
-          AND a.codein IS NOT NULL
-        ORDER BY a.artcentrale, af.no_id
-    `);
-
-    const map = new Map<string, PgArticleLocal>();
-    for (const r of result.rows as unknown as PgArticleLocal[]) {
-        if (r.codeCentrale) map.set(String(r.codeCentrale).trim(), r);
-    }
-    console.log(`[pg-ff] pgGetArticlesByCodeCentrale: ${map.size}/${unique.length} codes connus localement`);
-    return map;
 }
 
 // ---------------------------------------------------------------------------
@@ -1426,29 +1399,28 @@ export async function pgGetCommandesAuto(): Promise<PgCommandeAutoRow[]> {
                 return Number(resumeItem?.franco_ht ?? resumeItem?.franco ?? 0);
             };
 
-            const details = await Promise.allSettled(
-                uniqueCodeFous.map(async codefou => {
-                    // 1. Essai sans filtre site
-                    try {
-                        const res2 = await fetch(`${FF_API_BASE}/api/commandes-auto/${encodeURIComponent(codefou)}`, ffFetchInit());
-                        if (res2.ok) {
-                            const detail = await res2.json();
-                            const f = extractFranco(detail);
-                            if (f > 0) return { codefou, franco: f };
-                        }
-                    } catch { /* ignore */ }
-                    // 2. Fallback site=000
-                    try {
-                        const res3 = await fetch(`${FF_API_BASE}/api/commandes-auto/${encodeURIComponent(codefou)}?site=000`, ffFetchInit());
-                        if (res3.ok) {
-                            const detail = await res3.json();
-                            const f = extractFranco(detail);
-                            if (f > 0) return { codefou, franco: f };
-                        }
-                    } catch { /* ignore */ }
-                    return { codefou, franco: 0 };
-                })
-            );
+            // 6 fournisseurs à la fois : chacun peut coûter deux appels successifs.
+            const details = await parLots(uniqueCodeFous, 6, async (codefou) => {
+                // 1. Essai sans filtre site
+                try {
+                    const res2 = await fetch(`${FF_API_BASE}/api/commandes-auto/${encodeURIComponent(codefou)}`, ffFetchInit());
+                    if (res2.ok) {
+                        const detail = await res2.json();
+                        const f = extractFranco(detail);
+                        if (f > 0) return { codefou, franco: f };
+                    }
+                } catch { /* ignore */ }
+                // 2. Fallback site=000
+                try {
+                    const res3 = await fetch(`${FF_API_BASE}/api/commandes-auto/${encodeURIComponent(codefou)}?site=000`, ffFetchInit());
+                    if (res3.ok) {
+                        const detail = await res3.json();
+                        const f = extractFranco(detail);
+                        if (f > 0) return { codefou, franco: f };
+                    }
+                } catch { /* ignore */ }
+                return { codefou, franco: 0 };
+            });
 
             // Map codefou → franco enrichi
             const francoMap = new Map<string, number>();
@@ -1490,8 +1462,14 @@ export async function pgGetCommandesAuto(): Promise<PgCommandeAutoRow[]> {
  * Clé de la Map : `${codefou}|${site}`. Map vide en cas d'erreur
  * (l'UI affichera alors « échéance inconnue »).
  */
-export async function pgGetDerniereReceptionParFournisseur(): Promise<Map<string, string>> {
+export async function pgGetDerniereReceptionParFournisseur(codes?: string[]): Promise<Map<string, string>> {
     const map = new Map<string, string>();
+    // Liste fournie (fournisseurs du cadencier) : on n'agrège que leurs articles,
+    // au lieu de tout l'historique de réceptions de tous les fournisseurs.
+    if (codes && codes.length === 0) return map;
+    const filtreFournisseurs = codes
+        ? sql`AND TRIM(af.code) IN (${sql.join(codes.map((c) => sql`${c.trim()}`), sql`, `)})`
+        : sql``;
     try {
         const result = await pgNoParallel(sql`
             SELECT
@@ -1504,6 +1482,7 @@ export async function pgGetDerniereReceptionParFournisseur(): Promise<Map<string
             WHERE m.genremvt IN (1, 2)
               AND m.site IN ('292', '579')
               AND m.datmvt IS NOT NULL
+              ${filtreFournisseurs}
             GROUP BY af.code, m.site
         `);
 

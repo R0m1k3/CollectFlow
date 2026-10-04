@@ -11,6 +11,7 @@ import {
     ColumnDef,
     SortingState,
     RowSelectionState,
+    type FilterFn,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, PackageX, Warehouse, AlertTriangle, TrendingUp, TrendingDown, Minus, CalendarRange, Tag, Eye, EyeOff } from "lucide-react";
@@ -46,6 +47,7 @@ import {
     NB_MAGASINS_RESEAU,
 } from "@/features/grid/lib/network-trend";
 import { TrendSparkline, NetworkLineChart } from "@/features/grid/components/network-charts";
+import type { NetworkTrend } from "@/features/grid/lib/network-trend";
 import { fmtDecimal1, fmtEntier, fmtEur0, fmtEur2 } from "@/lib/format";
 import { CLASSES_SANS_GAMME, trouverGamme } from "@/lib/gammes";
 import { couleurMarge } from "@/lib/marge";
@@ -61,6 +63,39 @@ interface HeatmapGridProps {
 }
 
 const EMPTY_DRAFT_CHANGES: Record<string, GammeCode> = {};
+
+/*
+ * Valeurs dérivées calculées une fois par ligne. Une ligne reçue ne change plus
+ * (une modification produit un nouvel objet) : on peut les garder tant qu'elle
+ * existe, sans rien invalider. Avant, la tendance était recalculée à chaque
+ * rendu de chaque case, et le texte de recherche à chaque frappe.
+ */
+const tendances = new WeakMap<ProductRow, NetworkTrend>();
+function tendanceDe(row: ProductRow): NetworkTrend {
+    let t = tendances.get(row);
+    if (!t) {
+        t = computeNetworkTrend(row.qteReseauByMonth, row.nbMagReseauByMonth);
+        tendances.set(row, t);
+    }
+    return t;
+}
+
+const textesRecherche = new WeakMap<ProductRow, string>();
+function texteRecherche(row: ProductRow): string {
+    let t = textesRecherche.get(row);
+    if (t === undefined) {
+        // Saut de ligne entre les champs : une recherche ne peut pas en contenir,
+        // donc aucune correspondance « à cheval » sur deux champs.
+        t = [row.libelle1, row.codein, row.reference, row.gtin].map((v) => String(v ?? "")).join("\n").toLowerCase();
+        textesRecherche.set(row, t);
+    }
+    return t;
+}
+
+/** Recherche sur libellé, code, référence et code-barres. */
+const filtreRecherche: FilterFn<ProductRow> = (row, _columnId, valeur: string) => texteRecherche(row.original).includes(valeur);
+// Saisie mise en minuscules une seule fois par frappe, pas une fois par ligne.
+filtreRecherche.resolveFilterValue = (valeur) => String(valeur ?? "").toLowerCase();
 
 const QLIK_NETWORK_COLUMN_IDS = new Set<string>([
     "caReseau",
@@ -528,7 +563,7 @@ interface CellDetailData {
  * d'identité — sans quoi la même couleur voudrait dire deux choses.
  */
 function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () => void }) {
-    const trend = computeNetworkTrend(row.qteReseauByMonth, row.nbMagReseauByMonth);
+    const trend = tendanceDe(row);
     const { values, labels, direction, pct } = trend;
     const color = TREND_COLOR[direction];
     const magasins = computeStoresSeries(row.nbMagReseauByMonth);
@@ -968,7 +1003,7 @@ function HeatmapGridInner({ codeFournisseur, onSelectionChange, isAdmin, nomFour
         {
             id: "tendanceReseau",
             accessorFn: (row) => {
-                const t = computeNetworkTrend(row.qteReseauByMonth, row.nbMagReseauByMonth);
+                const t = tendanceDe(row);
                 if (!t.hasData) return Number.NEGATIVE_INFINITY;
                 // Un produit « nouveau » n'a pas de pourcentage mais c'est la plus
                 // forte progression possible : il doit remonter en tête du tri, pas
@@ -979,7 +1014,7 @@ function HeatmapGridInner({ codeFournisseur, onSelectionChange, isAdmin, nomFour
             header: () => <div className="text-center w-full" title="Évolution des ventes du réseau sur 12 mois — cliquer pour le détail">Tendance<br/><span className="text-xs font-normal opacity-75">réseau</span></div>,
             size: 78,
             cell: ({ row }) => {
-                const trend = computeNetworkTrend(row.original.qteReseauByMonth, row.original.nbMagReseauByMonth);
+                const trend = tendanceDe(row.original);
                 if (!trend.hasData) return <div className="text-center text-[12px]" style={{ color: "var(--text-secondary)" }}>-</div>;
                 // Cliquable → modal des ventes réseau mois par mois (12 derniers mois).
                 return (
@@ -1227,14 +1262,7 @@ function HeatmapGridInner({ codeFournisseur, onSelectionChange, isAdmin, nomFour
         // et GTIN de la ligne) : un seul passage par ligne suffit, au lieu d'un par
         // colonne filtrable (une quinzaine) à chaque frappe.
         getColumnCanGlobalFilter: (column) => column.id === "codein",
-        globalFilterFn: (row, _columnId, filterValue) => {
-            const search = String(filterValue).toLowerCase();
-            const libelle = String(row.original.libelle1 || "").toLowerCase();
-            const code = String(row.original.codein || "").toLowerCase();
-            const reference = String(row.original.reference || "").toLowerCase();
-            const gtin = String(row.original.gtin || "").toLowerCase();
-            return libelle.includes(search) || code.includes(search) || reference.includes(search) || gtin.includes(search);
-        },
+        globalFilterFn: filtreRecherche,
     });
 
     const { rows: tableRows } = table.getRowModel();

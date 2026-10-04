@@ -51,10 +51,10 @@ export async function listCadences(): Promise<CadenceView[]> {
     let rows: typeof commandeCadences.$inferSelect[] = [];
     let receptions = new Map<string, string>();
     try {
-        [rows, receptions] = await Promise.all([
-            db.select().from(commandeCadences),
-            getDerniereReceptionCached(),
-        ]);
+        rows = await db.select().from(commandeCadences);
+        // Réceptions des seuls fournisseurs du cadencier : la lecture sur tout
+        // l'historique de tous les fournisseurs était la plus lourde de la page.
+        receptions = await getDerniereReceptionCached(rows.map((r) => r.codeFournisseur));
     } catch (e) {
         console.error("[cadence] listCadences error:", (e as Error).message);
         return [];

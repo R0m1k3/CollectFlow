@@ -409,3 +409,30 @@ Autres changements :
 - Un utilisateur promu administrateur doit se reconnecter pour accéder à Paramètres.
 - Après avoir configuré la base depuis le compte de secours, il faut se reconnecter.
 - Un mot de passe enregistré ne peut plus être effacé depuis l'écran ; seul son remplacement est possible.
+
+## Suivi — Lot 6 réalisé (performances restantes et nettoyage)
+
+**Grille**
+- **Écriture des réglages dans le navigateur** : au plus une par demi-seconde, et immédiate quand la page est quittée. Avant, chaque changement d'état en déclenchait une. Mesure : 8 changements de gamme donnent 1 écriture au lieu de 16.
+- **Calculs faits une seule fois par ligne** : la tendance réseau (au lieu d'un calcul par case et par rendu) et le texte de recherche (au lieu d'un calcul par ligne et par frappe). La petite courbe de tendance est mémorisée.
+- **Barre du bas** : elle ne suit plus que le nombre de modifications ; le détail est lu au moment d'enregistrer.
+
+**Commandes fournisseurs**
+- **Montants de franco** : demandés à l'API FF 6 fournisseurs à la fois, au lieu de tous en même temps.
+- **Dernière réception** : calculée pour les seuls fournisseurs du cadencier. Sur la base de test, les résultats sont identiques au calcul complet.
+
+**Nettoyage**
+- **Dépendances retirées** : `@tanstack/react-query`, `@google/genai`, `ai`, `react-markdown`, `remark-gfm`, `xlsx`, `@radix-ui/react-dropdown-menu`. Un `npm ci` complet a été vérifié.
+- **`pnpm-lock.yaml` supprimé** : Docker et le README utilisent npm.
+- **Code mort retiré** :
+  - `ui/textarea`, `debug/api/init-db`, `score/store` ;
+  - `getGridData` et `getAvailableNomenclature` ;
+  - 5 fonctions de l'ancien client HTTP FF, `pgGetArticlesByCodeCentrale` et `libelleGamme`.
+- **Journaux à la racine supprimés** : `build.log`, `build_logs.txt`, `error.txt`, `tsc_errors.log`.
+
+**Non fait volontairement**
+- **Enrichissement de l'Accueil en SQL** :
+  - le cache de la page sert la version précédente pendant son recalcul, donc le gain serait faible ;
+  - et rien ne garantit que la base FF relie chaque mouvement à son fournisseur (colonne détectée au cas par cas) : le fournisseur affiché pourrait changer.
+  - À reprendre après le diagnostic du lot 7.
+- **Largeurs de colonnes en variables CSS** : peu de gain maintenant que l'écriture des réglages est différée.

@@ -62,8 +62,7 @@ function FloatingSummaryBarInner({ isAdmin, nomFournisseur }: { isAdmin: boolean
     const [isPending, startTransition] = useTransition();
     const [enCours, setEnCours] = useState<string | null>(null);
 
-    const visibleCodeins = useMemo(() => rows.map(r => r.codein), [rows]);
-    const { save, hasDrafts, count } = useSaveDrafts(activeMagasin || "TOTAL", visibleCodeins);
+    const { save, hasDrafts, count } = useSaveDrafts(activeMagasin || "TOTAL");
 
     const supplierCode = filterFournisseur || rows[0]?.codeFournisseur;
     const lastQlikUpdate = useMemo(() => {

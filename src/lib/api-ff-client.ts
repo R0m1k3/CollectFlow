@@ -291,52 +291,6 @@ export function buildLast12MonthsRange(): { dateDebut: string; dateFin: string }
     };
 }
 
-/** "2025-03-15" → "202503" */
-export function dateToYYYYMM(isoDate: string): string {
-    return isoDate.slice(0, 7).replace("-", "");
-}
-
-// ---------------------------------------------------------------------------
-// Fournisseurs
-// ---------------------------------------------------------------------------
-
-/** Extrait le code fournisseur depuis n'importe quelle forme de réponse API */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractFouCode(f: any): string {
-    return f.codefou ?? f.CodeFou ?? f.code_fournisseur ?? f.codeFournisseur ?? f.code ?? String(f.id ?? "");
-}
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractFouNom(f: any): string {
-    return f.nomfou ?? f.NomFou ?? f.nom_fournisseur ?? f.nomFournisseur ?? f.nom ?? f.libelle ?? f.name ?? "Inconnu";
-}
-
-export async function getFournisseursFromApi(
-    search?: string
-): Promise<{ code: string; nom: string }[]> {
-    const FF_API_BASE = await getFfApiBase();
-    try {
-        const url = search
-            ? `${FF_API_BASE}/api/fournisseurs?search=${encodeURIComponent(search)}&limit=500`
-            : `${FF_API_BASE}/api/fournisseurs?limit=500`;
-
-        console.log(`[api-ff] GET ${url}`);
-        const res = await fetch(url, ffFetchInit());
-        if (!res.ok) throw new Error(`HTTP ${res.status} on ${url}`);
-        const data = await res.json();
-
-        // Log premier item pour diagnostic
-        const rawList = extractList(data);
-        console.log(`[api-ff] fournisseurs: ${rawList.length} items, sample keys:`, rawList[0] ? Object.keys(rawList[0] as object) : "empty");
-
-        return rawList
-            .map((f: unknown) => ({ code: extractFouCode(f), nom: extractFouNom(f) }))
-            .filter((f: { code: string; nom: string }) => f.code);
-    } catch (err) {
-        console.error("[api-ff] getFournisseursFromApi error:", err);
-        return [];
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Articles
 // ---------------------------------------------------------------------------
@@ -369,63 +323,6 @@ export async function getArticlesByFournisseur(
 // ---------------------------------------------------------------------------
 // Mouvements (ventes + stock12m)
 // ---------------------------------------------------------------------------
-
-export async function getMouvementsByFournisseur(
-    codefou: string,
-    dateDebut: string,
-    dateFin: string
-): Promise<FfMouvement[]> {
-    const FF_API_BASE = await getFfApiBase();
-    const raw = await fetchAllPages<unknown>(
-        (page) =>
-            `${FF_API_BASE}/api/mouvements/articles?codefou=${encodeURIComponent(codefou)}&dateDebut=${dateDebut}&dateFin=${dateFin}&page=${page}&limit=1000`,
-        extractList,
-        1000
-    );
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return raw.map((r: any): FfMouvement => ({
-        codein:   r.codein    ?? r.Codein   ?? r.code_article   ?? "",
-        genremvt: Number(r.genremvt  ?? r.GenreMvt  ?? r.genre_mvt ?? r.type ?? 0),
-        datemvt:  r.datmvt    ?? r.datemvt  ?? r.DateMvt  ?? r.date_mvt ?? r.date ?? "",
-        qte:      Number(r.qtemvt    ?? r.qte        ?? r.Qte      ?? r.quantite ?? 0),
-        montant:  Number(r.mntmvtht  ?? r.montant    ?? r.Montant  ?? r.montant_mvt ?? r.ca ?? 0),
-        marge:    Number(r.margemvt  ?? r.marge      ?? r.Marge    ?? r.marge_mvt ?? 0),
-        qtestock: Number(r.qtestock  ?? r.QteStock   ?? r.qte_stock ?? r.stock ?? 0),
-        site:     r.site      ?? r.Site     ?? r.magasin         ?? r.code_magasin ?? r.codesite ?? "",
-        codefou_reel:         r.codefou_reel         ?? undefined,
-        nom_fournisseur_reel: r.nom_fournisseur_reel ?? undefined,
-    })).filter(m => m.codein && m.datemvt);
-}
-
-/**
- * Retourne les mouvements pour une plage de dates (sans filtre fournisseur).
- * Utilisé pour extraire codefou_reel / nom_fournisseur_reel par codein.
- */
-export async function getMouvementsForDate(
-    dateDebut: string,
-    dateFin: string
-): Promise<FfMouvement[]> {
-    const FF_API_BASE = await getFfApiBase();
-    const raw = await fetchAllPages<unknown>(
-        (page) =>
-            `${FF_API_BASE}/api/mouvements/articles?dateDebut=${dateDebut}&dateFin=${dateFin}&page=${page}&limit=1000`,
-        extractList,
-        1000
-    );
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return raw.map((r: any): FfMouvement => ({
-        codein:   r.codein    ?? r.Codein   ?? r.code_article   ?? "",
-        genremvt: Number(r.genremvt  ?? r.GenreMvt  ?? r.genre_mvt ?? r.type ?? 0),
-        datemvt:  r.datmvt    ?? r.datemvt  ?? r.DateMvt  ?? r.date_mvt ?? r.date ?? "",
-        qte:      Number(r.qtemvt    ?? r.qte        ?? r.Qte      ?? r.quantite ?? 0),
-        montant:  Number(r.mntmvtht  ?? r.montant    ?? r.Montant  ?? r.montant_mvt ?? r.ca ?? 0),
-        marge:    Number(r.margemvt  ?? r.marge      ?? r.Marge    ?? r.marge_mvt ?? 0),
-        qtestock: Number(r.qtestock  ?? r.QteStock   ?? r.qte_stock ?? r.stock ?? 0),
-        site:     r.site      ?? r.Site     ?? r.magasin         ?? r.code_magasin ?? r.codesite ?? "",
-        codefou_reel:         r.codefou_reel         ?? undefined,
-        nom_fournisseur_reel: r.nom_fournisseur_reel ?? undefined,
-    })).filter(m => m.codein && m.datemvt);
-}
 
 // ---------------------------------------------------------------------------
 // Mensuel — stock fin de mois + ventes + réceptions par article et par site
@@ -607,18 +504,6 @@ export async function getCommandesByFournisseur(
 // ---------------------------------------------------------------------------
 // Statut de synchronisation
 // ---------------------------------------------------------------------------
-
-export async function getSyncStatus(): Promise<FfSyncStatus | null> {
-    try {
-    const FF_API_BASE = await getFfApiBase();
-        const res = await fetch(`${FF_API_BASE}/api/sync/status`, ffFetchInit());
-        if (!res.ok) return null;
-        return normalizeSyncStatus(await res.json());
-    } catch (err) {
-        console.error("[api-ff] getSyncStatus error:", err);
-        return null;
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Sites (magasins)

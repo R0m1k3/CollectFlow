@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { createThrottledJSONStorage } from "@/lib/throttled-json-storage";
 import type { GammeCode, GridFilters, GridSummary, ProductRow } from "@/types/grid";
 import { withStorePatch, type StorePatch } from "@/features/grid/lib/store-patch";
 import { getMonthsFromRows } from "@/features/grid/lib/months";
@@ -317,6 +318,9 @@ export const useGridStore = create<GridState>()(
         }),
         {
             name: "collectflow-grid-storage",
+            // Écriture différée (500 ms) : `persist` réécrivait le localStorage à
+            // chaque changement d'état, y compris pendant un redimensionnement.
+            storage: createThrottledJSONStorage<GridPersisted>(500),
             /**
              * v1 — `filters.code3` est passé d'une chaîne unique à `string[] | null`
              * (filtre multi-nomenclatures). Sans migration, la valeur déjà présente

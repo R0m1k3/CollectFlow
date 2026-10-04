@@ -58,9 +58,3 @@ export function trouverGamme(code: string | null | undefined): Gamme | undefined
     if (!code) return undefined;
     return GAMMES.find((g) => g.code === code.trim());
 }
-
-/** « A — Cœur », ou « Sans gamme ». */
-export function libelleGamme(code: string | null | undefined): string {
-    const g = trouverGamme(code);
-    return g ? `${g.code} — ${g.nom}` : "Sans gamme";
-}
