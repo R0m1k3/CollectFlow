@@ -33,6 +33,7 @@ import { fetchNetworkMetricsPlaywright } from "@/lib/qlik-playwright";
 import { upsertNetworkMetrics } from "@/lib/qlik-network-cache";
 import { buildGridNetworkQlikDateFilter, envMonthsBack, QLIK_MONTHS_BACK_DEFAULT } from "@/lib/qlik-date-range";
 import { readSyncSettings, type SyncSettings } from "@/features/admin/api/sync-settings";
+import { invalidateFFCache } from "@/lib/ff-cache";
 
 export type { SyncSettings };
 
@@ -338,6 +339,9 @@ export async function lancerRound(origine: "auto" | "manuel", forcerHorsFenetre 
         etat.derniereErreur = e instanceof Error ? e.message : String(e);
         console.error("[sync-nuit] round interrompu :", etat.derniereErreur);
     } finally {
+        // Les pages (stock, hit-parade, CA…) relisent la base fraîche au lieu
+        // d'attendre la fin de vie de leur cache.
+        invalidateFFCache();
         etat.enCours = false;
         etat.fournisseurCourant = null;
         etat.etape = null;

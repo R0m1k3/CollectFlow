@@ -14,7 +14,7 @@ import "server-only";
 
 import { db } from "@/db";
 import { gridRows } from "@/db/schema";
-import { and, asc, desc, eq, ilike, or, sql, lt, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, or, sql, lt, type SQL } from "drizzle-orm";
 import type { ProductRow } from "@/types/grid";
 
 /** Colonnes autorisées au tri — liste blanche, jamais l'entrée utilisateur brute. */
@@ -62,6 +62,13 @@ export interface GridQueryResult {
 }
 
 /**
+ * Version du format des lignes persistées. À incrémenter dès qu'un champ de
+ * `ProductRow` est ajouté ou change de sens : les instantanés plus anciens ne
+ * seront plus servis à la Grille (recalcul), mais restent lisibles par /api/v1.
+ */
+export const GRID_PAYLOAD_VERSION = 1;
+
+/**
  * Persiste les lignes calculées pour un fournisseur.
  *
  * Stratégie : toutes les lignes du lot portent le même `computedAt`, puis on supprime
@@ -97,7 +104,7 @@ export async function upsertGridRows(codeFournisseur: string, rows: ProductRow[]
             nbMagasinsReseau: r.nbMagasinsReseau ?? null,
             caParMagasinReseau: r.caParMagasinReseau != null ? String(r.caParMagasinReseau) : null,
             margePctReseau: r.margePctReseau != null ? String(r.margePctReseau) : null,
-            payload: r,
+            payload: { ...r, payloadVersion: GRID_PAYLOAD_VERSION },
             computedAt,
         }));
     if (values.length === 0) return 0;
@@ -147,6 +154,70 @@ export async function upsertGridRows(codeFournisseur: string, rows: ProductRow[]
     return written;
 }
 
+/**
+ * Instantané complet d'un fournisseur, tel que persisté par le dernier calcul.
+ *
+ * Renvoie `null` (→ recalcul) si rien n'est persisté, si une ligne est d'une
+ * version de format antérieure, ou si le calcul date d'un autre mois que le mois
+ * en cours : la fenêtre des 12 mois glissants aurait changé entre-temps.
+ * Les lignes sont rendues dans l'ordre du calcul en direct (identifiant article).
+ */
+export async function readGridSnapshot(
+    codeFournisseur: string,
+): Promise<{ rows: ProductRow[]; computedAt: Date } | null> {
+    const found = await db
+        .select({ payload: gridRows.payload, computedAt: gridRows.computedAt })
+        .from(gridRows)
+        .where(eq(gridRows.codeFournisseur, codeFournisseur));
+    if (found.length === 0) return null;
+
+    let oldest: Date | null = null;
+    const rows: ProductRow[] = [];
+    for (const r of found) {
+        const row = r.payload as ProductRow;
+        if (row.payloadVersion !== GRID_PAYLOAD_VERSION) return null;
+        if (!oldest || r.computedAt < oldest) oldest = r.computedAt;
+        rows.push(row);
+    }
+    const now = new Date();
+    if (!oldest || oldest.getFullYear() !== now.getFullYear() || oldest.getMonth() !== now.getMonth()) {
+        return null;
+    }
+    rows.sort((a, b) => (a.noid ?? 0) - (b.noid ?? 0));
+    return { rows, computedAt: oldest };
+}
+
+/**
+ * Reporte des gammes enregistrées dans l'instantané persisté (colonne et payload),
+ * pour que /api/v1 les voie sans attendre un recalcul complet de la grille.
+ */
+export async function updateGridRowsGamme(
+    codeFournisseur: string,
+    changes: ReadonlyArray<{ codein: string; codeGamme: string }>,
+): Promise<void> {
+    const parGamme = new Map<string, string[]>();
+    for (const c of changes) {
+        const codeins = parGamme.get(c.codeGamme) ?? [];
+        codeins.push(c.codein);
+        parGamme.set(c.codeGamme, codeins);
+    }
+    const CHUNK = 5000; // bien en deçà des 65 535 paramètres liés de PostgreSQL
+    for (const [gamme, codeins] of parGamme) {
+        for (let i = 0; i < codeins.length; i += CHUNK) {
+            await db
+                .update(gridRows)
+                .set({
+                    codeGamme: gamme,
+                    payload: sql`jsonb_set(${gridRows.payload}, '{codeGamme}', to_jsonb(${gamme}::text))`,
+                })
+                .where(and(
+                    eq(gridRows.codeFournisseur, codeFournisseur),
+                    inArray(gridRows.codein, codeins.slice(i, i + CHUNK)),
+                ));
+        }
+    }
+}
+
 /** Construit la clause WHERE commune à la grille et à la recherche transversale. */
 function buildWhere(q: GridQuery): SQL | undefined {
     const clauses: SQL[] = [];
@@ -190,20 +261,17 @@ export async function queryGridRows(q: GridQuery): Promise<GridQueryResult> {
     // NULLS LAST dans les deux sens : un produit sans CA ne doit jamais occuper la tête.
     const orderBy = q.order === "asc" ? asc(sortCol) : desc(sortCol);
 
-    const [countRow] = await db
-        .select({ total: sql<number>`count(*)::int` })
-        .from(gridRows)
-        .where(where);
-
     const selection = db
         .select({ payload: gridRows.payload, computedAt: gridRows.computedAt })
         .from(gridRows)
         .where(where)
         .orderBy(orderBy, asc(gridRows.codein));
 
-    const found = limit != null
-        ? await selection.limit(limit).offset((page - 1) * limit)
-        : await selection;
+    // Comptage et page en parallèle : deux connexions du pool, un seul temps d'attente.
+    const [[countRow], found] = await Promise.all([
+        db.select({ total: sql<number>`count(*)::int` }).from(gridRows).where(where),
+        limit != null ? selection.limit(limit).offset((page - 1) * limit) : selection,
+    ]);
 
     let oldest: Date | null = null;
     for (const r of found) {
@@ -211,10 +279,17 @@ export async function queryGridRows(q: GridQuery): Promise<GridQueryResult> {
     }
 
     return {
-        rows: found.map((r) => r.payload as ProductRow),
+        rows: found.map((r) => versLigneApi(r.payload)),
         total: countRow?.total ?? 0,
         computedAt: oldest ? oldest.toISOString() : null,
     };
+}
+
+/** Ligne exposée par l'API : la version de format est un détail interne. */
+function versLigneApi(payload: unknown): ProductRow {
+    const ligne = { ...(payload as ProductRow) };
+    delete ligne.payloadVersion;
+    return ligne;
 }
 
 /** Fiche complète d'un produit. `codeFournisseur` lève l'ambiguïté d'un article multi-fournisseurs. */
@@ -234,7 +309,7 @@ export async function getGridRowByCodein(
 
     if (!found) return null;
     return {
-        row: found.payload as ProductRow,
+        row: versLigneApi(found.payload),
         computedAt: found.computedAt ? found.computedAt.toISOString() : null,
     };
 }

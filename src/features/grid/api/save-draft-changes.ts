@@ -5,7 +5,8 @@ import { sessionSnapshots } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { invalidateGridRowsCache } from "./get-product-rows";
+import { patchGridRowsCache } from "./get-product-rows";
+import { updateGridRowsGamme } from "@/lib/grid-store";
 
 const SaveDraftsSchema = z.object({
     codeFournisseur: z.string(),
@@ -70,7 +71,13 @@ export async function saveDraftChanges(
             type: "snapshot",
         });
 
-        invalidateGridRowsCache(codeFournisseur);
+        // Les lignes en cache reçoivent les nouvelles gammes au lieu d'être jetées :
+        // l'invalidation imposait un recalcul complet (jusqu'à ~40 s) à la
+        // réouverture suivante. L'instantané lu par /api/v1 suit, sans bloquer.
+        patchGridRowsCache(codeFournisseur, changes);
+        void updateGridRowsGamme(codeFournisseur, changes).catch((e) =>
+            console.error("[saveDraftChanges] mise à jour grid_rows KO:", (e as Error).message?.slice(0, 200)),
+        );
 
         return { success: true, saved: changes.length };
     } catch (err) {

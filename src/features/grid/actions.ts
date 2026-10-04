@@ -1,7 +1,7 @@
 "use server";
 
 import { getSitesFromApi } from "@/lib/api-ff-client";
-import { pgGetFournisseurs } from "@/lib/pg-ff-client";
+import { getFournisseursCached } from "@/lib/ff-cache";
 import { getProductRows } from "./api/get-product-rows";
 import type { ProductRow, GridFilters } from "@/types/grid";
 
@@ -9,7 +9,9 @@ import type { ProductRow, GridFilters } from "@/types/grid";
  * Get the list of all suppliers from PostgreSQL (fouadr1).
  */
 export async function getFournisseurs() {
-    return pgGetFournisseurs();
+    // Relu à chaque navigation dans la Grille (changement de fournisseur, de
+    // magasin…) : le référentiel ne change qu'avec la recopie nocturne.
+    return getFournisseursCached();
 }
 
 /**

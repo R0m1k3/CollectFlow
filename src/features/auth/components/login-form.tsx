@@ -2,88 +2,87 @@
 
 import { useActionState } from "react";
 import { loginAction } from "../api/login-action";
-import { Loader2, Lock, User, ShieldCheck } from "lucide-react";
+import { AlertCircle, Loader2, Lock, ShieldCheck, User } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/form-controls";
 
 export function LoginForm() {
     const [error, action, isPending] = useActionState(loginAction, undefined);
 
     return (
-        <div className="w-full max-w-md p-8 rounded-[2rem] bg-[var(--bg-surface)] border border-[var(--border)] shadow-lg" style={{ boxShadow: "var(--shadow-md)" }}>
-            <div className="flex flex-col items-center mb-10 text-center">
-                <div className="w-16 h-16 rounded-2xl bg-[var(--accent-bg)] border border-[var(--accent-border)] flex items-center justify-center mb-6">
-                    <ShieldCheck className="w-8 h-8 text-[var(--accent)]" />
+        <div className="w-full max-w-sm rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-8 shadow-[var(--shadow-md)]">
+            <div className="mb-8 flex flex-col items-center text-center">
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-[var(--accent-border)] bg-[var(--accent-bg)]">
+                    <ShieldCheck className="h-6 w-6 text-[var(--accent)]" aria-hidden />
                 </div>
-                <h1 className="text-3xl font-black text-[var(--text-primary)] tracking-tight mb-2">
-                    CollectFlow
-                </h1>
-                <p className="text-[var(--text-secondary)] text-sm font-medium">
-                    Connectez-vous pour accéder à votre espace d&apos;arbitrage.
+                <h1 className="text-2xl font-bold tracking-tight text-[var(--text-primary)]">CollectFlow</h1>
+                <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                    Connectez-vous avec votre identifiant et votre mot de passe.
                 </p>
             </div>
 
-            <form action={action} className="space-y-6">
-                <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] ml-1">
-                        Utilisateur
+            <form action={action} className="space-y-5">
+                <div className="space-y-1.5">
+                    <label htmlFor="username" className="block text-sm font-medium text-[var(--text-primary)]">
+                        Identifiant
                     </label>
-                    <div className="relative group">
-                        <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)] group-focus-within:text-[var(--accent)] transition-colors" />
-                        <input
+                    <div className="relative">
+                        <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" aria-hidden />
+                        <Input
+                            id="username"
                             name="username"
                             type="text"
                             required
-                            placeholder="admin"
-                            className="w-full pl-12 pr-4 py-4 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border)] focus:border-[var(--accent)] outline-none transition-all text-[var(--text-primary)] font-medium"
+                            autoComplete="username"
+                            placeholder="Votre identifiant"
+                            className="h-11 w-full pl-10"
                         />
                     </div>
                 </div>
 
-                <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] ml-1">
+                <div className="space-y-1.5">
+                    <label htmlFor="password" className="block text-sm font-medium text-[var(--text-primary)]">
                         Mot de passe
                     </label>
-                    <div className="relative group">
-                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)] group-focus-within:text-[var(--accent)] transition-colors" />
-                        <input
+                    <div className="relative">
+                        <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" aria-hidden />
+                        <Input
+                            id="password"
                             name="password"
                             type="password"
                             required
-                            placeholder="••••••••"
-                            className="w-full pl-12 pr-4 py-4 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border)] focus:border-[var(--accent)] outline-none transition-all text-[var(--text-primary)] font-medium"
+                            autoComplete="current-password"
+                            placeholder="Votre mot de passe"
+                            className="h-11 w-full pl-10"
                         />
                     </div>
                 </div>
 
                 {error && (
-                    <div className="p-4 rounded-xl bg-[var(--accent-error-bg)] border border-[var(--accent-error)] text-[var(--accent-error)] text-xs font-bold flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
-                        <div className="w-1.5 h-1.5 rounded-full bg-[var(--accent-error)] shrink-0" />
+                    <div
+                        role="alert"
+                        className="flex items-start gap-2.5 rounded-lg border border-[var(--accent-error)]/40 bg-[var(--accent-error-bg)] px-3 py-2.5 text-sm text-[var(--text-primary)]"
+                    >
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent-error)]" aria-hidden />
                         {error}
                     </div>
                 )}
 
-                <button
-                    type="submit"
-                    disabled={isPending}
-                    className="w-full py-4 rounded-xl bg-[var(--accent)] hover:opacity-90 disabled:opacity-50 text-white font-black transition-all active:scale-[0.98] shadow-lg flex items-center justify-center gap-2 group"
-                    style={{ background: "var(--accent)" }}
-                >
+                <Button type="submit" size="lg" disabled={isPending} className="h-11 w-full">
                     {isPending ? (
                         <>
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                            Connexion...
+                            <Loader2 className="animate-spin" />
+                            Connexion…
                         </>
                     ) : (
                         "Se connecter"
                     )}
-                </button>
+                </Button>
             </form>
 
-            <div className="mt-8 text-center border-t border-[var(--border)] pt-8">
-                <p className="text-[10px] text-[var(--text-muted)] uppercase font-black tracking-widest leading-relaxed">
-                    Plateforme d&apos;Arbitrage Magasin<br />
-                    Propulsée par l&apos;Intelligence Artificielle
-                </p>
-            </div>
+            <p className="mt-6 border-t border-[var(--border)] pt-5 text-center text-[13px] text-[var(--text-muted)]">
+                Révision d&apos;assortiment et suivi des ventes des magasins
+            </p>
         </div>
     );
 }

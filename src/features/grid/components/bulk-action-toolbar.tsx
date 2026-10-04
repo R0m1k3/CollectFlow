@@ -3,14 +3,10 @@
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { GammeCode } from "@/types/grid";
 import { cn } from "@/lib/utils";
+import { GAMMES } from "@/lib/gammes";
+import { Button } from "@/components/ui/button";
 
-const GAMME_OPTIONS: { label: string; code: GammeCode; color: string }[] = [
-    { label: "A — Cœur", code: "A", color: "border-emerald-600 text-emerald-400 hover:bg-emerald-900/20" },
-    { label: "B — Complémentaire", code: "B", color: "border-blue-600 text-blue-400 hover:bg-blue-900/20" },
-    { label: "C — Saisonnier", code: "C", color: "border-amber-600 text-amber-400 hover:bg-amber-900/20" },
-    { label: "Y — En veille", code: "Y", color: "border-violet-600 text-violet-400 hover:bg-violet-900/20" },
-    { label: "Z — Sortie", code: "Z", color: "border-rose-600 text-rose-400 hover:bg-rose-900/20" },
-];
+
 
 interface BulkActionToolbarProps {
     selectedCodeins: string[];
@@ -32,30 +28,28 @@ export function BulkActionToolbar({ selectedCodeins, onClearSelection }: BulkAct
     };
 
     return (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 bg-slate-900 border border-slate-700/50 rounded-xl backdrop-blur-md shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
-            <span className="text-[11px] font-black uppercase tracking-wider text-slate-200">
-                {selectedCodeins.length} sélectionné{selectedCodeins.length > 1 ? "s" : ""}
+        <div
+            role="region"
+            aria-label="Actions sur la sélection"
+            className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border px-4 py-2 border-[var(--accent-border)] bg-[var(--accent-bg)] animate-in fade-in slide-in-from-top-2 duration-200"
+        >
+            <span className="text-sm font-semibold text-[var(--text-primary)]">
+                {selectedCodeins.length} produit{selectedCodeins.length > 1 ? "s" : ""} sélectionné{selectedCodeins.length > 1 ? "s" : ""}
             </span>
-            <div className="h-4 w-px bg-slate-700/50" />
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-tight">Appliquer en masse :</span>
-            {GAMME_OPTIONS.map(({ label, code, color }) => (
+            <span className="text-[13px] text-[var(--text-secondary)]">— leur donner la gamme :</span>
+            {GAMMES.map((g) => (
                 <button
-                    key={code}
-                    onClick={() => applyBulk(code)}
-                    className={cn(
-                        "px-3 py-1 text-xs font-bold border rounded transition-colors",
-                        color
-                    )}
+                    key={g.code}
+                    onClick={() => applyBulk(g.code as GammeCode)}
+                    title={g.description}
+                    className={cn("rounded-md border px-3 py-1 text-[13px] font-semibold transition-opacity hover:opacity-80", g.classes)}
                 >
-                    {label}
+                    {g.code} — {g.nom}
                 </button>
             ))}
-            <button
-                onClick={onClearSelection}
-                className="ml-auto text-xs text-slate-500 hover:text-slate-300 transition-colors"
-            >
-                Annuler
-            </button>
+            <Button variant="ghost" size="sm" onClick={onClearSelection} className="ml-auto">
+                Annuler la sélection
+            </Button>
         </div>
     );
 }

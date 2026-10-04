@@ -8,31 +8,42 @@
  * déduite de l'origine courante, pour rester juste quel que soit le déploiement.
  */
 
-import { useEffect, useState } from "react";
-import { Copy, Check, ExternalLink, Bot } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Copy, Check, ExternalLink, Bot, ChevronRight } from "lucide-react";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/feedback";
 
 function CopyButton({ text }: { text: string }) {
     const [copied, setCopied] = useState(false);
+    const copier = async () => {
+        try {
+            await navigator.clipboard.writeText(text);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+        } catch {
+            toast.erreur("La copie automatique a échoué : sélectionnez le texte et copiez-le à la main.");
+        }
+    };
     return (
-        <button
+        <Button
             type="button"
-            onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
-            className="shrink-0 rounded-lg px-2 py-1.5"
-            style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+            variant="outline"
+            size="icon-sm"
+            onClick={copier}
+            aria-label="Copier"
             title="Copier"
+            className="shrink-0"
         >
-            {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-        </button>
+            {copied ? <Check className="text-[var(--accent-success)]" /> : <Copy />}
+        </Button>
     );
 }
 
 function CodeLine({ children, copy }: { children: string; copy?: string }) {
     return (
         <div className="flex items-start gap-2">
-            <code
-                className="flex-1 rounded-lg px-2.5 py-1.5 text-[11px] font-mono break-all whitespace-pre-wrap"
-                style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
-            >
+            <code className="flex-1 whitespace-pre-wrap break-all rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-1.5 font-mono text-[13px] text-[var(--text-primary)]">
                 {children}
             </code>
             <CopyButton text={copy ?? children} />
@@ -40,25 +51,47 @@ function CodeLine({ children, copy }: { children: string; copy?: string }) {
     );
 }
 
+function Bloc({ titre, children }: { titre: ReactNode; children: ReactNode }) {
+    return (
+        <section className="space-y-2">
+            <h3 className="text-sm font-semibold text-[var(--text-primary)]">{titre}</h3>
+            {children}
+        </section>
+    );
+}
+
+/** Référence technique repliée : utile aux développeurs, superflue pour les autres. */
+function Repli({ titre, children }: { titre: ReactNode; children: ReactNode }) {
+    return (
+        <details className="group rounded-lg border border-[var(--border)]">
+            <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-sm font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] [&::-webkit-details-marker]:hidden">
+                <ChevronRight className="h-4 w-4 shrink-0 text-[var(--text-muted)] transition-transform group-open:rotate-90" aria-hidden />
+                {titre}
+            </summary>
+            <div className="space-y-2 border-t border-[var(--border)] p-3">{children}</div>
+        </details>
+    );
+}
+
 const ENDPOINTS: Array<{ method: string; path: string; desc: string }> = [
-    { method: "GET", path: "/fournisseurs", desc: "Fournisseurs, avec la fraîcheur de leur instantané" },
-    { method: "GET", path: "/grid?fournisseur=CODE", desc: "Lignes de grille d'un fournisseur" },
-    { method: "GET", path: "/nomenclatures?fournisseur=CODE", desc: "Postes de nomenclature d'un fournisseur, avec nb d'articles et CA" },
-    { method: "GET", path: "/products/search?q=terme", desc: "Recherche transversale, tous fournisseurs" },
+    { method: "GET", path: "/fournisseurs", desc: "Fournisseurs, avec la date de calcul de leur grille" },
+    { method: "GET", path: "/grid?fournisseur=CODE", desc: "Lignes de la grille d'un fournisseur" },
+    { method: "GET", path: "/nomenclatures?fournisseur=CODE", desc: "Postes de nomenclature d'un fournisseur, avec nombre d'articles et chiffre d'affaires" },
+    { method: "GET", path: "/products/search?q=terme", desc: "Recherche de produits, tous fournisseurs confondus" },
     { method: "GET", path: "/products/{codein}", desc: "Fiche complète d'un produit" },
-    { method: "GET", path: "/network/{codeCentrale}", desc: "Métriques réseau Qlik + courbe 12 mois" },
-    { method: "GET", path: "/openapi.json", desc: "Spécification lisible par machine" },
+    { method: "GET", path: "/network/{codeCentrale}", desc: "Ventes du réseau (Qlik) et courbe sur 12 mois" },
+    { method: "GET", path: "/openapi.json", desc: "Description de l'API lisible par un programme (format OpenAPI)" },
 ];
 
 const PARAMS: Array<{ name: string; desc: string }> = [
-    { name: "page, limit", desc: "Pagination, sans plafond. Sur /grid, omettre limit renvoie TOUT le fournisseur en un appel ; ailleurs le défaut est 100" },
-    { name: "sort, order", desc: "Tri, ex. sort=totalCa&order=desc" },
-    { name: "search", desc: "Libellé, codein, GTIN, référence ou code centrale" },
-    { name: "nomenclature", desc: "Préfixe de nomenclature : 32 (univers), 3202 (famille), 320211 (sous-famille)" },
-    { name: "gamme, code1..code3", desc: "Filtres sur la gamme et les codes exacts de nomenclature" },
-    { name: "fields", desc: "Champs à conserver, séparés par des virgules — allège fortement la réponse" },
-    { name: "enrich", desc: "1 par défaut : métriques Qlik + gamme serveur relues à l'appel. 0 pour s'en dispenser" },
-    { name: "compute", desc: "1 par défaut : calcule le fournisseur s'il n'a jamais été ouvert (premier appel plus lent). 0 pour échouer vite" },
+    { name: "page, limit", desc: "Pagination, sans plafond. Sur /grid, omettre limit renvoie TOUT le fournisseur en un appel ; ailleurs le défaut est 100." },
+    { name: "sort, order", desc: "Tri, ex. sort=totalCa&order=desc." },
+    { name: "search", desc: "Libellé, codein, GTIN, référence ou code centrale." },
+    { name: "nomenclature", desc: "Début du code de nomenclature : 32 (univers), 3202 (famille), 320211 (sous-famille)." },
+    { name: "gamme, code1..code3", desc: "Filtres sur la gamme et les codes exacts de nomenclature." },
+    { name: "fields", desc: "Champs à conserver, séparés par des virgules : allège fortement la réponse." },
+    { name: "enrich", desc: "1 par défaut : ventes du réseau (Qlik) et gamme enregistrée relues à chaque appel. 0 pour s'en dispenser." },
+    { name: "compute", desc: "1 par défaut : calcule le fournisseur s'il n'a jamais été ouvert (premier appel plus lent). 0 pour échouer tout de suite." },
 ];
 
 export function ApiConnectionInfo() {
@@ -70,128 +103,150 @@ export function ApiConnectionInfo() {
     const base = `${origin || "https://votre-domaine"}/api/v1`;
 
     return (
-        <div className="space-y-5">
-            {/* Connexion */}
-            <div className="space-y-2">
-                <p className="text-[12px] font-semibold" style={{ color: "var(--text-primary)" }}>URL de base</p>
-                <CodeLine>{base}</CodeLine>
-                <p className="text-[12px] font-semibold pt-1" style={{ color: "var(--text-primary)" }}>Authentification</p>
-                <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-                    Une clé créée ci-dessous, dans l&apos;un ou l&apos;autre de ces en-têtes. Depuis un navigateur
-                    connecté, la session suffit — aucune clé n&apos;est nécessaire.
-                </p>
-                <CodeLine>X-API-Key: VOTRE_CLE</CodeLine>
-                <CodeLine>Authorization: Bearer VOTRE_CLE</CodeLine>
-            </div>
+        <Card>
+            <CardHeader
+                title="Se connecter à l'API"
+                description="L'API permet à un script ou à un outil externe de lire les données de CollectFlow : grilles des fournisseurs, recherche de produits, ventes du réseau. Elle ne permet aucune modification."
+            />
+            <CardContent className="space-y-6">
+                <Bloc titre="Adresse de base">
+                    <CodeLine>{base}</CodeLine>
+                </Bloc>
 
-            {/* Endpoints */}
-            <div className="space-y-2">
-                <p className="text-[12px] font-semibold" style={{ color: "var(--text-primary)" }}>Endpoints</p>
-                <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-                    <table className="w-full text-[11px]">
-                        <tbody>
-                            {ENDPOINTS.map((e, i) => (
-                                <tr key={e.path} style={{ borderTop: i === 0 ? undefined : "1px solid var(--border)" }}>
-                                    <td className="px-2.5 py-1.5 font-mono font-bold align-top" style={{ color: "var(--accent)", width: 40 }}>{e.method}</td>
-                                    <td className="px-2.5 py-1.5 font-mono align-top" style={{ color: "var(--text-primary)" }}>{e.path}</td>
-                                    <td className="px-2.5 py-1.5 align-top" style={{ color: "var(--text-muted)" }}>{e.desc}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+                <Bloc titre="Identification">
+                    <p className="text-[13px] text-[var(--text-secondary)]">
+                        Chaque appel doit porter une clé (à créer dans le cadre « Clés d&apos;accès à l&apos;API » ci-dessous),
+                        dans l&apos;un ou l&apos;autre de ces en-têtes. Depuis un navigateur déjà connecté à CollectFlow,
+                        aucune clé n&apos;est nécessaire.
+                    </p>
+                    <CodeLine>X-API-Key: VOTRE_CLE</CodeLine>
+                    <CodeLine>Authorization: Bearer VOTRE_CLE</CodeLine>
+                </Bloc>
 
-            {/* Paramètres */}
-            <div className="space-y-2">
-                <p className="text-[12px] font-semibold" style={{ color: "var(--text-primary)" }}>Paramètres communs</p>
-                <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-                    <table className="w-full text-[11px]">
-                        <tbody>
-                            {PARAMS.map((p, i) => (
-                                <tr key={p.name} style={{ borderTop: i === 0 ? undefined : "1px solid var(--border)" }}>
-                                    <td className="px-2.5 py-1.5 font-mono align-top whitespace-nowrap" style={{ color: "var(--text-primary)" }}>{p.name}</td>
-                                    <td className="px-2.5 py-1.5 align-top" style={{ color: "var(--text-muted)" }}>{p.desc}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            {/* Exemples */}
-            <div className="space-y-2">
-                <p className="text-[12px] font-semibold" style={{ color: "var(--text-primary)" }}>Exemples</p>
-                <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/products/search?q=tapis&limit=20"`}</CodeLine>
-                <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/grid?fournisseur=FOU001&fields=codein,libelle1,totalCa,codeGammeServeur"`}</CodeLine>
-                <p className="text-[11px] pt-1" style={{ color: "var(--text-muted)" }}>
-                    Tout un fournisseur en un seul appel — il suffit d&apos;omettre <code className="font-mono">limit</code>,
-                    et <code className="font-mono">meta.complet</code> confirme qu&apos;il ne reste rien à lire :
-                </p>
-                <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/grid?fournisseur=FOU001"`}</CodeLine>
-                <p className="text-[11px] pt-1" style={{ color: "var(--text-muted)" }}>
-                    Gros fournisseur (plusieurs dizaines de milliers d&apos;articles) : lister d&apos;abord les
-                    postes de nomenclature, puis les traiter un par un.
-                </p>
-                <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/nomenclatures?fournisseur=D005&niveau=1"`}</CodeLine>
-                <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/grid?fournisseur=D005&nomenclature=32"`}</CodeLine>
-            </div>
-
-            {/* Branchement d'une IA externe (ChatGPT) */}
-            <div className="space-y-2">
-                <p className="text-[12px] font-semibold flex items-center gap-1.5" style={{ color: "var(--text-primary)" }}>
-                    <Bot className="w-4 h-4" style={{ color: "var(--accent)" }} />
-                    Connecter une IA externe (ChatGPT)
-                </p>
-                <ol className="text-[11px] space-y-1.5 list-decimal pl-4" style={{ color: "var(--text-secondary)" }}>
-                    <li>Créez une clé d&apos;API dans la section ci-dessous et copiez-la.</li>
-                    <li>Dans ChatGPT : <strong>Créer un GPT</strong> → onglet <strong>Configurer</strong> → <strong>Créer une action</strong>.</li>
-                    <li>
-                        Cliquez sur <strong>Importer depuis une URL</strong> et collez l&apos;adresse du schéma :
-                        <div className="mt-1"><CodeLine>{`${base}/openapi.json`}</CodeLine></div>
-                        <span style={{ color: "var(--text-muted)" }}>
-                            Ce schéma est public (il ne contient aucune donnée) pour que ChatGPT puisse l&apos;importer.
-                            Votre application doit être joignable depuis Internet.
+                {/* Branchement d'une IA externe (ChatGPT) */}
+                <Bloc
+                    titre={
+                        <span className="inline-flex items-center gap-2">
+                            <Bot className="h-4 w-4 text-[var(--accent)]" aria-hidden />
+                            Connecter une IA externe (ChatGPT)
                         </span>
-                    </li>
-                    <li>
-                        Dans <strong>Authentification</strong>, choisissez <strong>Clé d&apos;API</strong>, type{" "}
-                        <strong>Personnalisé</strong>, nom d&apos;en-tête <code className="font-mono">X-API-Key</code>,
-                        et collez votre clé.
-                    </li>
-                    <li>Testez avec une question du type « cherche les produits tapis » — le GPT appellera <code className="font-mono">rechercherProduits</code>.</li>
-                </ol>
-                <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-                    Si votre domaine public diffère de celui affiché ici, renseignez la variable
-                    d&apos;environnement <code className="font-mono">COLLECTFLOW_PUBLIC_URL</code> : elle fixe l&apos;URL
-                    déclarée dans le schéma.
-                </p>
-            </div>
+                    }
+                >
+                    <ol className="list-decimal space-y-2 pl-5 text-[13px] text-[var(--text-secondary)]">
+                        <li>Créez une clé dans le cadre « Clés d&apos;accès à l&apos;API » ci-dessous et copiez-la.</li>
+                        <li>Dans ChatGPT : <strong>Créer un GPT</strong> → onglet <strong>Configurer</strong> → <strong>Créer une action</strong>.</li>
+                        <li>
+                            Cliquez sur <strong>Importer depuis une URL</strong> et collez l&apos;adresse de la description de l&apos;API :
+                            <div className="mt-1.5"><CodeLine>{`${base}/openapi.json`}</CodeLine></div>
+                            <span className="mt-1 block text-[var(--text-muted)]">
+                                Cette description est publique (elle ne contient aucune donnée) pour que ChatGPT puisse la lire.
+                                L&apos;application doit être joignable depuis Internet.
+                            </span>
+                        </li>
+                        <li>
+                            Dans <strong>Authentification</strong>, choisissez <strong>Clé d&apos;API</strong>, type{" "}
+                            <strong>Personnalisé</strong>, nom d&apos;en-tête <code className="font-mono">X-API-Key</code>,
+                            et collez votre clé.
+                        </li>
+                        <li>Testez avec une question du type « cherche les produits tapis » : le GPT appellera <code className="font-mono">rechercherProduits</code>.</li>
+                    </ol>
+                    <p className="text-xs text-[var(--text-muted)]">
+                        Si l&apos;adresse publique de l&apos;application diffère de celle affichée ici, renseignez la variable
+                        d&apos;environnement <code className="font-mono">COLLECTFLOW_PUBLIC_URL</code> : elle fixe l&apos;adresse
+                        annoncée dans la description.
+                    </p>
+                </Bloc>
 
-            {/* Comportement à connaître */}
-            <div className="rounded-xl p-3 text-[11px] space-y-1.5"
-                style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
-                <p><strong>Aucun recalcul.</strong> L&apos;API lit l&apos;instantané de la grille, écrit quand la Grille
-                    est ouverte dans l&apos;application. Un fournisseur jamais consulté renvoie <code className="font-mono">202</code>{" "}
-                    <code className="font-mono">not_ready</code> plutôt que de faire attendre.</p>
-                <p><strong>Métriques Qlik</strong> (<code className="font-mono">network</code>) et{" "}
-                    <strong>gamme serveur non modifiée</strong> (<code className="font-mono">codeGammeServeur</code>) sont
-                    relues à chaque appel. <code className="font-mono">network</code> vaut{" "}
-                    <code className="font-mono">null</code> quand le produit n&apos;a pas de données réseau.</p>
-                <p>Erreurs : <code className="font-mono">{`{ "error": { "code", "message" } }`}</code> avec{" "}
-                    <code className="font-mono">401</code> (clé absente/invalide/révoquée),{" "}
-                    <code className="font-mono">400</code>, <code className="font-mono">404</code>.</p>
-            </div>
+                <div className="space-y-2">
+                    <Repli titre="Adresses disponibles (endpoints)">
+                        <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
+                            <table className="w-full">
+                                <thead className="bg-[var(--bg-elevated)] text-[13px] font-semibold text-[var(--text-secondary)]">
+                                    <tr>
+                                        <th scope="col" className="px-3 py-2 text-left">Méthode</th>
+                                        <th scope="col" className="px-3 py-2 text-left">Adresse</th>
+                                        <th scope="col" className="px-3 py-2 text-left">Contenu</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {ENDPOINTS.map((e) => (
+                                        <tr key={e.path} className="border-t border-[var(--border)] align-top">
+                                            <td className="px-3 py-2 font-mono text-sm font-semibold text-[var(--accent)]">{e.method}</td>
+                                            <td className="px-3 py-2 font-mono text-sm text-[var(--text-primary)]">{e.path}</td>
+                                            <td className="px-3 py-2 text-sm text-[var(--text-secondary)]">{e.desc}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </Repli>
 
-            <a
-                href="/api/v1/openapi.json"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 text-[12px] font-medium"
-                style={{ color: "var(--accent)" }}
-            >
-                Ouvrir la spécification OpenAPI <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-        </div>
+                    <Repli titre="Paramètres communs">
+                        <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
+                            <table className="w-full">
+                                <thead className="bg-[var(--bg-elevated)] text-[13px] font-semibold text-[var(--text-secondary)]">
+                                    <tr>
+                                        <th scope="col" className="px-3 py-2 text-left">Paramètre</th>
+                                        <th scope="col" className="px-3 py-2 text-left">Effet</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {PARAMS.map((p) => (
+                                        <tr key={p.name} className="border-t border-[var(--border)] align-top">
+                                            <td className="whitespace-nowrap px-3 py-2 font-mono text-sm text-[var(--text-primary)]">{p.name}</td>
+                                            <td className="px-3 py-2 text-sm text-[var(--text-secondary)]">{p.desc}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </Repli>
+
+                    <Repli titre="Exemples d'appels">
+                        <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/products/search?q=tapis&limit=20"`}</CodeLine>
+                        <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/grid?fournisseur=FOU001&fields=codein,libelle1,totalCa,codeGammeServeur"`}</CodeLine>
+                        <p className="pt-1 text-[13px] text-[var(--text-secondary)]">
+                            Tout un fournisseur en un seul appel : il suffit d&apos;omettre <code className="font-mono">limit</code>,
+                            et <code className="font-mono">meta.complet</code> confirme qu&apos;il ne reste rien à lire.
+                        </p>
+                        <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/grid?fournisseur=FOU001"`}</CodeLine>
+                        <p className="pt-1 text-[13px] text-[var(--text-secondary)]">
+                            Gros fournisseur (plusieurs dizaines de milliers d&apos;articles) : lister d&apos;abord les
+                            postes de nomenclature, puis les traiter un par un.
+                        </p>
+                        <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/nomenclatures?fournisseur=D005&niveau=1"`}</CodeLine>
+                        <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/grid?fournisseur=D005&nomenclature=32"`}</CodeLine>
+                    </Repli>
+                </div>
+
+                {/* Comportement à connaître */}
+                <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-4 text-[13px] text-[var(--text-secondary)]">
+                    <p className="font-semibold text-[var(--text-primary)]">Bon à savoir</p>
+                    <p>
+                        <strong>L&apos;API lit des grilles déjà calculées</strong>, enregistrées quand la Grille est ouverte dans
+                        l&apos;application ou par le préchauffage ci-dessous. Un fournisseur jamais calculé l&apos;est au premier
+                        appel, qui est alors plus lent ; avec <code className="font-mono">compute=0</code>, l&apos;API répond
+                        aussitôt <code className="font-mono">202 not_ready</code>.
+                    </p>
+                    <p>
+                        <strong>Les ventes du réseau</strong> (<code className="font-mono">network</code>) et <strong>la gamme
+                        enregistrée</strong> (<code className="font-mono">codeGammeServeur</code>) sont relues à chaque appel.{" "}
+                        <code className="font-mono">network</code> vaut <code className="font-mono">null</code> quand le produit
+                        n&apos;a pas de données réseau.
+                    </p>
+                    <p>
+                        En cas d&apos;erreur, la réponse a la forme <code className="font-mono">{`{ "error": { "code", "message" } }`}</code> avec
+                        le code <code className="font-mono">401</code> (clé absente, invalide ou révoquée), <code className="font-mono">400</code>{" "}
+                        (paramètre incorrect) ou <code className="font-mono">404</code> (introuvable).
+                    </p>
+                </div>
+
+                <Button asChild variant="outline">
+                    <a href="/api/v1/openapi.json" target="_blank" rel="noreferrer">
+                        Ouvrir la description complète de l&apos;API (OpenAPI) <ExternalLink />
+                    </a>
+                </Button>
+            </CardContent>
+        </Card>
     );
 }

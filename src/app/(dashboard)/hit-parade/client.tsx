@@ -1,26 +1,176 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useMemo } from "react";
-import * as XLSX from "xlsx";
+import { useState, useTransition, type ReactNode } from "react";
+import { Loader2 } from "lucide-react";
+import { DataTable, type DataColumn, type DataFilter } from "@/components/ui/data-table";
+import { Input, Label } from "@/components/ui/form-controls";
+import { Button } from "@/components/ui/button";
+import { MAGASINS, nomMagasin } from "@/lib/magasins";
+import { fmtDecimal1, fmtEntier, fmtEur0 } from "@/lib/format";
+import { couleurMarge } from "@/lib/marge";
+import { telechargerExcel } from "@/lib/export-excel";
+import { cn } from "@/lib/utils";
 import type { HitParadePivotRow } from "./page";
 
-type SortKey = "caTotal" | "ca292" | "ca579" | "qteTotal" | "qte292" | "qte579" | "stockTotal" | "stock292" | "stock579";
-type SortDir = "desc" | "asc";
+type Ligne = HitParadePivotRow;
 
-const DEFAULT_SORT: SortKey = "caTotal";
-const DEFAULT_DIR: SortDir = "desc";
+/** Champs numériques de la ligne pivotée. */
+type Champ = { [K in keyof Ligne]: Ligne[K] extends number ? K : never }[keyof Ligne];
 
-function formatCA(v: number) {
-    return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(v);
+interface Groupe {
+    id: string;
+    /** Nom affiché au-dessus des colonnes du groupe. */
+    titre: string;
+    /** Nom complet, pour les infobulles et l'export. */
+    nom: string;
+    qte: Champ;
+    ca: Champ;
+    marge: Champ;
+    stock: Champ;
 }
-function formatQte(v: number) {
-    return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(v);
+
+/** Champs de la ligne pivotée pour chaque magasin (la requête en fournit un jeu par magasin). */
+const CHAMPS_MAGASIN: Record<string, Pick<Groupe, "qte" | "ca" | "marge" | "stock">> = {
+    "292": { qte: "qte292", ca: "ca292", marge: "marge292", stock: "stock292" },
+    "579": { qte: "qte579", ca: "ca579", marge: "marge579", stock: "stock579" },
+};
+
+const GROUPES: Groupe[] = [
+    ...MAGASINS.filter(m => CHAMPS_MAGASIN[m.code]).map(m => ({
+        id: m.code,
+        titre: nomMagasin(m.code),
+        nom: nomMagasin(m.code),
+        ...CHAMPS_MAGASIN[m.code],
+    })),
+    { id: "total", titre: "Total nos magasins", nom: "nos magasins", qte: "qteTotal", ca: "caTotal", marge: "margeTotal", stock: "stockTotal" },
+];
+
+const somme = (rows: readonly Ligne[], champ: Champ) => rows.reduce((acc, r) => acc + r[champ], 0);
+
+/** Taux de marge en %, `null` sans chiffre d'affaires. */
+const tauxMarge = (ca: number, marge: number) => (ca > 0 ? (marge / ca) * 100 : null);
+
+const famille = (r: Ligne) => (r.nomenclature_code ? `${r.nomenclature_code} — ${r.nomenclature}` : "Sans famille");
+
+const vide = <span className="text-[var(--text-muted)]">—</span>;
+
+function CelluleMarge({ taux }: { taux: number | null }) {
+    if (taux === null) return vide;
+    return <span className="font-medium" style={{ color: couleurMarge(taux) }}>{fmtDecimal1(taux)} %</span>;
 }
-function formatPct(ca: number, marge: number) {
-    if (ca === 0) return "—";
-    return ((marge / ca) * 100).toFixed(1) + " %";
+
+function CelluleStock({ v }: { v: number }) {
+    return (
+        <span className={cn(v < 0 ? "font-semibold text-[var(--accent-error)]" : v === 0 ? "text-[var(--text-muted)]" : undefined)}>
+            {fmtEntier(v)}
+        </span>
+    );
 }
+
+/** En-tête sur deux lignes : magasin au-dessus, mesure en dessous. */
+function EnTete({ groupe, children }: { groupe: string; children: ReactNode }) {
+    return (
+        <span className="flex flex-col items-end leading-tight">
+            <span className="text-xs font-normal text-[var(--text-muted)]">{groupe}</span>
+            <span>{children}</span>
+        </span>
+    );
+}
+
+function colonnesGroupe(g: Groupe): DataColumn<Ligne>[] {
+    const total = g.id === "total";
+    const bord = "border-l border-[var(--border)]";
+    return [
+        {
+            id: `${g.id}-qte`,
+            header: <EnTete groupe={g.titre}>Qté</EnTete>,
+            hint: `Quantité vendue (${g.nom}) sur la période, retours déduits`,
+            align: "right",
+            sortValue: r => r[g.qte],
+            cell: r => (r[g.qte] !== 0 ? fmtEntier(r[g.qte]) : vide),
+            footer: rows => fmtEntier(somme(rows, g.qte)),
+            className: cn(bord, total && "font-semibold"),
+            headerClassName: bord,
+        },
+        {
+            id: `${g.id}-ca`,
+            header: <EnTete groupe={g.titre}>CA TTC</EnTete>,
+            hint: `Chiffre d'affaires TTC (${g.nom}) sur la période, retours déduits`,
+            align: "right",
+            sortValue: r => r[g.ca],
+            cell: r => (r[g.ca] !== 0 ? fmtEur0(r[g.ca]) : vide),
+            footer: rows => fmtEur0(somme(rows, g.ca)),
+            className: cn("whitespace-nowrap", total && "font-semibold"),
+        },
+        {
+            id: `${g.id}-marge`,
+            header: <EnTete groupe={g.titre}>% marge</EnTete>,
+            hint: `Taux de marge (${g.nom}) : marge divisée par le chiffre d'affaires TTC`,
+            align: "right",
+            sortValue: r => tauxMarge(r[g.ca], r[g.marge]),
+            cell: r => <CelluleMarge taux={tauxMarge(r[g.ca], r[g.marge])} />,
+            footer: rows => <CelluleMarge taux={tauxMarge(somme(rows, g.ca), somme(rows, g.marge))} />,
+            className: "whitespace-nowrap",
+        },
+        {
+            id: `${g.id}-stock`,
+            header: <EnTete groupe={g.titre}>Stock</EnTete>,
+            hint: `Stock actuel (${g.nom}). En rouge : stock négatif`,
+            align: "right",
+            sortValue: r => r[g.stock],
+            cell: r => <CelluleStock v={r[g.stock]} />,
+            footer: rows => fmtEntier(somme(rows, g.stock)),
+        },
+    ];
+}
+
+const COLONNES: DataColumn<Ligne>[] = [
+    {
+        id: "codein",
+        header: "Code",
+        sortValue: r => r.codein,
+        cell: r => <span className="font-mono text-[13px] text-[var(--text-secondary)]">{r.codein}</span>,
+        footer: () => "Total",
+        className: "whitespace-nowrap",
+    },
+    {
+        id: "libelle",
+        header: "Désignation",
+        sortValue: r => r.libelle.trim(),
+        cell: r => <span className="font-medium">{r.libelle.trim()}</span>,
+        footer: rows => <span className="whitespace-nowrap">{fmtEntier(rows.length)} articles</span>,
+        className: "min-w-[220px]",
+    },
+    {
+        id: "fournisseur",
+        header: "Fournisseur",
+        sortValue: r => r.fournisseur,
+        cell: r => <span className="text-[13px] text-[var(--text-secondary)]">{r.fournisseur}</span>,
+        className: "whitespace-nowrap",
+    },
+    {
+        id: "famille",
+        header: "Famille",
+        hint: "Famille de produits (nomenclature FF)",
+        sortValue: famille,
+        cell: r =>
+            r.nomenclature_code ? (
+                <span className="text-[13px] text-[var(--text-secondary)]" title={famille(r)}>
+                    <span className="font-mono text-[var(--text-muted)]">{r.nomenclature_code}</span> {r.nomenclature}
+                </span>
+            ) : vide,
+        className: "min-w-[160px]",
+    },
+    ...GROUPES.flatMap(colonnesGroupe),
+];
+
+const FILTRES: DataFilter<Ligne>[] = [
+    { id: "fournisseur", label: "Fournisseur", valueOf: r => r.fournisseur, allLabel: "Tous les fournisseurs" },
+    { id: "famille", label: "Famille", valueOf: famille, allLabel: "Toutes les familles" },
+];
+
+const recherche = (r: Ligne) => [r.codein, r.libelle];
 
 interface Props {
     dateDebut: string;
@@ -28,353 +178,104 @@ interface Props {
     pivotted: HitParadePivotRow[];
 }
 
-function ColHeader({
-    label,
-    sortable,
-    group,
-    sortKey,
-    sortDir,
-    onSort,
-}: {
-    label: string;
-    sortable?: SortKey;
-    group?: "292" | "579" | "total";
-    sortKey: SortKey;
-    sortDir: SortDir;
-    onSort: (key: SortKey) => void;
-}) {
-    const isActive = sortable && sortKey === sortable;
-    const groupBg = group === "292" ? "bg-blue-50" : group === "579" ? "bg-violet-50" : group === "total" ? "bg-emerald-50" : "";
-    const activeBg = group === "292" ? "bg-blue-100 text-blue-700" : group === "579" ? "bg-violet-100 text-violet-700" : group === "total" ? "bg-emerald-100 text-emerald-700" : "bg-blue-50 text-blue-700";
-    return (
-        <th
-            onClick={sortable ? () => onSort(sortable) : undefined}
-            className={[
-                "px-2 py-2 text-center text-xs font-semibold whitespace-nowrap select-none",
-                sortable ? "cursor-pointer" : "",
-                isActive ? activeBg : `${groupBg} text-gray-600`,
-            ].join(" ")}
-        >
-            {label}
-            {sortable && (
-                <span className="ml-1 inline-block w-3 text-center">
-                    {isActive ? (sortDir === "desc" ? "↓" : "↑") : <span className="text-gray-300">↕</span>}
-                </span>
-            )}
-        </th>
-    );
-}
-
 export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
     const router = useRouter();
-    const [sortKey, setSortKey] = useState<SortKey>(DEFAULT_SORT);
-    const [sortDir, setSortDir] = useState<SortDir>(DEFAULT_DIR);
-    const [filterFournisseur, setFilterFournisseur] = useState<string>("Tous");
-    const [filterNomenclature, setFilterNomenclature] = useState<string>("Tous");
+    const [navigation, demarrerNavigation] = useTransition();
 
     // Dates locales pour les inputs (évite rechargement à chaque frappe)
     const [localDebut, setLocalDebut] = useState(dateDebut);
     const [localFin, setLocalFin] = useState(dateFin);
 
-    const fournisseurs = useMemo(() => {
-        const set = new Set(pivotted.map(r => r.fournisseur));
-        return ["Tous", ...Array.from(set).sort((a, b) => a.localeCompare(b, "fr"))];
-    }, [pivotted]);
-
-    const nomenclatures = useMemo(() => {
-        const map = new Map<string, string>(); // code → libelle
-        for (const r of pivotted) map.set(r.nomenclature_code, r.nomenclature);
-        const entries = Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0], "fr"));
-        return [{ code: "Tous", libelle: "Tous" }, ...entries.map(([code, libelle]) => ({ code, libelle }))];
-    }, [pivotted]);
-
-    function handleSort(key: SortKey) {
-        if (sortKey === key) {
-            setSortDir(d => d === "desc" ? "asc" : "desc");
-        } else {
-            setSortKey(key);
-            setSortDir("desc");
-        }
-    }
-
-    function resetSort() {
-        setSortKey(DEFAULT_SORT);
-        setSortDir(DEFAULT_DIR);
-    }
+    const periodeInvalide = Boolean(localDebut && localFin && localDebut > localFin);
 
     function applyDates() {
-        if (localDebut && localFin) {
-            router.push(`/hit-parade?debut=${localDebut}&fin=${localFin}`);
+        if (localDebut && localFin && !periodeInvalide) {
+            demarrerNavigation(() => {
+                router.push(`/hit-parade?debut=${localDebut}&fin=${localFin}`);
+            });
         }
     }
 
-    const isSorted = sortKey !== DEFAULT_SORT || sortDir !== DEFAULT_DIR;
-
-    const filtered = useMemo(() =>
-        pivotted.filter(r =>
-            (filterFournisseur === "Tous" || r.fournisseur === filterFournisseur) &&
-            (filterNomenclature === "Tous" || r.nomenclature_code === filterNomenclature)
-        ),
-        [pivotted, filterFournisseur, filterNomenclature]
-    );
-
-    const sorted = useMemo(() =>
-        [...filtered].sort((a, b) => {
-            const diff = a[sortKey] - b[sortKey];
-            return sortDir === "desc" ? -diff : diff;
-        }),
-        [filtered, sortKey, sortDir]
-    );
-
-    const totals = useMemo(() => sorted.reduce(
-        (acc, r) => ({
-            qte292: acc.qte292 + r.qte292, ca292: acc.ca292 + r.ca292, marge292: acc.marge292 + r.marge292,
-            qte579: acc.qte579 + r.qte579, ca579: acc.ca579 + r.ca579, marge579: acc.marge579 + r.marge579,
-            qteTotal: acc.qteTotal + r.qteTotal, caTotal: acc.caTotal + r.caTotal, margeTotal: acc.margeTotal + r.margeTotal,
-            stock292: acc.stock292 + r.stock292, stock579: acc.stock579 + r.stock579, stockTotal: acc.stockTotal + r.stockTotal,
-        }),
-        { qte292: 0, ca292: 0, marge292: 0, qte579: 0, ca579: 0, marge579: 0, qteTotal: 0, caTotal: 0, margeTotal: 0, stock292: 0, stock579: 0, stockTotal: 0 }
-    ), [sorted]);
-
-    function exportToExcel() {
-        const headers = [
-            "Code", "Désignation", "Fournisseur", "Nomenclature",
-            "Qté Nancy", "CA TTC Nancy", "% Marge Nancy", "Stock Nancy",
-            "Qté Houdemont", "CA TTC Houdemont", "% Marge Houdemont", "Stock Houdemont",
-            "Qté Total", "CA TTC Total", "% Marge Total", "Stock Total",
-        ];
-
+    async function exportToExcel(rows: readonly Ligne[]) {
         const pct = (ca: number, marge: number) => ca === 0 ? 0 : Math.round((marge / ca) * 1000) / 10;
+        const nomExport = (g: Groupe) => (g.id === "total" ? "Total" : g.nom);
 
-        const dataRows = sorted.map(r => [
-            r.codein,
-            r.libelle.trim(),
-            r.fournisseur,
-            r.nomenclature_code ? `${r.nomenclature_code} — ${r.nomenclature}` : "",
-            r.qte292, r.ca292, pct(r.ca292, r.marge292), r.stock292,
-            r.qte579, r.ca579, pct(r.ca579, r.marge579), r.stock579,
-            r.qteTotal, r.caTotal, pct(r.caTotal, r.margeTotal), r.stockTotal,
-        ]);
-
-        const totalRow = [
-            `TOTAL — ${sorted.length} articles`, "", "", "",
-            totals.qte292, totals.ca292, pct(totals.ca292, totals.marge292), totals.stock292,
-            totals.qte579, totals.ca579, pct(totals.ca579, totals.marge579), totals.stock579,
-            totals.qteTotal, totals.caTotal, pct(totals.caTotal, totals.margeTotal), totals.stockTotal,
-        ];
-
-        const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows, totalRow]);
-
-        // Largeurs de colonnes
-        ws["!cols"] = [
-            { wch: 12 }, { wch: 40 }, { wch: 25 }, { wch: 30 },
-            { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 10 },
-            { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 10 },
-            { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 10 },
-        ];
-
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Hit Parade");
-        XLSX.writeFile(wb, `hit-parade_${dateDebut}_${dateFin}.xlsx`);
+        await telechargerExcel({
+            feuille: "Meilleures ventes",
+            fichier: `meilleures-ventes_${dateDebut}_${dateFin}`,
+            entetes: [
+                "Code", "Désignation", "Fournisseur", "Nomenclature",
+                ...GROUPES.flatMap(g => [
+                    `Qté ${nomExport(g)}`, `CA TTC ${nomExport(g)}`, `% Marge ${nomExport(g)}`, `Stock ${nomExport(g)}`,
+                ]),
+            ],
+            largeurs: [12, 40, 25, 30, ...GROUPES.flatMap(() => [10, 14, 12, 10])],
+            lignes: rows.map(r => [
+                r.codein,
+                r.libelle.trim(),
+                r.fournisseur,
+                r.nomenclature_code ? `${r.nomenclature_code} — ${r.nomenclature}` : "",
+                ...GROUPES.flatMap(g => [r[g.qte], r[g.ca], pct(r[g.ca], r[g.marge]), r[g.stock]]),
+            ]),
+            totaux: [
+                `TOTAL — ${rows.length} articles`, "", "", "",
+                ...GROUPES.flatMap(g => {
+                    const ca = somme(rows, g.ca);
+                    return [somme(rows, g.qte), ca, pct(ca, somme(rows, g.marge)), somme(rows, g.stock)];
+                }),
+            ],
+        });
     }
 
     return (
-        <div className="space-y-4">
-            {/* Barre de contrôles */}
-            <div className="flex flex-wrap items-end gap-4 rounded-xl bg-white px-5 py-4 shadow-sm border border-gray-100">
-                {/* Période */}
-                <div className="flex items-end gap-3">
-                    <div className="flex flex-col gap-1">
-                        <label className="text-xs font-semibold text-gray-500">Du</label>
-                        <input
-                            type="date"
-                            value={localDebut}
-                            onChange={e => setLocalDebut(e.target.value)}
-                            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                        />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                        <label className="text-xs font-semibold text-gray-500">Au</label>
-                        <input
-                            type="date"
-                            value={localFin}
-                            onChange={e => setLocalFin(e.target.value)}
-                            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                        />
-                    </div>
-                    <button
-                        onClick={applyDates}
-                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 transition-colors"
-                    >
-                        Appliquer
-                    </button>
+        <div className="space-y-4" aria-busy={navigation}>
+            {/* Période (relance le calcul côté serveur) */}
+            <div className="flex flex-wrap items-end gap-3">
+                <div>
+                    <Label htmlFor="hit-parade-debut">Du</Label>
+                    <Input
+                        id="hit-parade-debut"
+                        type="date"
+                        value={localDebut}
+                        onChange={e => setLocalDebut(e.target.value)}
+                    />
                 </div>
-
-                <div className="h-8 w-px bg-gray-200 self-center" />
-
-                {/* Filtre fournisseur */}
-                <div className="flex flex-col gap-1">
-                    <label className="text-xs font-semibold text-gray-500">Fournisseur</label>
-                    <select
-                        value={filterFournisseur}
-                        onChange={e => setFilterFournisseur(e.target.value)}
-                        className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-w-[200px]"
-                    >
-                        {fournisseurs.map(f => (
-                            <option key={f} value={f}>{f}</option>
-                        ))}
-                    </select>
+                <div>
+                    <Label htmlFor="hit-parade-fin">Au</Label>
+                    <Input
+                        id="hit-parade-fin"
+                        type="date"
+                        value={localFin}
+                        onChange={e => setLocalFin(e.target.value)}
+                    />
                 </div>
-
-                <div className="h-8 w-px bg-gray-200 self-center" />
-
-                {/* Filtre nomenclature */}
-                <div className="flex flex-col gap-1">
-                    <label className="text-xs font-semibold text-gray-500">Nomenclature</label>
-                    <select
-                        value={filterNomenclature}
-                        onChange={e => setFilterNomenclature(e.target.value)}
-                        className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-w-[200px]"
-                    >
-                        {nomenclatures.map(n => (
-                            <option key={n.code} value={n.code}>
-                                {n.code === "Tous" ? "Tous" : `${n.code} — ${n.libelle}`}
-                            </option>
-                        ))}
-                    </select>
-                </div>
-
-                <div className="h-8 w-px bg-gray-200 self-center" />
-
-                <span className="rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-600 self-center">
-                    {sorted.length} produits
-                </span>
-
-                {isSorted && (
-                    <button
-                        onClick={resetSort}
-                        className="flex items-center gap-1.5 rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-sm font-medium text-orange-700 hover:bg-orange-100 transition-colors self-center"
-                    >
-                        <span>✕</span> Annuler le tri
-                    </button>
+                <Button onClick={applyDates} disabled={navigation || !localDebut || !localFin || periodeInvalide}>
+                    {navigation && <Loader2 className="animate-spin" aria-hidden />}
+                    {navigation ? "Chargement…" : "Appliquer"}
+                </Button>
+                {periodeInvalide && (
+                    <p role="alert" className="flex h-9 items-center text-[13px] text-[var(--accent-error)]">
+                        La date de début doit précéder la date de fin.
+                    </p>
                 )}
-
-                <button
-                    onClick={exportToExcel}
-                    className="ml-auto flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 transition-colors self-center"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
-                    </svg>
-                    Exporter Excel
-                </button>
             </div>
 
-            {/* Tableau */}
-            <div className="overflow-x-auto rounded-xl bg-white shadow-sm border border-gray-100">
-                <table className="w-full border-collapse text-sm">
-                    <thead>
-                        <tr>
-                            <th rowSpan={2} className="w-20 border-b-2 border-gray-200 bg-gray-50 px-2 py-3 text-left text-xs font-semibold text-gray-600 align-bottom">Code</th>
-                            <th rowSpan={2} className="border-b-2 border-gray-200 bg-gray-50 px-2 py-3 text-left text-xs font-semibold text-gray-600 align-bottom">Désignation</th>
-                            <th rowSpan={2} className="border-b-2 border-gray-200 bg-gray-50 px-2 py-3 text-left text-xs font-semibold text-gray-600 align-bottom">Fournisseur</th>
-                            <th rowSpan={2} className="border-b-2 border-gray-200 bg-gray-50 px-2 py-3 text-left text-xs font-semibold text-gray-600 align-bottom">Nom.</th>
-                            <th colSpan={4} className="border-b border-l-2 border-blue-200 bg-blue-50 px-4 py-2 text-center text-xs font-bold text-blue-700 tracking-wide">
-                                Frouard / Nancy — 292
-                            </th>
-                            <th colSpan={4} className="border-b border-l-2 border-violet-200 bg-violet-50 px-4 py-2 text-center text-xs font-bold text-violet-700 tracking-wide">
-                                Houdemont — 579
-                            </th>
-                            <th colSpan={4} className="border-b border-l-2 border-emerald-200 bg-emerald-50 px-4 py-2 text-center text-xs font-bold text-emerald-700 tracking-wide">
-                                Total Réseau
-                            </th>
-                        </tr>
-                        <tr className="border-b-2 border-gray-200">
-                            <ColHeader label="Qté" sortable="qte292" group="292" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                            <ColHeader label="CA TTC" sortable="ca292" group="292" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                            <th className="bg-blue-50 px-2 py-2 text-center text-xs font-semibold text-blue-500">% Marge</th>
-                            <ColHeader label="Stock" sortable="stock292" group="292" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                            <ColHeader label="Qté" sortable="qte579" group="579" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                            <ColHeader label="CA TTC" sortable="ca579" group="579" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                            <th className="bg-violet-50 px-2 py-2 text-center text-xs font-semibold text-violet-500">% Marge</th>
-                            <ColHeader label="Stock" sortable="stock579" group="579" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                            <ColHeader label="Qté" sortable="qteTotal" group="total" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                            <ColHeader label="CA TTC" sortable="caTotal" group="total" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                            <th className="bg-emerald-50 px-2 py-2 text-center text-xs font-semibold text-emerald-600">% Marge</th>
-                            <ColHeader label="Stock" sortable="stockTotal" group="total" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {sorted.map((row) => (
-                            <tr key={row.codein} className={`border-b border-gray-100 hover:brightness-95 transition-colors`}>
-                                <td className="bg-white px-2 py-2.5 font-mono text-xs text-gray-400 text-center">{row.codein}</td>
-                                <td className="bg-white px-2 py-2.5 text-gray-900 font-medium min-w-[200px]">{row.libelle.trim()}</td>
-                                <td className="bg-white px-2 py-2.5 text-xs text-gray-500 whitespace-nowrap">{row.fournisseur}</td>
-                                <td className="bg-white px-2 py-2.5 text-xs text-center whitespace-nowrap" title={row.nomenclature_code ? `${row.nomenclature_code} — ${row.nomenclature}` : ""}>
-                                    {row.nomenclature_code
-                                        ? <span className="font-mono font-semibold text-gray-700">{row.nomenclature_code}</span>
-                                        : <span className="text-gray-300">—</span>
-                                    }
-                                </td>
-                                <td className={`border-l-2 border-blue-200 px-2 py-2.5 text-center tabular-nums text-gray-700 ${sortKey === "qte292" ? "bg-blue-100 font-semibold" : "bg-blue-50/60"}`}>
-                                    {row.qte292 > 0 ? formatQte(row.qte292) : <span className="text-gray-300">—</span>}
-                                </td>
-                                <td className={`px-2 py-2.5 text-center tabular-nums text-gray-800 ${sortKey === "ca292" ? "bg-blue-100 font-semibold" : "bg-blue-50/60"}`}>
-                                    {row.ca292 > 0 ? formatCA(row.ca292) : <span className="text-gray-300">—</span>}
-                                </td>
-                                <td className="bg-blue-50/60 px-2 py-2.5 text-center text-xs tabular-nums text-blue-500">
-                                    {row.ca292 > 0 ? formatPct(row.ca292, row.marge292) : ""}
-                                </td>
-                                <td className={`px-2 py-2.5 text-center tabular-nums text-xs ${sortKey === "stock292" ? "bg-blue-100 font-semibold text-blue-700" : "bg-blue-50/60 text-amber-600"}`}>
-                                    {row.stock292 > 0 ? formatQte(row.stock292) : <span className="text-gray-300">—</span>}
-                                </td>
-                                <td className={`border-l-2 border-violet-200 px-2 py-2.5 text-center tabular-nums text-gray-700 ${sortKey === "qte579" ? "bg-violet-100 font-semibold" : "bg-violet-50/60"}`}>
-                                    {row.qte579 > 0 ? formatQte(row.qte579) : <span className="text-gray-300">—</span>}
-                                </td>
-                                <td className={`px-2 py-2.5 text-center tabular-nums text-gray-800 ${sortKey === "ca579" ? "bg-violet-100 font-semibold" : "bg-violet-50/60"}`}>
-                                    {row.ca579 > 0 ? formatCA(row.ca579) : <span className="text-gray-300">—</span>}
-                                </td>
-                                <td className="bg-violet-50/60 px-2 py-2.5 text-center text-xs tabular-nums text-violet-500">
-                                    {row.ca579 > 0 ? formatPct(row.ca579, row.marge579) : ""}
-                                </td>
-                                <td className={`px-2 py-2.5 text-center tabular-nums text-xs ${sortKey === "stock579" ? "bg-violet-100 font-semibold text-violet-700" : "bg-violet-50/60 text-amber-600"}`}>
-                                    {row.stock579 > 0 ? formatQte(row.stock579) : <span className="text-gray-300">—</span>}
-                                </td>
-                                <td className={`border-l-2 border-emerald-200 px-2 py-2.5 text-center tabular-nums font-semibold text-gray-900 ${sortKey === "qteTotal" ? "bg-emerald-100" : "bg-emerald-50/60"}`}>
-                                    {row.qteTotal > 0 ? formatQte(row.qteTotal) : <span className="text-gray-300">—</span>}
-                                </td>
-                                <td className={`px-2 py-2.5 text-center tabular-nums font-semibold text-gray-900 ${sortKey === "caTotal" ? "bg-emerald-100" : "bg-emerald-50/60"}`}>
-                                    {row.caTotal > 0 ? formatCA(row.caTotal) : <span className="text-gray-300">—</span>}
-                                </td>
-                                <td className="bg-emerald-50/60 px-2 py-2.5 text-center text-xs tabular-nums text-emerald-600">
-                                    {row.caTotal > 0 ? formatPct(row.caTotal, row.margeTotal) : ""}
-                                </td>
-                                <td className={`px-2 py-2.5 text-center tabular-nums text-xs font-semibold ${sortKey === "stockTotal" ? "bg-emerald-100 text-emerald-700" : row.stockTotal <= 0 ? "bg-emerald-50/60 text-red-400" : "bg-emerald-50/60 text-amber-600"}`}>
-                                    {row.stockTotal > 0 ? formatQte(row.stockTotal) : <span className="text-red-400 font-semibold">0</span>}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                    <tfoot>
-                        <tr className="border-t-2 border-gray-300">
-                            <td colSpan={4} className="bg-gray-100 px-4 py-3 text-sm font-bold text-gray-800">
-                                TOTAL — {sorted.length} articles
-                            </td>
-                            <td className="border-l-2 border-blue-300 bg-blue-100 px-4 py-3 text-center font-bold tabular-nums text-gray-900">{formatQte(totals.qte292)}</td>
-                            <td className="bg-blue-100 px-2 py-3 text-center font-bold tabular-nums text-gray-900">{formatCA(totals.ca292)}</td>
-                            <td className="bg-blue-100 px-2 py-3 text-center text-xs tabular-nums text-blue-700 font-semibold">{formatPct(totals.ca292, totals.marge292)}</td>
-                            <td className="bg-blue-100 px-2 py-3 text-center text-xs font-bold tabular-nums text-amber-700">{formatQte(totals.stock292)}</td>
-                            <td className="border-l-2 border-violet-300 bg-violet-100 px-2 py-3 text-center font-bold tabular-nums text-gray-900">{formatQte(totals.qte579)}</td>
-                            <td className="bg-violet-100 px-2 py-3 text-center font-bold tabular-nums text-gray-900">{formatCA(totals.ca579)}</td>
-                            <td className="bg-violet-100 px-2 py-3 text-center text-xs tabular-nums text-violet-700 font-semibold">{formatPct(totals.ca579, totals.marge579)}</td>
-                            <td className="bg-violet-100 px-2 py-3 text-center text-xs font-bold tabular-nums text-amber-700">{formatQte(totals.stock579)}</td>
-                            <td className="border-l-2 border-emerald-300 bg-emerald-100 px-2 py-3 text-center font-bold tabular-nums text-gray-900">{formatQte(totals.qteTotal)}</td>
-                            <td className="bg-emerald-100 px-2 py-3 text-center font-bold tabular-nums text-gray-900">{formatCA(totals.caTotal)}</td>
-                            <td className="bg-emerald-100 px-2 py-3 text-center text-xs tabular-nums text-emerald-800 font-semibold">{formatPct(totals.caTotal, totals.margeTotal)}</td>
-                            <td className="bg-emerald-100 px-2 py-3 text-center text-xs font-bold tabular-nums text-amber-700">{formatQte(totals.stockTotal)}</td>
-                        </tr>
-                    </tfoot>
-                </table>
+            <div className={cn("transition-opacity", navigation && "pointer-events-none opacity-50")}>
+                <DataTable<Ligne>
+                    rows={pivotted}
+                    columns={COLONNES}
+                    rowKey={r => r.codein}
+                    searchIn={recherche}
+                    searchPlaceholder="Code ou désignation…"
+                    filters={FILTRES}
+                    pageSize={100}
+                    unite="produits"
+                    initialSort={{ id: "total-ca", dir: "desc" }}
+                    showFooter
+                    emptyTitle="Aucune vente sur cette période"
+                    emptyDescription="Choisissez une autre période, puis cliquez sur « Appliquer »."
+                    onExport={exportToExcel}
+                />
             </div>
         </div>
     );

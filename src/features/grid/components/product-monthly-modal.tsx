@@ -183,7 +183,7 @@ function TableauParMagasin({ row, mois, activeMagasin, parSite, agrege, sousLign
 
     return (
         <div className="rounded-xl overflow-x-auto min-w-0" style={{ border: "1px solid var(--border)" }}>
-            <table className="w-full text-[11.5px]" style={{ minWidth: 600 }} aria-label={aria}>
+            <table className="w-full text-xs" style={{ minWidth: 600 }} aria-label={aria}>
                 <thead>
                     <tr style={{ background: "var(--bg-elevated)" }}>
                         <th className="text-left px-2.5 py-1.5 font-semibold" style={{ color: "var(--text-secondary)" }}>
@@ -210,7 +210,7 @@ function TableauParMagasin({ row, mois, activeMagasin, parSite, agrege, sousLign
                                     <div className="font-semibold">{l.nom}</div>
                                     {/* L'information secondaire (dernière entrée, mois avec
                                         vente) est écrite, pas réservée au survol. */}
-                                    <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>{l.sous}</div>
+                                    <div className="text-xs" style={{ color: "var(--text-muted)" }}>{l.sous}</div>
                                 </td>
                                 {l.valeurs.map((v, i) => cellule(v, mois[i]))}
                                 {cumul && (

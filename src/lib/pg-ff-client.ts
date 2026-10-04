@@ -9,6 +9,7 @@
 
 import { db } from "@/db";
 import { sql, type SQL } from "drizzle-orm";
+import { ffFetchInit } from "@/lib/api-ff-client";
 
 const FF_API_BASE = process.env.FF_API_BASE_URL ?? "https://api.ffnancy.fr";
 
@@ -20,16 +21,13 @@ let _nomenclatureParentCol: string | null | undefined = undefined; // undefined 
 // Utilitaire : exécuter une requête sans workers parallèles PostgreSQL.
 // Les workers parallèles consomment /dev/shm (mémoire partagée Docker) et font
 // échouer les requêtes si le conteneur a un shm_size insuffisant.
-// SET LOCAL s'applique uniquement à la transaction courante.
+// Le réglage est désormais posé une fois par connexion du pool (src/db/index.ts) :
+// la transaction BEGIN / SET LOCAL / COMMIT qui entourait chaque requête coûtait
+// trois allers-retours de plus à chacune.
 // ---------------------------------------------------------------------------
 async function pgNoParallel(query: SQL): Promise<{ rows: unknown[] }> {
-    let rows: unknown[] = [];
-    await db.transaction(async (tx) => {
-        await tx.execute(sql`SET LOCAL max_parallel_workers_per_gather = 0`);
-        const r = await tx.execute(query);
-        rows = r.rows;
-    });
-    return { rows };
+    const r = await db.execute(query);
+    return { rows: r.rows };
 }
 
 // ---------------------------------------------------------------------------
@@ -96,7 +94,6 @@ export async function pgGetFournisseurs(search?: string): Promise<{ code: string
               ${search ? sql`AND (fi.nom ILIKE ${'%' + search + '%'} OR fi.code ILIKE ${'%' + search + '%'})` : sql``}
             ORDER BY fi.nom
         `);
-        console.log(`[pg-ff] pgGetFournisseurs: ${result.rows.length} fournisseurs`);
         return (result.rows as unknown as { code: string; nom: string }[]).filter(r => r.code && r.nom);
     } catch (e) {
         console.error("[pg-ff] pgGetFournisseurs error:", (e as Error).message?.slice(0, 200));
@@ -297,10 +294,6 @@ export async function pgGetGammesByFournisseur(codefou: string): Promise<Map<str
     for (const row of result.rows as unknown as { codein: string; gamme_code: string }[]) {
         if (row.codein && row.gamme_code) map.set(row.codein, String(row.gamme_code).trim());
     }
-    if (result.rows.length > 0) {
-        console.log("[pg-ff] Gammes sample row:", JSON.stringify(result.rows[0]));
-    }
-    console.log(`[pg-ff] Gammes: ${map.size} articles avec gamme`);
     return map;
 }
 
@@ -429,7 +422,6 @@ export async function pgGetNomenclatureByFournisseur(codefou: string): Promise<M
     }
 
     console.log(`[pg-ff] Nomenclature: ${result.rows.length} articles, parentCol="${parentCol ?? "none"}"`);
-    if (result.rows.length > 0) console.log("[pg-ff] Nomenclature sample:", JSON.stringify(result.rows[0]));
     return buildNomMap(result.rows as unknown as PgNomRow[]);
 }
 
@@ -635,9 +627,9 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
 
     // Deux appels parallèles : données hier + données même jour N-1
     const [apiResult, apiN1Result] = await Promise.all([
-        fetch(`${apiBase}/dashboard?date=${dateHier}`, { cache: "no-store" })
+        fetch(`${apiBase}/dashboard?date=${dateHier}`, ffFetchInit())
             .then(r => { if (!r.ok) throw new Error(`API dashboard ${r.status}: ${r.statusText}`); return r.json() as Promise<ApiPerfDashboard>; }),
-        fetch(`${apiBase}/dashboard?date=${dateN1Param}`, { cache: "no-store" })
+        fetch(`${apiBase}/dashboard?date=${dateN1Param}`, ffFetchInit())
             .then(r => r.ok ? r.json() as Promise<ApiPerfDashboard> : null)
             .catch(() => null),
     ]);
@@ -682,11 +674,14 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
 
     if (allCodeins.length > 0) {
         try {
-            for (let i = 0; i < allCodeins.length; i += 5) {
-                const batch = allCodeins.slice(i, i + 5);
+            // Vagues de 12 articles au lieu de 5 : chaque article coûte deux allers-
+            // retours successifs, et la page d'accueil attendait une douzaine de vagues.
+            const VAGUE = 12;
+            for (let i = 0; i < allCodeins.length; i += VAGUE) {
+                const batch = allCodeins.slice(i, i + VAGUE);
                 await Promise.all(batch.map(async (codein) => {
                     try {
-                        const artRes = await fetch(`${FF_API_BASE}/api/articles?codein=${encodeURIComponent(codein)}`);
+                        const artRes = await fetch(`${FF_API_BASE}/api/articles?codein=${encodeURIComponent(codein)}`, ffFetchInit());
                         if (!artRes.ok) return;
                         const artData = await artRes.json();
                         if (!artData.articles || artData.articles.length === 0) return;
@@ -695,8 +690,8 @@ export async function pgGetDashboardData(): Promise<DashboardData> {
                         if (!noId) return;
 
                         const [refRes, dernierRes] = await Promise.all([
-                            fetch(`${FF_API_BASE}/api/articles/${encodeURIComponent(noId)}/referentiel`),
-                            fetch(`${FF_API_BASE}/api/articles/${encodeURIComponent(noId)}/dernier-fournisseur`),
+                            fetch(`${FF_API_BASE}/api/articles/${encodeURIComponent(noId)}/referentiel`, ffFetchInit()),
+                            fetch(`${FF_API_BASE}/api/articles/${encodeURIComponent(noId)}/dernier-fournisseur`, ffFetchInit()),
                         ]);
 
                         // Stock (toujours depuis referentiel)
@@ -824,6 +819,27 @@ export interface CaByNomenclatureRow {
  * via une sous-requête artfou1 dédupliquée (DISTINCT ON) : un seul code par
  * article, aucune duplication possible des mouvements dans la somme.
  */
+/**
+ * Bornes d'un mois « YYYY-MM » : [premier jour, premier jour du mois suivant[.
+ *
+ * Filtrer `datmvt` sur ces bornes plutôt que sur `TO_CHAR(datmvt, 'YYYY-MM')`
+ * donne exactement les mêmes lignes, mais sans formater en texte la date de
+ * chaque mouvement de l'historique (et reste utilisable par un index sur datmvt).
+ */
+function bornesMois(mois: string): { debut: string; fin: string } {
+    const [annee, m] = mois.split("-").map(Number);
+    const suivant = m === 12 ? `${annee + 1}-01` : `${annee}-${String(m + 1).padStart(2, "0")}`;
+    return { debut: `${mois}-01`, fin: `${suivant}-01` };
+}
+
+/** Mouvements du mois OU du mois N-1 (cf. `bornesMois`). */
+function filtreDeuxMois(mois: string, moisN1: string): SQL {
+    const a = bornesMois(mois);
+    const b = bornesMois(moisN1);
+    return sql`((m.datmvt >= ${a.debut}::date AND m.datmvt < ${a.fin}::date)
+            OR (m.datmvt >= ${b.debut}::date AND m.datmvt < ${b.fin}::date))`;
+}
+
 export async function pgGetCaByFournisseur(
     mois: string,
     moisN1: string
@@ -844,7 +860,7 @@ export async function pgGetCaByFournisseur(
             ORDER BY art_no_id, code
         ) af ON af.art_no_id = a.no_id
         LEFT JOIN fouident fi ON fi.code     = af.code
-        WHERE (TO_CHAR(m.datmvt, 'YYYY-MM') = ${mois} OR TO_CHAR(m.datmvt, 'YYYY-MM') = ${moisN1})
+        WHERE ${filtreDeuxMois(mois, moisN1)}
           AND m.site IN ('292', '579')
           AND m.genremvt = 3
         GROUP BY af.code, fi.nom, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
@@ -873,7 +889,7 @@ export async function pgGetCaByNomenclature(
         FROM mvtart m
         JOIN articles      a ON a.no_id    = m.artnoid
         LEFT JOIN nomenclature n ON n.no_id = a.nom_no_id
-        WHERE (TO_CHAR(m.datmvt, 'YYYY-MM') = ${mois} OR TO_CHAR(m.datmvt, 'YYYY-MM') = ${moisN1})
+        WHERE ${filtreDeuxMois(mois, moisN1)}
           AND m.site IN ('292', '579')
           AND m.genremvt = 3
         GROUP BY n.no_id, n.code, n.libelle, m.site, TO_CHAR(m.datmvt, 'YYYY-MM')
@@ -1219,7 +1235,7 @@ export async function pgGetStockSansVente(site?: string): Promise<PgStockSansVen
         ${lastEntryJoin(link, sql`a.no_id`, sql`m.site`)}
         WHERE m.genremvt IN (1, 2)
           AND m.site IN ('292', '579')
-          AND date_trunc('month', m.datmvt) < date_trunc('month', CURRENT_DATE)
+          AND m.datmvt < date_trunc('month', CURRENT_DATE)
           ${siteFilter}
           AND NOT EXISTS (
               SELECT 1 FROM mvtart mv2
@@ -1373,7 +1389,7 @@ function mapCommandeAutoRow(r: any): PgCommandeAutoRow {
 export async function pgGetCommandesAuto(): Promise<PgCommandeAutoRow[]> {
 
     try {
-        const res = await fetch(`${FF_API_BASE}/api/commandes-auto`, { cache: "no-store" });
+        const res = await fetch(`${FF_API_BASE}/api/commandes-auto`, ffFetchInit());
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         // L'API retourne { count: N, propositions: [...] } ou un tableau direct
@@ -1414,7 +1430,7 @@ export async function pgGetCommandesAuto(): Promise<PgCommandeAutoRow[]> {
                 uniqueCodeFous.map(async codefou => {
                     // 1. Essai sans filtre site
                     try {
-                        const res2 = await fetch(`${FF_API_BASE}/api/commandes-auto/${encodeURIComponent(codefou)}`, { cache: "no-store" });
+                        const res2 = await fetch(`${FF_API_BASE}/api/commandes-auto/${encodeURIComponent(codefou)}`, ffFetchInit());
                         if (res2.ok) {
                             const detail = await res2.json();
                             const f = extractFranco(detail);
@@ -1423,7 +1439,7 @@ export async function pgGetCommandesAuto(): Promise<PgCommandeAutoRow[]> {
                     } catch { /* ignore */ }
                     // 2. Fallback site=000
                     try {
-                        const res3 = await fetch(`${FF_API_BASE}/api/commandes-auto/${encodeURIComponent(codefou)}?site=000`, { cache: "no-store" });
+                        const res3 = await fetch(`${FF_API_BASE}/api/commandes-auto/${encodeURIComponent(codefou)}?site=000`, ffFetchInit());
                         if (res3.ok) {
                             const detail = await res3.json();
                             const f = extractFranco(detail);

@@ -1,5 +1,6 @@
-import LoadingModal from "@/components/shared/loading-modal";
+import { PageSkeleton } from "@/components/ui/states";
 
-export default function DashboardLoading() {
-    return <LoadingModal message="Chargement des données" subMessage="Récupération du tableau de bord..." />;
+/** Silhouette de la page pendant le chargement, sans bloquer l'écran. */
+export default function Loading() {
+    return <PageSkeleton cards={4} rows={6} />;
 }

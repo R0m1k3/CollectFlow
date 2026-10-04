@@ -75,7 +75,11 @@ export const sessionSnapshots = pgTable("session_snapshots", {
   /** snapshot vs export */
   type: varchar("type", { length: 20 }).default("snapshot"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  // Créés par scripts/db-init.js (la migration réellement jouée au démarrage).
+  index("idx_snapshots_fournisseur_date").on(table.codeFournisseur, table.createdAt.desc()),
+  index("idx_snapshots_user_type_date").on(table.userId, table.type, table.createdAt.desc()),
+]);
 
 /**
  * Cadencier / alertes de commande par fournisseur ET par magasin.

@@ -1,5 +1,6 @@
-import LoadingModal from "@/components/shared/loading-modal";
+import { PageSkeleton } from "@/components/ui/states";
 
-export default function CommandesAutoLoading() {
-    return <LoadingModal message="Chargement des données" subMessage="Récupération des commandes automatiques..." />;
+/** Silhouette de la page pendant le chargement, sans bloquer l'écran. */
+export default function Loading() {
+    return <PageSkeleton rows={8} />;
 }

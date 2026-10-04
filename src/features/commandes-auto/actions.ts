@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { commandeCadences } from "@/db/schema";
-import { pgGetFournisseurs, pgGetDerniereReceptionParFournisseur } from "@/lib/pg-ff-client";
+import { getDerniereReceptionCached, getFournisseursCached } from "@/lib/ff-cache";
 
 export type CadenceStatut = "a_commander" | "bientot" | "ok" | "inconnu";
 
@@ -37,7 +37,7 @@ function calcStatut(joursRestants: number | null): CadenceStatut {
 
 /** Liste des fournisseurs (référentiel) pour le sélecteur de cadence. */
 export async function getFournisseursPourCadence(): Promise<{ code: string; nom: string }[]> {
-    return pgGetFournisseurs();
+    return getFournisseursCached();
 }
 
 /**
@@ -50,7 +50,7 @@ export async function listCadences(): Promise<CadenceView[]> {
     try {
         [rows, receptions] = await Promise.all([
             db.select().from(commandeCadences),
-            pgGetDerniereReceptionParFournisseur(),
+            getDerniereReceptionCached(),
         ]);
     } catch (e) {
         console.error("[cadence] listCadences error:", (e as Error).message);

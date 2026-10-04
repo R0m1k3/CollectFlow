@@ -1,6 +1,10 @@
+import type { Metadata } from "next";
+import { auth } from "@/lib/auth";
 import { getFournisseurs, getMagasins } from "@/features/grid/actions";
 import { GridClient } from "@/features/grid/components/grid-client";
 import { SupplierSelectionLanding } from "@/features/grid/components/supplier-selection-landing";
+
+export const metadata: Metadata = { title: "Révision d'assortiment" };
 
 interface GridPageProps {
     searchParams: Promise<{
@@ -23,11 +27,13 @@ export default async function GridPage({ searchParams }: GridPageProps) {
         code3: params.code3 ? String(params.code3).split(",").filter(Boolean) : null,
     };
 
-    // 1. Fetch available suppliers & stores
-    const [fournisseurs, magasins] = await Promise.all([
+    // 1. Fetch available suppliers & stores (et les droits, lus une fois côté serveur)
+    const [fournisseurs, magasins, session] = await Promise.all([
         getFournisseurs(),
         getMagasins(),
+        auth(),
     ]);
+    const isAdmin = (session?.user as { role?: string } | undefined)?.role === "admin";
 
     // 2. If no supplier selected, show compact selection UI
     if (!codeFournisseur) {
@@ -44,6 +50,7 @@ export default async function GridPage({ searchParams }: GridPageProps) {
             magasins={magasins}
             magasin={magasin}
             filters={filters}
+            isAdmin={isAdmin}
         />
     );
 }

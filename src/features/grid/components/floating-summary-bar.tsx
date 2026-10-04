@@ -1,62 +1,71 @@
-import { useGridStore } from "@/features/grid/store/use-grid-store";
-import { useSession } from "next-auth/react";
+"use client";
 
+import React from "react";
+
+import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { SyncQlikButton } from "./sync-qlik-button";
 import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
-import { Loader2, CheckCircle, AlertCircle, RotateCcw, Camera, ChevronDown } from "lucide-react";
+import { ChevronDown, Download, FileSpreadsheet, FileText, History, Loader2, RotateCcw, Save, Table2 } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 import { saveSnapshot } from "@/features/snapshots/api/save-snapshot";
-import { SuccessModal } from "@/components/shared/success-modal";
 import { isStaleServerActionError, STALE_ACTION_MESSAGE } from "@/lib/stale-action";
 import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { confirmer, toast } from "@/components/ui/feedback";
+import { fmtDecimal1, fmtEntier, fmtEur0 } from "@/lib/format";
+import { couleurMarge } from "@/lib/marge";
+import {
+    exporterFichierGammes,
+    exporterGammeA,
+    exporterTousProduits,
+    imprimerPdf,
+    lignesModifiees,
+} from "@/features/grid/lib/exports";
 
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
-    // Determine color based on label to match the prototype
-    const valColor = label.includes("CA") || label.includes("Marge") ? "text-emerald-600 dark:text-emerald-400" : "text-slate-900 dark:text-white";
+function Stat({ label, value, sub, subColor }: { label: string; value: string; sub?: string; subColor?: string }) {
     return (
-        // Barre maintenant dans le flux : chaque pixel de hauteur est pris au
-        // tableau. Ces chiffres sont déjà repris en gros dans l'en-tête de page,
-        // ils n'ont pas besoin d'y être une seconde fois en 20 px.
-        <div className="flex flex-col items-center leading-tight">
-            <span className="text-slate-500 text-[10px] uppercase font-black tracking-tighter">{label}</span>
-            <span className={`font-mono-nums font-black text-base ${valColor}`}>{value}</span>
-            {sub && <span className="text-emerald-600 dark:text-emerald-500 text-[11px] font-bold">{sub}</span>}
+        <div className="flex flex-col leading-tight">
+            <span className="text-xs text-[var(--text-muted)]">{label}</span>
+            <span className="text-base font-bold tabular-nums text-[var(--text-primary)]">
+                {value}
+                {sub && <span className="ml-1.5 text-[13px] font-semibold" style={{ color: subColor }}>{sub}</span>}
+            </span>
         </div>
     );
 }
 
-export function FloatingSummaryBar() {
-    const { data: session } = useSession();
-    const isAdmin = (session?.user as { role?: string } | undefined)?.role === "admin";
+function messageErreur(err: unknown): string {
+    if (isStaleServerActionError(err)) return STALE_ACTION_MESSAGE;
+    return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Barre du bas de la Grille : totaux du périmètre affiché et TOUTES les actions
+ * sur les gammes (annuler, enregistrer, exporter). Il y avait des doublons dans
+ * l'en-tête, avec des droits différents.
+ */
+function FloatingSummaryBarInner({ isAdmin, nomFournisseur }: { isAdmin: boolean; nomFournisseur: string }) {
     const summary = useGridStore((s) => s.summary);
     const resetDrafts = useGridStore((s) => s.resetDrafts);
     const rows = useGridStore((s) => s.rows);
-    const filters = useGridStore((s) => s.filters);
-    const draftChanges = useGridStore((s) => s.draftChanges);
+    const filterFournisseur = useGridStore((s) => s.filters.codeFournisseur);
+    // Magasin affiché (bascule de la Grille). `filters.magasin` n'est jamais
+    // renseigné : les sessions et validations étaient toutes notées « TOTAL ».
+    const activeMagasin = useGridStore((s) => s.activeMagasin);
     const [isPending, startTransition] = useTransition();
-    const [isSavingSnapshot, setIsSavingSnapshot] = useState(false);
-    const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle");
-    const [modal, setModal] = useState<{
-        isOpen: boolean;
-        title: string;
-        message: string;
-        variant?: "success" | "error";
-        action?: { label: string; onClick: () => void };
-    }>({
-        isOpen: false,
-        title: "",
-        message: ""
-    });
+    const [enCours, setEnCours] = useState<string | null>(null);
 
     const visibleCodeins = useMemo(() => rows.map(r => r.codein), [rows]);
-    const { save, hasDrafts, count } = useSaveDrafts(filters.magasin || "TOTAL", visibleCodeins);
+    const { save, hasDrafts, count } = useSaveDrafts(activeMagasin || "TOTAL", visibleCodeins);
 
-    const supplierCode = filters.codeFournisseur || rows[0]?.codeFournisseur;
+    const supplierCode = filterFournisseur || rows[0]?.codeFournisseur;
     const lastQlikUpdate = useMemo(() => {
         let max: string | null = null;
         for (const r of rows) {
@@ -67,42 +76,52 @@ export function FloatingSummaryBar() {
 
     const handleSave = () => {
         startTransition(async () => {
-            const result = await save();
-            setSaveStatus(result.success ? "success" : "error");
-            setTimeout(() => setSaveStatus("idle"), 3000);
+            try {
+                const result = await save();
+                if (result.success) {
+                    toast.succes(`${result.saved} gamme${result.saved > 1 ? "s" : ""} enregistrée${result.saved > 1 ? "s" : ""}.`);
+                } else {
+                    toast.erreur(`Enregistrement impossible : ${result.error ?? "erreur inconnue"}`);
+                }
+            } catch (err) {
+                toast.erreur(`Enregistrement impossible : ${messageErreur(err)}`);
+            }
         });
     };
 
-    const handleReset = () => {
-        if (window.confirm("Es-tu sûr de vouloir annuler tous les changements non enregistrés (gammes) ?")) {
+    const handleReset = async () => {
+        const ok = await confirmer({
+            titre: "Annuler les modifications ?",
+            message: `Les ${count} gamme${count > 1 ? "s" : ""} modifiée${count > 1 ? "s" : ""} et non enregistrée${count > 1 ? "s" : ""} reviendront à leur valeur précédente.`,
+            libelleConfirmer: "Annuler les modifications",
+            danger: true,
+        });
+        if (ok) {
             resetDrafts();
+            toast.info("Modifications annulées.");
         }
     };
 
+    /**
+     * Enregistre une copie de la session dans l'Historique.
+     * Renvoie l'identifiant créé, ou `null` en cas d'échec (déjà signalé).
+     */
     const handleSnapshot = async (labelOverride?: string, type: "snapshot" | "export" = "snapshot") => {
-        if (rows.length === 0) return;
-        setIsSavingSnapshot(true);
+        if (rows.length === 0) return null;
+        const { draftChanges } = useGridStore.getState();
+        // Tous les changements : brouillons + gammes déjà enregistrées (≠ FF)
+        const changes = Object.fromEntries(
+            lignesModifiees().map(r => [
+                r.codein,
+                { before: r.codeGammeInit, after: (draftChanges[r.codein] ?? r.codeGamme) as string },
+            ])
+        );
         try {
-            // Détecter TOUS les changements : drafts actifs + changements déjà validés (codeGamme mis à jour)
-            const modifiedRows = rows.filter(r => {
-                const effectiveGamme = draftChanges[r.codein] ?? r.codeGamme;
-                return effectiveGamme !== r.codeGammeInit;
-            });
-            const changes = Object.fromEntries(
-                modifiedRows.map(r => [
-                    r.codein,
-                    {
-                        before: r.codeGammeInit,
-                        after: (draftChanges[r.codein] ?? r.codeGamme) as string
-                    }
-                ])
-            );
-
             const res = await saveSnapshot({
-                codeFournisseur: filters.codeFournisseur || rows[0].codeFournisseur,
+                codeFournisseur: filterFournisseur || rows[0].codeFournisseur,
                 nomFournisseur: rows[0].nomFournisseur,
-                magasin: filters.magasin || "TOTAL",
-                label: labelOverride || `${type === 'export' ? 'Export' : 'Session'} ${rows[0].nomFournisseur} — ${new Date().toLocaleTimeString()}`,
+                magasin: activeMagasin || "TOTAL",
+                label: labelOverride || `Session ${rows[0].nomFournisseur} — ${new Date().toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}`,
                 changes,
                 type,
                 summary: {
@@ -110,263 +129,154 @@ export function FloatingSummaryBar() {
                     totalCa: summary.totalCa,
                     totalMarge: summary.totalMarge,
                     tauxMargeGlobal: summary.tauxMargeGlobal,
-                }
+                },
             });
-
-            if (res.success) {
-                if (!labelOverride) {
-                    setModal({
-                        isOpen: true,
-                        title: "Snapshot Enregistré",
-                        message: "Votre session de travail a été sauvegardée avec succès."
-                    });
-                }
-                return res.snapshotId;
-            } else {
-                throw new Error(res.error);
-            }
+            if (!res.success) throw new Error(res.error);
+            if (!labelOverride) toast.succes("Session enregistrée dans l'Historique.");
+            return res.snapshotId;
         } catch (err) {
-            console.error(err);
-            if (!labelOverride) {
-                // Onglet resté ouvert pendant un déploiement : les identifiants de
-                // Server Action ont changé côté serveur. Rien à réparer côté
-                // métier, il faut recharger le bundle client.
-                if (isStaleServerActionError(err)) {
-                    setModal({
-                        isOpen: true,
-                        title: "Page à recharger",
-                        message: STALE_ACTION_MESSAGE,
-                        variant: "error",
-                        action: { label: "Recharger la page", onClick: () => window.location.reload() },
-                    });
-                } else {
-                    const msg = err instanceof Error ? err.message : String(err);
-                    setModal({
-                        isOpen: true,
-                        title: "Erreur Snapshot",
-                        message: `Impossible de créer le snapshot : ${msg}`,
-                        variant: "error",
-                    });
-                }
-            }
+            if (!labelOverride) toast.erreur(`La session n'a pas pu être enregistrée : ${messageErreur(err)}`);
+            return null;
+        }
+    };
+
+    /** Lance un export avec indicateur et messages d'erreur communs. */
+    const lancer = async (cle: string, action: () => Promise<boolean>, vide: string) => {
+        if (enCours) return;
+        setEnCours(cle);
+        try {
+            const ok = await action();
+            if (!ok) toast.info(vide);
+        } catch (err) {
+            toast.erreur(`L'export a échoué : ${messageErreur(err)}`);
         } finally {
-            setIsSavingSnapshot(false);
+            setEnCours(null);
         }
     };
 
     return (
         <div
             /*
-             * Dans le flux, plus en `fixed`.
-             *
-             * En `fixed` elle ne réservait aucune hauteur : seul un `pb-12` posé sur
-             * la page compensait, et il était trop court d'une quarantaine de pixels.
-             * Elle recouvrait donc la dernière ligne du tableau ET la barre de
-             * défilement horizontale — d'où l'impression qu'aucun ascenseur n'existait.
-             *
-             * Le `left-[264px]` était en prime calé sur une barre latérale dépliée,
-             * alors qu'elle est repliée par défaut (64 px) : 200 px de vide à gauche.
-             * En flux, la grille cède exactement la hauteur nécessaire et il n'y a
-             * plus aucune valeur magique à tenir en phase.
+             * Dans le flux, plus en `fixed` : la grille cède exactement la hauteur
+             * nécessaire, sans recouvrir la dernière ligne ni l'ascenseur horizontal.
              */
-            className="shrink-0 px-4 py-2.5 flex flex-wrap justify-between items-center gap-x-4 gap-y-2 shadow-sm border rounded-xl transition-colors bg-slate-100 dark:bg-slate-800"
-            style={{
-                borderColor: hasDrafts ? "rgba(234, 179, 8, 0.5)" : "var(--border-strong)",
-            }}
+            className="shrink-0 px-4 py-2.5 flex flex-wrap justify-between items-center gap-x-6 gap-y-2 rounded-xl border bg-[var(--bg-surface)] shadow-[var(--shadow-sm)]"
+            style={{ borderColor: hasDrafts ? "var(--accent-warning)" : "var(--border-strong)" }}
         >
-            <div className="flex items-center bg-white dark:bg-slate-900 shadow-sm border border-slate-200 dark:border-slate-800 rounded-full px-1.5 py-1.5 h-10">
-                <button
-                    onClick={handleReset}
-                    className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors rounded-full"
-                    title="Réinitialiser la page"
-                >
-                    <RotateCcw className="w-4 h-4" />
-                </button>
-
-                <div className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-1" />
-
-                <button
-                    onClick={() => handleSnapshot()}
-                    disabled={isSavingSnapshot}
-                    className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors rounded-full disabled:opacity-50"
-                    title="Prendre un snapshot de la session"
-                >
-                    {isSavingSnapshot ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
-                </button>
-
-                {hasDrafts && (
-                    <>
-                        <div className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-1" />
-                        <span className="ml-1 px-3 h-7 flex items-center justify-center rounded-full text-[11px] font-black tracking-wide text-[#b45309] dark:text-[#78350f] bg-[#fdf08a] hover:bg-[#fde047] transition-colors border border-[#fde047]/50 shadow-sm uppercase">
-                            {count} MODIF.
-                        </span>
-                    </>
-                )}
-            </div>
-
-            <div className="flex space-x-12 items-center">
+            <div className="flex flex-wrap items-center gap-x-8 gap-y-1">
+                <Stat label="Produits actifs" value={fmtEntier(summary.totalRows)} sub={summary.totalProducts !== summary.totalRows ? `sur ${fmtEntier(summary.totalProducts)}` : undefined} subColor="var(--text-muted)" />
+                <Stat label="Quantités vendues (12 mois)" value={fmtEntier(summary.totalQuantite)} />
+                <Stat label="Chiffre d'affaires" value={fmtEur0(summary.totalCa)} />
                 <Stat
-                    label="Nombre de Produits"
-                    value={summary.totalProducts.toLocaleString("fr-FR")}
-                />
-                <Stat
-                    label="Volume Total Vendu"
-                    value={Math.round(summary.totalQuantite).toLocaleString("fr-FR")}
-                />
-                <Stat
-                    label="CA Global Généré"
-                    value={summary.totalCa.toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 })}
-                />
-                <Stat
-                    label="Taux de Marge Moyen"
-                    value={`${summary.tauxMargeGlobal.toFixed(1)}%`}
-                    sub={summary.totalMarge.toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 })}
+                    label="Marge"
+                    value={fmtEur0(summary.totalMarge)}
+                    sub={`${fmtDecimal1(summary.tauxMargeGlobal)} %`}
+                    subColor={couleurMarge(summary.tauxMargeGlobal)}
                 />
             </div>
 
-            <div className="flex space-x-3 items-center">
+            <div className="flex flex-wrap items-center gap-2">
                 {isAdmin && <SyncQlikButton codeFournisseur={supplierCode} lastUpdate={lastQlikUpdate} />}
 
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <button className="btn-action btn-action-secondary flex items-center gap-1.5">
-                            Export Excel
-                            <ChevronDown className="w-3.5 h-3.5" />
-                        </button>
+                        <Button variant="outline" disabled={rows.length === 0 || enCours !== null}>
+                            {enCours ? <Loader2 className="animate-spin" /> : <Download />}
+                            Exporter
+                            <ChevronDown className="opacity-60" />
+                        </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-64">
+                    <DropdownMenuContent align="end" className="w-80">
+                        <DropdownMenuLabel className="text-xs font-medium text-[var(--text-secondary)]">Fichier d&apos;import des gammes</DropdownMenuLabel>
                         <DropdownMenuItem
-                            onClick={async () => {
-                                const currentState = useGridStore.getState();
-                                const currentDrafts = currentState.draftChanges;
-                                const currentRows = currentState.rows;
-
-                                const modifiedRows = currentRows.filter(r => {
-                                    const currentGamme = currentDrafts[r.codein] ?? r.codeGamme;
-                                    return currentGamme !== r.codeGammeInit;
-                                });
-
-                                if (modifiedRows.length === 0) {
-                                    alert("Aucun changement détecté par rapport à l'état initial.");
-                                    return;
-                                }
-
-                                const changes = modifiedRows.map(r => ({
-                                    codein: r.codein,
-                                    gtin: r.gtin,
-                                    codeFournisseur: r.codeFournisseur,
-                                    gamme: (currentDrafts[r.codein] ?? r.codeGamme) as string,
-                                }));
-
-                                const nomFournisseur = modifiedRows[0].nomFournisseur;
-
-                                // Auto-save snapshot for history
-                                await handleSnapshot(`Export ${nomFournisseur} — ${new Date().toLocaleTimeString()}`, "export");
-
-                                try {
-                                    const res = await fetch("/api/export/modified-gammes", {
-                                        method: "POST",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({ nomFournisseur, changes }),
-                                    });
-
-                                    if (!res.ok) throw new Error("Erreur lors de l'export");
-
-                                    const blob = await res.blob();
-                                    const url = window.URL.createObjectURL(blob);
-                                    const a = document.createElement("a");
-                                    a.href = url;
-                                    a.download = `Modifications_Gammes_${nomFournisseur.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.xlsx`;
-                                    a.click();
-                                    window.URL.revokeObjectURL(url);
-                                } catch (error) {
-                                    console.error(error);
-                                    alert("Une erreur s'est produite lors de l'export Excel.");
-                                }
-                            }}
                             className="cursor-pointer"
+                            onSelect={() => lancer("modifs", async () => {
+                                if (lignesModifiees().length === 0) return false;
+                                const nom = lignesModifiees()[0].nomFournisseur;
+                                // Copie dans l'Historique, onglet « Exports »
+                                await handleSnapshot(`Export ${nom} — ${new Date().toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}`, "export");
+                                return exporterFichierGammes(true);
+                            }, "Aucune gamme n'a été modifiée par rapport à FF.")}
                         >
+                            <FileSpreadsheet />
                             <div className="flex flex-col">
-                                <span className="font-medium">Seulement les changements</span>
-                                <span className="text-xs text-muted-foreground">Exporter uniquement les gammes modifiées</span>
+                                <span className="font-medium">Gammes modifiées seulement</span>
+                                <span className="text-xs text-[var(--text-muted)]">Les produits dont la gamme a changé</span>
                             </div>
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                            onClick={async () => {
-                                const currentState = useGridStore.getState();
-                                const currentDrafts = currentState.draftChanges;
-                                const currentRows = currentState.rows;
-
-                                if (currentRows.length === 0) {
-                                    alert("Aucune donnée à exporter.");
-                                    return;
-                                }
-
-                                const nomFournisseur = currentRows[0].nomFournisseur;
-
-                                // Toutes les lignes au format Excel (CODE FOURNISSEUR, GENCOD, GAMME)
-                                const changes = currentRows.map(r => ({
-                                    codein: r.codein,
-                                    gtin: r.gtin,
-                                    codeFournisseur: r.codeFournisseur,
-                                    gamme: (currentDrafts[r.codein] ?? r.codeGamme) as string,
-                                }));
-
-                                try {
-                                    const res = await fetch("/api/export/modified-gammes", {
-                                        method: "POST",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({ nomFournisseur, changes }),
-                                    });
-
-                                    if (!res.ok) throw new Error("Erreur lors de l'export");
-
-                                    const blob = await res.blob();
-                                    const url = window.URL.createObjectURL(blob);
-                                    const a = document.createElement("a");
-                                    a.href = url;
-                                    a.download = `Export_Complet_${nomFournisseur.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.xlsx`;
-                                    a.click();
-                                    window.URL.revokeObjectURL(url);
-                                } catch (error) {
-                                    console.error(error);
-                                    alert("Une erreur s'est produite lors de l'export Excel.");
-                                }
-                            }}
                             className="cursor-pointer"
+                            onSelect={() => lancer("complet", () => exporterFichierGammes(false), "Aucun produit à exporter.")}
                         >
+                            <FileSpreadsheet />
                             <div className="flex flex-col">
-                                <span className="font-medium">Export complet</span>
-                                <span className="text-xs text-muted-foreground">Exporter toutes les lignes du fournisseur</span>
+                                <span className="font-medium">Toutes les gammes</span>
+                                <span className="text-xs text-[var(--text-muted)]">Tous les produits du fournisseur</span>
+                            </div>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuLabel className="text-xs font-medium text-[var(--text-secondary)]">Documents de travail</DropdownMenuLabel>
+                        <DropdownMenuItem
+                            className="cursor-pointer"
+                            onSelect={() => lancer("tous", () => exporterTousProduits(nomFournisseur), "Aucun produit à exporter.")}
+                        >
+                            <Table2 />
+                            <div className="flex flex-col">
+                                <span className="font-medium">Tableau complet (Excel)</span>
+                                <span className="text-xs text-[var(--text-muted)]">Gamme avant / après et chiffres sur 12 mois</span>
+                            </div>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            className="cursor-pointer"
+                            onSelect={() => lancer("gammeA", exporterGammeA, "Aucun produit en gamme A.")}
+                        >
+                            <FileSpreadsheet />
+                            <div className="flex flex-col">
+                                <span className="font-medium">Liste des produits en gamme A (Excel)</span>
+                                <span className="text-xs text-[var(--text-muted)]">Code-barres, référence, libellé, magasins</span>
+                            </div>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            className="cursor-pointer"
+                            onSelect={() => lancer("pdf", () => imprimerPdf(nomFournisseur), "Aucun produit à imprimer.")}
+                        >
+                            <FileText />
+                            <div className="flex flex-col">
+                                <span className="font-medium">Tableau imprimable (PDF)</span>
+                                <span className="text-xs text-[var(--text-muted)]">Mise en page paysage</span>
+                            </div>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="cursor-pointer" onSelect={() => { void handleSnapshot(); }}>
+                            <History />
+                            <div className="flex flex-col">
+                                <span className="font-medium">Garder une copie dans l&apos;Historique</span>
+                                <span className="text-xs text-[var(--text-muted)]">Pour reprendre cette session plus tard</span>
                             </div>
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
 
-                <button
-                    onClick={handleSave}
-                    disabled={!hasDrafts || isPending}
-                    className="btn-action btn-action-primary"
-                >
-                    {isPending ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : saveStatus === "success" ? (
-                        <CheckCircle className="w-4 h-4" />
-                    ) : saveStatus === "error" ? (
-                        <AlertCircle className="w-4 h-4" />
-                    ) : null}
-                    {isPending ? "Validation..." : "Valider"}
-                </button>
+                {hasDrafts && (
+                    <Button variant="ghost" onClick={handleReset} disabled={isPending}>
+                        <RotateCcw /> Annuler
+                    </Button>
+                )}
+                <Button onClick={handleSave} disabled={!hasDrafts || isPending}>
+                    {isPending ? <Loader2 className="animate-spin" /> : <Save />}
+                    {isPending
+                        ? "Enregistrement…"
+                        : hasDrafts
+                            ? `Enregistrer ${count} modification${count > 1 ? "s" : ""}`
+                            : "Aucune modification"}
+                </Button>
             </div>
-
-            <SuccessModal
-                isOpen={modal.isOpen}
-                onClose={() => setModal(prev => ({ ...prev, isOpen: false }))}
-                title={modal.title}
-                message={modal.message}
-                variant={modal.variant}
-                action={modal.action}
-            />
         </div>
     );
 }
+
+/**
+ * Mémoïsé : ses props sont stables, il n'a donc pas à se redessiner quand le
+ * parent change d'état (sélection, progression du chargement…).
+ */
+export const FloatingSummaryBar = React.memo(FloatingSummaryBarInner);

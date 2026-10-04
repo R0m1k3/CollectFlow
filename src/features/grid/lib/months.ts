@@ -18,6 +18,8 @@
  * module : `new Date()` évalué à l'import provoque un mismatch d'hydratation
  * entre le rendu serveur et le rendu client.
  */
+import { MAGASINS } from "@/lib/magasins";
+
 export function getLast12Months(): string[] {
     const months: string[] = [];
     const now = new Date();
@@ -87,11 +89,10 @@ export function qlikMonthToFf(key: string): string {
     return key.replace("-", "");
 }
 
-/** Les deux magasins FF Nancy suivis par l'application. */
-export const SITE_LABELS: Record<string, { label: string; nom: string }> = {
-    "292": { label: "F", nom: "Frouard (Nancy)" },
-    "579": { label: "H", nom: "Houdemont" },
-};
+/** Les deux magasins FF Nancy suivis par l'application (source : lib/magasins). */
+export const SITE_LABELS: Record<string, { label: string; nom: string }> = Object.fromEntries(
+    MAGASINS.map((m) => [m.code, { label: m.initiale, nom: m.nom }]),
+);
 
 /**
  * Style de badge stable pour un magasin : la couleur est dérivée d'un hash du

@@ -3,8 +3,8 @@ import "./globals.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "CollectFlow — Dashboard Décisionnel",
-  description: "Révision d'Assortiment Haute Performance",
+  title: { default: "CollectFlow", template: "%s · CollectFlow" },
+  description: "Révision d'assortiment et suivi des ventes des magasins",
 };
 
 export default function RootLayout({

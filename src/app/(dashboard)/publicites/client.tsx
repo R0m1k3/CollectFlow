@@ -1,361 +1,424 @@
 "use client";
 
+import { useMemo, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { useState, useMemo } from "react";
-import { ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { History, Info, Megaphone, RotateCcw } from "lucide-react";
 import type { Publicite, PubliciteHistorique } from "./page";
+import { Badge, StoreBadge, type Ton } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { DataTable, type DataColumn, type DataFilter } from "@/components/ui/data-table";
+import { Select, type SelectOption } from "@/components/ui/form-controls";
+import { Pagination } from "@/components/ui/pagination";
+import { ErrorState } from "@/components/ui/states";
+import { Tabs, useUrlTab } from "@/components/ui/tabs";
+import { Terme, InfoBulle } from "@/components/ui/tooltip";
+import { fmtDecimal1, fmtEntier, fmtEur0 } from "@/lib/format";
+import { nomMagasin } from "@/lib/magasins";
+import { cn } from "@/lib/utils";
 
-function fmtDate(iso: string) {
-    return new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
-}
-function fmtCA(v: number | string) {
-    return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(Number(v));
-}
-function fmtPct(v: number | string) {
-    return Number(v).toFixed(2).replace(".", ",") + " %";
-}
+type Vue = "publicites" | "historique";
 
-type SortKey = "intitule" | "site" | "ca_pub_periode_pub" | "pourc_capub_catotal" | "qte_vendue_pub" | "taux_sortie" | "statut";
-type SortDir = "asc" | "desc";
-
-function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; sortDir: SortDir }) {
-    if (col !== sortKey) return <ChevronsUpDown className="inline w-3 h-3 ml-1 opacity-30" />;
-    return sortDir === "asc" ? <ChevronUp className="inline w-3 h-3 ml-1" /> : <ChevronDown className="inline w-3 h-3 ml-1" />;
-}
-
-const STATUT_LABELS: Record<string, { label: string; cls: string }> = {
-    en_cours:  { label: "En cours",  cls: "bg-emerald-100 text-emerald-700" },
-    passee:    { label: "Passée",    cls: "bg-gray-100 text-gray-600" },
-    a_venir:   { label: "À venir",   cls: "bg-blue-100 text-blue-700" },
+const STATUTS: Record<string, { libelle: string; ton: Ton }> = {
+    en_cours: { libelle: "En cours", ton: "succes" },
+    passee: { libelle: "Passée", ton: "neutre" },
+    // Le filtre envoie `passees` à l'API : la même valeur peut revenir sur les lignes.
+    passees: { libelle: "Passée", ton: "neutre" },
+    a_venir: { libelle: "À venir", ton: "accent" },
 };
 
+const OPTIONS_STATUT: SelectOption[] = [
+    { value: "toutes", label: "Toutes" },
+    { value: "en_cours", label: "En cours" },
+    { value: "passees", label: "Passées" },
+    { value: "a_venir", label: "À venir" },
+];
+
+/** Pourquoi la liste est vide, selon le statut choisi. */
+const VIDE_PAR_STATUT: Record<string, string> = {
+    toutes: "Aucune opération publicitaire n'est enregistrée pour le moment.",
+    en_cours: "Aucune opération publicitaire n'est en cours en ce moment.",
+    passees: "Aucune opération publicitaire passée n'a été trouvée.",
+    a_venir: "Aucune opération publicitaire à venir n'est encore enregistrée.",
+};
+
+const EXPLICATION_CA_PUB =
+    "Chiffre d'affaires réalisé sur les produits de l'opération pendant sa durée (du premier au dernier jour de la publicité).";
+
+function fmtDate(iso: string | null | undefined): string {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+/** Les montants de l'API arrivent parfois en texte : valeur absente ou illisible = 0. */
+function nombre(v: number | string | null | undefined): number {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+}
+
+function somme<T>(rows: readonly T[], valeur: (r: T) => number | string | null | undefined): number {
+    return rows.reduce((s, r) => s + nombre(valeur(r)), 0);
+}
+
+const libelleStatut = (statut?: string) => STATUTS[statut ?? ""]?.libelle ?? statut ?? "";
+/** `passee` et `passees` désignent le même statut. */
+const cleStatut = (statut?: string) => (statut === "passees" ? "passee" : statut || null);
+
+/** Libellé suivi d'un « i » : explication libre au survol (hors glossaire). */
+
 function StatutBadge({ statut }: { statut?: string }) {
-    const s = statut ?? "";
-    const cfg = STATUT_LABELS[s] ?? { label: s || "—", cls: "bg-gray-100 text-gray-500" };
+    const s = STATUTS[statut ?? ""];
+    if (s) return <Badge ton={s.ton}>{s.libelle}</Badge>;
+    return statut ? <Badge>{statut}</Badge> : <span className="text-[var(--text-muted)]">—</span>;
+}
+
+/** Intitulé d'abord, code de l'opération en petit dessous. */
+function Operation({ intitule, code }: { intitule: string; code: string }) {
     return (
-        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold whitespace-nowrap ${cfg.cls}`}>
-            {cfg.label}
+        <div className="min-w-[220px]">
+            <div className="font-medium text-[var(--text-primary)]">{intitule || "Opération sans intitulé"}</div>
+            {code && <div className="text-xs text-[var(--text-muted)]">Code {code}</div>}
+        </div>
+    );
+}
+
+/** Part du CA total : mise en avant à partir de 10 %, puis de 20 %. */
+function PartCa({ pct }: { pct: number }) {
+    return (
+        <span
+            className={cn(
+                pct >= 20 ? "font-semibold text-[var(--accent)]" : pct >= 10 ? "font-semibold" : "text-[var(--text-secondary)]",
+            )}
+        >
+            {fmtDecimal1(pct)} %
         </span>
     );
 }
 
+/** Pied de la colonne « Part du CA total » : somme du CA pub / somme du CA total. */
+function PartCaTotal({ rows }: { rows: readonly Publicite[] }) {
+    const caPub = somme(rows, (r) => r.ca_pub_periode_pub);
+    const caTotal = somme(rows, (r) => r.ca_total_periode_pub);
+    if (caTotal <= 0) {
+        return <span className="text-[var(--text-muted)]" title="Chiffre d'affaires total inconnu : la part ne peut pas être calculée.">—</span>;
+    }
+    return (
+        <InfoBulle explication="Somme du CA pub période des lignes affichées, divisée par la somme de leur CA total sur les mêmes périodes.">
+            {fmtDecimal1((caPub / caTotal) * 100)} %
+        </InfoBulle>
+    );
+}
+
 interface Props {
-    vue: string;
+    vueInitiale: Vue;
     statut: string;
     page: number;
+    pageSize: number;
     publicites: Publicite[];
     total: number;
     pages: number;
+    erreurPublicites?: string;
     historique: PubliciteHistorique[];
+    erreurHistorique?: string;
 }
 
-export function PublicitesClient({ vue, statut, page, publicites, total, pages, historique }: Props) {
+export function PublicitesClient({
+    vueInitiale,
+    statut,
+    page,
+    pageSize,
+    publicites,
+    total,
+    pages,
+    erreurPublicites,
+    historique,
+    erreurHistorique,
+}: Props) {
     const router = useRouter();
+    const [chargement, startTransition] = useTransition();
+    const [vue, setVue] = useUrlTab<Vue>("vue", vueInitiale);
 
-    const [filterSite, setFilterSite] = useState<string>("all");
-    const [sortKey, setSortKey]       = useState<SortKey>("intitule");
-    const [sortDir, setSortDir]       = useState<SortDir>("asc");
-
-    function nav(params: Record<string, string | number>) {
-        const sp = new URLSearchParams({
-            vue, statut, page: String(page), ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])),
-        });
-        router.push(`/publicites?${sp}`);
+    function naviguer(changements: { statut?: string; page?: number }) {
+        const sp = new URLSearchParams({ vue, statut, page: String(page) });
+        if (changements.statut !== undefined) sp.set("statut", changements.statut);
+        if (changements.page !== undefined) sp.set("page", String(changements.page));
+        startTransition(() => router.push(`/publicites?${sp}`));
     }
 
-    const validPublicites = useMemo(() => publicites.filter(p => p.site !== "000"), [publicites]);
+    const reessayer = (
+        <Button variant="outline" onClick={() => startTransition(() => router.refresh())} disabled={chargement}>
+            <RotateCcw /> Réessayer
+        </Button>
+    );
 
-    const sites = useMemo(() => {
-        const s = new Set(validPublicites.map(p => p.site).filter(Boolean));
-        return Array.from(s).sort();
-    }, [validPublicites]);
+    const validPublicites = useMemo(() => publicites.filter((p) => p.site !== "000"), [publicites]);
+    const plusieursSites = useMemo(() => new Set(validPublicites.map((p) => p.site).filter(Boolean)).size > 1, [validPublicites]);
+    const paginee = pages > 1;
 
-    const SITE_COLORS: Record<string, string> = useMemo(() => {
-        const palette = [
-            "bg-blue-50 text-blue-700", "bg-violet-50 text-violet-700",
-            "bg-emerald-50 text-emerald-700", "bg-rose-50 text-rose-700",
-            "bg-amber-50 text-amber-700", "bg-cyan-50 text-cyan-700",
-        ];
-        return Object.fromEntries(sites.map((s, i) => [s, palette[i % palette.length]]));
-    }, [sites]);
+    const filtresPublicites = useMemo<DataFilter<Publicite>[]>(
+        () =>
+            plusieursSites
+                ? [{ id: "site", label: "Magasin", valueOf: (p) => p.site || null, optionLabel: (code) => nomMagasin(code), allLabel: "Tous les magasins" }]
+                : [],
+        [plusieursSites],
+    );
 
-    function handleSort(key: SortKey) {
-        if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
-        else { setSortKey(key); setSortDir("asc"); }
-    }
+    const colonnesPublicites = useMemo<DataColumn<Publicite>[]>(
+        () => [
+            {
+                id: "operation",
+                header: "Opération",
+                sortValue: (p) => p.intitule,
+                cell: (p) => <Operation intitule={p.intitule} code={p.tcr_code} />,
+                footer: (rows) =>
+                    `Total${paginee ? " de la page" : ""} · ${fmtEntier(rows.length)} publicité${rows.length > 1 ? "s" : ""}`,
+            },
+            {
+                id: "statut",
+                header: "Statut",
+                sortValue: (p) => libelleStatut(p.statut),
+                cell: (p) => <StatutBadge statut={p.statut} />,
+            },
+            {
+                id: "site",
+                header: "Magasin",
+                sortValue: (p) => (p.site ? nomMagasin(p.site) : null),
+                cell: (p) => (p.site ? <StoreBadge code={p.site} /> : <span className="text-[var(--text-muted)]">—</span>),
+            },
+            {
+                id: "debut",
+                header: "Début",
+                sortValue: (p) => p.date_debut,
+                cell: (p) => fmtDate(p.date_debut),
+                className: "whitespace-nowrap tabular-nums",
+            },
+            {
+                id: "fin",
+                header: "Fin",
+                sortValue: (p) => p.date_fin,
+                cell: (p) => fmtDate(p.date_fin),
+                className: "whitespace-nowrap tabular-nums",
+            },
+            {
+                id: "caPub",
+                header: <InfoBulle explication={EXPLICATION_CA_PUB}>CA pub période</InfoBulle>,
+                align: "right",
+                sortValue: (p) => nombre(p.ca_pub_periode_pub),
+                cell: (p) => <span className="font-semibold">{fmtEur0(nombre(p.ca_pub_periode_pub))}</span>,
+                footer: (rows) => fmtEur0(somme(rows, (r) => r.ca_pub_periode_pub)),
+            },
+            {
+                id: "partCa",
+                header: <Terme id="partCaTotal" />,
+                align: "right",
+                sortValue: (p) => nombre(p.pourc_capub_catotal),
+                cell: (p) => <PartCa pct={nombre(p.pourc_capub_catotal)} />,
+                footer: (rows) => <PartCaTotal rows={rows} />,
+            },
+            {
+                id: "quantite",
+                header: "Quantité vendue",
+                align: "right",
+                sortValue: (p) => nombre(p.qte_vendue_pub),
+                cell: (p) => fmtEntier(nombre(p.qte_vendue_pub)),
+                footer: (rows) => fmtEntier(somme(rows, (r) => r.qte_vendue_pub)),
+            },
+            {
+                id: "clients",
+                header: "Clients",
+                align: "right",
+                sortValue: (p) => nombre(p.client_pub_periode),
+                cell: (p) => fmtEntier(nombre(p.client_pub_periode)),
+            },
+            {
+                id: "tauxSortie",
+                header: <Terme id="tauxSortie" />,
+                align: "right",
+                sortValue: (p) => nombre(p.taux_sortie),
+                cell: (p) => `${fmtDecimal1(nombre(p.taux_sortie))} %`,
+            },
+            {
+                id: "articles",
+                header: "Nb articles",
+                align: "right",
+                sortValue: (p) => nombre(p.nb_articles),
+                cell: (p) => fmtEntier(nombre(p.nb_articles)),
+            },
+        ],
+        [paginee],
+    );
 
-    const filtered = useMemo(() => {
-        let rows = filterSite === "all" ? validPublicites : validPublicites.filter(p => p.site === filterSite);
-        return [...rows].sort((a, b) => {
-            const va = (sortKey === "intitule" || sortKey === "site" || sortKey === "statut")
-                ? String(a[sortKey] ?? "").toLowerCase()
-                : Number(a[sortKey as keyof Publicite]);
-            const vb = (sortKey === "intitule" || sortKey === "site" || sortKey === "statut")
-                ? String(b[sortKey] ?? "").toLowerCase()
-                : Number(b[sortKey as keyof Publicite]);
-            if (va < vb) return sortDir === "asc" ? -1 : 1;
-            if (va > vb) return sortDir === "asc" ? 1 : -1;
-            return 0;
-        });
-    }, [validPublicites, filterSite, sortKey, sortDir]);
+    const filtresHistorique = useMemo<DataFilter<PubliciteHistorique>[]>(
+        () => [{ id: "statut", label: "Statut", valueOf: (h) => cleStatut(h.statut), optionLabel: (s) => libelleStatut(s), allLabel: "Tous" }],
+        [],
+    );
 
-    function thProps(key: SortKey, cls = "") {
-        return { className: `${cls} cursor-pointer select-none hover:bg-gray-100 transition-colors`, onClick: () => handleSort(key) };
-    }
+    const colonnesHistorique = useMemo<DataColumn<PubliciteHistorique>[]>(
+        () => [
+            {
+                id: "operation",
+                header: "Opération",
+                sortValue: (h) => h.intitule,
+                cell: (h) => <Operation intitule={h.intitule} code={h.tcr_code} />,
+                footer: (rows) => `Total · ${fmtEntier(rows.length)} opération${rows.length > 1 ? "s" : ""}`,
+            },
+            {
+                id: "statut",
+                header: "Statut",
+                sortValue: (h) => libelleStatut(h.statut),
+                cell: (h) => <StatutBadge statut={h.statut} />,
+            },
+            {
+                id: "debut",
+                header: "Début",
+                sortValue: (h) => h.date_debut,
+                cell: (h) => fmtDate(h.date_debut),
+                className: "whitespace-nowrap tabular-nums",
+            },
+            {
+                id: "fin",
+                header: "Fin",
+                sortValue: (h) => h.date_fin,
+                cell: (h) => fmtDate(h.date_fin),
+                className: "whitespace-nowrap tabular-nums",
+            },
+            {
+                id: "magasins",
+                header: "Magasins",
+                hint: "Nombre de magasins concernés par l'opération.",
+                align: "right",
+                sortValue: (h) => nombre(h.nb_sites),
+                cell: (h) => fmtEntier(nombre(h.nb_sites)),
+            },
+            {
+                id: "ca",
+                header: "CA total",
+                hint: "Chiffre d'affaires de l'opération, tous magasins confondus.",
+                align: "right",
+                sortValue: (h) => nombre(h.ca_total),
+                cell: (h) => <span className="font-semibold">{fmtEur0(nombre(h.ca_total))}</span>,
+                footer: (rows) => fmtEur0(somme(rows, (r) => r.ca_total)),
+            },
+            {
+                id: "quantite",
+                header: "Quantité vendue",
+                align: "right",
+                sortValue: (h) => nombre(h.qte_totale),
+                cell: (h) => fmtEntier(nombre(h.qte_totale)),
+                footer: (rows) => fmtEntier(somme(rows, (r) => r.qte_totale)),
+            },
+        ],
+        [],
+    );
 
-    const isHistorique = vue === "historique";
+    const onglets = [
+        { value: "publicites", label: "Publicités", icon: Megaphone, count: erreurPublicites ? undefined : total },
+        { value: "historique", label: "Historique", icon: History, count: erreurHistorique ? undefined : historique.length },
+    ] as const;
+
+    const selectStatut = (
+        <Select
+            id="publicites-statut"
+            label="Statut"
+            value={statut}
+            options={OPTIONS_STATUT}
+            onChange={(v) => naviguer({ statut: v, page: 1 })}
+            disabled={chargement}
+        />
+    );
+
+    const descriptionVide =
+        page > 1 && total > 0 ? (
+            <>
+                Cette page ne contient aucune publicité.{" "}
+                <button
+                    type="button"
+                    onClick={() => naviguer({ page: 1 })}
+                    className="font-medium text-[var(--accent)] underline underline-offset-2"
+                >
+                    Revenir à la première page
+                </button>
+            </>
+        ) : (
+            <>
+                {VIDE_PAR_STATUT[statut] ?? VIDE_PAR_STATUT.toutes}
+                {statut !== "toutes" && " Choisissez « Toutes » dans le filtre Statut pour voir les autres opérations."}
+            </>
+        );
 
     return (
-        <div className="space-y-4">
-            {/* ── Onglets ── */}
-            <div className="flex gap-2 border-b border-gray-200">
-                {[
-                    { key: "publicites", label: `Publicités${total ? ` (${total})` : ""}` },
-                    { key: "historique", label: `Historique${historique.length ? ` (${historique.length})` : ""}` },
-                ].map(t => (
-                    <button
-                        key={t.key}
-                        onClick={() => nav({ vue: t.key, page: 1 })}
-                        className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
-                            vue === t.key
-                                ? "border-orange-500 text-orange-600"
-                                : "border-transparent text-gray-500 hover:text-gray-700"
-                        }`}
-                    >
-                        {t.label}
-                    </button>
-                ))}
-            </div>
+        <div className="space-y-5">
+            <Tabs items={onglets} value={vue} onChange={setVue} />
 
-            {/* ── Barre de contrôles ── */}
-            <div className="flex flex-wrap items-end gap-4 rounded-xl bg-white px-5 py-4 shadow-sm border border-gray-100">
-                {!isHistorique && (
-                    <>
-                        <div className="flex flex-col gap-1">
-                            <label className="text-xs font-semibold text-gray-500">Statut</label>
-                            <select
-                                value={statut}
-                                onChange={e => nav({ vue, statut: e.target.value, page: 1 })}
-                                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-400 min-w-[160px]"
-                            >
-                                <option value="toutes">Toutes</option>
-                                <option value="en_cours">En cours</option>
-                                <option value="passees">Passées</option>
-                                <option value="a_venir">À venir</option>
-                            </select>
-                        </div>
-
-                        {sites.length > 1 && (
-                            <div className="flex flex-col gap-1">
-                                <label className="text-xs font-semibold text-gray-500">Magasin</label>
-                                <select
-                                    value={filterSite}
-                                    onChange={e => setFilterSite(e.target.value)}
-                                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-400 min-w-[160px]"
-                                >
-                                    <option value="all">Tous les magasins</option>
-                                    {sites.map(s => <option key={s} value={s}>{s}</option>)}
-                                </select>
-                            </div>
-                        )}
-
-                        <div className="h-8 w-px bg-gray-200 self-center" />
-
-                        <span className="rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-600 self-center">
-                            {total} publicité{total !== 1 ? "s" : ""} au total
-                        </span>
-                    </>
-                )}
-
-                {isHistorique && (
-                    <span className="rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-600 self-center">
-                        {historique.length} opération{historique.length !== 1 ? "s" : ""}
-                    </span>
-                )}
-            </div>
-
-            {/* ── Vue Publicités ── */}
-            {!isHistorique && (
-                <>
-                    <div className="overflow-x-auto rounded-xl bg-white shadow-sm border border-gray-100">
-                        {filtered.length === 0 ? (
-                            <div className="py-16 text-center text-gray-400 text-sm">Aucune publicité trouvée.</div>
-                        ) : (
-                            <table className="w-full border-collapse text-sm">
-                                <thead>
-                                    <tr className="border-b-2 border-gray-200 bg-gray-50">
-                                        <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 w-20">N°</th>
-                                        <th {...thProps("intitule", "px-3 py-3 text-left text-xs font-semibold text-gray-500")}>
-                                            Opération <SortIcon col="intitule" sortKey={sortKey} sortDir={sortDir} />
-                                        </th>
-                                        <th {...thProps("statut", "px-3 py-3 text-left text-xs font-semibold text-gray-500 whitespace-nowrap")}>
-                                            Statut <SortIcon col="statut" sortKey={sortKey} sortDir={sortDir} />
-                                        </th>
-                                        <th {...thProps("site", "px-3 py-3 text-left text-xs font-semibold text-gray-500 whitespace-nowrap")}>
-                                            Magasin <SortIcon col="site" sortKey={sortKey} sortDir={sortDir} />
-                                        </th>
-                                        <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 whitespace-nowrap">Date début</th>
-                                        <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 whitespace-nowrap">Date fin</th>
-                                        <th {...thProps("ca_pub_periode_pub", "px-3 py-3 text-right text-xs font-semibold text-orange-600 whitespace-nowrap bg-orange-50")}>
-                                            CA pub période <SortIcon col="ca_pub_periode_pub" sortKey={sortKey} sortDir={sortDir} />
-                                        </th>
-                                        <th {...thProps("pourc_capub_catotal", "px-3 py-3 text-right text-xs font-semibold text-orange-600 whitespace-nowrap bg-orange-50")}>
-                                            % CA total <SortIcon col="pourc_capub_catotal" sortKey={sortKey} sortDir={sortDir} />
-                                        </th>
-                                        <th {...thProps("qte_vendue_pub", "px-3 py-3 text-right text-xs font-semibold text-gray-500 whitespace-nowrap")}>
-                                            Qté vendue <SortIcon col="qte_vendue_pub" sortKey={sortKey} sortDir={sortDir} />
-                                        </th>
-                                        <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 whitespace-nowrap">Clients</th>
-                                        <th {...thProps("taux_sortie", "px-3 py-3 text-right text-xs font-semibold text-gray-500 whitespace-nowrap")}>
-                                            Taux sortie <SortIcon col="taux_sortie" sortKey={sortKey} sortDir={sortDir} />
-                                        </th>
-                                        <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 whitespace-nowrap">Nb articles</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filtered.map((pub, idx) => (
-                                        <tr key={`${pub.tcr_code}-${pub.site}-${idx}`} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                                            <td className="px-3 py-2.5 font-mono text-xs text-gray-400">{pub.tcr_code}</td>
-                                            <td className="px-3 py-2.5 text-gray-900 font-medium">{pub.intitule}</td>
-                                            <td className="px-3 py-2.5"><StatutBadge statut={pub.statut} /></td>
-                                            <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">
-                                                <span className={`inline-block rounded-md px-2 py-0.5 font-medium ${SITE_COLORS[pub.site] ?? "bg-gray-100 text-gray-600"}`}>
-                                                    {pub.site || "—"}
-                                                </span>
-                                            </td>
-                                            <td className="px-3 py-2.5 text-center text-xs text-gray-600 whitespace-nowrap tabular-nums">{fmtDate(pub.date_debut)}</td>
-                                            <td className="px-3 py-2.5 text-center text-xs text-gray-600 whitespace-nowrap tabular-nums">{fmtDate(pub.date_fin)}</td>
-                                            <td className="bg-orange-50/60 px-3 py-2.5 text-right font-semibold tabular-nums text-gray-900">{fmtCA(pub.ca_pub_periode_pub)}</td>
-                                            <td className="bg-orange-50/60 px-3 py-2.5 text-right tabular-nums">
-                                                <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${
-                                                    Number(pub.pourc_capub_catotal) >= 20 ? "bg-orange-100 text-orange-700"
-                                                    : Number(pub.pourc_capub_catotal) >= 10 ? "bg-amber-100 text-amber-700"
-                                                    : "bg-gray-100 text-gray-600"
-                                                }`}>
-                                                    {fmtPct(pub.pourc_capub_catotal)}
-                                                </span>
-                                            </td>
-                                            <td className="px-3 py-2.5 text-right tabular-nums text-gray-700 text-xs">{Number(pub.qte_vendue_pub).toLocaleString("fr-FR")}</td>
-                                            <td className="px-3 py-2.5 text-right tabular-nums text-gray-700 text-xs">{Number(pub.client_pub_periode).toLocaleString("fr-FR")}</td>
-                                            <td className="px-3 py-2.5 text-right tabular-nums text-gray-700 text-xs">{Number(pub.taux_sortie).toFixed(1).replace(".", ",")} %</td>
-                                            <td className="px-3 py-2.5 text-right tabular-nums text-gray-500 text-xs">{pub.nb_articles}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                                <tfoot>
-                                    <tr className="border-t-2 border-gray-300 bg-gray-50">
-                                        <td colSpan={6} className="px-4 py-3 text-sm font-bold text-gray-800">
-                                            TOTAL — {filtered.length} publicité{filtered.length !== 1 ? "s" : ""} (page {page}/{pages})
-                                        </td>
-                                        <td className="bg-orange-100 px-3 py-3 text-right font-bold tabular-nums text-gray-900">
-                                            {fmtCA(filtered.reduce((s, p) => s + Number(p.ca_pub_periode_pub), 0))}
-                                        </td>
-                                        <td className="bg-orange-100 px-3 py-3 text-right text-xs font-semibold text-orange-700">—</td>
-                                        <td className="px-3 py-3 text-right font-bold tabular-nums text-gray-700 text-xs">
-                                            {filtered.reduce((s, p) => s + Number(p.qte_vendue_pub), 0).toLocaleString("fr-FR")}
-                                        </td>
-                                        <td colSpan={3} />
-                                    </tr>
-                                </tfoot>
-                            </table>
-                        )}
-                    </div>
-
-                    {/* ── Pagination ── */}
-                    {pages > 1 && (
-                        <div className="flex items-center justify-between rounded-xl bg-white px-5 py-3 shadow-sm border border-gray-100">
-                            <span className="text-sm text-gray-500">
-                                Page <strong>{page}</strong> sur <strong>{pages}</strong> — {total} publicités
-                            </span>
-                            <div className="flex items-center gap-2">
-                                <button
-                                    disabled={page <= 1}
-                                    onClick={() => nav({ vue, statut, page: page - 1 })}
-                                    className="flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                                >
-                                    <ChevronLeft className="w-4 h-4" /> Préc.
-                                </button>
-                                {/* Pages around current */}
-                                {Array.from({ length: Math.min(pages, 7) }, (_, i) => {
-                                    const p = pages <= 7 ? i + 1 : Math.max(1, page - 3) + i;
-                                    if (p > pages) return null;
-                                    return (
-                                        <button
-                                            key={p}
-                                            onClick={() => nav({ vue, statut, page: p })}
-                                            className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-                                                p === page
-                                                    ? "bg-orange-500 text-white"
-                                                    : "border border-gray-300 text-gray-600 hover:bg-gray-50"
-                                            }`}
-                                        >
-                                            {p}
-                                        </button>
-                                    );
-                                })}
-                                <button
-                                    disabled={page >= pages}
-                                    onClick={() => nav({ vue, statut, page: page + 1 })}
-                                    className="flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                                >
-                                    Suiv. <ChevronRight className="w-4 h-4" />
-                                </button>
-                            </div>
-                        </div>
-                    )}
-                </>
-            )}
-
-            {/* ── Vue Historique ── */}
-            {isHistorique && (
-                <div className="overflow-x-auto rounded-xl bg-white shadow-sm border border-gray-100">
-                    {historique.length === 0 ? (
-                        <div className="py-16 text-center text-gray-400 text-sm">Aucun historique disponible.</div>
+            <div aria-busy={chargement} className={cn("transition-opacity", chargement && "pointer-events-none opacity-60")}>
+                {vue === "publicites" ? (
+                    erreurPublicites ? (
+                        <ErrorState
+                            title="Les publicités n'ont pas pu être chargées"
+                            description="Le serveur des publicités n'a pas répondu correctement. Réessayez dans un instant ; si le problème persiste, prévenez un administrateur."
+                            detail={erreurPublicites}
+                            action={reessayer}
+                        />
                     ) : (
-                        <table className="w-full border-collapse text-sm">
-                            <thead>
-                                <tr className="border-b-2 border-gray-200 bg-gray-50">
-                                    <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 w-20">N°</th>
-                                    <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500">Opération</th>
-                                    <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500">Statut</th>
-                                    <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 whitespace-nowrap">Date début</th>
-                                    <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 whitespace-nowrap">Date fin</th>
-                                    <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 whitespace-nowrap">Sites</th>
-                                    <th className="px-3 py-3 text-right text-xs font-semibold text-orange-600 whitespace-nowrap bg-orange-50">CA total</th>
-                                    <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 whitespace-nowrap">Qté totale</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {historique.map((h, idx) => (
-                                    <tr key={`${h.tcr_code}-${idx}`} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                                        <td className="px-3 py-2.5 font-mono text-xs text-gray-400">{h.tcr_code}</td>
-                                        <td className="px-3 py-2.5 text-gray-900 font-medium">{h.intitule}</td>
-                                        <td className="px-3 py-2.5"><StatutBadge statut={h.statut} /></td>
-                                        <td className="px-3 py-2.5 text-center text-xs text-gray-600 whitespace-nowrap tabular-nums">{fmtDate(h.date_debut)}</td>
-                                        <td className="px-3 py-2.5 text-center text-xs text-gray-600 whitespace-nowrap tabular-nums">{fmtDate(h.date_fin)}</td>
-                                        <td className="px-3 py-2.5 text-center text-xs text-gray-500">{h.nb_sites}</td>
-                                        <td className="bg-orange-50/60 px-3 py-2.5 text-right font-semibold tabular-nums text-gray-900">{fmtCA(h.ca_total)}</td>
-                                        <td className="px-3 py-2.5 text-right tabular-nums text-gray-700 text-xs">{Number(h.qte_totale).toLocaleString("fr-FR")}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                            <tfoot>
-                                <tr className="border-t-2 border-gray-300 bg-gray-50">
-                                    <td colSpan={6} className="px-4 py-3 text-sm font-bold text-gray-800">
-                                        TOTAL — {historique.length} opérations
-                                    </td>
-                                    <td className="bg-orange-100 px-3 py-3 text-right font-bold tabular-nums text-gray-900">
-                                        {fmtCA(historique.reduce((s, h) => s + Number(h.ca_total), 0))}
-                                    </td>
-                                    <td className="px-3 py-3 text-right font-bold tabular-nums text-gray-700 text-xs">
-                                        {historique.reduce((s, h) => s + Number(h.qte_totale), 0).toLocaleString("fr-FR")}
-                                    </td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    )}
-                </div>
-            )}
+                        <div className="space-y-3">
+                            {paginee && (
+                                <p className="flex items-start gap-2 text-[13px] text-[var(--text-secondary)]">
+                                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden />
+                                    <span>
+                                        <span className="font-semibold text-[var(--text-primary)]">
+                                            Tri et filtre magasin appliqués à cette page.
+                                        </span>{" "}
+                                        Les publicités sont chargées par pages de {fmtEntier(pageSize)} (page {fmtEntier(page)} sur{" "}
+                                        {fmtEntier(pages)}) : la ligne Total ne porte, elle aussi, que sur la page affichée.
+                                    </span>
+                                </p>
+                            )}
+                            <DataTable
+                                rows={validPublicites}
+                                columns={colonnesPublicites}
+                                rowKey={(p, i) => `${p.tcr_code}-${p.site}-${i}`}
+                                filters={filtresPublicites}
+                                toolbar={selectStatut}
+                                pageSize={0}
+                                unite="publicités"
+                                showFooter
+                                initialSort={{ id: "operation", dir: "asc" }}
+                                emptyTitle="Aucune publicité à afficher"
+                                emptyDescription={descriptionVide}
+                            />
+                            <Pagination
+                                page={page}
+                                totalPages={pages}
+                                total={total}
+                                pageSize={pageSize}
+                                onChange={(p) => naviguer({ page: p })}
+                                unite="publicités"
+                            />
+                        </div>
+                    )
+                ) : erreurHistorique ? (
+                    <ErrorState
+                        title="L'historique n'a pas pu être chargé"
+                        description="Le serveur des publicités n'a pas répondu correctement. Réessayez dans un instant ; si le problème persiste, prévenez un administrateur."
+                        detail={erreurHistorique}
+                        action={reessayer}
+                    />
+                ) : (
+                    <DataTable
+                        rows={historique}
+                        columns={colonnesHistorique}
+                        rowKey={(h, i) => `${h.tcr_code}-${i}`}
+                        searchIn={(h) => [h.intitule, h.tcr_code]}
+                        searchPlaceholder="Rechercher une opération ou un code…"
+                        filters={filtresHistorique}
+                        unite="opérations"
+                        showFooter
+                        emptyTitle="Aucune opération dans l'historique"
+                        emptyDescription="L'historique des opérations publicitaires est vide pour le moment."
+                    />
+                )}
+            </div>
         </div>
     );
 }

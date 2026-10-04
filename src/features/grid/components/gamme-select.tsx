@@ -2,6 +2,7 @@
 
 import { GammeCode } from "@/types/grid";
 import { cn } from "@/lib/utils";
+import { CLASSES_SANS_GAMME, GAMMES, trouverGamme } from "@/lib/gammes";
 
 interface GammeSelectProps {
     value: GammeCode | null;
@@ -9,37 +10,38 @@ interface GammeSelectProps {
     onChange: (gamme: GammeCode) => void;
 }
 
-const GAMME_STYLES: Record<string, string> = {
-    A: "border-[1px] border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/20 dark:text-emerald-400",
-    B: "border-[1px] border-blue-500/30 bg-blue-500/10 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/20 dark:text-blue-400",
-    C: "border-[1px] border-amber-500/30 bg-amber-500/10 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/20 dark:text-amber-400",
-    Y: "border-[1px] border-violet-500/30 bg-violet-500/10 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/20 dark:text-violet-400",
-    Z: "border-[1px] border-rose-500/30 bg-rose-500/10 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/20 dark:text-rose-400",
-    Aucune: "border-[1px] border-slate-500/30 bg-slate-500/10 text-slate-700 dark:border-slate-500/30 dark:bg-slate-500/20 dark:text-slate-400",
-};
-
+/**
+ * Choix de la gamme dans une ligne de la Grille.
+ *
+ * La case affiche la lettre (la colonne est étroite) mais la liste déroulante
+ * donne le sens de chaque gamme (« A — Cœur », « Z — Sortie »…) : une liste
+ * native transparente est posée sur la pastille.
+ */
 export function GammeSelect({ value, isDraft, onChange }: GammeSelectProps) {
-    const displayValue = (!value || value.trim() === "") ? "Aucune" : value;
+    const gamme = trouverGamme(value);
 
     return (
-        <select
-            value={displayValue}
-            onChange={(e) => onChange(e.target.value as GammeCode)}
+        <div
             className={cn(
-                "w-full text-xs font-bold rounded-lg py-1.5 px-2 outline-none cursor-pointer shadow-sm transition-all text-center",
-                "focus:ring-2 focus:ring-brand-500/20",
-                GAMME_STYLES[displayValue] || "border-[1px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500",
-                isDraft && "shadow-[0_0_8px_rgba(251,191,36,0.3)] border-amber-400/50"
+                "relative w-full rounded-lg border py-1.5 px-2 text-center text-xs font-bold shadow-sm",
+                gamme ? gamme.classes : CLASSES_SANS_GAMME,
+                isDraft && "ring-2 ring-[var(--accent-warning)]/60",
             )}
+            title={gamme ? `${gamme.code} — ${gamme.nom} : ${gamme.description}` : "Aucune gamme"}
         >
-            <option value="Aucune" disabled={displayValue !== "Aucune" && displayValue !== ""}>
-                {displayValue === "Aucune" || displayValue === "" ? "— (Aucune)" : "—"}
-            </option>
-            <option value="A">A</option>
-            <option value="B">B</option>
-            <option value="C">C</option>
-            <option value="Y">Y</option>
-            <option value="Z">Z</option>
-        </select>
+            <span aria-hidden>{gamme ? gamme.code : "—"}</span>
+            <select
+                aria-label="Gamme du produit"
+                value={gamme ? gamme.code : ""}
+                onChange={(e) => onChange(e.target.value as GammeCode)}
+                onClick={(e) => e.stopPropagation()}
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            >
+                <option value="" disabled>— Aucune gamme</option>
+                {GAMMES.map((g) => (
+                    <option key={g.code} value={g.code}>{g.code} — {g.nom}</option>
+                ))}
+            </select>
+        </div>
     );
 }

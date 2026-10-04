@@ -22,7 +22,7 @@
  * un job qui fait tomber le process laisse quand même son journal.
  */
 
-import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -35,7 +35,7 @@ const MAX_LIGNES = 200_000;
 const MAX_LONGUEUR_LIGNE = 8_000;
 /** Nombre de journaux conservés sur disque. */
 const MAX_FICHIERS = 20;
-/** Écriture disque au plus toutes les N ms (le journal complet est réécrit). */
+/** Écriture disque au plus toutes les N ms (seules les nouvelles lignes sont ajoutées). */
 const FLUSH_MS = 2_000;
 
 interface Capture {
@@ -46,6 +46,8 @@ interface Capture {
     flushEnCours: boolean;
     flushDemande: boolean;
     dernierFlush: number;
+    /** Nombre de lignes déjà écrites sur disque. */
+    ecrites: number;
 }
 
 const captures = new Map<string, Capture>();
@@ -82,7 +84,16 @@ async function flush(capture: Capture): Promise<void> {
     capture.flushEnCours = true;
     try {
         await mkdir(LOG_DIR, { recursive: true });
-        await writeFile(fichierPour(capture.id), capture.lignes.join("\n") + "\n", "utf8");
+        // Ajout des seules nouvelles lignes : réécrire tout le journal (jusqu'à
+        // 200 000 lignes) toutes les 2 s bloquait le serveur pendant les synchros.
+        const total = capture.lignes.length;
+        const nouvelles = capture.lignes.slice(capture.ecrites, total);
+        if (capture.ecrites === 0) {
+            await writeFile(fichierPour(capture.id), nouvelles.join("\n") + "\n", "utf8");
+        } else if (nouvelles.length > 0) {
+            await appendFile(fichierPour(capture.id), nouvelles.join("\n") + "\n", "utf8");
+        }
+        capture.ecrites = total;
         capture.dernierFlush = Date.now();
     } catch {
         // Un journal de diagnostic ne doit jamais faire échouer le job qu'il observe.
@@ -128,7 +139,9 @@ function instrumenterConsole(): void {
         const origine = console[methode].bind(console);
         console[methode] = (...args: unknown[]) => {
             try {
-                ajouter(formater(args));
+                // Aucune capture ouverte (le cas courant) : on ne formate rien.
+                // Sérialiser chaque argument de chaque log coûtait à toutes les requêtes.
+                if (captures.size > 0) ajouter(formater(args));
             } catch {
                 // idem : jamais au détriment du log réel
             }
@@ -173,6 +186,7 @@ export function startCapture(id: string, entete?: string): void {
         flushEnCours: false,
         flushDemande: false,
         dernierFlush: 0,
+        ecrites: 0,
     };
     captures.set(id, capture);
     capture.lignes.push(`[${horodatage()}] [log-capture] début de capture ${id}`);

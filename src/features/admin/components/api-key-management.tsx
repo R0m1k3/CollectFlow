@@ -7,33 +7,55 @@
  * création, puis irrécupérable (seul son hachage est stocké côté base).
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type FormEvent } from "react";
 import { KeyRound, Plus, Loader2, Copy, Check, Ban, Trash2, AlertTriangle } from "lucide-react";
 import { getApiKeys, createApiKey, revokeApiKey, deleteApiKey, type ApiKeyRow } from "../api/api-key-actions";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input, Label, Select } from "@/components/ui/form-controls";
+import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
+import { confirmer, toast } from "@/components/ui/feedback";
+import { isStaleServerActionError, STALE_ACTION_MESSAGE } from "@/lib/stale-action";
+
+type Role = "admin" | "user";
+
+const ROLES = [
+    { value: "user", label: "Utilisateur" },
+    { value: "admin", label: "Administrateur" },
+] as const;
+
+const LIBELLE_ROLE: Record<string, string> = { admin: "Administrateur", user: "Utilisateur" };
 
 function fmtDate(iso: string | null): string {
     if (!iso) return "—";
     return new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
 }
 
+function messageErreur(e: unknown): string {
+    if (isStaleServerActionError(e)) return STALE_ACTION_MESSAGE;
+    return e instanceof Error ? e.message : String(e);
+}
+
 export function ApiKeyManagement() {
     const [keys, setKeys] = useState<ApiKeyRow[]>([]);
     const [loading, setLoading] = useState(true);
+    const [erreurChargement, setErreurChargement] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
     const [name, setName] = useState("");
-    const [role, setRole] = useState<"admin" | "user">("user");
+    const [role, setRole] = useState<Role>("user");
     const [freshKey, setFreshKey] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    const [enCours, setEnCours] = useState<number | null>(null);
 
     // Pas de setState synchrone ici : `loading` démarre déjà à true, et le premier
     // statement est un await. Cela évite une cascade de rendus au montage.
     const refresh = useCallback(async () => {
         try {
             setKeys(await getApiKeys());
-            setError(null);
+            setErreurChargement(null);
         } catch (e) {
-            setError(e instanceof Error ? e.message : "Erreur de chargement");
+            setErreurChargement(messageErreur(e));
         } finally {
             setLoading(false);
         }
@@ -41,177 +63,233 @@ export function ApiKeyManagement() {
 
     // Chargement initial depuis la base — la donnée vient d'un système externe, pas
     // d'un état dérivé. `refresh` n'appelle setState qu'après un await.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    useEffect(() => { refresh(); }, [refresh]);
+    useEffect(() => { void refresh(); }, [refresh]);
 
-    const handleCreate = async (e: React.FormEvent) => {
+    const reessayer = () => {
+        setLoading(true);
+        void refresh();
+    };
+
+    const handleCreate = async (e: FormEvent) => {
         e.preventDefault();
-        if (!name.trim() || creating) return;
+        const nom = name.trim();
+        if (!nom || creating) return;
         setCreating(true);
-        setError(null);
-        const res = await createApiKey(name.trim(), role);
-        if (res.success) {
-            setFreshKey(res.key);
-            setName("");
-            setCopied(false);
-            await refresh();
-        } else {
-            setError(res.error);
+        try {
+            const res = await createApiKey(nom, role);
+            if (res.success) {
+                setFreshKey(res.key);
+                setName("");
+                setCopied(false);
+                toast.succes(`Clé « ${nom} » créée. Copiez-la maintenant : elle ne sera plus affichée.`);
+                await refresh();
+            } else {
+                toast.erreur(res.error);
+            }
+        } catch (err) {
+            toast.erreur(`La clé n'a pas pu être créée : ${messageErreur(err)}`);
+        } finally {
+            setCreating(false);
         }
-        setCreating(false);
     };
 
-    const handleRevoke = async (id: number) => {
-        await revokeApiKey(id);
-        await refresh();
+    const copier = async () => {
+        if (!freshKey) return;
+        try {
+            await navigator.clipboard.writeText(freshKey);
+            setCopied(true);
+            toast.succes("Clé copiée dans le presse-papiers.");
+        } catch {
+            toast.erreur("La copie automatique a échoué : sélectionnez la clé et copiez-la à la main.");
+        }
     };
 
-    const handleDelete = async (id: number) => {
-        await deleteApiKey(id);
-        await refresh();
+    const handleRevoke = async (k: ApiKeyRow) => {
+        const ok = await confirmer({
+            titre: `Révoquer la clé « ${k.name} » ?`,
+            message: "Les scripts et outils qui l'utilisent seront refusés dès leur prochain appel. La clé reste dans la liste pour garder la trace de son utilisation.",
+            libelleConfirmer: "Révoquer",
+            danger: true,
+        });
+        if (!ok) return;
+        setEnCours(k.id);
+        try {
+            const res = await revokeApiKey(k.id);
+            if (res.success) toast.succes(`La clé « ${k.name} » est révoquée.`);
+            else toast.erreur(res.error ?? "La clé n'a pas pu être révoquée.");
+            await refresh();
+        } catch (err) {
+            toast.erreur(`La clé n'a pas pu être révoquée : ${messageErreur(err)}`);
+        } finally {
+            setEnCours(null);
+        }
+    };
+
+    const handleDelete = async (k: ApiKeyRow) => {
+        const ok = await confirmer({
+            titre: `Supprimer définitivement la clé « ${k.name} » ?`,
+            message: "Elle disparaîtra de la liste, avec la trace de sa dernière utilisation.",
+            libelleConfirmer: "Supprimer",
+            danger: true,
+        });
+        if (!ok) return;
+        setEnCours(k.id);
+        try {
+            const res = await deleteApiKey(k.id);
+            if (res.success) toast.succes(`La clé « ${k.name} » a été supprimée.`);
+            else toast.erreur(res.error ?? "La clé n'a pas pu être supprimée.");
+            await refresh();
+        } catch (err) {
+            toast.erreur(`La clé n'a pas pu être supprimée : ${messageErreur(err)}`);
+        } finally {
+            setEnCours(null);
+        }
     };
 
     return (
-        <div className="space-y-4">
-            <p className="text-[12px] text-[var(--text-secondary)]">
-                Les clés donnent accès à l&apos;API de lecture <code className="font-mono">/api/v1</code> (grille,
-                recherche, métriques réseau) depuis un script ou un outil externe, via l&apos;en-tête{" "}
-                <code className="font-mono">X-API-Key</code>. Depuis un navigateur connecté, la session suffit.
-            </p>
-
-            {/* Clé fraîchement créée — visible une seule fois */}
-            {freshKey && (
-                <div className="rounded-xl p-3.5 space-y-2"
-                    style={{ background: "var(--accent-bg)", border: "1px solid var(--accent-border)" }}>
-                    <div className="flex items-start gap-2 text-[12px] font-semibold" style={{ color: "var(--text-primary)" }}>
-                        <AlertTriangle className="w-4 h-4 shrink-0 mt-px" style={{ color: "var(--accent)" }} />
-                        Copiez cette clé maintenant — elle ne sera plus jamais affichée.
+        <Card>
+            <CardHeader
+                title="Clés d'accès à l'API"
+                description={
+                    <>
+                        Une clé permet à un script ou à un outil externe (ChatGPT, tableur…) de lire les données de
+                        CollectFlow sans se connecter. Depuis un navigateur déjà connecté, aucune clé n&apos;est nécessaire.
+                    </>
+                }
+            />
+            <CardContent className="space-y-5">
+                {/* Clé fraîchement créée — visible une seule fois */}
+                {freshKey && (
+                    <div className="space-y-3 rounded-xl border border-[var(--accent-border)] bg-[var(--accent-bg)] p-4">
+                        <p className="flex items-start gap-2 text-sm font-semibold text-[var(--text-primary)]">
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent)]" aria-hidden />
+                            Copiez cette clé maintenant : elle ne sera plus jamais affichée.
+                        </p>
+                        <div className="flex items-center gap-2">
+                            <code className="flex-1 break-all rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2 font-mono text-[13px] text-[var(--text-primary)]">
+                                {freshKey}
+                            </code>
+                            <Button variant="outline" onClick={copier}>
+                                {copied ? <Check className="text-[var(--accent-success)]" /> : <Copy />}
+                                {copied ? "Copiée" : "Copier"}
+                            </Button>
+                        </div>
+                        <Button variant="ghost" size="sm" onClick={() => setFreshKey(null)}>
+                            J&apos;ai copié la clé, la masquer
+                        </Button>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <code className="flex-1 rounded-lg px-2.5 py-2 text-[12px] font-mono break-all"
-                            style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)" }}>
-                            {freshKey}
-                        </code>
-                        <button
-                            type="button"
-                            onClick={() => { navigator.clipboard.writeText(freshKey); setCopied(true); }}
-                            className="rounded-lg px-2.5 py-2 shrink-0"
-                            style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
-                            title="Copier"
-                        >
-                            {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-                        </button>
+                )}
+
+                {/* Création */}
+                <form onSubmit={handleCreate} className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
+                    <div>
+                        <Label htmlFor="cle-nom">Nom de la clé</Label>
+                        <Input
+                            id="cle-nom"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            placeholder="ex. Export comptabilité"
+                            className="w-full"
+                            autoComplete="off"
+                        />
                     </div>
-                    <button
-                        type="button"
-                        onClick={() => setFreshKey(null)}
-                        className="text-[11px] underline"
-                        style={{ color: "var(--text-muted)" }}
-                    >
-                        J&apos;ai copié la clé, masquer
-                    </button>
-                </div>
-            )}
+                    <Select
+                        id="cle-role"
+                        label="Droits"
+                        value={role}
+                        onChange={(v) => setRole(v as Role)}
+                        options={ROLES}
+                    />
+                    <Button type="submit" disabled={creating || !name.trim()}>
+                        {creating ? <Loader2 className="animate-spin" /> : <Plus />}
+                        Créer la clé
+                    </Button>
+                </form>
+                <p className="-mt-2 text-xs text-[var(--text-muted)]">
+                    Donnez un nom qui dit à quoi sert la clé : vous saurez laquelle révoquer le jour où l&apos;outil n&apos;est plus utilisé.
+                    La clé s&apos;envoie dans l&apos;en-tête <code className="font-mono">X-API-Key</code> de chaque appel.
+                </p>
 
-            {/* Création */}
-            <form onSubmit={handleCreate} className="flex flex-col sm:flex-row gap-2">
-                <input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Nom de la clé (ex. Export comptabilité)"
-                    className="flex-1 rounded-lg px-3 py-2 text-[13px] outline-none"
-                    style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
-                />
-                <select
-                    value={role}
-                    onChange={(e) => setRole(e.target.value as "admin" | "user")}
-                    className="rounded-lg px-3 py-2 text-[13px] outline-none"
-                    style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
-                >
-                    <option value="user">Rôle : utilisateur</option>
-                    <option value="admin">Rôle : administrateur</option>
-                </select>
-                <button
-                    type="submit"
-                    disabled={creating || !name.trim()}
-                    className="rounded-lg px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
-                    style={{ background: "var(--accent)" }}
-                >
-                    {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                    Créer
-                </button>
-            </form>
-
-            {error && (
-                <p className="text-[12px]" style={{ color: "var(--accent-error)" }}>{error}</p>
-            )}
-
-            {/* Liste */}
-            {loading ? (
-                <div className="flex items-center gap-2 text-[12px]" style={{ color: "var(--text-muted)" }}>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Chargement…
-                </div>
-            ) : keys.length === 0 ? (
-                <p className="text-[12px]" style={{ color: "var(--text-muted)" }}>Aucune clé pour le moment.</p>
-            ) : (
-                <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-                    <table className="w-full text-[12px]">
-                        <thead>
-                            <tr style={{ background: "var(--bg-elevated)" }}>
-                                <th className="text-left px-3 py-2 font-semibold" style={{ color: "var(--text-secondary)" }}>Nom</th>
-                                <th className="text-left px-3 py-2 font-semibold" style={{ color: "var(--text-secondary)" }}>Préfixe</th>
-                                <th className="text-left px-3 py-2 font-semibold" style={{ color: "var(--text-secondary)" }}>Rôle</th>
-                                <th className="text-left px-3 py-2 font-semibold" style={{ color: "var(--text-secondary)" }}>Créée</th>
-                                <th className="text-left px-3 py-2 font-semibold" style={{ color: "var(--text-secondary)" }}>Dernier usage</th>
-                                <th className="px-3 py-2"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {keys.map((k) => (
-                                <tr key={k.id} style={{ borderTop: "1px solid var(--border)", opacity: k.revokedAt ? 0.55 : 1 }}>
-                                    <td className="px-3 py-2 font-medium" style={{ color: "var(--text-primary)" }}>
-                                        <span className="inline-flex items-center gap-1.5">
-                                            <KeyRound className="w-3.5 h-3.5" style={{ color: "var(--text-muted)" }} />
-                                            {k.name}
-                                        </span>
-                                        {k.revokedAt && (
-                                            <span className="ml-2 rounded px-1.5 py-px text-[9px] font-bold uppercase"
-                                                style={{ background: "var(--accent-error-bg)", color: "var(--accent-error)" }}>
-                                                Révoquée
-                                            </span>
-                                        )}
-                                    </td>
-                                    <td className="px-3 py-2 font-mono" style={{ color: "var(--text-secondary)" }}>{k.keyPrefix}…</td>
-                                    <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>{k.role}</td>
-                                    <td className="px-3 py-2" style={{ color: "var(--text-muted)" }}>{fmtDate(k.createdAt)}</td>
-                                    <td className="px-3 py-2" style={{ color: "var(--text-muted)" }}>{fmtDate(k.lastUsedAt)}</td>
-                                    <td className="px-3 py-2 text-right whitespace-nowrap">
-                                        {!k.revokedAt ? (
-                                            <button
-                                                onClick={() => handleRevoke(k.id)}
-                                                className="inline-flex items-center gap-1 rounded-lg px-2 py-1"
-                                                style={{ color: "var(--accent-error)" }}
-                                                title="Révoquer"
-                                            >
-                                                <Ban className="w-3.5 h-3.5" /> Révoquer
-                                            </button>
-                                        ) : (
-                                            <button
-                                                onClick={() => handleDelete(k.id)}
-                                                className="inline-flex items-center gap-1 rounded-lg px-2 py-1"
-                                                style={{ color: "var(--text-muted)" }}
-                                                title="Supprimer définitivement"
-                                            >
-                                                <Trash2 className="w-3.5 h-3.5" /> Supprimer
-                                            </button>
-                                        )}
-                                    </td>
+                {/* Liste */}
+                {loading ? (
+                    <div className="space-y-2" aria-busy="true" aria-label="Chargement des clés">
+                        {Array.from({ length: 3 }, (_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+                    </div>
+                ) : erreurChargement ? (
+                    <ErrorState
+                        title="La liste des clés n'a pas pu être chargée"
+                        detail={erreurChargement}
+                        action={<Button variant="outline" onClick={reessayer}>Réessayer</Button>}
+                    />
+                ) : keys.length === 0 ? (
+                    <EmptyState
+                        icon={KeyRound}
+                        title="Aucune clé pour le moment"
+                        description="Créez une clé ci-dessus pour permettre à un outil externe d'interroger l'API."
+                    />
+                ) : (
+                    <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
+                        <table className="w-full">
+                            <thead className="bg-[var(--bg-elevated)] text-[13px] font-semibold text-[var(--text-secondary)]">
+                                <tr>
+                                    <th scope="col" className="px-3 py-2 text-left">Nom</th>
+                                    <th scope="col" className="px-3 py-2 text-left">Début de la clé</th>
+                                    <th scope="col" className="px-3 py-2 text-left">Droits</th>
+                                    <th scope="col" className="px-3 py-2 text-left">Créée le</th>
+                                    <th scope="col" className="px-3 py-2 text-left">Dernière utilisation</th>
+                                    <th scope="col" className="px-3 py-2 text-right"><span className="sr-only">Actions</span></th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
-        </div>
+                            </thead>
+                            <tbody>
+                                {keys.map((k) => (
+                                    <tr key={k.id} className="border-t border-[var(--border)]">
+                                        <td className="px-3 py-2 text-sm font-medium text-[var(--text-primary)]">
+                                            <span className={k.revokedAt ? "inline-flex items-center gap-2 opacity-60" : "inline-flex items-center gap-2"}>
+                                                <KeyRound className="h-4 w-4 text-[var(--text-muted)]" aria-hidden />
+                                                {k.name}
+                                            </span>
+                                            {k.revokedAt && (
+                                                <Badge ton="erreur" className="ml-2" title={`Révoquée le ${fmtDate(k.revokedAt)}`}>Révoquée</Badge>
+                                            )}
+                                        </td>
+                                        <td className="px-3 py-2 font-mono text-sm text-[var(--text-secondary)]">{k.keyPrefix}…</td>
+                                        <td className="px-3 py-2 text-sm text-[var(--text-secondary)]">{LIBELLE_ROLE[k.role] ?? k.role}</td>
+                                        <td className="px-3 py-2 text-sm whitespace-nowrap text-[var(--text-secondary)]">{fmtDate(k.createdAt)}</td>
+                                        <td className="px-3 py-2 text-sm whitespace-nowrap text-[var(--text-secondary)]">
+                                            {k.lastUsedAt ? fmtDate(k.lastUsedAt) : "Jamais"}
+                                        </td>
+                                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                                            {!k.revokedAt ? (
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => handleRevoke(k)}
+                                                    disabled={enCours === k.id}
+                                                    className="text-[var(--accent-error)] hover:bg-[var(--accent-error-bg)] hover:text-[var(--accent-error)]"
+                                                >
+                                                    {enCours === k.id ? <Loader2 className="animate-spin" /> : <Ban />}
+                                                    Révoquer
+                                                </Button>
+                                            ) : (
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => handleDelete(k)}
+                                                    disabled={enCours === k.id}
+                                                    className="text-[var(--text-secondary)]"
+                                                >
+                                                    {enCours === k.id ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                                                    Supprimer
+                                                </Button>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </CardContent>
+        </Card>
     );
 }

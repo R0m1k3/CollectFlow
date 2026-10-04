@@ -145,6 +145,12 @@ export interface ProductRow {
     nbMagReseauByMonth?: Record<string, number> | null;
     /** Fraîcheur des données réseau (ISO) */
     networkFetchedAt?: string;
+    /**
+     * Version du format de la ligne, posée à l'écriture dans `grid_rows`. Une
+     * ligne d'une version antérieure n'est pas servie telle quelle à la Grille
+     * (des champs récents lui manqueraient) : elle est recalculée.
+     */
+    payloadVersion?: number;
 }
 
 /** Summary bar totals for the currently visible/filtered rows */

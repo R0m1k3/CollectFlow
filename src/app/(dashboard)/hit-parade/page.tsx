@@ -1,5 +1,14 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { RotateCcw, Trophy } from "lucide-react";
 import { pgGetHitParade, HitParadeRow } from "@/lib/pg-ff-client";
+import { cachedFF } from "@/lib/ff-cache";
+import { PageHeader } from "@/components/ui/page-header";
+import { ErrorState } from "@/components/ui/states";
+import { Button } from "@/components/ui/button";
 import { HitParadeClient } from "./client";
+
+export const metadata: Metadata = { title: "Meilleures ventes" };
 
 export interface HitParadePivotRow {
     codein: string;
@@ -80,19 +89,40 @@ export default async function HitParadePage(props: {
     const dateDebut = (searchParams.debut as string) || defaults.debut;
     const dateFin = (searchParams.fin as string) || defaults.fin;
 
-    const rows = await pgGetHitParade(dateDebut, dateFin);
-    const pivotted = pivotHitParade(rows);
+    let pivotted: HitParadePivotRow[] | null = null;
+    let erreur: string | null = null;
+    try {
+        const rows = await cachedFF(`hit-parade:${dateDebut}:${dateFin}`, () => pgGetHitParade(dateDebut, dateFin));
+        pivotted = pivotHitParade(rows);
+    } catch (e) {
+        console.error("[hit-parade] chargement impossible :", e);
+        erreur = e instanceof Error ? e.message : String(e);
+    }
 
     return (
-        <div className="min-h-screen bg-gray-50 p-6">
-            <div className="mx-auto max-w-screen-2xl">
-                <h1 className="mb-6 text-3xl font-bold text-gray-900">Hit Parade</h1>
+        <div className="mx-auto w-full max-w-screen-2xl">
+            <PageHeader
+                icon={Trophy}
+                title="Meilleures ventes"
+                description="Le classement des produits les plus vendus sur une période, magasin par magasin : quantités, chiffre d'affaires, taux de marge et stock actuel."
+            />
+            {pivotted ? (
                 <HitParadeClient
                     dateDebut={dateDebut}
                     dateFin={dateFin}
                     pivotted={pivotted}
                 />
-            </div>
+            ) : (
+                <ErrorState
+                    title="Les meilleures ventes n'ont pas pu être chargées"
+                    detail={erreur ?? undefined}
+                    action={
+                        <Button asChild variant="outline">
+                            <Link href={`/hit-parade?debut=${dateDebut}&fin=${dateFin}`}><RotateCcw /> Réessayer</Link>
+                        </Button>
+                    }
+                />
+            )}
         </div>
     );
 }

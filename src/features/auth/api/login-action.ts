@@ -11,7 +11,7 @@ export async function loginAction(prevState: string | undefined, formData: FormD
         await signIn("credentials", {
             username: formData.get("username"),
             password: formData.get("password"),
-            redirectTo: "/grid"
+            redirectTo: "/dashboard"
         });
     } catch (error) {
         if (error instanceof AuthError) {

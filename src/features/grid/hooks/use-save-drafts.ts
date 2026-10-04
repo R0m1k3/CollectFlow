@@ -11,7 +11,7 @@ import { GammeCode } from "@/types/grid";
  */
 export function useSaveDrafts(magasin: string, filterCodeins?: string[]) {
     const draftChanges = useGridStore((s) => s.draftChanges);
-    const rows = useGridStore((s) => s.rows);
+    const rowsByCodein = useGridStore((s) => s.rowsByCodein);
     const resetDrafts = useGridStore((s) => s.resetDrafts);
     const clearDrafts = useGridStore((s) => s.clearDrafts);
     const applyDraftsToRows = useGridStore((s) => s.applyDraftsToRows);
@@ -31,8 +31,10 @@ export function useSaveDrafts(magasin: string, filterCodeins?: string[]) {
     const count = Object.keys(activeDrafts).length;
 
     const save = useCallback(async () => {
+        // Index par code article : `rows.find` dans la boucle coûtait
+        // (modifications × lignes) comparaisons sur un gros fournisseur.
         const changes = Object.entries(activeDrafts).map(([codein, codeGamme]) => {
-            const row = rows.find((r) => r.codein === codein);
+            const row = rowsByCodein[codein];
             return {
                 codein,
                 codeGammeBefore: row?.codeGammeInit ?? row?.codeGamme ?? null,
@@ -43,7 +45,7 @@ export function useSaveDrafts(magasin: string, filterCodeins?: string[]) {
         if (changes.length === 0) return { success: true, saved: 0 };
 
         // Derive supplier info from the first matching row
-        const firstRow = rows.find((r) => changes.some((c) => c.codein === r.codein));
+        const firstRow = changes.length > 0 ? rowsByCodein[changes[0].codein] : undefined;
         const codeFournisseur = firstRow?.codeFournisseur ?? "";
         const nomFournisseur = firstRow?.nomFournisseur ?? "";
 
@@ -60,7 +62,7 @@ export function useSaveDrafts(magasin: string, filterCodeins?: string[]) {
             }
         }
         return result;
-    }, [activeDrafts, rows, magasin, resetDrafts, clearDrafts, applyDraftsToRows, filterCodeins]);
+    }, [activeDrafts, rowsByCodein, magasin, resetDrafts, clearDrafts, applyDraftsToRows, filterCodeins]);
 
     return { save, hasDrafts: count > 0, count };
 }
