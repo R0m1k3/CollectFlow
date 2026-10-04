@@ -144,7 +144,11 @@ function ResultatTest({ test }: { test: EtatTest }) {
 
 // ── PostgreSQL ───────────────────────────────────────────────────────────────
 
-function SectionPostgres({ recharger }: { recharger: () => Promise<void> }) {
+/**
+ * `motDePasseEnregistre` : le serveur ne renvoie jamais le mot de passe, seulement
+ * qu'il en existe un. Le champ reste alors vide et « vide » veut dire « inchangé ».
+ */
+function SectionPostgres({ recharger, motDePasseEnregistre }: { recharger: () => Promise<void>; motDePasseEnregistre: boolean }) {
     const {
         host, setHost,
         port, setPort,
@@ -173,8 +177,12 @@ function SectionPostgres({ recharger }: { recharger: () => Promise<void> }) {
         setEnregistrement(true);
         try {
             const res = await saveDatabaseSettings(getDatabaseUrl());
-            if (res.success) toast.succes("Connexion à la base PostgreSQL enregistrée.");
-            else toast.erreur(`Enregistrement impossible : ${res.error ?? "erreur inconnue"}`);
+            if (res.success) {
+                toast.succes("Connexion à la base PostgreSQL enregistrée.");
+                // Un mot de passe vient d'être saisi : on relit la config pour vider
+                // le champ et afficher qu'il est désormais enregistré.
+                if (password) await recharger().catch(() => { /* simple rafraîchissement */ });
+            } else toast.erreur(`Enregistrement impossible : ${res.error ?? "erreur inconnue"}`);
         } catch (e) {
             toast.erreur(`Enregistrement impossible : ${messageErreur(e)}`);
         } finally {
@@ -223,8 +231,13 @@ function SectionPostgres({ recharger }: { recharger: () => Promise<void> }) {
                         <Input id="pg-utilisateur" className="w-full font-mono" placeholder="postgres" value={user}
                             onChange={(e) => setUser(e.target.value)} autoComplete="off" />
                     </Champ>
-                    <Champ id="pg-mdp" label="Mot de passe">
-                        <Input id="pg-mdp" type="password" className="w-full font-mono" placeholder="••••••••"
+                    <Champ
+                        id="pg-mdp"
+                        label="Mot de passe"
+                        aide={motDePasseEnregistre ? "Laissez vide pour garder le mot de passe enregistré (même serveur et même utilisateur)." : undefined}
+                    >
+                        <Input id="pg-mdp" type="password" className="w-full font-mono"
+                            placeholder={motDePasseEnregistre ? "Enregistré — inchangé si vide" : "••••••••"}
                             value={password || ""} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
                     </Champ>
                 </div>
@@ -419,6 +432,8 @@ function SectionQlik() {
     const [host, setHost] = useState("");
     const [user, setUser] = useState("");
     const [password, setPassword] = useState("");
+    // Le mot de passe enregistré n'est jamais renvoyé : on sait seulement qu'il existe.
+    const [motDePasseEnregistre, setMotDePasseEnregistre] = useState(false);
     const [showPwd, setShowPwd] = useState(false);
     const [saving, setSaving] = useState(false);
     const [test, setTest] = useState<EtatTest>({ etat: "idle" });
@@ -429,7 +444,7 @@ function SectionQlik() {
                 if (!c) return;
                 setHost(c.qlikHost ?? "");
                 setUser(c.qlikUser ?? "");
-                setPassword(c.qlikPassword ?? "");
+                setMotDePasseEnregistre(c.hasQlikPassword);
             })
             .catch(() => { /* l'échec de lecture est signalé par la page */ });
     }, []);
@@ -438,8 +453,13 @@ function SectionQlik() {
         setSaving(true);
         try {
             const res = await saveQlikSettings(host.trim(), user.trim(), password);
-            if (res.success) toast.succes("Identifiants Qlik enregistrés.");
-            else toast.erreur(`Enregistrement impossible : ${res.error || "erreur inconnue"}`);
+            if (res.success) {
+                toast.succes("Identifiants Qlik enregistrés.");
+                if (password) {
+                    setMotDePasseEnregistre(true);
+                    setPassword("");
+                }
+            } else toast.erreur(`Enregistrement impossible : ${res.error || "erreur inconnue"}`);
         } catch (e) {
             toast.erreur(`Enregistrement impossible : ${messageErreur(e)}`);
         } finally {
@@ -457,7 +477,7 @@ function SectionQlik() {
         }
     };
 
-    const testImpossible = !user || !password;
+    const testImpossible = !user || (!password && !motDePasseEnregistre);
 
     return (
         <Card>
@@ -488,9 +508,14 @@ function SectionQlik() {
                         <Input id="qlik-utilisateur" type="text" placeholder="FFSCH" value={user}
                             onChange={(e) => setUser(e.target.value)} className="w-full font-mono" autoComplete="off" />
                     </Champ>
-                    <Champ id="qlik-mdp" label="Mot de passe">
+                    <Champ
+                        id="qlik-mdp"
+                        label="Mot de passe"
+                        aide={motDePasseEnregistre ? "Laissez vide pour garder le mot de passe enregistré (même serveur et même identifiant)." : undefined}
+                    >
                         <div className="relative">
-                            <Input id="qlik-mdp" type={showPwd ? "text" : "password"} placeholder="••••••••" value={password}
+                            <Input id="qlik-mdp" type={showPwd ? "text" : "password"}
+                                placeholder={motDePasseEnregistre ? "Enregistré — inchangé si vide" : "••••••••"} value={password}
                                 onChange={(e) => setPassword(e.target.value)} className="w-full pr-10 font-mono" autoComplete="new-password" />
                             <Button
                                 type="button"
@@ -535,6 +560,7 @@ export function ParametresClient({ onglet: ongletDemande }: { onglet?: string })
     const [onglet, setOnglet] = useUrlTab<Onglet>("onglet", initial);
     const [visites, setVisites] = useState<ReadonlySet<Onglet>>(() => new Set([initial]));
     const [isMounted, setIsMounted] = useState(false);
+    const [pgMotDePasseEnregistre, setPgMotDePasseEnregistre] = useState(false);
 
     const setHost = useDbSettingsStore((s) => s.setHost);
     const setPort = useDbSettingsStore((s) => s.setPort);
@@ -553,7 +579,11 @@ export function ParametresClient({ onglet: ongletDemande }: { onglet?: string })
                 setPort(url.port || "5432");
                 setDatabase(url.pathname.slice(1).split("?")[0]);
                 setUser(url.username);
-                setPassword(decodeURIComponent(url.password));
+                // Le serveur ne renvoie plus le mot de passe : champ vide = garder
+                // l'enregistré. On efface aussi celui qu'une ancienne version a pu
+                // laisser dans le localStorage.
+                setPassword("");
+                setPgMotDePasseEnregistre(config.hasDbPassword);
                 setSsl(config.url.includes("sslmode=require"));
             } catch (e) {
                 console.error("Failed to parse saved URL", e);
@@ -594,7 +624,7 @@ export function ParametresClient({ onglet: ongletDemande }: { onglet?: string })
             {isMounted && (
                 <>
                     <Panneau actif={onglet === "connexions"} visite={visites.has("connexions")}>
-                        <SectionPostgres recharger={recharger} />
+                        <SectionPostgres recharger={recharger} motDePasseEnregistre={pgMotDePasseEnregistre} />
                         <SectionFfApi />
                         <SectionQlik />
                     </Panneau>

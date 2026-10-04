@@ -73,3 +73,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         })
     ],
 });
+
+/**
+ * Garde des actions serveur réservées aux administrateurs.
+ *
+ * Une action serveur est appelable directement par n'importe quel client connecté :
+ * la restriction de `/settings` dans le middleware ne la protège pas. Lève si la
+ * session n'est pas admin et renvoie la session sinon.
+ */
+export async function requireAdmin() {
+    const session = await auth();
+    if ((session?.user as { role?: string } | undefined)?.role !== "admin") {
+        throw new Error("Accès refusé : Droits administrateur requis.");
+    }
+    return session;
+}

@@ -11,17 +11,9 @@
 import { db } from "@/db";
 import { apiKeys } from "@/db/schema";
 import { desc, eq } from "drizzle-orm";
-import { auth } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth";
 import { generateApiKey } from "@/lib/api-auth";
 import { revalidatePath } from "next/cache";
-
-async function ensureAdmin() {
-    const session = await auth();
-    if ((session?.user as { role?: string } | undefined)?.role !== "admin") {
-        throw new Error("Accès refusé : Droits administrateur requis.");
-    }
-    return session;
-}
 
 export interface ApiKeyRow {
     id: number;
@@ -36,7 +28,7 @@ export interface ApiKeyRow {
 
 /** Liste les clés. Ne renvoie jamais de secret — seulement le préfixe lisible. */
 export async function getApiKeys(): Promise<ApiKeyRow[]> {
-    await ensureAdmin();
+    await requireAdmin();
     const rows = await db
         .select({
             id: apiKeys.id,
@@ -67,7 +59,7 @@ export async function createApiKey(
     name: string,
     role: "admin" | "user" = "user",
 ): Promise<{ success: true; key: string; keyPrefix: string } | { success: false; error: string }> {
-    const session = await ensureAdmin();
+    const session = await requireAdmin();
 
     const trimmed = name.trim();
     if (!trimmed) return { success: false, error: "Le nom de la clé est obligatoire." };
@@ -92,7 +84,7 @@ export async function createApiKey(
 
 /** Révoque une clé : elle est refusée dès l'appel suivant, mais reste listée. */
 export async function revokeApiKey(id: number): Promise<{ success: boolean; error?: string }> {
-    await ensureAdmin();
+    await requireAdmin();
     try {
         await db.update(apiKeys).set({ revokedAt: new Date() }).where(eq(apiKeys.id, id));
         revalidatePath("/settings");
@@ -105,7 +97,7 @@ export async function revokeApiKey(id: number): Promise<{ success: boolean; erro
 
 /** Supprime définitivement une clé révoquée (nettoyage de la liste). */
 export async function deleteApiKey(id: number): Promise<{ success: boolean; error?: string }> {
-    await ensureAdmin();
+    await requireAdmin();
     try {
         await db.delete(apiKeys).where(eq(apiKeys.id, id));
         revalidatePath("/settings");
