@@ -217,11 +217,17 @@ async function serveFromSnapshot(input: GetProductRowsInput, cacheKey: string): 
     if (!snapshot || snapshot.rows.length === 0) return null;
 
     const { rows } = snapshot;
-    const [changes] = await Promise.all([
+    // Les colonnes réseau de l'instantané datent de son calcul : on les relit dans
+    // le cache Qlik, comme le calcul en direct. Sans cela, une synchro Qlik faite
+    // depuis (au changement de mois notamment) restait invisible jusqu'au
+    // prochain recalcul, et la tendance réseau disparaissait.
+    const [changes, network] = await Promise.all([
         loadLatestSnapshotChanges(codeFournisseur),
+        fetchNetworkMetrics(rows.map((r) => r.codeCentrale ?? "")),
         refreshGammeInit(rows, codeFournisseur),
     ]);
     applySnapshotChanges(rows, changes);
+    enrichWithNetworkMetrics(rows, network);
 
     if (magasin !== "TOTAL") {
         const { dateDebut, dateFin } = buildLast12MonthsRange();
@@ -545,7 +551,7 @@ async function buildProductRows(input: GetProductRowsInput): Promise<ProductRow[
         }
 
         // ─── Phase 8 : Données réseau Qlik (CA / Qté / nb magasins par code centrale) ──
-        enrichWithNetworkMetrics(productMap, await networkPromise);
+        enrichWithNetworkMetrics(productMap.values(), await networkPromise);
 
         // ─── Phase 9 : Restaurer gammes depuis dernier snapshot ──────────────
         // La colonne Gamme (codeGamme) conserve la valeur du snapshot telle quelle.
@@ -753,11 +759,11 @@ async function fetchNetworkMetrics(
  * n'est pas encore disponible.
  */
 function enrichWithNetworkMetrics(
-    productMap: Map<string, ProductRow>,
+    products: Iterable<ProductRow>,
     metrics: Map<string, NetworkMetricCached> | null,
 ): void {
     if (!metrics || metrics.size === 0) return;
-    for (const product of productMap.values()) {
+    for (const product of products) {
         const m = product.codeCentrale ? metrics.get(product.codeCentrale) : undefined;
         if (!m) continue;
         product.caReseau = m.caReseau;

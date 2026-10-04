@@ -227,7 +227,7 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
         () => computeNetworkTrend(reseau?.qteByMonth ?? null, nbMagByMonth),
         [reseau, nbMagByMonth],
     );
-    const magasinsParMois = useMemo(() => computeStoresSeries(nbMagByMonth), [nbMagByMonth]);
+    const magasinsParMois = useMemo(() => computeStoresSeries(nbMagByMonth, trend.labels), [nbMagByMonth, trend.labels]);
     const comparatif = useMemo(() => computeComparatif(fiche), [fiche]);
     const verdict = indiceVerdict(comparatif.indiceQte);
 

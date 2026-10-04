@@ -36,6 +36,7 @@ import {
     getMonthsFromRows,
     formatMonthLabel,
     formatDate,
+    fmtMonthShort,
     SITE_LABELS,
     getStoreConfig,
 } from "@/features/grid/lib/months";
@@ -566,7 +567,7 @@ function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () =>
     const trend = tendanceDe(row);
     const { values, labels, direction, pct } = trend;
     const color = TREND_COLOR[direction];
-    const magasins = computeStoresSeries(row.nbMagReseauByMonth);
+    const magasins = computeStoresSeries(row.nbMagReseauByMonth, labels);
     const Fleche = direction === "up" ? TrendingUp : direction === "down" ? TrendingDown : Minus;
 
     const dernier = values.length - 1;
@@ -585,6 +586,7 @@ function NetworkMonthlyModal({ row, onClose }: { row: ProductRow; onClose: () =>
                 </DialogTitle>
                 <p className="text-[13px] mt-1" style={{ color: "var(--text-muted)" }}>
                     Réseau · 12 mois glissants, mois en cours exclu
+                    {trend.enRetard && labels.length > 0 && ` · jusqu'à ${fmtMonthShort(labels[labels.length - 1])}, le dernier mois n'est pas encore synchronisé`}
                 </p>
             </DialogHeader>
 

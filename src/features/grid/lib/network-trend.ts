@@ -30,6 +30,11 @@ export type NetworkTrend = {
     pct: number | null;
     /** Rien sur les 4 premiers mois, des ventes sur les 4 derniers. */
     nouveau: boolean;
+    /**
+     * `true` si la fenêtre s'arrête un mois plus tôt que prévu : le cache Qlik
+     * n'a pas encore été resynchronisé depuis le changement de mois.
+     */
+    enRetard: boolean;
     hasData: boolean;
 };
 
@@ -71,6 +76,37 @@ export const TREND_COLOR: Record<NetworkTrend["direction"], string> = {
     flat: "#94a3b8",
 };
 
+/** Les 12 clés de la fenêtre sont-elles explicitement présentes et chiffrées ? */
+function fenetreComplete(serie: Record<string, number>, labels: string[]): boolean {
+    return labels.every((label) =>
+        Object.prototype.hasOwnProperty.call(serie, label) &&
+        Number.isFinite(Number(serie[label])),
+    );
+}
+
+/**
+ * Les 12 mois réellement disponibles dans une série Qlik : la fenêtre du jour,
+ * sinon celle qui s'arrête un mois plus tôt.
+ *
+ * Le repli couvre les jours qui suivent un changement de mois : la fenêtre a
+ * glissé, mais le cache Qlik n'est resynchronisé que fournisseur par
+ * fournisseur, la nuit. Sans lui, toutes les tendances disparaissaient d'un
+ * coup le 1er du mois. Ce sont toujours 12 mois complets et extraits — aucun
+ * mois n'est inventé — simplement décalés d'un cran. `null` si aucune des deux
+ * fenêtres n'est complète.
+ */
+export function fenetreDisponible(
+    serie: Record<string, number> | null | undefined,
+    now: Date = new Date(),
+): { labels: string[]; enRetard: boolean } | null {
+    if (!serie) return null;
+    const labels = buildRolling12QlikMonths(now);
+    if (fenetreComplete(serie, labels)) return { labels, enRetard: false };
+    const precedente = buildRolling12QlikMonths(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+    if (fenetreComplete(serie, precedente)) return { labels: precedente, enRetard: true };
+    return null;
+}
+
 /**
  * Tendance réseau : variation entre les **4 premiers** et les **4 derniers**
  * mois de la fenêtre de 12 mois glissants, mois en cours exclu.
@@ -79,7 +115,8 @@ export const TREND_COLOR: Record<NetworkTrend["direction"], string> = {
  * présentes dans `qteByMonth`) : c'est le seul moyen de garantir une tendance
  * réellement glissante. Un mois en cours (partiel), ou plus vieux que 12 mois,
  * présent dans le cache est donc **ignoré** — sinon la pente est faussée par un
- * mois tronqué.
+ * mois tronqué. Seule tolérance : un cache pas encore resynchronisé depuis le
+ * changement de mois, lu sur ses 12 mois complets (cf. `fenetreDisponible`).
  *
  * Une série n'est affichée que si les **12 clés sont explicitement présentes**.
  * L'extracteur Qlik écrit lui-même les mois sans faits à 0 après avoir validé
@@ -129,15 +166,11 @@ export function computeNetworkTrend(
 ): NetworkTrend {
     const empty: NetworkTrend = {
         values: [], labels: [], perStore: null, surQteParMagasin: false,
-        direction: "flat", pct: null, nouveau: false, hasData: false,
+        direction: "flat", pct: null, nouveau: false, enRetard: false, hasData: false,
     };
-    if (!qteByMonth) return empty;
-    const labels = buildRolling12QlikMonths(now);
-    const complet = labels.every((label) =>
-        Object.prototype.hasOwnProperty.call(qteByMonth, label) &&
-        Number.isFinite(Number(qteByMonth[label])),
-    );
-    if (!complet) return empty;
+    const fenetre = fenetreDisponible(qteByMonth, now);
+    if (!qteByMonth || !fenetre) return empty;
+    const { labels, enRetard } = fenetre;
 
     const values = labels.map((l) => Number(qteByMonth[l]));
     const n = values.length;
@@ -145,7 +178,7 @@ export function computeNetworkTrend(
     // Quantité par magasin vendeur : l'indicateur qui isole la performance du
     // produit de sa diffusion. Un mois sans magasin vendeur vaut 0 — c'est le
     // seul choix cohérent avec une quantité elle-même nulle.
-    const magasins = computeStoresSeries(nbMagByMonth, now);
+    const magasins = computeStoresSeries(nbMagByMonth, labels);
     const perStore = magasins
         ? values.map((v, i) => (magasins.values[i] > 0 ? v / magasins.values[i] : 0))
         : null;
@@ -172,7 +205,7 @@ export function computeNetworkTrend(
         direction = "up";
     }
 
-    return { values, labels, perStore, surQteParMagasin: perStore != null, direction, pct, nouveau, hasData: true };
+    return { values, labels, perStore, surQteParMagasin: perStore != null, direction, pct, nouveau, enRetard, hasData: true };
 }
 
 /**
@@ -190,15 +223,11 @@ export function computeNetworkTrend(
  */
 export function computeStoresSeries(
     nbMagByMonth?: Record<string, number> | null,
-    now: Date = new Date(),
+    /** Mois de la courbe des quantités (`trend.labels`), pour rester alignés. */
+    labels?: string[],
 ): { values: number[]; labels: string[] } | null {
-    if (!nbMagByMonth) return null;
-    const labels = buildRolling12QlikMonths(now);
-    const complet = labels.every((label) =>
-        Object.prototype.hasOwnProperty.call(nbMagByMonth, label) &&
-        Number.isFinite(Number(nbMagByMonth[label])),
-    );
-    if (!complet) return null;
+    if (!nbMagByMonth || !labels || labels.length === 0) return null;
+    if (!fenetreComplete(nbMagByMonth, labels)) return null;
     return { values: labels.map((l) => Number(nbMagByMonth[l])), labels };
 }
 
