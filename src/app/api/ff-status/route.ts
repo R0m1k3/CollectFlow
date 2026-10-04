@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { testFfApiConnection } from "@/features/settings/actions";
+import { diagnoseFfApi } from "@/lib/api-ff-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  * détail, impossible à distinguer d'une simple erreur d'URL.
  */
 export async function GET() {
-    const res = await testFfApiConnection();
+    const res = await diagnoseFfApi();
     if (!res.success) {
         return NextResponse.json(
             { error: "API FF Nancy non disponible", url: res.url, detail: res.error },

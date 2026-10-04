@@ -48,6 +48,8 @@ export const useDbSettingsStore = create<DatabaseSettingsState>()(
         }),
         {
             name: "collectflow-db-settings",
+            // Le mot de passe ne doit pas rester en clair dans le localStorage.
+            partialize: ({ host, port, database, user, ssl }) => ({ host, port, database, user, ssl }),
         }
     )
 );

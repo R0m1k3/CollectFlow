@@ -171,6 +171,8 @@ function QlikSettingsSection() {
     const [host, setHost] = useState("");
     const [user, setUser] = useState("");
     const [password, setPassword] = useState("");
+    // Le mot de passe enregistré n'est jamais renvoyé : on sait seulement qu'il existe.
+    const [hasSavedPassword, setHasSavedPassword] = useState(false);
     const [showPwd, setShowPwd] = useState(false);
     const [saving, setSaving] = useState(false);
     const [testing, setTesting] = useState(false);
@@ -181,7 +183,7 @@ function QlikSettingsSection() {
             if (!c) return;
             setHost(c.qlikHost ?? "");
             setUser(c.qlikUser ?? "");
-            setPassword(c.qlikPassword ?? "");
+            setHasSavedPassword(c.hasQlikPassword);
         });
     }, []);
 
@@ -190,6 +192,10 @@ function QlikSettingsSection() {
         setStatus(null);
         const res = await saveQlikSettings(host.trim(), user.trim(), password);
         setSaving(false);
+        if (res.success && password) {
+            setHasSavedPassword(true);
+            setPassword("");
+        }
         setStatus(res.success ? { type: "ok", msg: "Réglages Qlik enregistrés" } : { type: "err", msg: res.error || "Erreur" });
     };
 
@@ -211,9 +217,9 @@ function QlikSettingsSection() {
                 <input type="text" placeholder="FFSCH" value={user}
                     onChange={(e) => setUser(e.target.value)} className="apple-input font-mono" />
             </Field>
-            <Field label="Mot de passe">
+            <Field label="Mot de passe" hint={hasSavedPassword ? "Vide = conservé, pour le même hôte et utilisateur." : undefined}>
                 <div className="relative">
-                    <input type={showPwd ? "text" : "password"} placeholder="••••••••" value={password}
+                    <input type={showPwd ? "text" : "password"} placeholder={hasSavedPassword ? "Enregistré — inchangé si vide" : "••••••••"} value={password}
                         onChange={(e) => setPassword(e.target.value)} className="apple-input font-mono pr-10" />
                     <button type="button" onClick={() => setShowPwd((v) => !v)}
                         className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
@@ -233,7 +239,7 @@ function QlikSettingsSection() {
                     {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                     Enregistrer
                 </button>
-                <button onClick={handleTest} disabled={testing || !user || !password}
+                <button onClick={handleTest} disabled={testing || !user || (!password && !hasSavedPassword)}
                     className="btn-action btn-action-secondary flex items-center gap-1.5 disabled:opacity-60">
                     {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                     Tester
@@ -254,6 +260,7 @@ export default function SettingsPage() {
     const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
 
     const [isMounted, setIsMounted] = useState(false);
+    const [hasSavedDbPassword, setHasSavedDbPassword] = useState(false);
 
     const {
         host, setHost,
@@ -276,7 +283,11 @@ export default function SettingsPage() {
                     setPort(url.port || "5432");
                     setDatabase(url.pathname.slice(1).split("?")[0]);
                     setUser(url.username);
-                    setPassword(decodeURIComponent(url.password));
+                    // Le serveur ne renvoie plus le mot de passe : champ vide = conserver
+                    // l'enregistré. On efface aussi celui qu'une ancienne version a pu
+                    // laisser dans le localStorage.
+                    setPassword("");
+                    setHasSavedDbPassword(config.hasDbPassword);
                     setSsl(config.url.includes("sslmode=require"));
                 } catch (e) {
                     console.error("Failed to parse saved URL", e);
@@ -311,6 +322,10 @@ export default function SettingsPage() {
         const url = getDatabaseUrl();
         const res = await saveDatabaseSettings(url);
         if (res.success) {
+            if (password) {
+                setHasSavedDbPassword(true);
+                setPassword("");
+            }
             setSaveStatus("saved");
             setTimeout(() => setSaveStatus("idle"), 2500);
         } else {
@@ -371,10 +386,10 @@ export default function SettingsPage() {
                             className="apple-input font-mono"
                         />
                     </Field>
-                    <Field label="Mot de passe">
+                    <Field label="Mot de passe" hint={hasSavedDbPassword ? "Vide = conservé, pour le même serveur et utilisateur." : undefined}>
                         <input
                             type="password"
-                            placeholder="••••••••"
+                            placeholder={hasSavedDbPassword ? "Enregistré — inchangé si vide" : "••••••••"}
                             value={password || ""}
                             onChange={(e) => setPassword(e.target.value)}
                             className="apple-input font-mono"
