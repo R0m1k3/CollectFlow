@@ -314,6 +314,55 @@ export async function getGridRowByCodein(
     };
 }
 
+/** Fournisseurs chez lesquels un article figure dans l'instantané. */
+export async function listGridSuppliersForCodein(
+    codein: string,
+): Promise<Array<{ codeFournisseur: string; nomFournisseur: string | null }>> {
+    return db
+        .select({ codeFournisseur: gridRows.codeFournisseur, nomFournisseur: gridRows.nomFournisseur })
+        .from(gridRows)
+        .where(eq(gridRows.codein, codein))
+        .orderBy(asc(gridRows.codeFournisseur));
+}
+
+export interface GammeInstantane {
+    /** Gamme courante, modifications enregistrées comprises. */
+    codeGamme: string | null;
+    /** Gamme serveur au moment du calcul de la grille. */
+    codeGammeInit: string | null;
+    nomFournisseur: string | null;
+}
+
+/**
+ * Gammes d'articles d'un fournisseur dans l'instantané. Un codein absent de la
+ * carte n'appartient pas à ce fournisseur (ou n'a pas encore été calculé).
+ */
+export async function getGridRowsGammes(
+    codeFournisseur: string,
+    codeins: readonly string[],
+): Promise<Map<string, GammeInstantane>> {
+    const out = new Map<string, GammeInstantane>();
+    const CHUNK = 5000; // bien en deçà des 65 535 paramètres liés de PostgreSQL
+    for (let i = 0; i < codeins.length; i += CHUNK) {
+        const found = await db
+            .select({
+                codein: gridRows.codein,
+                codeGamme: gridRows.codeGamme,
+                codeGammeInit: gridRows.codeGammeInit,
+                nomFournisseur: gridRows.nomFournisseur,
+            })
+            .from(gridRows)
+            .where(and(
+                eq(gridRows.codeFournisseur, codeFournisseur),
+                inArray(gridRows.codein, codeins.slice(i, i + CHUNK)),
+            ));
+        for (const r of found) {
+            out.set(r.codein, { codeGamme: r.codeGamme, codeGammeInit: r.codeGammeInit, nomFournisseur: r.nomFournisseur });
+        }
+    }
+    return out;
+}
+
 /**
  * Indique si un fournisseur a déjà été calculé au moins une fois.
  * Sert à répondre `202 not_ready` plutôt que de déclencher un calcul long.

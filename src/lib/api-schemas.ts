@@ -8,6 +8,7 @@
 
 import { z } from "zod";
 import { GRID_SORT_KEYS, type GridSortKey } from "@/lib/grid-store";
+import { GAMMES, type CodeGamme } from "@/lib/gammes";
 
 const SORT_KEYS = GRID_SORT_KEYS as readonly string[];
 
@@ -114,6 +115,30 @@ export const productDetailSchema = z.object({
      * encore. Nécessite `fournisseur`, le calcul se faisant par lot fournisseur.
      */
     compute: z.enum(["0", "1"]).default("1"),
+});
+
+const CODES_GAMME = GAMMES.map((g) => g.code) as [CodeGamme, ...CodeGamme[]];
+const gammeShape = z.enum(CODES_GAMME, {
+    message: `Gamme inconnue. Valeurs acceptées : ${CODES_GAMME.join(", ")}`,
+});
+
+/** `PUT /api/v1/products/:codein/gamme` — affecte ou change la gamme d'un article. */
+export const productGammeBodySchema = z.object({
+    gamme: gammeShape,
+    /** Obligatoire seulement si l'article est référencé chez plusieurs fournisseurs. */
+    fournisseur: z.string().min(1).optional(),
+    /** `true` (défaut) : calcule l'instantané du fournisseur s'il n'existe pas encore. */
+    compute: z.boolean().default(true),
+});
+
+/** `POST /api/v1/gammes` — affecte des gammes à plusieurs articles d'un fournisseur. */
+export const gammesBatchBodySchema = z.object({
+    fournisseur: z.string().min(1, "Champ 'fournisseur' requis"),
+    changes: z
+        .array(z.object({ codein: z.string().min(1), gamme: gammeShape }))
+        .min(1, "Au moins un changement attendu")
+        .max(10_000, "10 000 changements au maximum par appel"),
+    compute: z.boolean().default(true),
 });
 
 /**
