@@ -7,7 +7,7 @@ import { DataTable, type DataColumn, type DataFilter } from "@/components/ui/dat
 import { Input, Label } from "@/components/ui/form-controls";
 import { Button } from "@/components/ui/button";
 import { MAGASINS, nomMagasin } from "@/lib/magasins";
-import { fmtDecimal1, fmtEntier, fmtEur0 } from "@/lib/format";
+import { fmtDecimal1, fmtEntier, fmtEur2 } from "@/lib/format";
 import { couleurMarge } from "@/lib/marge";
 import { telechargerExcel } from "@/lib/export-excel";
 import { cn } from "@/lib/utils";
@@ -99,8 +99,8 @@ function colonnesGroupe(g: Groupe): DataColumn<Ligne>[] {
             hint: `Chiffre d'affaires TTC (${g.nom}) sur la période, retours déduits`,
             align: "right",
             sortValue: r => r[g.ca],
-            cell: r => (r[g.ca] !== 0 ? fmtEur0(r[g.ca]) : vide),
-            footer: rows => fmtEur0(somme(rows, g.ca)),
+            cell: r => (r[g.ca] !== 0 ? fmtEur2(r[g.ca]) : vide),
+            footer: rows => fmtEur2(somme(rows, g.ca)),
             className: cn("whitespace-nowrap", total && "font-semibold"),
         },
         {

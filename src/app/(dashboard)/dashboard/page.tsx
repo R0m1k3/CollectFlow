@@ -10,7 +10,7 @@ import { Badge, DeltaBadge } from "@/components/ui/badge";
 import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Terme } from "@/components/ui/tooltip";
 import { LIBELLE_TOUS_MAGASINS, nomMagasin } from "@/lib/magasins";
-import { fmtDecimal1, fmtEntier, fmtEur0, fmtEur2 } from "@/lib/format";
+import { fmtDecimal1, fmtEntier, fmtEur2 } from "@/lib/format";
 import { couleurMarge } from "@/lib/marge";
 
 export const metadata: Metadata = { title: "Accueil" };
@@ -76,8 +76,8 @@ function CarteMagasin({ site }: { site: DashboardSiteStats }) {
             <div className="grid gap-3 p-4 sm:grid-cols-3">
                 <Indicateur
                     label="Chiffre d'affaires"
-                    valeur={fmtEur0(site.ca_hier)}
-                    valeurN1={site.ca_n1 > 0 ? fmtEur0(site.ca_n1) : null}
+                    valeur={fmtEur2(site.ca_hier)}
+                    valeurN1={site.ca_n1 > 0 ? fmtEur2(site.ca_n1) : null}
                     delta={evolution(site.ca_hier, site.ca_n1)}
                 />
                 <Indicateur
@@ -107,8 +107,8 @@ const CRITERES: Record<Critere, { titre: string; icone: typeof Euro }> = {
 
 function valeurPrincipale(item: DashboardTopItem, critere: Critere): string {
     if (critere === "qte") return `${fmtEntier(item.qte)} vendus`;
-    if (critere === "marge") return fmtEur0(item.marge);
-    return fmtEur0(item.ca);
+    if (critere === "marge") return fmtEur2(item.marge);
+    return fmtEur2(item.ca);
 }
 
 function ListeTop10({ items, critere }: { items: DashboardTopItem[]; critere: Critere }) {
@@ -150,7 +150,7 @@ function ListeTop10({ items, critere }: { items: DashboardTopItem[]; critere: Cr
                                     </div>
                                     <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
                                         <span className="truncate">{item.fournisseur}</span>
-                                        {critere !== "ca" && <span>CA {fmtEur0(item.ca)}</span>}
+                                        {critere !== "ca" && <span>CA {fmtEur2(item.ca)}</span>}
                                         {critere !== "qte" && <span>{fmtEntier(item.qte)} vendus</span>}
                                         <span
                                             style={{ color: item.stock <= 0 ? "var(--accent-error)" : undefined }}
@@ -259,9 +259,9 @@ export default async function DashboardPage() {
                         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                             <StatCard
                                 label="Chiffre d'affaires"
-                                value={fmtEur0(totalCa)}
+                                value={fmtEur2(totalCa)}
                                 delta={evolution(totalCa, totalCaN1)}
-                                hint={totalCaN1 > 0 ? `N-1 : ${fmtEur0(totalCaN1)}` : undefined}
+                                hint={totalCaN1 > 0 ? `N-1 : ${fmtEur2(totalCaN1)}` : undefined}
                                 icon={Euro}
                             />
                             <StatCard

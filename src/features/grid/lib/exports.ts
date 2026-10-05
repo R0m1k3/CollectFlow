@@ -143,6 +143,7 @@ export async function imprimerPdf(nomFournisseur: string): Promise<boolean> {
     doc.setTextColor(100);
     doc.text(`Export généré le : ${new Date().toLocaleDateString("fr-FR")}`, 14, 30);
 
+    const eur = (v: number) => v.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const head = [["Code-barres", "Code article", "Réf.", "Libellé", "Magasins réseau", "Qté", "CA", "Marge", "Gamme"]];
     const body = rows.map((r) => [
         r.gtin || r.codein,
@@ -151,8 +152,8 @@ export async function imprimerPdf(nomFournisseur: string): Promise<boolean> {
         r.libelle1 ? r.libelle1.substring(0, 60) + (r.libelle1.length > 60 ? "..." : "") : "",
         r.nbMagasinsReseau != null ? r.nbMagasinsReseau.toString() : "-",
         Math.round(r.totalQuantite).toLocaleString("fr-FR"),
-        `${Math.round(r.totalCa).toLocaleString("fr-FR")} €`,
-        `${Math.round(r.totalMarge).toLocaleString("fr-FR")} €\n(${r.tauxMarge.toFixed(1)}%)`,
+        `${eur(r.totalCa)} €`,
+        `${eur(r.totalMarge)} €\n(${r.tauxMarge.toFixed(1)}%)`,
         gammeEffective(r, draftChanges) || "-",
     ]);
 

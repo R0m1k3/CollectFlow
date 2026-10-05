@@ -9,7 +9,7 @@ import { Select } from "@/components/ui/form-controls";
 import { DeltaBadge } from "@/components/ui/badge";
 import { Terme } from "@/components/ui/tooltip";
 import { MAGASINS, nomMagasin } from "@/lib/magasins";
-import { fmtEur0 } from "@/lib/format";
+import { fmtEur2 } from "@/lib/format";
 import { telechargerExcel } from "@/lib/export-excel";
 import { cn } from "@/lib/utils";
 
@@ -81,7 +81,7 @@ const evolution = (ca: number, caN1: number) => (caN1 > 0 ? ((ca - caN1) / caN1)
 const recherche = (r: AnalyticsRow) => [r.label, r.key];
 
 function Montant({ v }: { v: number }) {
-    return <span className={cn("whitespace-nowrap", v === 0 && "text-[var(--text-muted)]")}>{fmtEur0(v)}</span>;
+    return <span className={cn("whitespace-nowrap", v === 0 && "text-[var(--text-muted)]")}>{fmtEur2(v)}</span>;
 }
 
 /** En-tête sur deux lignes : magasin au-dessus, mesure en dessous. */

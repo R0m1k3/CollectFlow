@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { StoreBadge } from "@/components/ui/badge";
 import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
 import { confirmer, toast } from "@/components/ui/feedback";
-import { fmtDecimal1, fmtEntier, fmtEur0 } from "@/lib/format";
+import { fmtDecimal1, fmtEntier, fmtEur2 } from "@/lib/format";
 import { couleurMarge } from "@/lib/marge";
 import { isStaleServerActionError, STALE_ACTION_MESSAGE } from "@/lib/stale-action";
 
@@ -228,7 +228,7 @@ export function SnapshotList({ type }: SnapshotListProps) {
                                 <div>
                                     <dt className="text-xs font-medium text-[var(--text-muted)]">Chiffre d&apos;affaires</dt>
                                     <dd className="text-sm font-semibold tabular-nums text-[var(--text-primary)]">
-                                        {fmtEur0(resume.totalCa ?? 0)}
+                                        {fmtEur2(resume.totalCa ?? 0)}
                                     </dd>
                                 </div>
                                 {taux != null && Number.isFinite(taux) && (
