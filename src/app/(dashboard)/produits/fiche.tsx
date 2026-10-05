@@ -26,7 +26,7 @@ import { EmptyState } from "@/components/ui/states";
 import { Terme, Tooltip } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/feedback";
 import { CODE_TOUS_MAGASINS, LIBELLE_TOUS_MAGASINS, nomMagasin } from "@/lib/magasins";
-import { fmtDecimal1, fmtEntier, fmtEur0, fmtEur2 } from "@/lib/format";
+import { fmtDecimal1, fmtDecimal2, fmtEntier, fmtEur2 } from "@/lib/format";
 import { couleurMarge } from "@/lib/marge";
 import { cn } from "@/lib/utils";
 import { OpportunitesFamille } from "./opportunites";
@@ -129,7 +129,7 @@ const LIGNES_MENSUELLES_RESEAU: Array<{
     { label: "Quantité vendue", get: (v) => v.qte, fmt: fmtEntier },
     { label: "Magasins vendeurs", get: (v) => v.nbMag, fmt: fmtEntier },
     { label: "Quantité par magasin", get: (v) => (v.nbMag && v.nbMag > 0 ? v.qte / v.nbMag : undefined), fmt: fmtDecimal1 },
-    { label: "Chiffre d'affaires (€)", get: (v) => v.ca, fmt: fmtEntier },
+    { label: "Chiffre d'affaires (€)", get: (v) => v.ca, fmt: fmtDecimal2 },
     { label: "Prix moyen", get: (v) => (v.ca != null && v.qte > 0 ? v.ca / v.qte : undefined), fmt: fmtEur2 },
     { label: "Taux de marge", get: (v) => normalizeMargePct(v.margePct) ?? undefined, fmt: (n) => `${fmtDecimal1(n)} %` },
 ];
@@ -327,8 +327,8 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
                                 value={prixMoyenReseau != null ? fmtEur2(prixMoyenReseau) : "—"}
                                 hint="chiffre d'affaires ÷ quantité"
                             />
-                            <StatCard label="Chiffre d'affaires" value={fmtEur0(reseau.caReseau)} hint="de tout le réseau" />
-                            <StatCard label={<Terme id="caParMagasin" />} value={fmtEur0(reseau.caParMagasinReseau)} />
+                            <StatCard label="Chiffre d'affaires" value={fmtEur2(reseau.caReseau)} hint="de tout le réseau" />
+                            <StatCard label={<Terme id="caParMagasin" />} value={fmtEur2(reseau.caParMagasinReseau)} />
                             <StatCard
                                 label={<Terme id="marge">Taux de marge</Terme>}
                                 value={
@@ -556,7 +556,7 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
                                     </div>
                                     <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                                         <Field label="Stock disponible"><span className="tabular-nums">{fmtEntier(s.stockdispo)}</span></Field>
-                                        <Field label="Valeur du stock"><span className="tabular-nums">{fmtEur0(s.valstock)}</span></Field>
+                                        <Field label="Valeur du stock"><span className="tabular-nums">{fmtEur2(s.valstock)}</span></Field>
                                         <Field label={<Terme id="prmp" />}><span className="tabular-nums">{s.prmp > 0 ? fmtEur2(s.prmp) : "—"}</span></Field>
                                         <Field label="Dernière vente">{formatDate(s.dernierevente)}</Field>
                                         <Field label="Dernière réception">{formatDate(s.dernierereception)}</Field>
@@ -587,8 +587,8 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
                 >
                     <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
                         <StatCard label="Quantité vendue" value={fmtEntier(totauxAffiches.qte)} />
-                        <StatCard label="Chiffre d'affaires TTC" value={fmtEur0(totauxAffiches.ca)} />
-                        <StatCard label={<Terme id="marge" />} value={fmtEur0(totauxAffiches.marge)} />
+                        <StatCard label="Chiffre d'affaires TTC" value={fmtEur2(totauxAffiches.ca)} />
+                        <StatCard label={<Terme id="marge" />} value={fmtEur2(totauxAffiches.marge)} />
                         <StatCard
                             label="Taux de marge"
                             value={
@@ -626,7 +626,7 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
                                     <th scope="row" className={TH_LIGNE}>Chiffre d&apos;affaires TTC (€)</th>
                                     {months.map((m) => (
                                         <td key={m} className={TD}>
-                                            {serie[m]?.ca ? fmtEntier(serie[m].ca) : <span className="text-[var(--text-muted)]">—</span>}
+                                            {serie[m]?.ca ? fmtDecimal2(serie[m].ca) : <span className="text-[var(--text-muted)]">—</span>}
                                         </td>
                                     ))}
                                 </tr>
@@ -690,8 +690,8 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
                     <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
                         <Comparaison
                             titre={<Terme id="caParMagasin">Chiffre d&apos;affaires par magasin</Terme>}
-                            nous={fmtEur0(comparatif.caLocalParMagasin)}
-                            reseau={comparatif.caReseauParMagasin != null ? fmtEur0(comparatif.caReseauParMagasin) : "—"}
+                            nous={fmtEur2(comparatif.caLocalParMagasin)}
+                            reseau={comparatif.caReseauParMagasin != null ? fmtEur2(comparatif.caReseauParMagasin) : "—"}
                         />
                         <Comparaison
                             titre={<Terme id="marge">Taux de marge</Terme>}

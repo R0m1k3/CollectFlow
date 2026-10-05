@@ -33,7 +33,7 @@ import {
 } from "@/features/grid/lib/network-trend";
 import { formatDate, formatMonthLabel, qlikMonthToFf } from "@/features/grid/lib/months";
 import { MAGASINS, LIBELLE_TOUS_MAGASINS } from "@/lib/magasins";
-import { fmtEur0 } from "@/lib/format";
+import { fmtEur2 } from "@/lib/format";
 import type { ProductRow } from "@/types/grid";
 
 const fmt = (v: number, d = 0) => v.toLocaleString("fr-FR", { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -285,7 +285,7 @@ export function NetworkMonthlyModal({ row, trend, mois, onClose }: {
                         {row.caReseau != null && row.caReseau > 0 && (
                             <TuileStat
                                 label="CA réseau 12 m"
-                                valeur={fmtEur0(row.caReseau)}
+                                valeur={fmtEur2(row.caReseau)}
                                 indice={row.margePctReseau ? `marge ${fmt(row.margePctReseau * 100, 1)} %` : undefined}
                             />
                         )}

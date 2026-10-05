@@ -12,7 +12,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { ErrorState } from "@/components/ui/states";
 import { Tabs, useUrlTab } from "@/components/ui/tabs";
 import { Terme, InfoBulle } from "@/components/ui/tooltip";
-import { fmtDecimal1, fmtEntier, fmtEur0 } from "@/lib/format";
+import { fmtDecimal1, fmtEntier, fmtEur2 } from "@/lib/format";
 import { nomMagasin } from "@/lib/magasins";
 import { cn } from "@/lib/utils";
 
@@ -205,8 +205,8 @@ export function PublicitesClient({
                 header: <InfoBulle explication={EXPLICATION_CA_PUB}>CA pub période</InfoBulle>,
                 align: "right",
                 sortValue: (p) => nombre(p.ca_pub_periode_pub),
-                cell: (p) => <span className="font-semibold">{fmtEur0(nombre(p.ca_pub_periode_pub))}</span>,
-                footer: (rows) => fmtEur0(somme(rows, (r) => r.ca_pub_periode_pub)),
+                cell: (p) => <span className="font-semibold">{fmtEur2(nombre(p.ca_pub_periode_pub))}</span>,
+                footer: (rows) => fmtEur2(somme(rows, (r) => r.ca_pub_periode_pub)),
             },
             {
                 id: "partCa",
@@ -297,8 +297,8 @@ export function PublicitesClient({
                 hint: "Chiffre d'affaires de l'opération, tous magasins confondus.",
                 align: "right",
                 sortValue: (h) => nombre(h.ca_total),
-                cell: (h) => <span className="font-semibold">{fmtEur0(nombre(h.ca_total))}</span>,
-                footer: (rows) => fmtEur0(somme(rows, (r) => r.ca_total)),
+                cell: (h) => <span className="font-semibold">{fmtEur2(nombre(h.ca_total))}</span>,
+                footer: (rows) => fmtEur2(somme(rows, (r) => r.ca_total)),
             },
             {
                 id: "quantite",

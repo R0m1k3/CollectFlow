@@ -30,7 +30,6 @@ const PROFONDEURS = [100, 200, 500] as const;
 export const PROFONDEUR_MAX = PROFONDEURS[PROFONDEURS.length - 1];
 
 const nb = (v: number) => Math.round(v).toLocaleString("fr-FR");
-const eur0 = (v: number) => `${Math.round(v).toLocaleString("fr-FR")} €`;
 const eur2 = (v: number) => v.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
 
 /**
@@ -51,18 +50,18 @@ interface Critere {
 }
 
 const CRITERES: Record<string, Critere> = {
-    caReseau:           { label: "CA réseau",          format: eur0, xlsx: '#,##0 "€"' },
+    caReseau:           { label: "CA réseau",          format: eur2, xlsx: '#,##0.00 "€"' },
     qteReseau:          { label: "Qté réseau",         format: nb,   xlsx: "#,##0" },
     nbMagasinsReseau:   { label: "Magasins réseau",    format: nb,   xlsx: "#,##0" },
     tendanceReseau:     { label: "Tendance réseau",    format: (v) => `${v >= 0 ? "+" : ""}${Math.round(v * 100)} %`, xlsx: "0 %" },
     prixMoyenReseau:    { label: "PV moyen réseau",    format: eur2, xlsx: '#,##0.00 "€"' },
     prixVente:          { label: "PV magasin",         format: eur2, xlsx: '#,##0.00 "€"' },
-    caParMagasinReseau: { label: "CA / magasin réseau", format: eur0, xlsx: '#,##0 "€"' },
+    caParMagasinReseau: { label: "CA / magasin réseau", format: eur2, xlsx: '#,##0.00 "€"' },
     margePctReseau:     { label: "Marge % réseau",     format: (v) => `${(Math.abs(v) <= 1 ? v * 100 : v).toFixed(1)} %`,
                           xlsx: '0.0 "%"', brut: (v) => (Math.abs(v) <= 1 ? v * 100 : v) },
     totalQuantite:      { label: "Qté 12 m",           format: nb,   xlsx: "#,##0" },
-    totalCa:            { label: "CA 12 m",            format: eur0, xlsx: '#,##0 "€"' },
-    totalMarge:         { label: "Marge 12 m",         format: eur0, xlsx: '#,##0 "€"' },
+    totalCa:            { label: "CA 12 m",            format: eur2, xlsx: '#,##0.00 "€"' },
+    totalMarge:         { label: "Marge 12 m",         format: eur2, xlsx: '#,##0.00 "€"' },
 };
 
 function libelleCritere(id: string | null): string {

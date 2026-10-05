@@ -12,7 +12,7 @@ import { DataTable, type DataColumn } from "@/components/ui/data-table";
 import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Terme } from "@/components/ui/tooltip";
 import { GLOSSAIRE } from "@/lib/glossaire";
-import { fmtDecimal1, fmtEntier, fmtEur0, fmtEur2 } from "@/lib/format";
+import { fmtDecimal1, fmtEntier, fmtEur2 } from "@/lib/format";
 import { couleurMarge } from "@/lib/marge";
 
 /** Intervalle d'interrogation de l'état du job de recherche. */
@@ -401,7 +401,7 @@ function ResultTable({ rows, query }: { rows: ProduitRechercheRow[]; query: stri
             hint: GLOSSAIRE.caParMagasin.definition,
             align: "right",
             sortValue: (r) => (r.caParMagasinReseau > 0 ? r.caParMagasinReseau : null),
-            cell: (r) => (r.caParMagasinReseau > 0 ? fmtEur0(r.caParMagasinReseau) : "—"),
+            cell: (r) => (r.caParMagasinReseau > 0 ? fmtEur2(r.caParMagasinReseau) : "—"),
         },
         {
             id: "marge",

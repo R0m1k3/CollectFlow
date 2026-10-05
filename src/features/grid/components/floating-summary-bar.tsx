@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { confirmer, toast } from "@/components/ui/feedback";
-import { fmtDecimal1, fmtEntier, fmtEur0 } from "@/lib/format";
+import { fmtDecimal1, fmtEntier, fmtEur2 } from "@/lib/format";
 import { couleurMarge } from "@/lib/marge";
 import {
     exporterFichierGammes,
@@ -165,10 +165,10 @@ function FloatingSummaryBarInner({ isAdmin, nomFournisseur }: { isAdmin: boolean
             <div className="flex flex-wrap items-center gap-x-8 gap-y-1">
                 <Stat label="Produits actifs" value={fmtEntier(summary.totalRows)} sub={summary.totalProducts !== summary.totalRows ? `sur ${fmtEntier(summary.totalProducts)}` : undefined} subColor="var(--text-muted)" />
                 <Stat label="Quantités vendues (12 mois)" value={fmtEntier(summary.totalQuantite)} />
-                <Stat label="Chiffre d'affaires" value={fmtEur0(summary.totalCa)} />
+                <Stat label="Chiffre d'affaires" value={fmtEur2(summary.totalCa)} />
                 <Stat
                     label="Marge"
-                    value={fmtEur0(summary.totalMarge)}
+                    value={fmtEur2(summary.totalMarge)}
                     sub={`${fmtDecimal1(summary.tauxMargeGlobal)} %`}
                     subColor={couleurMarge(summary.tauxMargeGlobal)}
                 />

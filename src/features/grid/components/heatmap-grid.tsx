@@ -45,7 +45,7 @@ import {
 } from "@/features/grid/lib/network-trend";
 import { TrendSparkline } from "@/features/grid/components/network-charts";
 import type { NetworkTrend } from "@/features/grid/lib/network-trend";
-import { fmtDecimal1, fmtEntier, fmtEur0, fmtEur2 } from "@/lib/format";
+import { fmtDecimal1, fmtEntier, fmtEur2 } from "@/lib/format";
 import { CLASSES_SANS_GAMME, trouverGamme } from "@/lib/gammes";
 import { couleurMarge } from "@/lib/marge";
 import { Button } from "@/components/ui/button";
@@ -891,7 +891,7 @@ function HeatmapGridInner({ codeFournisseur, onSelectionChange, isAdmin, nomFour
                 const val = row.original.caReseau;
                 return (
                     <div className="text-center tabular-nums text-[12px] font-bold text-emerald-600 dark:text-emerald-400">
-                        {val != null ? fmtEur0(val) : "-"}
+                        {val != null ? fmtEur2(val) : "-"}
                     </div>
                 );
             },
@@ -1020,7 +1020,7 @@ function HeatmapGridInner({ codeFournisseur, onSelectionChange, isAdmin, nomFour
                 const val = row.original.caParMagasinReseau;
                 return (
                     <div className="text-center tabular-nums text-[12px] font-bold" style={{ color: "var(--text-secondary)" }}>
-                        {val != null ? fmtEur0(val) : "-"}
+                        {val != null ? fmtEur2(val) : "-"}
                     </div>
                 );
             },
@@ -1110,14 +1110,14 @@ function HeatmapGridInner({ codeFournisseur, onSelectionChange, isAdmin, nomFour
             id: "totalCa",
             accessorFn: (row: ProductRow) => activeMagasin === "TOTAL" ? row.totalCa : (row.caByStore?.[activeMagasin] ?? 0),
             header: () => <div className="text-center w-full" title="Chiffre d'affaires sur 12 mois">CA</div>,
-            size: 90,
+            size: 105,
             cell: ({ row }: { row: { original: ProductRow } }) => {
                 const ca = activeMagasin === "TOTAL"
                     ? row.original.totalCa
                     : (row.original.caByStore?.[activeMagasin] ?? 0);
                 return (
                     <div className="text-center tabular-nums text-[13px] font-bold" style={{ color: "var(--text-primary)" }}>
-                        {fmtEntier(ca)}&nbsp;€
+                        {fmtEur2(ca)}
                     </div>
                 );
             },
@@ -1126,7 +1126,7 @@ function HeatmapGridInner({ codeFournisseur, onSelectionChange, isAdmin, nomFour
             id: "totalMarge",
             accessorFn: (row: ProductRow) => activeMagasin === "TOTAL" ? row.totalMarge : (row.margeByStore?.[activeMagasin] ?? 0),
             header: () => <div className="text-center w-full" title="Marge en euros et taux de marge sur 12 mois">Marge</div>,
-            size: 110,
+            size: 115,
             cell: ({ row }: { row: { original: ProductRow } }) => {
                 const marge = activeMagasin === "TOTAL"
                     ? row.original.totalMarge
@@ -1138,7 +1138,7 @@ function HeatmapGridInner({ codeFournisseur, onSelectionChange, isAdmin, nomFour
                 return (
                     <div className="flex flex-col items-center justify-center">
                         <span className="tabular-nums text-[13px] font-bold" style={{ color: "var(--text-primary)" }}>
-                            {fmtEntier(marge)}&nbsp;€
+                            {fmtEur2(marge)}
                         </span>
                         <span className="tabular-nums text-xs font-semibold" style={{ color: couleurMarge(taux) }}>
                             {taux.toFixed(1)}%
