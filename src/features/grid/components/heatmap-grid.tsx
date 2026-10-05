@@ -14,7 +14,7 @@ import {
     type FilterFn,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, PackageX, Warehouse, AlertTriangle, CalendarRange, Tag, Eye, EyeOff } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Copy, Check, Store, SlidersHorizontal, ShoppingCart, PackageOpen, PackageX, Warehouse, AlertTriangle, CalendarRange, Tag, Eye, EyeOff, Layers } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -29,6 +29,7 @@ import { HeatmapCell } from "@/features/grid/components/heatmap-cell";
 import { ProductMonthlyModal } from "@/features/grid/components/product-monthly-modal";
 import { NetworkMonthlyModal } from "@/features/grid/components/network-monthly-modal";
 import { AssortmentGapsModal, PROFONDEUR_MAX, type LigneClassee } from "@/features/grid/components/assortment-gaps-modal";
+import { NomenclatureCaModal } from "@/features/grid/components/nomenclature-ca-modal";
 import type { ProductRow, GammeCode } from "@/types/grid";
 import { cn } from "@/lib/utils";
 import {
@@ -720,6 +721,8 @@ function HeatmapGridInner({ codeFournisseur, onSelectionChange, isAdmin, nomFour
     const [monthlyModal, setMonthlyModal] = useState<ProductRow | null>(null);
     // Trous d'assortiment : ce qu'un magasin ne travaille pas, en haut du classement affiché
     const [gapsOpen, setGapsOpen] = useState(false);
+    // CA par nomenclature et par magasin, face au réseau, sur les lignes affichées
+    const [nomenclaturesOpen, setNomenclaturesOpen] = useState(false);
     const tableContainerRef = useRef<HTMLDivElement>(null);
 
     // Les 12 mois viennent des données, pas de l'horloge du navigateur : les
@@ -1259,6 +1262,12 @@ function HeatmapGridInner({ codeFournisseur, onSelectionChange, isAdmin, nomFour
         }));
     }, [gapsOpen, tableRows, sorting]);
 
+    /** Les produits affichés (filtres et recherche compris), pour le CA par nomenclature. */
+    const lignesAffichees: ProductRow[] = useMemo(
+        () => (nomenclaturesOpen ? tableRows.map((r) => r.original) : []),
+        [nomenclaturesOpen, tableRows],
+    );
+
     if (!isMounted) {
         return (
             <div
@@ -1278,6 +1287,17 @@ function HeatmapGridInner({ codeFournisseur, onSelectionChange, isAdmin, nomFour
         <div className="h-full w-full relative">
             {portalContainer && createPortal(
                 <div className="flex items-center gap-2">
+                {/* CA par nomenclature et par magasin, comparé au réseau. */}
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setNomenclaturesOpen(true)}
+                    disabled={tableRows.length === 0}
+                    title="Le CA de chaque nomenclature sur la période, par magasin, comparé au CA réseau"
+                >
+                    <Layers />
+                    <span className="hidden lg:inline">Nomenclatures</span>
+                </Button>
                 {/* Trous d'assortiment — lit le classement affiché, tri compris. */}
                 <Button
                     variant="outline"
@@ -1450,6 +1470,17 @@ function HeatmapGridInner({ codeFournisseur, onSelectionChange, isAdmin, nomFour
                     magasinInitial={activeMagasin}
                     nomFournisseur={nomFournisseur}
                     onClose={() => setGapsOpen(false)}
+                />
+            )}
+        </Dialog>
+        {/* CA par nomenclature : nos magasins face au réseau */}
+        <Dialog open={nomenclaturesOpen} onOpenChange={setNomenclaturesOpen}>
+            {nomenclaturesOpen && (
+                <NomenclatureCaModal
+                    rows={lignesAffichees}
+                    mois={MONTHS_12}
+                    nomFournisseur={nomFournisseur}
+                    onClose={() => setNomenclaturesOpen(false)}
                 />
             )}
         </Dialog>
