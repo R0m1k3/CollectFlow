@@ -1,12 +1,8 @@
 "use server";
 
-import { db } from "@/db";
-import { sessionSnapshots } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 import { verifierSession } from "@/lib/authz";
-import { patchGridRowsCache } from "./get-product-rows";
-import { updateGridRowsGamme } from "@/lib/grid-store";
+import { enregistrerGammes } from "./enregistrer-gammes";
 
 const SaveDraftsSchema = z.object({
     codeFournisseur: z.string(),
@@ -39,49 +35,8 @@ export async function saveDraftChanges(
     const finalUserId = userId && !isNaN(userId) ? userId : null;
 
     try {
-        // Charger le dernier snapshot existant pour merger les changements
-        const existing = await db
-            .select()
-            .from(sessionSnapshots)
-            .where(eq(sessionSnapshots.codeFournisseur, codeFournisseur))
-            .orderBy(desc(sessionSnapshots.createdAt))
-            .limit(1);
-
-        const prevChanges: Record<string, { before: string | null; after: string }> =
-            existing.length > 0
-                ? (existing[0].changes as Record<string, { before: string | null; after: string }>)
-                : {};
-
-        // Merger les nouveaux changements par-dessus l'existant
-        const mergedChanges = { ...prevChanges };
-        for (const c of changes) {
-            mergedChanges[c.codein] = {
-                before: c.codeGammeBefore,
-                after: c.codeGamme,
-            };
-        }
-
-        // Upsert : insérer un nouveau snapshot "draft" pour ce fournisseur
-        await db.insert(sessionSnapshots).values({
-            userId: finalUserId,
-            codeFournisseur,
-            nomFournisseur: nomFournisseur ?? null,
-            magasin,
-            label: `Draft — ${new Date().toLocaleDateString("fr-FR")}`,
-            changes: mergedChanges,
-            summaryJson: null,
-            type: "snapshot",
-        });
-
-        // Les lignes en cache reçoivent les nouvelles gammes au lieu d'être jetées :
-        // l'invalidation imposait un recalcul complet (jusqu'à ~40 s) à la
-        // réouverture suivante. L'instantané lu par /api/v1 suit, sans bloquer.
-        patchGridRowsCache(codeFournisseur, changes);
-        void updateGridRowsGamme(codeFournisseur, changes).catch((e) =>
-            console.error("[saveDraftChanges] mise à jour grid_rows KO:", (e as Error).message?.slice(0, 200)),
-        );
-
-        return { success: true, saved: changes.length };
+        const saved = await enregistrerGammes({ codeFournisseur, nomFournisseur, magasin, changes, userId: finalUserId });
+        return { success: true, saved };
     } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
         return { success: false, saved: 0, error: msg };

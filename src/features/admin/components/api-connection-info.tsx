@@ -79,6 +79,8 @@ const ENDPOINTS: Array<{ method: string; path: string; desc: string }> = [
     { method: "GET", path: "/nomenclatures?fournisseur=CODE", desc: "Postes de nomenclature d'un fournisseur, avec nombre d'articles et chiffre d'affaires" },
     { method: "GET", path: "/products/search?q=terme", desc: "Recherche de produits, tous fournisseurs confondus" },
     { method: "GET", path: "/products/{codein}", desc: "Fiche complète d'un produit" },
+    { method: "PUT", path: "/products/{codein}/gamme", desc: "Affecter ou changer la gamme d'un produit — corps : { \"gamme\": \"A\" }" },
+    { method: "POST", path: "/gammes", desc: "Affecter ou changer la gamme de plusieurs produits d'un fournisseur en un appel" },
     { method: "GET", path: "/network/{codeCentrale}", desc: "Ventes du réseau (Qlik) et courbe sur 12 mois" },
     { method: "GET", path: "/openapi.json", desc: "Description de l'API lisible par un programme (format OpenAPI)" },
 ];
@@ -203,6 +205,7 @@ export function ApiConnectionInfo() {
                     </Repli>
 
                     <Repli titre="Exemples d'appels">
+                        <CodeLine>{`curl -X PUT -H "X-API-Key: VOTRE_CLE" -H "Content-Type: application/json" \\\n  -d '{"gamme":"B"}' "${base}/products/123456/gamme"`}</CodeLine>
                         <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/products/search?q=tapis&limit=20"`}</CodeLine>
                         <CodeLine>{`curl -H "X-API-Key: VOTRE_CLE" \\\n  "${base}/grid?fournisseur=FOU001&fields=codein,libelle1,totalCa,codeGammeServeur"`}</CodeLine>
                         <p className="pt-1 text-[13px] text-[var(--text-secondary)]">

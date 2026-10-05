@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { GRID_SORT_KEYS } from "@/lib/grid-store";
+import { GAMMES } from "@/lib/gammes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,13 +47,20 @@ export async function GET(req: NextRequest) {
         },
     ];
 
+    const codesGamme = GAMMES.map((g) => g.code);
+    const legendeGammes = GAMMES.map((g) => `${g.code} (${g.nom})`).join(", ");
+    const erreur = (description: string) => ({
+        description,
+        content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
+    });
+
     const spec = {
         openapi: "3.1.0",
         info: {
             title: "CollectFlow API",
             version: "1.0.0",
             description:
-                "Lecture des données de la grille CollectFlow : ventes sur 12 mois par magasin, stock, marges, "
+                "Données de la grille CollectFlow : ventes sur 12 mois par magasin, stock, marges, "
                 + "gammes et métriques du réseau Qlik (~270 magasins Foir'Fouille), plus la recherche de produits.\n\n"
                 + "**N'importe quel fournisseur peut être interrogé directement.** Les réponses sont servies "
                 + "depuis un instantané persisté ; si le fournisseur demandé n'en a pas encore, `/grid` le calcule "
@@ -62,7 +70,11 @@ export async function GET(req: NextRequest) {
                 + "alimenté par une synchronisation séparée.\n\n"
                 + "Deux informations sont relues à chaque appel car elles évoluent indépendamment : les métriques "
                 + "réseau Qlik (`network`, `null` s'il n'y en a pas) et la gamme serveur non modifiée "
-                + "(`codeGammeServeur`).",
+                + "(`codeGammeServeur`).\n\n"
+                + "**Gammes** : `PUT /products/{codein}/gamme` (un article) et `POST /gammes` (plusieurs) "
+                + "affectent ou changent une gamme exactement comme la Grille : la nouvelle valeur apparaît "
+                + "aussitôt dans `codeGamme` et dans l'application, tandis que `codeGammeServeur` reste la gamme "
+                + "en base FF jusqu'à l'import des gammes modifiées.",
         },
         servers: [{ url: `${origin}/api/v1`, description: "API CollectFlow" }],
         security: [{ ApiKeyAuth: [] }],
@@ -137,10 +149,9 @@ export async function GET(req: NextRequest) {
                             type: ["string", "null"],
                             description:
                                 "Gamme **non modifiée**, telle qu'elle existe en base. C'est celle à utiliser pour "
-                                + "raisonner. `null` = aucune gamme. Valeurs : A (pilier), B (bonne rotation), "
-                                + "C (performance), D (saisonnier/niche), Z (sortie).",
+                                + "raisonner. `null` = aucune gamme. Valeurs : " + legendeGammes + ".",
                         },
-                        codeGamme: { type: ["string", "null"], description: "Gamme courante, éventuellement surchargée par une modification locale non enregistrée." },
+                        codeGamme: { type: ["string", "null"], description: "Gamme courante, modifications enregistrées dans CollectFlow (Grille ou API) comprises." },
                         totalCa: { type: "number", description: "CA sur 12 mois, nos magasins." },
                         totalQuantite: { type: "number" },
                         totalMarge: { type: "number" },
@@ -160,6 +171,16 @@ export async function GET(req: NextRequest) {
                         qteReseauByMonth: { type: ["object", "null"], description: "Quantités vendues par le réseau, clés « YYYY-MM » — série derrière la tendance." },
                         network: { $ref: "#/components/schemas/NetworkMetrics" },
                         trend: { $ref: "#/components/schemas/Trend" },
+                    },
+                },
+                ResultatGamme: {
+                    type: "object",
+                    properties: {
+                        codein: { type: "string" },
+                        gamme: { type: "string", enum: codesGamme, description: "Gamme désormais affectée." },
+                        gammePrecedente: { type: ["string", "null"], description: "Gamme courante avant l'appel." },
+                        codeGammeServeur: { type: ["string", "null"], description: "Gamme en base FF, non modifiée par l'API." },
+                        modifie: { type: "boolean", description: "false = l'article avait déjà cette gamme, rien n'a été écrit." },
                     },
                 },
                 Trend: {
@@ -266,7 +287,7 @@ export async function GET(req: NextRequest) {
                         + "ou n'a aucun article — le signaler plutôt que de conclure à une panne.",
                     parameters: [
                         { name: "fournisseur", in: "query", required: true, schema: { type: "string" }, description: "Code fournisseur (voir listerFournisseurs)." },
-                        { name: "gamme", in: "query", schema: { type: "string" }, description: "Filtre sur la gamme (A, B, C, D, Z)." },
+                        { name: "gamme", in: "query", schema: { type: "string" }, description: `Filtre sur la gamme (${codesGamme.join(", ")}).` },
                         { name: "code1", in: "query", schema: { type: "string" }, description: "Filtre nomenclature niveau 1." },
                         { name: "code2", in: "query", schema: { type: "string" }, description: "Filtre nomenclature niveau 2." },
                         { name: "code3", in: "query", schema: { type: "string" }, description: "Filtre nomenclature niveau 3 (code exact)." },
@@ -363,6 +384,118 @@ export async function GET(req: NextRequest) {
                         },
                         "404": { description: "Produit absent de l'instantané", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
                         "401": { description: "Clé d'API absente, invalide ou révoquée", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+                    },
+                },
+            },
+            "/products/{codein}/gamme": {
+                put: {
+                    operationId: "changerGammeProduit",
+                    summary: "Affecter ou changer la gamme d'un produit",
+                    description:
+                        "Enregistre la gamme d'un article, comme la Grille. Valeurs : " + legendeGammes + ". "
+                        + "`fournisseur` n'est requis que si l'article est référencé chez plusieurs fournisseurs "
+                        + "(réponse 400 listant les fournisseurs) ou s'il n'a encore jamais été calculé. "
+                        + "Pour plusieurs articles d'un même fournisseur, préférer changerGammes.",
+                    parameters: [
+                        { name: "codein", in: "path", required: true, schema: { type: "string" }, description: "Identifiant interne de l'article." },
+                    ],
+                    requestBody: {
+                        required: true,
+                        content: {
+                            "application/json": {
+                                schema: {
+                                    type: "object",
+                                    required: ["gamme"],
+                                    properties: {
+                                        gamme: { type: "string", enum: codesGamme },
+                                        fournisseur: { type: "string", description: "Code fournisseur de l'article." },
+                                        compute: { type: "boolean", default: true, description: "Calcule le fournisseur à la demande s'il n'a jamais été calculé." },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    responses: {
+                        "200": {
+                            description: "Gamme enregistrée",
+                            content: {
+                                "application/json": {
+                                    schema: {
+                                        type: "object",
+                                        properties: {
+                                            data: {
+                                                allOf: [
+                                                    { $ref: "#/components/schemas/ResultatGamme" },
+                                                    { type: "object", properties: { codeFournisseur: { type: "string" }, nomFournisseur: { type: ["string", "null"] } } },
+                                                ],
+                                            },
+                                            meta: { type: "object" },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        "400": erreur("Gamme invalide, ou article chez plusieurs fournisseurs sans « fournisseur »"),
+                        "401": erreur("Clé d'API absente, invalide ou révoquée"),
+                        "404": erreur("Article introuvable chez ce fournisseur"),
+                    },
+                },
+            },
+            "/gammes": {
+                post: {
+                    operationId: "changerGammes",
+                    summary: "Affecter ou changer la gamme de plusieurs produits",
+                    description:
+                        "Enregistre en un appel les gammes de plusieurs articles d'un même fournisseur. "
+                        + "Tout ou rien : si un article est inconnu chez le fournisseur, rien n'est enregistré "
+                        + "et la réponse 404 liste les articles en cause dans `error.details.inconnus`. "
+                        + "Valeurs : " + legendeGammes + ".",
+                    requestBody: {
+                        required: true,
+                        content: {
+                            "application/json": {
+                                schema: {
+                                    type: "object",
+                                    required: ["fournisseur", "changes"],
+                                    properties: {
+                                        fournisseur: { type: "string", description: "Code fournisseur." },
+                                        changes: {
+                                            type: "array",
+                                            minItems: 1,
+                                            maxItems: 10000,
+                                            items: {
+                                                type: "object",
+                                                required: ["codein", "gamme"],
+                                                properties: {
+                                                    codein: { type: "string" },
+                                                    gamme: { type: "string", enum: codesGamme },
+                                                },
+                                            },
+                                        },
+                                        compute: { type: "boolean", default: true, description: "Calcule le fournisseur à la demande s'il n'a jamais été calculé." },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    responses: {
+                        "200": {
+                            description: "Gammes enregistrées",
+                            content: {
+                                "application/json": {
+                                    schema: {
+                                        type: "object",
+                                        properties: {
+                                            data: { type: "array", items: { $ref: "#/components/schemas/ResultatGamme" } },
+                                            meta: { type: "object" },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        "400": erreur("Corps de requête invalide"),
+                        "401": erreur("Clé d'API absente, invalide ou révoquée"),
+                        "404": erreur("Un ou plusieurs articles introuvables chez ce fournisseur"),
                     },
                 },
             },
