@@ -3,10 +3,12 @@
  *
  * Il y avait deux menus d'export (en-tête et barre du bas) aux droits différents.
  * Les bibliothèques lourdes (exceljs, jspdf) ne sont chargées qu'au clic.
- * Les lignes sont lues dans le store au moment de l'export.
+ * Les lignes sont lues dans le store au moment de l'export, après
+ * `synchroniserGammes` : l'API peut avoir changé des gammes depuis le chargement.
  */
 
 import { useGridStore } from "@/features/grid/store/use-grid-store";
+import { lireGammesEnregistrees } from "@/features/grid/api/lire-gammes-enregistrees";
 import type { ProductRow } from "@/types/grid";
 
 function telecharger(blob: Blob, nomFichier: string) {
@@ -23,6 +25,20 @@ const nomFichierSur = (nom: string) => nom.replace(/\s+/g, "_");
 
 function gammeEffective(r: ProductRow, drafts: Record<string, string>): string | null {
     return (drafts[r.codein] ?? r.codeGamme) as string | null;
+}
+
+/**
+ * Aligne les lignes affichées sur les gammes enregistrées côté serveur, sans
+ * recharger toute la Grille. À appeler avant un export ou une copie dans
+ * l'Historique. `snapshotId` est à transmettre à `saveSnapshot`.
+ */
+export async function synchroniserGammes(
+    codeFournisseur: string,
+): Promise<{ snapshotId: number | null; misesAJour: number }> {
+    const res = await lireGammesEnregistrees(codeFournisseur);
+    if (!res.success) throw new Error(res.error);
+    const misesAJour = useGridStore.getState().applyServerGammes(res.gammes);
+    return { snapshotId: res.snapshotId, misesAJour };
 }
 
 /** Lignes dont la gamme diffère de la gamme enregistrée dans FF. */

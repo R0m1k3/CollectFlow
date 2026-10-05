@@ -27,7 +27,10 @@ import {
     exporterTousProduits,
     imprimerPdf,
     lignesModifiees,
+    synchroniserGammes,
 } from "@/features/grid/lib/exports";
+
+type Synchro = Awaited<ReturnType<typeof synchroniserGammes>>;
 
 function Stat({ label, value, sub, subColor }: { label: string; value: string; sub?: string; subColor?: string }) {
     return (
@@ -102,32 +105,52 @@ function FloatingSummaryBarInner({ isAdmin, nomFournisseur }: { isAdmin: boolean
     };
 
     /**
+     * Gammes enregistrées depuis le chargement (API /api/v1, autre onglet) : l'écran
+     * les reprend avant tout export, sinon le fichier et l'Historique partaient de
+     * gammes périmées — et la copie dans l'Historique les effaçait.
+     */
+    const alignerSurServeur = async (): Promise<Synchro> => {
+        if (!supplierCode) return { snapshotId: null, misesAJour: 0 };
+        const synchro = await synchroniserGammes(supplierCode);
+        if (synchro.misesAJour > 0) {
+            const n = synchro.misesAJour;
+            toast.info(`${n} gamme${n > 1 ? "s ont" : " a"} été modifiée${n > 1 ? "s" : ""} entre-temps côté serveur (API) : l'écran a été mis à jour.`);
+        }
+        return synchro;
+    };
+
+    /**
      * Enregistre une copie de la session dans l'Historique.
      * Renvoie l'identifiant créé, ou `null` en cas d'échec (déjà signalé).
+     * `synchro` : alignement déjà fait par l'appelant, sinon il est fait ici.
      */
-    const handleSnapshot = async (labelOverride?: string, type: "snapshot" | "export" = "snapshot") => {
+    const handleSnapshot = async (labelOverride?: string, type: "snapshot" | "export" = "snapshot", synchro?: Synchro) => {
         if (rows.length === 0) return null;
-        const { draftChanges } = useGridStore.getState();
-        // Tous les changements : brouillons + gammes déjà enregistrées (≠ FF)
-        const changes = Object.fromEntries(
-            lignesModifiees().map(r => [
-                r.codein,
-                { before: r.codeGammeInit, after: (draftChanges[r.codein] ?? r.codeGamme) as string },
-            ])
-        );
         try {
+            const { snapshotId: baseSnapshotId } = synchro ?? await alignerSurServeur();
+            // Relu après l'alignement : les lignes et les totaux ont pu changer.
+            const { draftChanges, rows: lignes, summary: totaux } = useGridStore.getState();
+            if (lignes.length === 0) return null;
+            // Tous les changements : brouillons + gammes déjà enregistrées (≠ FF)
+            const changes = Object.fromEntries(
+                lignesModifiees().map(r => [
+                    r.codein,
+                    { before: r.codeGammeInit, after: (draftChanges[r.codein] ?? r.codeGamme) as string },
+                ])
+            );
             const res = await saveSnapshot({
-                codeFournisseur: filterFournisseur || rows[0].codeFournisseur,
-                nomFournisseur: rows[0].nomFournisseur,
+                codeFournisseur: filterFournisseur || lignes[0].codeFournisseur,
+                nomFournisseur: lignes[0].nomFournisseur,
                 magasin: activeMagasin || "TOTAL",
-                label: labelOverride || `Session ${rows[0].nomFournisseur} — ${new Date().toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}`,
+                label: labelOverride || `Session ${lignes[0].nomFournisseur} — ${new Date().toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}`,
                 changes,
                 type,
+                baseSnapshotId,
                 summary: {
-                    totalRows: summary.totalRows,
-                    totalCa: summary.totalCa,
-                    totalMarge: summary.totalMarge,
-                    tauxMargeGlobal: summary.tauxMargeGlobal,
+                    totalRows: totaux.totalRows,
+                    totalCa: totaux.totalCa,
+                    totalMarge: totaux.totalMarge,
+                    tauxMargeGlobal: totaux.tauxMargeGlobal,
                 },
             });
             if (!res.success) throw new Error(res.error);
@@ -139,12 +162,12 @@ function FloatingSummaryBarInner({ isAdmin, nomFournisseur }: { isAdmin: boolean
         }
     };
 
-    /** Lance un export avec indicateur et messages d'erreur communs. */
-    const lancer = async (cle: string, action: () => Promise<boolean>, vide: string) => {
+    /** Lance un export (écran aligné sur le serveur) avec indicateur et messages d'erreur communs. */
+    const lancer = async (cle: string, action: (synchro: Synchro) => Promise<boolean>, vide: string) => {
         if (enCours) return;
         setEnCours(cle);
         try {
-            const ok = await action();
+            const ok = await action(await alignerSurServeur());
             if (!ok) toast.info(vide);
         } catch (err) {
             toast.erreur(`L'export a échoué : ${messageErreur(err)}`);
@@ -189,11 +212,11 @@ function FloatingSummaryBarInner({ isAdmin, nomFournisseur }: { isAdmin: boolean
                         <DropdownMenuLabel className="text-xs font-medium text-[var(--text-secondary)]">Fichier d&apos;import des gammes</DropdownMenuLabel>
                         <DropdownMenuItem
                             className="cursor-pointer"
-                            onSelect={() => lancer("modifs", async () => {
+                            onSelect={() => lancer("modifs", async (synchro) => {
                                 if (lignesModifiees().length === 0) return false;
                                 const nom = lignesModifiees()[0].nomFournisseur;
                                 // Copie dans l'Historique, onglet « Exports »
-                                await handleSnapshot(`Export ${nom} — ${new Date().toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}`, "export");
+                                await handleSnapshot(`Export ${nom} — ${new Date().toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}`, "export", synchro);
                                 return exporterFichierGammes(true);
                             }, "Aucune gamme n'a été modifiée par rapport à FF.")}
                         >
