@@ -579,3 +579,34 @@
   color: var(--text-primary);
   box-shadow: var(--shadow-sm);
 }
+/* ── Tableau de données commun (components/ui/data-table.tsx) ──
+   Fonds opaques partout : les colonnes figées recouvrent les cellules qui
+   défilent dessous. La ligne porte la couleur, les cellules en héritent. */
+.dt-table {
+  /* Une ligne sur deux, plus soutenue : suivre une ligne sur un écran large. */
+  --dt-zebra: color-mix(in srgb, var(--text-primary) 3.5%, var(--bg-surface));
+  /* Survol teinté de la couleur d'accent : la ligne pointée se distingue de l'alternance. */
+  --dt-hover: color-mix(in srgb, var(--accent) 10%, var(--bg-surface));
+}
+.dt-row {
+  background-color: var(--bg-surface);
+}
+.dt-row:nth-child(even) {
+  background-color: var(--dt-zebra);
+}
+.dt-row:hover {
+  background-color: var(--dt-hover);
+}
+.dt-sticky {
+  position: sticky;
+  z-index: 1;
+  background-color: inherit;
+}
+/* Ombre portée sur la dernière colonne figée : on voit ce qui passe dessous. */
+.dt-sticky-last {
+  box-shadow: inset -1px 0 0 var(--border-strong), 4px 0 6px -4px rgba(0, 0, 0, 0.25);
+}
+/* Teinte superposée au fond de la ligne (alternance et survol conservés). */
+.dt-highlight {
+  background-image: linear-gradient(var(--accent-bg), var(--accent-bg));
+}

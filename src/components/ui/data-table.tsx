@@ -8,7 +8,7 @@
  * en réimplémentaient chacune une partie (13 tableaux faits à la main).
  */
 
-import { useDeferredValue, useMemo, useState, type ReactNode } from "react";
+import { useDeferredValue, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ChevronDown, ChevronUp, ChevronsUpDown, Download, Loader2, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SearchInput, Select } from "@/components/ui/form-controls";
@@ -33,6 +33,25 @@ export interface DataColumn<T> {
     footer?: (rows: readonly T[]) => ReactNode;
     className?: string;
     headerClassName?: string;
+    /**
+     * La colonne prend toute la largeur restante (désignation, libellé…) : les
+     * colonnes de chiffres gardent leur largeur naturelle au lieu de s'étirer
+     * sur un écran large, loin de leur libellé.
+     */
+    grow?: boolean;
+    /**
+     * Colonne figée à gauche pendant le défilement horizontal. Seules les
+     * premières colonnes consécutives peuvent l'être.
+     */
+    sticky?: boolean;
+    /**
+     * Groupe de colonnes (un magasin, « Total »…) : un en-tête commun est
+     * affiché au-dessus des colonnes consécutives du même groupe, et un trait
+     * vertical sépare les groupes.
+     */
+    group?: string;
+    /** Fond légèrement teinté, pour faire ressortir un groupe (le total…). */
+    highlight?: boolean;
 }
 
 export interface DataFilter<T> {
@@ -198,6 +217,126 @@ export function DataTable<T>({
     const alignement = (a?: "left" | "right" | "center") =>
         a === "right" ? "text-right justify-end" : a === "center" ? "text-center justify-center" : "text-left";
 
+    // Colonnes figées : seulement les premières, consécutives.
+    let nbFigees = 0;
+    while (nbFigees < columns.length && columns[nbFigees].sticky) nbFigees++;
+
+    // Début de groupe : trait vertical à gauche de la colonne.
+    const debutGroupe = (i: number) => Boolean(columns[i].group) && columns[i - 1]?.group !== columns[i].group;
+    const avecGroupes = columns.some((c) => c.group);
+
+    // Décalage gauche de chaque colonne figée = largeur cumulée des précédentes,
+    // mesurée sur l'en-tête et exposée en variables CSS sur le tableau.
+    const tableRef = useRef<HTMLTableElement>(null);
+    const [decalages, setDecalages] = useState<number[]>([]);
+    useLayoutEffect(() => {
+        const table = tableRef.current;
+        if (!table || nbFigees === 0) return;
+        const mesurer = () => {
+            const out: number[] = [];
+            let gauche = 0;
+            for (let i = 0; i < nbFigees; i++) {
+                out.push(gauche);
+                const th = table.querySelector<HTMLElement>(`thead th[data-col="${i}"]`);
+                gauche += th?.getBoundingClientRect().width ?? 0;
+            }
+            setDecalages((prev) => (prev.length === out.length && prev.every((v, i) => v === out[i]) ? prev : out));
+        };
+        mesurer();
+        const obs = new ResizeObserver(mesurer);
+        obs.observe(table);
+        return () => obs.disconnect();
+    }, [nbFigees, total, columns]);
+
+    const styleFigee = (i: number): CSSProperties | undefined =>
+        i < nbFigees ? { left: decalages[i] ?? 0 } : undefined;
+
+    /** Classes communes à toutes les cellules d'une colonne (en-tête, corps, totaux). */
+    const classesColonne = (c: DataColumn<T>, i: number) => cn(
+        i < nbFigees && "dt-sticky",
+        i === nbFigees - 1 && "dt-sticky-last",
+        c.highlight && "dt-highlight",
+        debutGroupe(i) && "border-l border-[var(--border-strong)]",
+        c.grow && "w-full",
+        // Désignation figée : bornée sur mobile pour laisser voir les chiffres.
+        c.grow && i < nbFigees && "max-w-[45vw] md:max-w-none",
+    );
+
+    const enTete = (c: DataColumn<T>, i: number, rowSpan?: number) => {
+        const triable = Boolean(c.sortValue);
+        const actif = tri?.id === c.id;
+        const contenu = (
+            <span className={cn("inline-flex items-center gap-1", alignement(c.align))}>
+                {c.header}
+                {triable && (
+                    actif
+                        ? (tri!.dir === "asc" ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />)
+                        : <ChevronsUpDown className="h-3.5 w-3.5 opacity-40" />
+                )}
+            </span>
+        );
+        return (
+            <th
+                key={c.id}
+                scope="col"
+                data-col={i}
+                rowSpan={rowSpan}
+                aria-sort={actif ? (tri!.dir === "asc" ? "ascending" : "descending") : undefined}
+                style={styleFigee(i)}
+                className={cn(
+                    "whitespace-nowrap border-b border-[var(--border-strong)] px-3 py-2.5 text-[13px] font-semibold text-[var(--text-secondary)] align-bottom",
+                    alignement(c.align),
+                    classesColonne(c, i),
+                    c.headerClassName,
+                )}
+            >
+                {triable ? (
+                    <button
+                        type="button"
+                        onClick={() => basculerTri(c.id)}
+                        className="hover:text-[var(--text-primary)]"
+                        title={typeof c.hint === "string" ? c.hint : undefined}
+                    >
+                        {contenu}
+                    </button>
+                ) : c.hint ? (
+                    <Tooltip content={c.hint}><span className="cursor-help">{contenu}</span></Tooltip>
+                ) : contenu}
+            </th>
+        );
+    };
+
+    // Première ligne d'en-tête quand il y a des groupes : un titre par groupe,
+    // et les colonnes sans groupe sur deux lignes.
+    const ligneGroupes: ReactNode[] = [];
+    if (avecGroupes) {
+        for (let i = 0; i < columns.length;) {
+            const c = columns[i];
+            if (!c.group) {
+                ligneGroupes.push(enTete(c, i, 2));
+                i++;
+                continue;
+            }
+            let j = i;
+            while (j < columns.length && columns[j].group === c.group) j++;
+            ligneGroupes.push(
+                <th
+                    key={`groupe-${i}`}
+                    scope="colgroup"
+                    colSpan={j - i}
+                    className={cn(
+                        "whitespace-nowrap border-b border-l border-[var(--border)] px-3 pt-2 pb-1 text-center text-[13px] font-semibold text-[var(--text-primary)]",
+                        "border-l-[var(--border-strong)]",
+                        columns.slice(i, j).every((x) => x.highlight) && "dt-highlight",
+                    )}
+                >
+                    {c.group}
+                </th>,
+            );
+            i = j;
+        }
+    }
+
     return (
         <div className={cn("space-y-3", className)}>
             {/* Barre d'outils */}
@@ -252,49 +391,18 @@ export function DataTable<T>({
                     className="overflow-auto rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] shadow-[var(--shadow-sm)]"
                     style={{ maxHeight }}
                 >
-                    <table className="min-w-full text-sm">
-                        <thead className="sticky top-0 z-10 bg-[var(--bg-elevated)]">
-                            <tr>
-                                {columns.map((c) => {
-                                    const triable = Boolean(c.sortValue);
-                                    const actif = tri?.id === c.id;
-                                    const contenu = (
-                                        <span className={cn("inline-flex items-center gap-1", alignement(c.align))}>
-                                            {c.header}
-                                            {triable && (
-                                                actif
-                                                    ? (tri!.dir === "asc" ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />)
-                                                    : <ChevronsUpDown className="h-3.5 w-3.5 opacity-40" />
-                                            )}
-                                        </span>
-                                    );
-                                    return (
-                                        <th
-                                            key={c.id}
-                                            scope="col"
-                                            aria-sort={actif ? (tri!.dir === "asc" ? "ascending" : "descending") : undefined}
-                                            className={cn(
-                                                "whitespace-nowrap border-b border-[var(--border-strong)] px-3 py-2.5 text-[13px] font-semibold text-[var(--text-secondary)]",
-                                                alignement(c.align),
-                                                c.headerClassName,
-                                            )}
-                                        >
-                                            {triable ? (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => basculerTri(c.id)}
-                                                    className="hover:text-[var(--text-primary)]"
-                                                    title={typeof c.hint === "string" ? c.hint : undefined}
-                                                >
-                                                    {contenu}
-                                                </button>
-                                            ) : c.hint ? (
-                                                <Tooltip content={c.hint}><span className="cursor-help">{contenu}</span></Tooltip>
-                                            ) : contenu}
-                                        </th>
-                                    );
-                                })}
-                            </tr>
+                    <table ref={tableRef} className="dt-table min-w-full text-sm">
+                        <thead className="sticky top-0 z-10">
+                            {avecGroupes ? (
+                                <>
+                                    <tr className="bg-[var(--bg-elevated)]">{ligneGroupes}</tr>
+                                    <tr className="bg-[var(--bg-elevated)]">
+                                        {columns.map((c, i) => (c.group ? enTete(c, i) : null))}
+                                    </tr>
+                                </>
+                            ) : (
+                                <tr className="bg-[var(--bg-elevated)]">{columns.map((c, i) => enTete(c, i))}</tr>
+                            )}
                         </thead>
                         <tbody>
                             {lignesAffichees.map((r, i) => (
@@ -302,17 +410,19 @@ export function DataTable<T>({
                                     key={rowKey(r, i)}
                                     onClick={onRowClick ? () => onRowClick(r) : undefined}
                                     className={cn(
-                                        "border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--bg-elevated)]",
+                                        "dt-row border-b border-[var(--border)] last:border-b-0",
                                         onRowClick && "cursor-pointer",
                                     )}
                                 >
-                                    {columns.map((c) => (
+                                    {columns.map((c, ci) => (
                                         <td
                                             key={c.id}
+                                            style={styleFigee(ci)}
                                             className={cn(
                                                 "px-3 py-2 text-[var(--text-primary)]",
-                                                c.align === "right" && "text-right tabular-nums",
+                                                c.align === "right" && "text-right tabular-nums whitespace-nowrap",
                                                 c.align === "center" && "text-center",
+                                                classesColonne(c, ci),
                                                 c.className,
                                             )}
                                         >
@@ -323,15 +433,17 @@ export function DataTable<T>({
                             ))}
                         </tbody>
                         {showFooter && (
-                            <tfoot className="sticky bottom-0 bg-[var(--bg-elevated)] font-semibold">
-                                <tr>
-                                    {columns.map((c) => (
+                            <tfoot className="sticky bottom-0 z-10 font-semibold">
+                                <tr className="bg-[var(--bg-elevated)]">
+                                    {columns.map((c, ci) => (
                                         <td
                                             key={c.id}
+                                            style={styleFigee(ci)}
                                             className={cn(
                                                 "border-t border-[var(--border-strong)] px-3 py-2.5 text-[var(--text-primary)]",
-                                                c.align === "right" && "text-right tabular-nums",
+                                                c.align === "right" && "text-right tabular-nums whitespace-nowrap",
                                                 c.align === "center" && "text-center",
+                                                classesColonne(c, ci),
                                             )}
                                         >
                                             {c.footer ? c.footer(triees) : null}
