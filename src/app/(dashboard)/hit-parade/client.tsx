@@ -132,7 +132,7 @@ const COLONNES: DataColumn<Ligne>[] = [
         footer: rows => <span className="whitespace-nowrap">{fmtEntier(rows.length)} articles</span>,
         className: "min-w-[140px] sm:min-w-[220px]",
         sticky: true,
-        grow: true,
+        label: true,
     },
     {
         id: "reference",

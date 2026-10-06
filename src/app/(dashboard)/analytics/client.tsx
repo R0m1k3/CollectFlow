@@ -118,7 +118,7 @@ export function AnalyticsClient({
             footer: () => "Total",
             className: "min-w-[140px] sm:min-w-[220px]",
             sticky: true,
-            grow: true,
+            label: true,
         },
         ...GROUPES.flatMap((g): DataColumn<AnalyticsRow>[] => {
             const total = g.id === "total";
