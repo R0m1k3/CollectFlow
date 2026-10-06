@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useTransition, type ReactNode } from "react";
+import { useMemo, useTransition } from "react";
 import { Loader2 } from "lucide-react";
 import { DataTable, type DataColumn } from "@/components/ui/data-table";
 import { Segmented, type TabItem } from "@/components/ui/tabs";
@@ -84,16 +84,6 @@ function Montant({ v }: { v: number }) {
     return <span className={cn("whitespace-nowrap", v === 0 && "text-[var(--text-muted)]")}>{fmtEur2(v)}</span>;
 }
 
-/** En-tête sur deux lignes : magasin au-dessus, mesure en dessous. */
-function EnTete({ groupe, children }: { groupe: string; children: ReactNode }) {
-    return (
-        <span className="flex flex-col items-end leading-tight">
-            <span className="text-xs font-normal text-[var(--text-muted)]">{groupe}</span>
-            <span className="inline-flex items-center gap-1">{children}</span>
-        </span>
-    );
-}
-
 export function AnalyticsClient({
     mode,
     mois,
@@ -126,42 +116,40 @@ export function AnalyticsClient({
             sortValue: (r) => r.label,
             cell: (r) => <span className="font-medium">{r.label}</span>,
             footer: () => "Total",
-            className: "min-w-[220px]",
+            className: "min-w-[140px] sm:min-w-[220px]",
+            sticky: true,
+            grow: true,
         },
         ...GROUPES.flatMap((g): DataColumn<AnalyticsRow>[] => {
             const total = g.id === "total";
-            const bord = "border-l border-[var(--border)]";
+            // En-tête commun, séparation et teinte du total : gérés par DataTable.
+            const commun = { group: g.titre, highlight: total, align: "right" as const };
             return [
                 {
+                    ...commun,
                     id: `${g.id}-ca`,
-                    header: <EnTete groupe={g.titre}>{libelleMois}</EnTete>,
+                    header: libelleMois,
                     hint: `Chiffre d'affaires TTC (${g.titre}) en ${libelleMois}, retours déduits`,
-                    align: "right",
                     sortValue: (r) => r[g.ca],
                     cell: (r) => <Montant v={r[g.ca]} />,
                     footer: (rows) => <Montant v={somme(rows, g.ca)} />,
-                    className: cn(bord, total && "font-semibold"),
-                    headerClassName: bord,
+                    className: cn(total && "font-semibold"),
                 },
                 {
+                    ...commun,
                     id: `${g.id}-n1`,
-                    header: (
-                        <EnTete groupe={g.titre}>
-                            {libelleMoisN1} · <Terme id="n1" />
-                        </EnTete>
-                    ),
+                    header: <span className="inline-flex items-center gap-1">{libelleMoisN1} · <Terme id="n1" /></span>,
                     hint: `Chiffre d'affaires TTC (${g.titre}) en ${libelleMoisN1}, même mois l'année précédente`,
-                    align: "right",
                     sortValue: (r) => r[g.caN1],
                     cell: (r) => <Montant v={r[g.caN1]} />,
                     footer: (rows) => <Montant v={somme(rows, g.caN1)} />,
                     className: cn(total && "font-semibold"),
                 },
                 {
+                    ...commun,
                     id: `${g.id}-evolution`,
-                    header: <EnTete groupe={g.titre}>Évolution</EnTete>,
+                    header: "Évolution",
                     hint: `Évolution du chiffre d'affaires (${g.titre}) entre ${libelleMoisN1} et ${libelleMois}`,
-                    align: "right",
                     sortValue: (r) => evolution(r[g.ca], r[g.caN1]),
                     cell: (r) => <DeltaBadge pct={evolution(r[g.ca], r[g.caN1])} />,
                     footer: (rows) => <DeltaBadge pct={evolution(somme(rows, g.ca), somme(rows, g.caN1))} />,

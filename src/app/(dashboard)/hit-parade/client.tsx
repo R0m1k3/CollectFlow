@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition, type ReactNode } from "react";
+import { useState, useTransition } from "react";
 import { Loader2 } from "lucide-react";
 import { DataTable, type DataColumn, type DataFilter } from "@/components/ui/data-table";
 import { Input, Label } from "@/components/ui/form-controls";
@@ -68,56 +68,45 @@ function CelluleStock({ v }: { v: number }) {
     );
 }
 
-/** En-tête sur deux lignes : magasin au-dessus, mesure en dessous. */
-function EnTete({ groupe, children }: { groupe: string; children: ReactNode }) {
-    return (
-        <span className="flex flex-col items-end leading-tight">
-            <span className="text-xs font-normal text-[var(--text-muted)]">{groupe}</span>
-            <span>{children}</span>
-        </span>
-    );
-}
-
 function colonnesGroupe(g: Groupe): DataColumn<Ligne>[] {
     const total = g.id === "total";
-    const bord = "border-l border-[var(--border)]";
+    // En-tête commun, séparation et teinte du total : gérés par DataTable.
+    const commun = { group: g.titre, highlight: total, align: "right" as const };
     return [
         {
+            ...commun,
             id: `${g.id}-qte`,
-            header: <EnTete groupe={g.titre}>Qté</EnTete>,
+            header: "Qté",
             hint: `Quantité vendue (${g.nom}) sur la période, retours déduits`,
-            align: "right",
             sortValue: r => r[g.qte],
             cell: r => (r[g.qte] !== 0 ? fmtEntier(r[g.qte]) : vide),
             footer: rows => fmtEntier(somme(rows, g.qte)),
-            className: cn(bord, total && "font-semibold"),
-            headerClassName: bord,
+            className: cn(total && "font-semibold"),
         },
         {
+            ...commun,
             id: `${g.id}-ca`,
-            header: <EnTete groupe={g.titre}>CA TTC</EnTete>,
+            header: "CA TTC",
             hint: `Chiffre d'affaires TTC (${g.nom}) sur la période, retours déduits`,
-            align: "right",
             sortValue: r => r[g.ca],
             cell: r => (r[g.ca] !== 0 ? fmtEur2(r[g.ca]) : vide),
             footer: rows => fmtEur2(somme(rows, g.ca)),
-            className: cn("whitespace-nowrap", total && "font-semibold"),
+            className: cn(total && "font-semibold"),
         },
         {
+            ...commun,
             id: `${g.id}-marge`,
-            header: <EnTete groupe={g.titre}>% marge</EnTete>,
+            header: "% marge",
             hint: `Taux de marge (${g.nom}) : marge divisée par le chiffre d'affaires TTC`,
-            align: "right",
             sortValue: r => tauxMarge(r[g.ca], r[g.marge]),
             cell: r => <CelluleMarge taux={tauxMarge(r[g.ca], r[g.marge])} />,
             footer: rows => <CelluleMarge taux={tauxMarge(somme(rows, g.ca), somme(rows, g.marge))} />,
-            className: "whitespace-nowrap",
         },
         {
+            ...commun,
             id: `${g.id}-stock`,
-            header: <EnTete groupe={g.titre}>Stock</EnTete>,
+            header: "Stock",
             hint: `Stock actuel (${g.nom}). En rouge : stock négatif`,
-            align: "right",
             sortValue: r => r[g.stock],
             cell: r => <CelluleStock v={r[g.stock]} />,
             footer: rows => fmtEntier(somme(rows, g.stock)),
@@ -133,6 +122,17 @@ const COLONNES: DataColumn<Ligne>[] = [
         cell: r => <span className="font-mono text-[13px] text-[var(--text-secondary)]">{r.codein}</span>,
         footer: () => "Total",
         className: "whitespace-nowrap",
+        sticky: true,
+    },
+    {
+        id: "libelle",
+        header: "Désignation",
+        sortValue: r => r.libelle.trim(),
+        cell: r => <span className="font-medium">{r.libelle.trim()}</span>,
+        footer: rows => <span className="whitespace-nowrap">{fmtEntier(rows.length)} articles</span>,
+        className: "min-w-[140px] sm:min-w-[220px]",
+        sticky: true,
+        grow: true,
     },
     {
         id: "reference",
@@ -141,14 +141,6 @@ const COLONNES: DataColumn<Ligne>[] = [
         sortValue: r => r.reference,
         cell: r => (r.reference ? <span className="font-mono text-[13px] text-[var(--text-secondary)]">{r.reference}</span> : vide),
         className: "whitespace-nowrap",
-    },
-    {
-        id: "libelle",
-        header: "Désignation",
-        sortValue: r => r.libelle.trim(),
-        cell: r => <span className="font-medium">{r.libelle.trim()}</span>,
-        footer: rows => <span className="whitespace-nowrap">{fmtEntier(rows.length)} articles</span>,
-        className: "min-w-[220px]",
     },
     {
         id: "fournisseur",
@@ -212,16 +204,16 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
             feuille: "Meilleures ventes",
             fichier: `meilleures-ventes_${dateDebut}_${dateFin}`,
             entetes: [
-                "Code", "Référence", "Désignation", "Fournisseur", "Nomenclature",
+                "Code", "Désignation", "Référence", "Fournisseur", "Nomenclature",
                 ...GROUPES.flatMap(g => [
                     `Qté ${nomExport(g)}`, `CA TTC ${nomExport(g)}`, `% Marge ${nomExport(g)}`, `Stock ${nomExport(g)}`,
                 ]),
             ],
-            largeurs: [12, 18, 40, 25, 30, ...GROUPES.flatMap(() => [10, 14, 12, 10])],
+            largeurs: [12, 40, 18, 25, 30, ...GROUPES.flatMap(() => [10, 14, 12, 10])],
             lignes: rows.map(r => [
                 r.codein,
-                r.reference,
                 r.libelle.trim(),
+                r.reference,
                 r.fournisseur,
                 r.nomenclature_code ? `${r.nomenclature_code} — ${r.nomenclature}` : "",
                 ...GROUPES.flatMap(g => [r[g.qte], r[g.ca], pct(r[g.ca], r[g.marge]), r[g.stock]]),

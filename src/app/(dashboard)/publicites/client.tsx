@@ -76,7 +76,7 @@ function StatutBadge({ statut }: { statut?: string }) {
 /** Intitulé d'abord, code de l'opération en petit dessous. */
 function Operation({ intitule, code }: { intitule: string; code: string }) {
     return (
-        <div className="min-w-[220px]">
+        <div className="min-w-[140px] sm:min-w-[220px]">
             <div className="font-medium text-[var(--text-primary)]">{intitule || "Opération sans intitulé"}</div>
             {code && <div className="text-xs text-[var(--text-muted)]">Code {code}</div>}
         </div>
@@ -171,6 +171,8 @@ export function PublicitesClient({
                 header: "Opération",
                 sortValue: (p) => p.intitule,
                 cell: (p) => <Operation intitule={p.intitule} code={p.tcr_code} />,
+                sticky: true,
+                grow: true,
                 footer: (rows) =>
                     `Total${paginee ? " de la page" : ""} · ${fmtEntier(rows.length)} publicité${rows.length > 1 ? "s" : ""}`,
             },
@@ -261,6 +263,8 @@ export function PublicitesClient({
                 header: "Opération",
                 sortValue: (h) => h.intitule,
                 cell: (h) => <Operation intitule={h.intitule} code={h.tcr_code} />,
+                sticky: true,
+                grow: true,
                 footer: (rows) => `Total · ${fmtEntier(rows.length)} opération${rows.length > 1 ? "s" : ""}`,
             },
             {
