@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, numeric, smallint, timestamp, uniqueIndex, index, text, jsonb, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, varchar, numeric, smallint, timestamp, uniqueIndex, index, text, jsonb, integer, boolean, primaryKey } from "drizzle-orm/pg-core";
 
 export const ventesProduits = pgTable("ventes_produits", {
   id: serial("id").primaryKey(),
@@ -283,3 +283,26 @@ export const aiSupplierContext = pgTable("ai_supplier_context", {
   /** When it was last updated */
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+/**
+ * Gammes proposées par l'API `/api/v1`, en attente de validation.
+ *
+ * L'API n'enregistre plus directement : chaque proposition attend ici qu'un
+ * utilisateur l'examine dans la Grille, où elle apparaît comme une modification
+ * non enregistrée. « Enregistrer » la valide (snapshot + `grid_rows`), « Annuler
+ * les modifications » la rejette ; dans les deux cas la ligne est supprimée.
+ * Une seule proposition par article et fournisseur : la dernière l'emporte.
+ */
+export const gammesAValider = pgTable("gammes_a_valider", {
+  codeFournisseur: varchar("code_fournisseur", { length: 20 }).notNull(),
+  codein: varchar("codein", { length: 20 }).notNull(),
+  /** Gamme proposée. */
+  gamme: varchar("gamme", { length: 20 }).notNull(),
+  /** Gamme enregistrée au moment de la proposition. */
+  gammePrecedente: varchar("gamme_precedente", { length: 20 }),
+  /** Nom de la clé d'API à l'origine de la proposition. */
+  auteur: varchar("auteur", { length: 100 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.codeFournisseur, table.codein] }),
+]);

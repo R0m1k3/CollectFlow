@@ -1,14 +1,16 @@
 /**
  * CollectFlow — Affectation de gammes via l'API `/api/v1`.
  *
- * L'API suit exactement le chemin de la Grille (`enregistrerGammes`) : la gamme est
- * enregistrée dans le snapshot du fournisseur, reportée dans l'instantané
- * `grid_rows` et visible immédiatement dans l'application. Comme dans la Grille,
- * rien n'est écrit dans la base FF : `codeGammeServeur` reste la gamme d'origine
- * jusqu'à l'import des gammes modifiées.
+ * L'API n'enregistre pas la gamme : elle la **propose**. La proposition est
+ * rangée dans `gammes_a_valider` et apparaît dans la Grille comme une
+ * modification non enregistrée — on y voit donc quels produits changent de gamme
+ * avant de valider (« Enregistrer », même chemin que toute modification de la
+ * Grille) ou de rejeter (« Annuler les modifications »). Tant qu'elle n'est pas
+ * validée, `codeGamme` reste inchangée et la proposition est exposée dans
+ * `gammeAValider`.
  *
  * Tout ou rien : si un seul article est inconnu chez le fournisseur, rien n'est
- * enregistré et la réponse liste les articles en cause.
+ * proposé et la réponse liste les articles en cause.
  */
 
 import "server-only";
@@ -17,18 +19,24 @@ import type { NextRequest } from "next/server";
 import { fail } from "@/lib/api-response";
 import { getGridFreshness, getGridRowsGammes } from "@/lib/grid-store";
 import { getProductRows } from "@/features/grid/api/get-product-rows";
-import { enregistrerGammes, type ChangementGamme } from "@/features/grid/api/enregistrer-gammes";
+import { proposerGammes, type PropositionGamme } from "@/lib/gammes-a-valider";
 
 export interface ResultatGamme {
     codein: string;
-    /** Gamme désormais affectée. */
+    /** Gamme proposée. */
     gamme: string;
-    /** Gamme courante avant l'appel (modifications enregistrées comprises). */
+    /** Gamme enregistrée au moment de l'appel (modifications validées comprises). */
     gammePrecedente: string | null;
     /** Gamme présente en base FF, non modifiée par l'API. */
     codeGammeServeur: string | null;
-    /** `false` quand l'article avait déjà cette gamme : rien n'a été écrit pour lui. */
+    /**
+     * `true` = la gamme change : proposition déposée, à valider dans la Grille.
+     * `false` = l'article a déjà cette gamme : rien à valider (une proposition
+     * antérieure en attente pour lui est retirée).
+     */
     modifie: boolean;
+    /** `a_valider` quand `modifie`, sinon `inchangee`. */
+    statut: "a_valider" | "inchangee";
 }
 
 export interface AffectationGammes {
@@ -47,7 +55,7 @@ export async function lireCorpsJson(req: NextRequest): Promise<unknown | Respons
 }
 
 /**
- * Affecte des gammes à des articles d'un fournisseur.
+ * Propose des gammes pour des articles d'un fournisseur (à valider dans la Grille).
  *
  * Si le fournisseur n'a encore jamais été calculé, son instantané est calculé à la
  * demande (`compute`), comme sur `/grid` : sans lui, impossible de vérifier que les
@@ -57,7 +65,7 @@ export async function affecterGammes(input: {
     codeFournisseur: string;
     changes: ReadonlyArray<{ codein: string; gamme: string }>;
     compute: boolean;
-    /** Nom de la clé d'API ou de l'utilisateur — repris dans le libellé du snapshot. */
+    /** Nom de la clé d'API ou de l'utilisateur — affiché dans la Grille avec la proposition. */
     auteur: string;
 }): Promise<AffectationGammes | Response> {
     const { codeFournisseur, compute, auteur } = input;
@@ -87,7 +95,8 @@ export async function affecterGammes(input: {
     }
 
     const resultats: ResultatGamme[] = [];
-    const changements: ChangementGamme[] = [];
+    const propositions: PropositionGamme[] = [];
+    const annules: string[] = [];
     let nomFournisseur: string | null = null;
 
     for (const [codein, gamme] of demandes) {
@@ -100,27 +109,19 @@ export async function affecterGammes(input: {
             gammePrecedente: actuelle.codeGamme,
             codeGammeServeur: actuelle.codeGammeInit,
             modifie,
+            statut: modifie ? "a_valider" : "inchangee",
         });
-        if (modifie) {
-            // Même « avant » que la Grille : l'état serveur, à défaut la gamme courante.
-            changements.push({ codein, codeGammeBefore: actuelle.codeGammeInit ?? actuelle.codeGamme, codeGamme: gamme });
-        }
+        if (modifie) propositions.push({ codein, gamme, gammePrecedente: actuelle.codeGamme });
+        else annules.push(codein);
     }
 
     try {
-        await enregistrerGammes({
-            codeFournisseur,
-            nomFournisseur,
-            magasin: "TOTAL",
-            changes: changements,
-            userId: null,
-            label: `API (${auteur}) — ${new Date().toLocaleDateString("fr-FR")}`,
-        });
+        await proposerGammes({ codeFournisseur, propositions, annules, auteur });
     } catch (e) {
-        console.error(`[api/v1/gammes] enregistrement KO pour ${codeFournisseur}:`, e instanceof Error ? e.message : String(e));
-        return fail("internal_error", "L'enregistrement des gammes a échoué.");
+        console.error(`[api/v1/gammes] proposition KO pour ${codeFournisseur}:`, e instanceof Error ? e.message : String(e));
+        return fail("internal_error", "L'enregistrement des gammes à valider a échoué.");
     }
 
-    console.log(`[api/v1/gammes] ${codeFournisseur} — ${changements.length} gamme(s) enregistrée(s) par ${auteur}`);
+    console.log(`[api/v1/gammes] ${codeFournisseur} — ${propositions.length} gamme(s) à valider proposée(s) par ${auteur}`);
     return { codeFournisseur, nomFournisseur, resultats };
 }

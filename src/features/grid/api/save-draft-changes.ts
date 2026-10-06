@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { verifierSession } from "@/lib/authz";
 import { enregistrerGammes } from "./enregistrer-gammes";
+import { supprimerGammesAValider } from "@/lib/gammes-a-valider";
 
 const SaveDraftsSchema = z.object({
     codeFournisseur: z.string(),
@@ -15,6 +16,11 @@ const SaveDraftsSchema = z.object({
             codeGamme: z.string(),
         })
     ),
+    /**
+     * Propositions de l'API examinées dans la Grille : validées (présentes dans
+     * `changes`) ou écartées. Elles quittent la file « à valider ».
+     */
+    gammesAValiderTraitees: z.array(z.string()).optional(),
 });
 
 export async function saveDraftChanges(
@@ -28,7 +34,7 @@ export async function saveDraftChanges(
         return { success: false, saved: 0, error: "Validation failed: " + parsed.error.message };
     }
 
-    const { codeFournisseur, nomFournisseur, magasin, changes } = parsed.data;
+    const { codeFournisseur, nomFournisseur, magasin, changes, gammesAValiderTraitees = [] } = parsed.data;
 
     const rawUserId = acces.utilisateur.id;
     const userId = rawUserId ? parseInt(rawUserId, 10) : null;
@@ -36,6 +42,7 @@ export async function saveDraftChanges(
 
     try {
         const saved = await enregistrerGammes({ codeFournisseur, nomFournisseur, magasin, changes, userId: finalUserId });
+        await supprimerGammesAValider(codeFournisseur, gammesAValiderTraitees);
         return { success: true, saved };
     } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";

@@ -244,6 +244,9 @@ const GammeCell = React.memo(({ row, isAdmin }: { row: ProductRow; isAdmin?: boo
     const isDraft = useGridStore((s) => s.draftChanges[codein] !== undefined);
     const effectiveGamme = useGridStore((s) => s.draftChanges[codein] ?? row.codeGamme);
     const setDraftGamme = useGridStore((s) => s.setDraftGamme);
+    // Proposition de l'API affichée telle quelle : à valider.
+    const proposition = useGridStore((s) => s.gammesAValider[codein]);
+    const proposeeParApi = isDraft && proposition !== undefined && proposition.gamme === effectiveGamme;
 
     const isModified = row.codeGamme !== row.codeGammeInit && row.codeGammeInit !== null;
     const displayValue = (!effectiveGamme || effectiveGamme.trim() === "") ? "Aucune" : effectiveGamme;
@@ -267,6 +270,14 @@ const GammeCell = React.memo(({ row, isAdmin }: { row: ProductRow; isAdmin?: boo
                 isDraft={isDraft}
                 onChange={(g: GammeCode) => setDraftGamme(codein, g)}
             />
+            {proposeeParApi && (
+                <div
+                    className="absolute -right-2 -top-2 z-10 rounded px-1 text-[9px] font-bold leading-[14px] text-white shadow-sm bg-[var(--accent-warning)]"
+                    title={`Proposée par l'API${proposition.auteur ? ` (${proposition.auteur})` : ""} le ${new Date(proposition.proposeeLe).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })} — à valider`}
+                >
+                    API
+                </div>
+            )}
             {isModified && !isDraft && (
                 <div className="absolute -right-2 -top-2 bg-emerald-500 text-white rounded-full p-0.5 shadow-sm z-10 animate-in zoom-in-50" title="Modifié et validé">
                     <Check className="w-2.5 h-2.5" />

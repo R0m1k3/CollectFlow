@@ -141,7 +141,7 @@ export default async function AnalyticsPage(props: {
     }
 
     return (
-        <div className="mx-auto w-full max-w-screen-2xl">
+        <div className="w-full min-w-0">
             <PageHeader
                 icon={CalendarRange}
                 title="Ventes par mois"

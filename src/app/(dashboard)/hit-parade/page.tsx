@@ -13,6 +13,8 @@ export const metadata: Metadata = { title: "Meilleures ventes" };
 export interface HitParadePivotRow {
     codein: string;
     libelle: string;
+    /** Référence fournisseur de l'article. */
+    reference: string;
     fournisseur: string;
     nomenclature_code: string;
     nomenclature: string;
@@ -38,6 +40,7 @@ function pivotHitParade(rows: HitParadeRow[]): HitParadePivotRow[] {
             map.set(row.codein, {
                 codein: row.codein,
                 libelle: row.libelle,
+                reference: row.reference ?? "",
                 fournisseur: row.fournisseur,
                 nomenclature_code: row.nomenclature_code,
                 nomenclature: row.nomenclature,
@@ -100,7 +103,7 @@ export default async function HitParadePage(props: {
     }
 
     return (
-        <div className="mx-auto w-full max-w-screen-2xl">
+        <div className="w-full min-w-0">
             <PageHeader
                 icon={Trophy}
                 title="Meilleures ventes"

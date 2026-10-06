@@ -212,6 +212,20 @@ async function main() {
         `);
         console.log("[DB Init] Table sync_fournisseurs is verified/created.");
 
+        // Gammes proposées par l'API /api/v1 : en attente de validation dans la Grille.
+        await tempPool.query(`
+            CREATE TABLE IF NOT EXISTS "gammes_a_valider" (
+                "code_fournisseur" varchar(20) NOT NULL,
+                "codein" varchar(20) NOT NULL,
+                "gamme" varchar(20) NOT NULL,
+                "gamme_precedente" varchar(20),
+                "auteur" varchar(100),
+                "created_at" timestamp DEFAULT now() NOT NULL,
+                PRIMARY KEY ("code_fournisseur", "codein")
+            );
+        `);
+        console.log("[DB Init] Table gammes_a_valider is verified/created.");
+
         await tempPool.end();
         console.log("[DB Init] Initialization successful. Exiting.");
         process.exit(0);

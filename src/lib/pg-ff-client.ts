@@ -880,6 +880,8 @@ export async function pgGetCaByNomenclature(
 export interface HitParadeRow {
     codein: string;
     libelle: string;
+    /** Référence fournisseur de l'article (artfou1.reference du fournisseur principal). */
+    reference: string;
     fournisseur: string;
     nomenclature_code: string;
     nomenclature: string;
@@ -929,12 +931,13 @@ export async function pgGetHitParade(dateDebut: string, dateFin: string): Promis
             SELECT DISTINCT ON (TRIM(a.codein::text))
                 TRIM(a.codein::text)                                    AS codein,
                 a.libelle1::text                                        AS libelle,
+                COALESCE(TRIM(af.reference::text), '')                  AS reference,
                 COALESCE(fi.nom, af.code, 'Sans fournisseur')::text     AS fournisseur,
                 COALESCE(n.code, '')::text                              AS nomenclature_code,
                 COALESCE(n.libelle, 'Sans nomenclature')::text          AS nomenclature
             FROM articles a
             LEFT JOIN LATERAL (
-                SELECT af1.code
+                SELECT af1.code, af1.reference
                 FROM artfou1 af1
                 WHERE af1.art_no_id = a.no_id AND af1.preference = 1
                 ORDER BY af1.code
@@ -959,6 +962,7 @@ export async function pgGetHitParade(dateDebut: string, dateFin: string): Promis
         SELECT
             v.codein,
             COALESCE(ar.libelle, '')                          AS libelle,
+            COALESCE(ar.reference, '')                        AS reference,
             COALESCE(ar.fournisseur, 'Sans fournisseur')      AS fournisseur,
             COALESCE(ar.nomenclature_code, '')                AS nomenclature_code,
             COALESCE(ar.nomenclature, 'Sans nomenclature')    AS nomenclature,

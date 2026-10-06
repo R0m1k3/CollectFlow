@@ -135,6 +135,14 @@ const COLONNES: DataColumn<Ligne>[] = [
         className: "whitespace-nowrap",
     },
     {
+        id: "reference",
+        header: "Référence",
+        hint: "Référence fournisseur de l'article",
+        sortValue: r => r.reference,
+        cell: r => (r.reference ? <span className="font-mono text-[13px] text-[var(--text-secondary)]">{r.reference}</span> : vide),
+        className: "whitespace-nowrap",
+    },
+    {
         id: "libelle",
         header: "Désignation",
         sortValue: r => r.libelle.trim(),
@@ -170,7 +178,7 @@ const FILTRES: DataFilter<Ligne>[] = [
     { id: "famille", label: "Famille", valueOf: famille, allLabel: "Toutes les familles" },
 ];
 
-const recherche = (r: Ligne) => [r.codein, r.libelle];
+const recherche = (r: Ligne) => [r.codein, r.reference, r.libelle];
 
 interface Props {
     dateDebut: string;
@@ -204,21 +212,22 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
             feuille: "Meilleures ventes",
             fichier: `meilleures-ventes_${dateDebut}_${dateFin}`,
             entetes: [
-                "Code", "Désignation", "Fournisseur", "Nomenclature",
+                "Code", "Référence", "Désignation", "Fournisseur", "Nomenclature",
                 ...GROUPES.flatMap(g => [
                     `Qté ${nomExport(g)}`, `CA TTC ${nomExport(g)}`, `% Marge ${nomExport(g)}`, `Stock ${nomExport(g)}`,
                 ]),
             ],
-            largeurs: [12, 40, 25, 30, ...GROUPES.flatMap(() => [10, 14, 12, 10])],
+            largeurs: [12, 18, 40, 25, 30, ...GROUPES.flatMap(() => [10, 14, 12, 10])],
             lignes: rows.map(r => [
                 r.codein,
+                r.reference,
                 r.libelle.trim(),
                 r.fournisseur,
                 r.nomenclature_code ? `${r.nomenclature_code} — ${r.nomenclature}` : "",
                 ...GROUPES.flatMap(g => [r[g.qte], r[g.ca], pct(r[g.ca], r[g.marge]), r[g.stock]]),
             ]),
             totaux: [
-                `TOTAL — ${rows.length} articles`, "", "", "",
+                `TOTAL — ${rows.length} articles`, "", "", "", "",
                 ...GROUPES.flatMap(g => {
                     const ca = somme(rows, g.ca);
                     return [somme(rows, g.qte), ca, pct(ca, somme(rows, g.marge)), somme(rows, g.stock)];
@@ -266,7 +275,7 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                     columns={COLONNES}
                     rowKey={r => r.codein}
                     searchIn={recherche}
-                    searchPlaceholder="Code ou désignation…"
+                    searchPlaceholder="Code, référence ou désignation…"
                     filters={FILTRES}
                     pageSize={100}
                     unite="produits"

@@ -79,8 +79,8 @@ const ENDPOINTS: Array<{ method: string; path: string; desc: string }> = [
     { method: "GET", path: "/nomenclatures?fournisseur=CODE", desc: "Postes de nomenclature d'un fournisseur, avec nombre d'articles et chiffre d'affaires" },
     { method: "GET", path: "/products/search?q=terme", desc: "Recherche de produits, tous fournisseurs confondus" },
     { method: "GET", path: "/products/{codein}", desc: "Fiche complète d'un produit" },
-    { method: "PUT", path: "/products/{codein}/gamme", desc: "Affecter ou changer la gamme d'un produit — corps : { \"gamme\": \"A\" }" },
-    { method: "POST", path: "/gammes", desc: "Affecter ou changer la gamme de plusieurs produits d'un fournisseur en un appel" },
+    { method: "PUT", path: "/products/{codein}/gamme", desc: "Proposer la gamme d'un produit, à valider dans la Révision d'assortiment — corps : { \"gamme\": \"A\" }" },
+    { method: "POST", path: "/gammes", desc: "Proposer la gamme de plusieurs produits d'un fournisseur en un appel, à valider dans la Révision d'assortiment" },
     { method: "GET", path: "/network/{codeCentrale}", desc: "Ventes du réseau (Qlik) et courbe sur 12 mois" },
     { method: "GET", path: "/openapi.json", desc: "Description de l'API lisible par un programme (format OpenAPI)" },
 ];

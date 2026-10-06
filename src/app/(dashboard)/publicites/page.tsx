@@ -120,7 +120,7 @@ export default async function PublicitesPage(props: {
     ]);
 
     return (
-        <div className="mx-auto w-full max-w-screen-2xl">
+        <div className="w-full min-w-0">
             <PageHeader
                 icon={Megaphone}
                 title="Publicités"
