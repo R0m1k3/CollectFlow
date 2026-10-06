@@ -22,6 +22,7 @@ import "server-only";
 import type { ProductRow } from "@/types/grid";
 import { getNetworkMetricsByCodeCentrale, type NetworkMetricCached } from "@/lib/qlik-network-cache";
 import { pgGetGammesByCodeins } from "@/lib/pg-ff-client";
+import { gammesAValiderParArticle } from "@/lib/gammes-a-valider";
 // Module de la Grille : l'API doit renvoyer exactement la tendance affichée dans
 // l'application, pas une seconde implémentation qui divergerait.
 import { computeNetworkTrend, trendLabel } from "@/features/grid/lib/network-trend";
@@ -51,6 +52,11 @@ export interface EnrichedProductRow extends ProductRow {
      * `null` si l'article n'a aucune gamme en base.
      */
     codeGammeServeur: string | null;
+    /**
+     * Gamme proposée par l'API et pas encore validée dans la Grille.
+     * `null` = aucune proposition en attente.
+     */
+    gammeAValider: string | null;
     /** Métriques réseau Qlik en cache, ou `null` si le produit n'en a pas. */
     network: NetworkMetricCached | null;
     /**
@@ -73,7 +79,7 @@ export async function enrichRows(rows: ProductRow[]): Promise<EnrichedProductRow
     const codesCentraux = [...new Set(rows.map((r) => r.codeCentrale).filter((c): c is string => Boolean(c)))];
     const codeins = [...new Set(rows.map((r) => r.codein).filter(Boolean))];
 
-    const [network, gammes] = await Promise.all([
+    const [network, gammes, aValider] = await Promise.all([
         codesCentraux.length
             ? getNetworkMetricsByCodeCentrale(codesCentraux).catch((e) => {
                 console.error("[api-enrich] métriques réseau KO:", (e as Error).message?.slice(0, 160));
@@ -86,6 +92,10 @@ export async function enrichRows(rows: ProductRow[]): Promise<EnrichedProductRow
                 return new Map<string, string>();
             })
             : Promise.resolve(new Map<string, string>()),
+        gammesAValiderParArticle(codeins).catch((e) => {
+            console.error("[api-enrich] gammes à valider KO:", (e as Error).message?.slice(0, 160));
+            return new Map<string, string>();
+        }),
     ]);
 
     return rows.map((row) => {
@@ -97,6 +107,7 @@ export async function enrichRows(rows: ProductRow[]): Promise<EnrichedProductRow
         const enriched: EnrichedProductRow = {
             ...row,
             codeGammeServeur: gammeServeur,
+            gammeAValider: aValider.get(`${row.codeFournisseur}|${row.codein}`) ?? null,
             network: metrics,
             trend: null, // renseignée plus bas, une fois la série mensuelle connue
         };

@@ -8,6 +8,7 @@ import { useSaveDrafts } from "@/features/grid/hooks/use-save-drafts";
 import { ChevronDown, Download, FileSpreadsheet, FileText, History, Loader2, RotateCcw, Save, Table2 } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 import { saveSnapshot } from "@/features/snapshots/api/save-snapshot";
+import { rejeterGammesAValider } from "@/features/grid/api/gammes-a-valider-actions";
 import { isStaleServerActionError, STALE_ACTION_MESSAGE } from "@/lib/stale-action";
 import {
     DropdownMenu,
@@ -62,7 +63,7 @@ function FloatingSummaryBarInner({ isAdmin, nomFournisseur }: { isAdmin: boolean
     const [isPending, startTransition] = useTransition();
     const [enCours, setEnCours] = useState<string | null>(null);
 
-    const { save, hasDrafts, count } = useSaveDrafts(activeMagasin || "TOTAL");
+    const { save, hasDrafts, count, nbAValider } = useSaveDrafts(activeMagasin || "TOTAL");
 
     const supplierCode = filterFournisseur || rows[0]?.codeFournisseur;
     const lastQlikUpdate = useMemo(() => {
@@ -77,7 +78,9 @@ function FloatingSummaryBarInner({ isAdmin, nomFournisseur }: { isAdmin: boolean
         startTransition(async () => {
             try {
                 const result = await save();
-                if (result.success) {
+                if (result.success && result.saved === 0) {
+                    toast.info("Propositions de l'API écartées.");
+                } else if (result.success) {
                     toast.succes(`${result.saved} gamme${result.saved > 1 ? "s" : ""} enregistrée${result.saved > 1 ? "s" : ""}.`);
                 } else {
                     toast.erreur(`Enregistrement impossible : ${result.error ?? "erreur inconnue"}`);
@@ -89,16 +92,36 @@ function FloatingSummaryBarInner({ isAdmin, nomFournisseur }: { isAdmin: boolean
     };
 
     const handleReset = async () => {
+        const pluriel = count > 1 ? "s" : "";
+        const message = count > 0
+            ? `Les ${count} gamme${pluriel} modifiée${pluriel} et non enregistrée${pluriel} reviendront à leur valeur précédente.`
+            : "";
         const ok = await confirmer({
             titre: "Annuler les modifications ?",
-            message: `Les ${count} gamme${count > 1 ? "s" : ""} modifiée${count > 1 ? "s" : ""} et non enregistrée${count > 1 ? "s" : ""} reviendront à leur valeur précédente.`,
+            message: nbAValider > 0
+                ? `${message} ${nbAValider > 1 ? `Les ${nbAValider} gammes proposées` : "La gamme proposée"} par l'API ${nbAValider > 1 ? "seront rejetées" : "sera rejetée"}.`.trim()
+                : message,
             libelleConfirmer: "Annuler les modifications",
             danger: true,
         });
-        if (ok) {
-            resetDrafts();
-            toast.info("Modifications annulées.");
+        if (!ok) return;
+        if (nbAValider > 0) {
+            const { gammesAValider, rowsByCodein, retirerGammesAValider } = useGridStore.getState();
+            const codeins = Object.keys(gammesAValider).filter((c) => rowsByCodein[c]);
+            const codeFournisseur = filterFournisseur || rows[0]?.codeFournisseur;
+            try {
+                const res = codeFournisseur
+                    ? await rejeterGammesAValider({ codeFournisseur, codeins })
+                    : { success: false, error: "fournisseur inconnu" };
+                if (!res.success) throw new Error(res.error);
+                retirerGammesAValider(codeins);
+            } catch (err) {
+                toast.erreur(`Les propositions de l'API n'ont pas pu être rejetées : ${messageErreur(err)}`);
+                return;
+            }
         }
+        resetDrafts();
+        toast.info("Modifications annulées.");
     };
 
     /**
@@ -256,6 +279,14 @@ function FloatingSummaryBarInner({ isAdmin, nomFournisseur }: { isAdmin: boolean
                     </DropdownMenuContent>
                 </DropdownMenu>
 
+                {nbAValider > 0 && (
+                    <span
+                        className="rounded-lg border px-2.5 py-1 text-[13px] font-medium border-[var(--accent-warning)] text-[var(--accent-warning)]"
+                        title="Gammes proposées par l'API : elles apparaissent comme des modifications non enregistrées. « Enregistrer » les valide, « Annuler » les rejette."
+                    >
+                        {nbAValider} gamme{nbAValider > 1 ? "s" : ""} proposée{nbAValider > 1 ? "s" : ""} par l&apos;API à valider
+                    </span>
+                )}
                 {hasDrafts && (
                     <Button variant="ghost" onClick={handleReset} disabled={isPending}>
                         <RotateCcw /> Annuler
@@ -265,9 +296,11 @@ function FloatingSummaryBarInner({ isAdmin, nomFournisseur }: { isAdmin: boolean
                     {isPending ? <Loader2 className="animate-spin" /> : <Save />}
                     {isPending
                         ? "Enregistrement…"
-                        : hasDrafts
+                        : count > 0
                             ? `Enregistrer ${count} modification${count > 1 ? "s" : ""}`
-                            : "Aucune modification"}
+                            : hasDrafts
+                                ? `Écarter ${nbAValider > 1 ? "les propositions" : "la proposition"} de l'API`
+                                : "Aucune modification"}
                 </Button>
             </div>
         </div>

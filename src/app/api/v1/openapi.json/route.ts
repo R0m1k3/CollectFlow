@@ -72,9 +72,11 @@ export async function GET(req: NextRequest) {
                 + "réseau Qlik (`network`, `null` s'il n'y en a pas) et la gamme serveur non modifiée "
                 + "(`codeGammeServeur`).\n\n"
                 + "**Gammes** : `PUT /products/{codein}/gamme` (un article) et `POST /gammes` (plusieurs) "
-                + "affectent ou changent une gamme exactement comme la Grille : la nouvelle valeur apparaît "
-                + "aussitôt dans `codeGamme` et dans l'application, tandis que `codeGammeServeur` reste la gamme "
-                + "en base FF jusqu'à l'import des gammes modifiées.",
+                + "**proposent** une gamme. La proposition reste **à valider** : elle apparaît dans la Grille "
+                + "comme une modification non enregistrée, pour voir quels produits changent de gamme, et "
+                + "n'est appliquée qu'une fois validée par un utilisateur (« Enregistrer »). D'ici là, "
+                + "`codeGamme` est inchangée et la proposition figure dans `gammeAValider`. Une fois validée, "
+                + "`codeGammeServeur` reste la gamme en base FF jusqu'à l'import des gammes modifiées.",
         },
         servers: [{ url: `${origin}/api/v1`, description: "API CollectFlow" }],
         security: [{ ApiKeyAuth: [] }],
@@ -151,7 +153,8 @@ export async function GET(req: NextRequest) {
                                 "Gamme **non modifiée**, telle qu'elle existe en base. C'est celle à utiliser pour "
                                 + "raisonner. `null` = aucune gamme. Valeurs : " + legendeGammes + ".",
                         },
-                        codeGamme: { type: ["string", "null"], description: "Gamme courante, modifications enregistrées dans CollectFlow (Grille ou API) comprises." },
+                        codeGamme: { type: ["string", "null"], description: "Gamme courante, modifications validées dans CollectFlow comprises." },
+                        gammeAValider: { type: ["string", "null"], description: "Gamme proposée par l'API et pas encore validée dans la Grille. `null` = aucune proposition en attente." },
                         totalCa: { type: "number", description: "CA sur 12 mois, nos magasins." },
                         totalQuantite: { type: "number" },
                         totalMarge: { type: "number" },
@@ -177,10 +180,11 @@ export async function GET(req: NextRequest) {
                     type: "object",
                     properties: {
                         codein: { type: "string" },
-                        gamme: { type: "string", enum: codesGamme, description: "Gamme désormais affectée." },
-                        gammePrecedente: { type: ["string", "null"], description: "Gamme courante avant l'appel." },
+                        gamme: { type: "string", enum: codesGamme, description: "Gamme proposée." },
+                        gammePrecedente: { type: ["string", "null"], description: "Gamme enregistrée au moment de l'appel." },
                         codeGammeServeur: { type: ["string", "null"], description: "Gamme en base FF, non modifiée par l'API." },
-                        modifie: { type: "boolean", description: "false = l'article avait déjà cette gamme, rien n'a été écrit." },
+                        modifie: { type: "boolean", description: "true = proposition déposée, à valider dans la Grille. false = l'article a déjà cette gamme (une proposition en attente pour lui est retirée)." },
+                        statut: { type: "string", enum: ["a_valider", "inchangee"], description: "`a_valider` : en attente de validation dans la Grille." },
                     },
                 },
                 Trend: {
@@ -390,9 +394,10 @@ export async function GET(req: NextRequest) {
             "/products/{codein}/gamme": {
                 put: {
                     operationId: "changerGammeProduit",
-                    summary: "Affecter ou changer la gamme d'un produit",
+                    summary: "Proposer la gamme d'un produit (à valider)",
                     description:
-                        "Enregistre la gamme d'un article, comme la Grille. Valeurs : " + legendeGammes + ". "
+                        "Propose une gamme pour un article. Elle reste à valider dans la Grille, où elle apparaît "
+                        + "comme une modification non enregistrée. Valeurs : " + legendeGammes + ". "
                         + "`fournisseur` n'est requis que si l'article est référencé chez plusieurs fournisseurs "
                         + "(réponse 400 listant les fournisseurs) ou s'il n'a encore jamais été calculé. "
                         + "Pour plusieurs articles d'un même fournisseur, préférer changerGammes.",
@@ -417,7 +422,7 @@ export async function GET(req: NextRequest) {
                     },
                     responses: {
                         "200": {
-                            description: "Gamme enregistrée",
+                            description: "Gamme proposée, à valider",
                             content: {
                                 "application/json": {
                                     schema: {
@@ -444,10 +449,10 @@ export async function GET(req: NextRequest) {
             "/gammes": {
                 post: {
                     operationId: "changerGammes",
-                    summary: "Affecter ou changer la gamme de plusieurs produits",
+                    summary: "Proposer la gamme de plusieurs produits (à valider)",
                     description:
-                        "Enregistre en un appel les gammes de plusieurs articles d'un même fournisseur. "
-                        + "Tout ou rien : si un article est inconnu chez le fournisseur, rien n'est enregistré "
+                        "Propose en un appel les gammes de plusieurs articles d'un même fournisseur, à valider "
+                        + "dans la Grille. Tout ou rien : si un article est inconnu chez le fournisseur, rien n'est proposé "
                         + "et la réponse 404 liste les articles en cause dans `error.details.inconnus`. "
                         + "Valeurs : " + legendeGammes + ".",
                     requestBody: {
@@ -480,7 +485,7 @@ export async function GET(req: NextRequest) {
                     },
                     responses: {
                         "200": {
-                            description: "Gammes enregistrées",
+                            description: "Gammes proposées, à valider",
                             content: {
                                 "application/json": {
                                     schema: {

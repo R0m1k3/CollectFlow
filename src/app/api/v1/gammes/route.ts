@@ -12,8 +12,8 @@ export const maxDuration = 300;
 /**
  * POST /api/v1/gammes   { "fournisseur": "…", "changes": [{ "codein": "…", "gamme": "A" }, …] }
  *
- * Affecte ou change la gamme de plusieurs articles d'un fournisseur en un appel —
- * un seul snapshot enregistré, au lieu d'un par article avec /products/:codein/gamme.
+ * Propose la gamme de plusieurs articles d'un fournisseur en un appel. Les
+ * propositions restent **à valider** dans la Grille (cf. lib/api-gammes).
  * Tout ou rien : un article inconnu chez le fournisseur fait échouer l'appel (404).
  */
 export async function POST(req: NextRequest) {
@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
             nomFournisseur: res.nomFournisseur,
             demandes: res.resultats.length,
             modifies: res.resultats.filter((r) => r.modifie).length,
+            aValider: res.resultats.filter((r) => r.statut === "a_valider").length,
             enregistreLe: new Date().toISOString(),
         },
     });

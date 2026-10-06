@@ -13,8 +13,9 @@ export const maxDuration = 300;
 /**
  * PUT /api/v1/products/:codein/gamme   { "gamme": "A", "fournisseur"?: "…" }
  *
- * Affecte une gamme à un article, ou la change. Même enregistrement que la Grille :
- * la nouvelle gamme est visible immédiatement dans l'application et dans `codeGamme`.
+ * Propose une gamme pour un article. La proposition reste **à valider** : elle
+ * apparaît dans la Grille comme une modification non enregistrée, et `codeGamme`
+ * ne change qu'une fois validée (« Enregistrer » dans la Grille).
  *
  * `fournisseur` n'est requis que si l'article est référencé chez plusieurs
  * fournisseurs, ou s'il n'apparaît pas encore dans l'instantané.

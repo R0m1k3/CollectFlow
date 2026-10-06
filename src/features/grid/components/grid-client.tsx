@@ -7,6 +7,7 @@ import { BulkActionToolbar } from "@/features/grid/components/bulk-action-toolba
 import { GridFilterBar } from "@/features/grid/components/grid-filter-bar";
 import { rowsKeyFor, useGridStore } from "@/features/grid/store/use-grid-store";
 import { useStorePatch } from "@/features/grid/hooks/use-store-patch";
+import { getGammesAValider } from "@/features/grid/api/gammes-a-valider-actions";
 import type { ProductRow } from "@/types/grid";
 import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -230,6 +231,26 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
 
         return () => controller.abort();
     }, [codeFournisseur, refreshRequest, setRows, isMounted]);
+
+    // Gammes proposées par l'API : relues une fois les lignes du fournisseur
+    // chargées (ou retrouvées en mémoire), puis affichées comme modifications
+    // non enregistrées, à valider.
+    const lignesChargeesLe = useGridStore((s) => (s.rowsMeta?.key === rowsKeyFor(codeFournisseur) ? s.rowsMeta.loadedAt : null));
+    useEffect(() => {
+        if (!isMounted || lignesChargeesLe === null) return;
+        let annule = false;
+        getGammesAValider(codeFournisseur)
+            .then((res) => {
+                if (annule) return;
+                if (!res.success) {
+                    console.error("[grid] gammes à valider KO:", res.error);
+                    return;
+                }
+                useGridStore.getState().chargerGammesAValider(res.propositions);
+            })
+            .catch((e) => console.error("[grid] gammes à valider KO:", e));
+        return () => { annule = true; };
+    }, [codeFournisseur, lignesChargeesLe, isMounted]);
 
     // Compléments de l'API FF pour le magasin choisi, appliqués à leur arrivée.
     useStorePatch(codeFournisseur, isMounted);

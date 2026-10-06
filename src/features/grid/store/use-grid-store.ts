@@ -15,6 +15,14 @@ export interface RowsMeta {
     patchedStores: string[];
 }
 
+/** Gamme proposée par l'API, en attente de validation (cf. lib/gammes-a-valider). */
+export interface GammeProposee {
+    gamme: string;
+    auteur: string | null;
+    /** Date ISO de la proposition. */
+    proposeeLe: string;
+}
+
 /** Clé des lignes chargées pour un fournisseur (toujours « tous magasins »). */
 export const rowsKeyFor = (codeFournisseur: string) => `${codeFournisseur}:TOTAL`;
 
@@ -25,6 +33,20 @@ interface GridState {
     rowsByCodein: Record<string, ProductRow>;
     /** Draft edits: codein → new GammeCode */
     draftChanges: Record<string, GammeCode>;
+    /**
+     * Propositions de l'API en attente pour le fournisseur affiché (codein →
+     * proposition). Non persisté : relu sur le serveur à chaque chargement.
+     */
+    gammesAValider: Record<string, GammeProposee>;
+    /**
+     * Range les propositions de l'API et les reporte en modifications non
+     * enregistrées — sauf là où l'utilisateur a déjà sa propre modification, et
+     * sauf celles déjà connues (une proposition écartée à la main ne revient pas
+     * à chaque retour sur la Grille).
+     */
+    chargerGammesAValider: (propositions: ReadonlyArray<{ codein: string } & GammeProposee>) => void;
+    /** Retire des propositions traitées (validées ou rejetées). */
+    retirerGammesAValider: (codeins: string[]) => void;
     filters: GridFilters;
     summary: GridSummary;
     displayDensity: "compact" | "normal" | "comfortable";
@@ -141,6 +163,7 @@ export const useGridStore = create<GridState>()(
             rowsByCodein: {},
             activeMagasin: "TOTAL",
             draftChanges: {},
+            gammesAValider: {},
             filters: {
                 magasin: null,
                 codeFournisseur: null,
@@ -209,6 +232,28 @@ export const useGridStore = create<GridState>()(
                     const state = get();
                     set({ summary: computeSummary(state.rows, state.draftChanges, state.activeMagasin) });
                 }, 80);
+            },
+
+            chargerGammesAValider: (propositions) => {
+                const { rowsByCodein, draftChanges, gammesAValider: connues } = get();
+                const gammesAValider: Record<string, GammeProposee> = {};
+                const nouvelles: Record<string, GammeCode> = {};
+                for (const p of propositions) {
+                    const row = rowsByCodein[p.codein];
+                    if (!row) continue;
+                    gammesAValider[p.codein] = { gamme: p.gamme, auteur: p.auteur, proposeeLe: p.proposeeLe };
+                    const dejaConnue = connues[p.codein]?.proposeeLe === p.proposeeLe;
+                    if (!dejaConnue && draftChanges[p.codein] === undefined && p.gamme !== row.codeGamme) {
+                        nouvelles[p.codein] = p.gamme as GammeCode;
+                    }
+                }
+                set({ gammesAValider });
+                if (Object.keys(nouvelles).length > 0) get().batchSetDraftGamme(nouvelles);
+            },
+            retirerGammesAValider: (codeins) => {
+                const gammesAValider = { ...get().gammesAValider };
+                codeins.forEach((id) => delete gammesAValider[id]);
+                set({ gammesAValider });
             },
 
             resetDrafts: () => {
