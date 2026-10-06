@@ -172,7 +172,7 @@ export function PublicitesClient({
                 sortValue: (p) => p.intitule,
                 cell: (p) => <Operation intitule={p.intitule} code={p.tcr_code} />,
                 sticky: true,
-                grow: true,
+                label: true,
                 footer: (rows) =>
                     `Total${paginee ? " de la page" : ""} · ${fmtEntier(rows.length)} publicité${rows.length > 1 ? "s" : ""}`,
             },
@@ -264,7 +264,7 @@ export function PublicitesClient({
                 sortValue: (h) => h.intitule,
                 cell: (h) => <Operation intitule={h.intitule} code={h.tcr_code} />,
                 sticky: true,
-                grow: true,
+                label: true,
                 footer: (rows) => `Total · ${fmtEntier(rows.length)} opération${rows.length > 1 ? "s" : ""}`,
             },
             {

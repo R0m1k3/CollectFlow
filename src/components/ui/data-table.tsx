@@ -34,11 +34,12 @@ export interface DataColumn<T> {
     className?: string;
     headerClassName?: string;
     /**
-     * La colonne prend toute la largeur restante (désignation, libellé…) : les
-     * colonnes de chiffres gardent leur largeur naturelle au lieu de s'étirer
-     * sur un écran large, loin de leur libellé.
+     * Colonne de libellé (désignation, fournisseur…) : largeur naturelle, avec
+     * retour à la ligne au-delà de 28rem. Le tableau ne s'étire jamais au-delà
+     * de son contenu : sur un écran très large, le libellé reste collé à ses
+     * chiffres au lieu d'en être séparé par un grand vide.
      */
-    grow?: boolean;
+    label?: boolean;
     /**
      * Colonne figée à gauche pendant le défilement horizontal. Seules les
      * premières colonnes consécutives peuvent l'être.
@@ -257,10 +258,14 @@ export function DataTable<T>({
         i === nbFigees - 1 && "dt-sticky-last",
         c.highlight && "dt-highlight",
         debutGroupe(i) && "border-l border-[var(--border-strong)]",
-        c.grow && "w-full",
-        // Désignation figée : bornée sur mobile pour laisser voir les chiffres.
-        c.grow && i < nbFigees && "max-w-[45vw] md:max-w-none",
     );
+
+    /** Contenu d'une cellule de libellé, borné en largeur (cf. `label`). */
+    const borne = (c: DataColumn<T>, i: number, contenu: ReactNode) =>
+        c.label ? (
+            // Libellé figé : plus étroit sur mobile pour laisser voir les chiffres.
+            <div className={i < nbFigees ? "max-w-[45vw] md:max-w-[28rem]" : "max-w-[28rem]"}>{contenu}</div>
+        ) : contenu;
 
     const enTete = (c: DataColumn<T>, i: number, rowSpan?: number) => {
         const triable = Boolean(c.sortValue);
@@ -388,10 +393,11 @@ export function DataTable<T>({
                 />
             ) : (
                 <div
-                    className="overflow-auto rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] shadow-[var(--shadow-sm)]"
+                    // Largeur du contenu, sans dépasser l'écran (au-delà : défilement).
+                    className="w-fit max-w-full overflow-auto rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] shadow-[var(--shadow-sm)]"
                     style={{ maxHeight }}
                 >
-                    <table ref={tableRef} className="dt-table min-w-full text-sm">
+                    <table ref={tableRef} className="dt-table text-sm">
                         <thead className="sticky top-0 z-10">
                             {avecGroupes ? (
                                 <>
@@ -426,7 +432,7 @@ export function DataTable<T>({
                                                 c.className,
                                             )}
                                         >
-                                            {c.cell(r)}
+                                            {borne(c, ci, c.cell(r))}
                                         </td>
                                     ))}
                                 </tr>
@@ -446,7 +452,7 @@ export function DataTable<T>({
                                                 classesColonne(c, ci),
                                             )}
                                         >
-                                            {c.footer ? c.footer(triees) : null}
+                                            {c.footer ? borne(c, ci, c.footer(triees)) : null}
                                         </td>
                                     ))}
                                 </tr>
