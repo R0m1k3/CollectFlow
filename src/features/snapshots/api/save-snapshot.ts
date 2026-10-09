@@ -6,6 +6,7 @@ import { z } from "zod";
 import { sql, and, eq } from "drizzle-orm";
 import { verifierSession } from "@/lib/authz";
 import { revalidatePath } from "next/cache";
+import { lireDernierSnapshot, type GammesSnapshot } from "@/features/grid/api/enregistrer-gammes";
 
 const SaveSnapshotSchema = z.object({
     codeFournisseur: z.string(),
@@ -17,6 +18,11 @@ const SaveSnapshotSchema = z.object({
         after: z.string(),
     })),
     type: z.enum(["snapshot", "export"]).optional(),
+    /**
+     * Snapshot sur lequel l'écran s'est aligné juste avant (cf. lireGammesEnregistrees),
+     * `null` s'il n'y en avait aucun. Absent : tout le dernier snapshot est repris.
+     */
+    baseSnapshotId: z.number().int().nullable().optional(),
     summary: z.object({
         totalRows: z.number(),
         totalCa: z.number(),
@@ -35,13 +41,23 @@ export async function saveSnapshot(raw: unknown) {
         return { success: false, error: "Validation failed: " + parsed.error.issues.map((i: any) => i.message).join(", ") };
     }
 
-    const { codeFournisseur, nomFournisseur, magasin, label, changes, summary, type } = parsed.data;
+    const { codeFournisseur, nomFournisseur, magasin, label, summary, type, baseSnapshotId } = parsed.data;
     const rawUserId = acces.utilisateur.id;
     const userId = rawUserId ? parseInt(rawUserId, 10) : null;
 
     console.log(`[saveSnapshot] User: ${userId} (raw: ${rawUserId}), Supplier: ${codeFournisseur}, Type: ${type}`);
 
     const finalUserId = (userId && !isNaN(userId)) ? userId : null;
+
+    // Ce snapshot devient le dernier, celui que la Grille réapplique : il ne doit
+    // pas effacer les gammes enregistrées depuis que l'écran s'est aligné (API).
+    let changes = parsed.data.changes;
+    try {
+        changes = await reprendreGammesRecentes(codeFournisseur, changes, baseSnapshotId);
+    } catch (err) {
+        // Table absente ou base indisponible : l'insertion ci-dessous le dira.
+        console.error("[saveSnapshot] lecture du dernier snapshot KO:", err);
+    }
 
     try {
         const [created] = await db
@@ -111,4 +127,35 @@ export async function saveSnapshot(raw: unknown) {
             return { success: false, error: "erreur technique sur le serveur" };
         }
     }
+}
+
+/**
+ * Ajoute aux gammes de l'écran celles enregistrées depuis le snapshot `baseSnapshotId`
+ * (sur lequel l'écran s'est aligné) : ce sont des écritures que l'écran n'a pas vues,
+ * typiquement par l'API. Les autres gammes du dernier snapshot, l'écran les
+ * connaissait : son état (retours à la gamme FF compris) fait foi.
+ */
+async function reprendreGammesRecentes(
+    codeFournisseur: string,
+    changes: GammesSnapshot,
+    baseSnapshotId: number | null | undefined,
+): Promise<GammesSnapshot> {
+    const dernier = await lireDernierSnapshot(codeFournisseur);
+    if (!dernier || dernier.id === baseSnapshotId) return changes;
+
+    let base: GammesSnapshot = {};
+    if (baseSnapshotId != null) {
+        const [ligne] = await db
+            .select({ changes: sessionSnapshots.changes })
+            .from(sessionSnapshots)
+            .where(and(eq(sessionSnapshots.id, baseSnapshotId), eq(sessionSnapshots.codeFournisseur, codeFournisseur)))
+            .limit(1);
+        base = (ligne?.changes ?? {}) as GammesSnapshot;
+    }
+
+    const fusion = { ...changes };
+    for (const [codein, delta] of Object.entries(dernier.changes)) {
+        if (delta?.after && delta.after !== base[codein]?.after) fusion[codein] = delta;
+    }
+    return fusion;
 }

@@ -13,6 +13,25 @@ export interface ChangementGamme {
     codeGamme: string;
 }
 
+/** Gammes d'un snapshot : codein → gamme avant (état FF) / après. */
+export type GammesSnapshot = Record<string, { before: string | null; after: string }>;
+
+/**
+ * Dernier snapshot du fournisseur — celui que la Grille réapplique à chaque calcul
+ * (Phase 9). `null` s'il n'y en a aucun ; lève une erreur si la lecture échoue.
+ */
+export async function lireDernierSnapshot(
+    codeFournisseur: string,
+): Promise<{ id: number; changes: GammesSnapshot } | null> {
+    const [dernier] = await db
+        .select({ id: sessionSnapshots.id, changes: sessionSnapshots.changes })
+        .from(sessionSnapshots)
+        .where(eq(sessionSnapshots.codeFournisseur, codeFournisseur))
+        .orderBy(desc(sessionSnapshots.createdAt))
+        .limit(1);
+    return dernier ? { id: dernier.id, changes: (dernier.changes ?? {}) as GammesSnapshot } : null;
+}
+
 export interface EnregistrementGammes {
     codeFournisseur: string;
     nomFournisseur?: string | null;
@@ -35,17 +54,7 @@ export async function enregistrerGammes(input: EnregistrementGammes): Promise<nu
     if (changes.length === 0) return 0;
 
     // Charger le dernier snapshot existant pour merger les changements
-    const existing = await db
-        .select()
-        .from(sessionSnapshots)
-        .where(eq(sessionSnapshots.codeFournisseur, codeFournisseur))
-        .orderBy(desc(sessionSnapshots.createdAt))
-        .limit(1);
-
-    const prevChanges: Record<string, { before: string | null; after: string }> =
-        existing.length > 0
-            ? (existing[0].changes as Record<string, { before: string | null; after: string }>)
-            : {};
+    const prevChanges = (await lireDernierSnapshot(codeFournisseur))?.changes ?? {};
 
     // Merger les nouveaux changements par-dessus l'existant
     const mergedChanges = { ...prevChanges };

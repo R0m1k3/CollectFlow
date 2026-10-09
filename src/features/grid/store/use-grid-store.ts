@@ -102,6 +102,8 @@ interface GridState {
     clearDrafts: (codeins: string[]) => void;
     /** Apply saved drafts onto row.codeGamme so change indicators persist after save */
     applyDraftsToRows: (draftsToApply: Record<string, GammeCode>) => void;
+    /** Reporte les gammes enregistrées côté serveur ; renvoie le nombre de lignes changées. */
+    applyServerGammes: (gammes: Record<string, string>) => number;
     setFilter: (key: Exclude<keyof GridFilters, "code3">, value: string | null) => void;
     /** Nomenclatures retenues. `null` = aucun filtre, `[]` = rien de coché. */
     setCode3Filter: (codes: string[] | null) => void;
@@ -284,6 +286,33 @@ export const useGridStore = create<GridState>()(
                     return r;
                 });
                 set({ rows, rowsByCodein: indexRows(rows), summary: computeSummary(rows, get().draftChanges, get().activeMagasin) });
+            },
+            /**
+             * Gammes enregistrées hors de cet écran (API /api/v1, autre onglet) : les
+             * lignes prennent la valeur qu'un rechargement leur donnerait. Une
+             * modification en cours qui tombe sur cette valeur n'a plus lieu d'être.
+             */
+            applyServerGammes: (gammes) => {
+                const { rows, draftChanges, activeMagasin } = get();
+                const changees: string[] = [];
+                const next = rows.map((r) => {
+                    const gamme = gammes[r.codein];
+                    if (gamme === undefined || gamme === r.codeGamme) return r;
+                    changees.push(r.codein);
+                    return { ...r, codeGamme: gamme as GammeCode };
+                });
+                if (changees.length === 0) return 0;
+                const drafts = { ...draftChanges };
+                for (const codein of changees) {
+                    if (drafts[codein] === gammes[codein]) delete drafts[codein];
+                }
+                set({
+                    rows: next,
+                    rowsByCodein: indexRows(next),
+                    draftChanges: drafts,
+                    summary: computeSummary(next, drafts, activeMagasin),
+                });
+                return changees.length;
             },
             setFilter: (key, value) => {
                 set((state) => ({ ...state, filters: { ...state.filters, [key]: value } }));
