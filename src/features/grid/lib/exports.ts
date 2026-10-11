@@ -32,14 +32,24 @@ export function lignesModifiees(): ProductRow[] {
 }
 
 /**
- * Fichier d'import des gammes (CODE FOURNISSEUR, GENCOD, GAMME), généré par le
- * serveur. `seulementModifiees` : uniquement les gammes changées.
- * Renvoie `false` s'il n'y a rien à exporter.
+ * Nombre maximal de produits par fichier d'import des gammes. Le logiciel de
+ * mise à jour des gammes refuse les fichiers trop gros (~28 000 lignes) : au-delà,
+ * l'export est découpé en plusieurs fichiers à intégrer un par un.
  */
-export async function exporterFichierGammes(seulementModifiees: boolean): Promise<boolean> {
+export const LIGNES_MAX_PAR_FICHIER_GAMMES = 5000;
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Fichier d'import des gammes (CODE FOURNISSEUR, CODEIN, GAMME), généré par le
+ * serveur. `seulementModifiees` : uniquement les gammes changées.
+ * Découpé en plusieurs fichiers de `LIGNES_MAX_PAR_FICHIER_GAMMES` lignes au plus.
+ * Renvoie le nombre de fichiers téléchargés (0 s'il n'y a rien à exporter).
+ */
+export async function exporterFichierGammes(seulementModifiees: boolean): Promise<number> {
     const { rows, draftChanges } = useGridStore.getState();
     const lignes = seulementModifiees ? lignesModifiees() : rows;
-    if (lignes.length === 0) return false;
+    if (lignes.length === 0) return 0;
 
     const nomFournisseur = lignes[0].nomFournisseur;
     const changes = lignes.map((r) => ({
@@ -49,16 +59,25 @@ export async function exporterFichierGammes(seulementModifiees: boolean): Promis
         gamme: gammeEffective(r, draftChanges) as string,
     }));
 
-    const res = await fetch("/api/export/modified-gammes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nomFournisseur, changes }),
-    });
-    if (!res.ok) throw new Error(`le serveur a répondu ${res.status}`);
-
     const prefixe = seulementModifiees ? "Modifications_Gammes" : "Export_Complet";
-    telecharger(await res.blob(), `${prefixe}_${nomFichierSur(nomFournisseur)}_${aujourdhui()}.xlsx`);
-    return true;
+    const base = `${prefixe}_${nomFichierSur(nomFournisseur)}_${aujourdhui()}`;
+    const nbFichiers = Math.ceil(changes.length / LIGNES_MAX_PAR_FICHIER_GAMMES);
+
+    for (let i = 0; i < nbFichiers; i++) {
+        const paquet = changes.slice(i * LIGNES_MAX_PAR_FICHIER_GAMMES, (i + 1) * LIGNES_MAX_PAR_FICHIER_GAMMES);
+        const res = await fetch("/api/export/modified-gammes", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ nomFournisseur, changes: paquet }),
+        });
+        if (!res.ok) throw new Error(`le serveur a répondu ${res.status}`);
+
+        const suffixe = nbFichiers > 1 ? `_partie_${i + 1}_sur_${nbFichiers}` : "";
+        telecharger(await res.blob(), `${base}${suffixe}.xlsx`);
+        // Les navigateurs ignorent les téléchargements trop rapprochés
+        if (i < nbFichiers - 1) await pause(500);
+    }
+    return nbFichiers;
 }
 
 /** Tous les produits avec gamme avant/après et chiffres sur 12 mois (Excel, généré par le serveur). */
