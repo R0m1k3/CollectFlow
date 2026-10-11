@@ -27,6 +27,7 @@ import {
     exporterGammeA,
     exporterTousProduits,
     imprimerPdf,
+    LIGNES_MAX_PAR_FICHIER_GAMMES,
     lignesModifiees,
 } from "@/features/grid/lib/exports";
 
@@ -40,6 +41,14 @@ function Stat({ label, value, sub, subColor }: { label: string; value: string; s
             </span>
         </div>
     );
+}
+
+/** Prévient quand le fichier d'import des gammes a été découpé ; vrai si quelque chose a été exporté. */
+function signalerDecoupage(nbFichiers: number): boolean {
+    if (nbFichiers > 1) {
+        toast.info(`Export découpé en ${nbFichiers} fichiers de ${fmtEntier(LIGNES_MAX_PAR_FICHIER_GAMMES)} lignes maximum : intégrez-les un par un.`);
+    }
+    return nbFichiers > 0;
 }
 
 function messageErreur(err: unknown): string {
@@ -217,7 +226,7 @@ function FloatingSummaryBarInner({ isAdmin, nomFournisseur }: { isAdmin: boolean
                                 const nom = lignesModifiees()[0].nomFournisseur;
                                 // Copie dans l'Historique, onglet « Exports »
                                 await handleSnapshot(`Export ${nom} — ${new Date().toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}`, "export");
-                                return exporterFichierGammes(true);
+                                return exporterFichierGammes(true).then(signalerDecoupage);
                             }, "Aucune gamme n'a été modifiée par rapport à FF.")}
                         >
                             <FileSpreadsheet />
@@ -228,7 +237,7 @@ function FloatingSummaryBarInner({ isAdmin, nomFournisseur }: { isAdmin: boolean
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             className="cursor-pointer"
-                            onSelect={() => lancer("complet", () => exporterFichierGammes(false), "Aucun produit à exporter.")}
+                            onSelect={() => lancer("complet", () => exporterFichierGammes(false).then(signalerDecoupage), "Aucun produit à exporter.")}
                         >
                             <FileSpreadsheet />
                             <div className="flex flex-col">
