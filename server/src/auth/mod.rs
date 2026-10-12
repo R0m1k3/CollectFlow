@@ -6,7 +6,7 @@ pub mod fallback;
 pub mod password;
 pub mod session;
 
-pub use api_key::{ApiAuth, AuthContext};
+pub use api_key::ApiAuth;
 pub use authz::{require_admin, require_session, AdminUser, SessionUser, UtilisateurCourant};
 pub use session::{Claims, Token};
 
