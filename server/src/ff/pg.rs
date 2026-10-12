@@ -1226,6 +1226,13 @@ pub struct HitParadeRow {
 /// mouvements et fausser les sommes, et le LATERAL fournisseur ne s'exécute que
 /// par article vendu (et non par ligne de mouvement).
 ///
+/// Fournisseur affiché : le principal (`artfou1.preference = 1`) s'il existe,
+/// sinon n'importe quel fournisseur référencé — cherché sur toutes les fiches
+/// portant le même codein (ré-créations d'article), la plus récente d'abord.
+/// Exiger `preference = 1` laissait en « Sans fournisseur » les articles dont
+/// la préférence n'est pas renseignée dans FF ou n'est posée que sur une
+/// ancienne fiche du même codein.
+///
 /// Cas vérifié (codein 487673, site 579, jan→juil 2026) : 31 ventes brutes,
 /// 7 retours clients → 24 net. L'ancien SUM(ABS(qtemvt)) affichait 38 (retours
 /// additionnés) ; SUM(-qtemvt) donne 24, identique à l'API mensuel officielle.
@@ -1247,6 +1254,19 @@ pub async fn pg_get_hit_parade(date_debut: &str, date_fin: &str) -> anyhow::Resu
               AND a.codein IS NOT NULL
             GROUP BY TRIM(a.codein::text), m.site
         ),
+        fou AS (
+            SELECT DISTINCT ON (TRIM(a.codein::text))
+                TRIM(a.codein::text)                                    AS codein,
+                af1.code,
+                af1.reference
+            FROM articles a
+            JOIN artfou1 af1 ON af1.art_no_id = a.no_id
+            WHERE TRIM(a.codein::text) IN (SELECT codein FROM ventes)
+            ORDER BY TRIM(a.codein::text),
+                     (af1.preference = 1) DESC NULLS LAST,
+                     a.no_id DESC,
+                     af1.no_id DESC
+        ),
         attrs AS (
             SELECT DISTINCT ON (TRIM(a.codein::text))
                 TRIM(a.codein::text)                                    AS codein,
@@ -1256,13 +1276,7 @@ pub async fn pg_get_hit_parade(date_debut: &str, date_fin: &str) -> anyhow::Resu
                 COALESCE(n.code, '')::text                              AS nomenclature_code,
                 COALESCE(n.libelle, 'Sans nomenclature')::text          AS nomenclature
             FROM articles a
-            LEFT JOIN LATERAL (
-                SELECT af1.code, af1.reference
-                FROM artfou1 af1
-                WHERE af1.art_no_id = a.no_id AND af1.preference = 1
-                ORDER BY af1.code
-                LIMIT 1
-            ) af ON TRUE
+            LEFT JOIN fou af ON af.codein = TRIM(a.codein::text)
             LEFT JOIN fouident fi ON fi.code = af.code
             LEFT JOIN nomenclature n ON n.no_id = a.nom_no_id
             WHERE TRIM(a.codein::text) IN (SELECT codein FROM ventes)
@@ -2253,8 +2267,8 @@ pub async fn pg_search_produits(term: &str, limit: i64) -> Vec<PgProduitSearchRo
             LEFT JOIN LATERAL (
                 SELECT af1.code
                 FROM artfou1 af1
-                WHERE af1.art_no_id = m.no_id AND af1.preference = 1
-                ORDER BY af1.code
+                WHERE af1.art_no_id = m.no_id
+                ORDER BY (af1.preference = 1) DESC NULLS LAST, af1.no_id DESC
                 LIMIT 1
             ) af ON TRUE
             LEFT JOIN fouident fi ON fi.code = af.code
@@ -2339,8 +2353,8 @@ pub async fn pg_get_produits_by_code_centrale(codes_centraux: &[String]) -> Hash
             LEFT JOIN LATERAL (
                 SELECT af1.code
                 FROM artfou1 af1
-                WHERE af1.art_no_id = m.no_id AND af1.preference = 1
-                ORDER BY af1.code
+                WHERE af1.art_no_id = m.no_id
+                ORDER BY (af1.preference = 1) DESC NULLS LAST, af1.no_id DESC
                 LIMIT 1
             ) af ON TRUE
             LEFT JOIN fouident fi ON fi.code = af.code
@@ -2907,8 +2921,8 @@ pub async fn pg_get_opportunites_famille(nom_no_id: i64, date_debut: &str, date_
             LEFT JOIN LATERAL (
                 SELECT af1.code
                 FROM artfou1 af1
-                WHERE af1.art_no_id = r.no_id AND af1.preference = 1
-                ORDER BY af1.code
+                WHERE af1.art_no_id = r.no_id
+                ORDER BY (af1.preference = 1) DESC NULLS LAST, af1.no_id DESC
                 LIMIT 1
             ) af ON TRUE
             LEFT JOIN fouident fi ON fi.code = af.code
