@@ -44,3 +44,8 @@ next-env.d.ts
 
 # données locales (configuration avec mots de passe, comptes de secours)
 /data/
+
+# Rust
+/server/target/
+# Vite
+/dist/
