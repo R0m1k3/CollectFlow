@@ -79,7 +79,13 @@ async fn run_warmup(stale_hours: f64) {
         let fresh_limit = chrono::Utc::now().naive_utc() - chrono::Duration::milliseconds((stale_hours * 3_600_000.0) as i64);
         let fresh: HashSet<String> = existing
             .iter()
-            .filter(|s| s.computed_at_naive().map(|d| d > fresh_limit).unwrap_or(false))
+            .filter(|s| {
+                s.computed_at
+                    .as_deref()
+                    .and_then(|c| chrono::DateTime::parse_from_rfc3339(c).ok())
+                    .map(|d| d.naive_utc() > fresh_limit)
+                    .unwrap_or(false)
+            })
             .map(|s| s.code_fournisseur.clone())
             .collect();
         maj(|j| j.total = fournisseurs.len());

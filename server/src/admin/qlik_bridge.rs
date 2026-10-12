@@ -25,3 +25,13 @@ pub fn reset_ff_api_base() {
 pub async fn diagnostiquer_api_ff(base: Option<String>) -> Value {
     serde_json::to_value(crate::ff::diagnostic::diagnostiquer_api_ff(base).await).unwrap_or(Value::Null)
 }
+
+/// Extraction Qlik d'un fournisseur sur la fenêtre de la synchro (`QLIK_SYNC_MONTHS_BACK`),
+/// puis enregistrement dans le cache réseau. Renvoie le nombre de codes enregistrés.
+pub async fn extraire_et_enregistrer(codes: Vec<String>, fournisseur: &str) -> anyhow::Result<usize> {
+    use crate::qlik::date_range::{build_grid_network_qlik_date_filter_now, env_months_back, QLIK_MONTHS_BACK_DEFAULT};
+    let filtre = build_grid_network_qlik_date_filter_now(env_months_back("QLIK_SYNC_MONTHS_BACK", QLIK_MONTHS_BACK_DEFAULT));
+    let metrics = crate::qlik::fetch_network_metrics_playwright(Some(codes), None, Some(filtre), Some(fournisseur.to_string())).await?;
+    let liste: Vec<_> = metrics.into_values().collect();
+    crate::qlik::upsert_network_metrics(&liste).await
+}
