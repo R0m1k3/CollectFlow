@@ -7,10 +7,10 @@ import reactRefresh from "eslint-plugin-react-refresh";
 
 /**
  * Lint de l'interface (SPA Vite). Seul `src/` est vérifié : `server/` est en
- * Rust, `scripts/` et les fichiers .js de la racine sont des utilitaires Node.
+ * Rust.
  */
 const eslintConfig = defineConfig([
-    globalIgnores(["dist/**", "server/**", "scripts/**", "_bmad/**", "_bmad-output/**", "docs/**", "*.js", "*.mjs"]),
+    globalIgnores(["dist/**", "server/**", ".claude/**", "_bmad/**", "_bmad-output/**", "docs/**", "*.js", "*.mjs"]),
     {
         files: ["src/**/*.{ts,tsx}", "vite.config.mts"],
         extends: [js.configs.recommended, tseslint.configs.recommended, reactHooks.configs.flat.recommended],
