@@ -98,9 +98,14 @@ fn no_store(v: Value) -> Response {
     ([(header::CACHE_CONTROL, "no-store")], Json(v)).into_response()
 }
 
-async fn call_action(Path(name): Path<String>, headers: HeaderMap, body: Option<Json<Value>>) -> AppResult<Response> {
+async fn call_action(Path(name): Path<String>, headers: HeaderMap, body: axum::body::Bytes) -> AppResult<Response> {
     let h = ACTIONS.get(name.as_str()).ok_or_else(|| AppError::not_found(format!("Action inconnue : {name}")))?;
-    let args = match body.map(|b| b.0) {
+    let body: Option<Value> = if body.iter().all(|b| b.is_ascii_whitespace()) {
+        None
+    } else {
+        Some(serde_json::from_slice(&body).map_err(|e| AppError::bad_request(format!("Corps JSON invalide : {e}")))?)
+    };
+    let args = match body {
         Some(Value::Array(a)) => a,
         Some(Value::Null) | None => vec![],
         Some(other) => vec![other],

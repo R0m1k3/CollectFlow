@@ -62,7 +62,7 @@ where
     Fut: Future<Output = anyhow::Result<T>> + Send + 'static,
 {
     let pending = {
-        let mut store = STORE.lock();
+        let store = STORE.lock();
         match store.map.get(key) {
             Some(Entry::Ready { value, expires_at, .. }) if *expires_at > Instant::now() => {
                 if let Some(v) = value.downcast_ref::<T>() {
