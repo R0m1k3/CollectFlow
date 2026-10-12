@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * CollectFlow — Préchauffage des données exposées par l'API.
  *

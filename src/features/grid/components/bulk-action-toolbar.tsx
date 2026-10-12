@@ -1,5 +1,3 @@
-"use client";
-
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { GammeCode } from "@/types/grid";
 import { cn } from "@/lib/utils";

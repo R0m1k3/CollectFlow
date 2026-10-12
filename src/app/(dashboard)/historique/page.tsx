@@ -1,9 +1,7 @@
-import type { Metadata } from "next";
 import { History } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { usePageSearchParams } from "@/lib/page-data";
 import { HistoriqueTabs } from "./tabs";
-
-export const metadata: Metadata = { title: "Historique" };
 
 /**
  * Historique des sessions de révision et des exports Excel.
@@ -12,8 +10,8 @@ export const metadata: Metadata = { title: "Historique" };
  * filtrée différemment (et dont la seconde s'intitulait « Historique d'arbitrage »).
  * Chacun ne voit que ses propres enregistrements.
  */
-export default async function HistoriquePage(props: { searchParams: Promise<{ vue?: string }> }) {
-    const { vue } = await props.searchParams;
+export default function HistoriquePage() {
+    const { vue } = usePageSearchParams();
     return (
         <div className="mx-auto w-full max-w-6xl">
             <PageHeader

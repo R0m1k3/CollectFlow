@@ -1,5 +1,3 @@
-"use client";
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     CalendarClock, Play, Square, RefreshCw, Loader2, AlertTriangle,

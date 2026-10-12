@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * CollectFlow — Gestion des clés de l'API `/api/v1`.
  *

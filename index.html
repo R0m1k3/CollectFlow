@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CollectFlow</title>
+    <meta name="description" content="Révision d'assortiment et suivi des ventes des magasins" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <!-- Inter chargé côté navigateur (et non au build) : aucune dépendance réseau
+         à Google Fonts pendant la compilation (Docker). -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet" />
+    <script>
+      // Thème appliqué avant le premier rendu (sans flash), comme le script
+      // que next-themes injectait dans la page rendue par le serveur.
+      try {
+        var theme = localStorage.getItem("collectflow-theme") === "dark" ? "dark" : "light";
+        document.documentElement.classList.add(theme);
+        document.documentElement.style.colorScheme = theme;
+      } catch (e) {}
+    </script>
+  </head>
+  <body class="font-sans antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

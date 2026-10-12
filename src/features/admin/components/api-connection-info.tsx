@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * CollectFlow — Informations de connexion à l'API `/api/v1`.
  *

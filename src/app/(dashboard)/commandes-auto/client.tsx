@@ -1,5 +1,3 @@
-"use client";
-
 import { useMemo } from "react";
 import { ShoppingCart } from "lucide-react";
 import type { PgCommandeAutoRow } from "./page";

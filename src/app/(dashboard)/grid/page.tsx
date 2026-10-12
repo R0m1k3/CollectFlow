@@ -1,23 +1,11 @@
-import type { Metadata } from "next";
-import { auth } from "@/lib/auth";
+import { useSessionResolue } from "next-auth/react";
 import { getFournisseurs, getMagasins } from "@/features/grid/actions";
+import { usePageData, usePageSearchParams } from "@/lib/page-data";
 import { GridClient } from "@/features/grid/components/grid-client";
 import { SupplierSelectionLanding } from "@/features/grid/components/supplier-selection-landing";
 
-export const metadata: Metadata = { title: "Révision d'assortiment" };
-
-interface GridPageProps {
-    searchParams: Promise<{
-        fournisseur?: string;
-        magasin?: string;
-        code1?: string;
-        code2?: string;
-        code3?: string;
-    }>;
-}
-
-export default async function GridPage({ searchParams }: GridPageProps) {
-    const params = await searchParams;
+export default function GridPage() {
+    const params = usePageSearchParams();
     const codeFournisseur = params.fournisseur;
     const magasin = params.magasin ?? "TOTAL";
     const filters = {
@@ -27,13 +15,10 @@ export default async function GridPage({ searchParams }: GridPageProps) {
         code3: params.code3 ? String(params.code3).split(",").filter(Boolean) : null,
     };
 
-    // 1. Fetch available suppliers & stores (et les droits, lus une fois côté serveur)
-    const [fournisseurs, magasins, session] = await Promise.all([
-        getFournisseurs(),
-        getMagasins(),
-        auth(),
-    ]);
-    const isAdmin = (session?.user as { role?: string } | undefined)?.role === "admin";
+    // 1. Fetch available suppliers & stores (et les droits, lus une fois avant le rendu)
+    const [fournisseurs, magasins] = usePageData("grid", () => Promise.all([getFournisseurs(), getMagasins()]));
+    const session = useSessionResolue();
+    const isAdmin = session?.user.role === "admin";
 
     // 2. If no supplier selected, show compact selection UI
     if (!codeFournisseur) {

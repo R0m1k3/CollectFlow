@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * CollectFlow — Trous d'assortiment : ce qu'un magasin ne travaille pas.
  *

@@ -1,5 +1,3 @@
-"use client";
-
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { KeyRound, Loader2, Shield, Trash2, User, UserPlus } from "lucide-react";
 import { getUsers, createUser, deleteUser, updatePassword } from "../api/user-actions";

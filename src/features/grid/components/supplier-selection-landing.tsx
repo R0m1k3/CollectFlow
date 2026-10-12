@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 import { LayoutGrid } from "lucide-react";
 import { useRouter } from "next/navigation";

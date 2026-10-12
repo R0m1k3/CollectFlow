@@ -1,5 +1,3 @@
-"use client";
-
 import { FileDown, Save } from "lucide-react";
 import { Tabs, useUrlTab } from "@/components/ui/tabs";
 import { SnapshotList } from "@/features/snapshots/components/snapshot-list";

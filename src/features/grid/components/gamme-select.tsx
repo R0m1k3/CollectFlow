@@ -1,5 +1,3 @@
-"use client";
-
 import { GammeCode } from "@/types/grid";
 import { cn } from "@/lib/utils";
 import { CLASSES_SANS_GAMME, GAMMES, trouverGamme } from "@/lib/gammes";

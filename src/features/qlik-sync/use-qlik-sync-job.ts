@@ -1,5 +1,3 @@
-"use client";
-
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /** État serveur renvoyé par GET/POST /api/qlik/sync. */

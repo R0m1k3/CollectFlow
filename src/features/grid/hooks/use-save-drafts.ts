@@ -1,5 +1,3 @@
-"use client";
-
 import { useCallback } from "react";
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { saveDraftChanges } from "@/features/grid/api/save-draft-changes";
