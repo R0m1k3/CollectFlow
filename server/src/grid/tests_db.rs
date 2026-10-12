@@ -60,6 +60,8 @@ async fn grid_rows_snapshots_gammes_a_valider() {
     std::fs::create_dir_all(&dir).unwrap();
     std::env::set_var("DATA_DIR", &dir);
     std::env::set_var("DATABASE_URL", &url);
+    // Une autre base a pu servir à un test précédent du même processus.
+    crate::db::refresh();
     let pool = crate::db::pool().unwrap();
     sqlx::raw_sql(include_str!("../../sql/init.sql")).execute(&pool).await.unwrap();
     nettoyer(&pool).await;

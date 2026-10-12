@@ -1,27 +1,30 @@
 //! Module `grid` — grille d'assortiment.
 //!
-//! Phase 1 (ce qui ne dépend ni de la base FF ni de Qlik) :
 //! - [`types`] : `ProductRow` et types associés (JSON identique au TS) ;
-//! - [`store`] : instantané persisté `grid_rows` (lu par `/api/v1`) ;
-//! - [`rows_cache`] : cache mémoire des lignes calculées (10 min) ;
+//! - [`product_rows`] : calcul des lignes (`getProductRows`), branché sur
+//!   [`rows_cache`] (cache mémoire 10 min) et [`store`] (instantané `grid_rows`) ;
 //! - [`network_trend`], [`months`], [`store_patch`] : logique pure ;
 //! - [`gammes_a_valider`], [`enregistrer`], [`snapshots`] : gammes et snapshots ;
-//! - [`exports`] : exports Excel ; [`api_schemas`], [`api_v1`], [`openapi`] : API publique.
-//!
-//! Phase 2 : calcul de la grille (`getProductRows`), enrichissement `/api/v1`
-//! (`api-enrich`), routes `/api/v1/grid`, `/products/*`, `/gammes`,
-//! `/fournisseurs`, `/network/*` et `/api/grid/rows*`.
+//! - [`grid_rows`] : `/api/grid/rows` (NDJSON) et `/api/grid/rows/store-patch` ;
+//! - [`exports`] : exports Excel ;
+//! - API publique : [`api_schemas`], [`enrich`], [`api_gammes`], [`api_v1`],
+//!   [`api_v1_grid`], [`openapi`].
 
+pub mod api_gammes;
 pub mod api_schemas;
 pub mod api_v1;
+pub mod api_v1_grid;
 pub mod enregistrer;
+pub mod enrich;
 pub mod exports;
 pub mod gammes;
 pub mod gammes_a_valider;
+pub mod grid_rows;
 pub mod js;
 pub mod months;
 pub mod network_trend;
 pub mod openapi;
+pub mod product_rows;
 pub mod rows_cache;
 pub mod session;
 pub mod snapshots;
@@ -32,9 +35,11 @@ pub mod zod;
 
 #[cfg(test)]
 mod tests_db;
+#[cfg(test)]
+mod tests_ff;
 
 use crate::rpc::Handler;
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::Router;
 
 /// Routes HTTP du module.
@@ -44,6 +49,15 @@ pub fn router() -> Router {
         .route("/api/export/modified-gammes", post(exports::export_modified_gammes))
         .route("/api/v1/nomenclatures", get(api_v1::get_nomenclatures))
         .route("/api/v1/openapi.json", get(openapi::get_openapi))
+        .route("/api/grid/rows", get(grid_rows::get_grid_rows))
+        .route("/api/grid/rows/store-patch", get(grid_rows::get_grid_store_patch))
+        .route("/api/v1/grid", get(api_v1_grid::get_grid))
+        .route("/api/v1/products/search", get(api_v1_grid::get_products_search))
+        .route("/api/v1/products/{codein}", get(api_v1_grid::get_product))
+        .route("/api/v1/products/{codein}/gamme", put(api_v1_grid::put_product_gamme))
+        .route("/api/v1/gammes", post(api_v1_grid::post_gammes))
+        .route("/api/v1/fournisseurs", get(api_v1_grid::get_fournisseurs))
+        .route("/api/v1/network/{codeCentrale}", get(api_v1_grid::get_network))
 }
 
 /// Actions (`POST /api/actions/{nom}`) du module.

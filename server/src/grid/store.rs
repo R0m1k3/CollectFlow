@@ -159,16 +159,40 @@ pub async fn upsert_grid_rows(code_fournisseur: &str, rows: &[ProductRow]) -> Ap
     if code_fournisseur.is_empty() || rows.is_empty() {
         return Ok(0);
     }
+    let values: Vec<&ProductRow> = rows.iter().filter(|r| !r.codein.is_empty()).collect();
+    upsert_lots(code_fournisseur, values.len(), |plage| values[plage].iter().map(|r| (*r).clone()).collect()).await
+}
+
+/// Même écriture depuis les lignes partagées du cache mémoire : chaque lot est
+/// copié sous verrou, puis écrit sans le tenir (pas de copie intégrale d'un
+/// fournisseur de 130 000 articles).
+pub async fn upsert_grid_rows_shared(code_fournisseur: &str, rows: &super::rows_cache::GridRows) -> AppResult<usize> {
+    let indices: Vec<usize> = {
+        let lignes = rows.rows.read();
+        if code_fournisseur.is_empty() || lignes.is_empty() {
+            return Ok(0);
+        }
+        lignes.iter().enumerate().filter(|(_, r)| !r.codein.is_empty()).map(|(i, _)| i).collect()
+    };
+    upsert_lots(code_fournisseur, indices.len(), |plage| {
+        let lignes = rows.rows.read();
+        indices[plage].iter().filter_map(|i| lignes.get(*i).cloned()).collect()
+    })
+    .await
+}
+
+/// Écrit `nb` lignes par lots de [`CHUNK_UPSERT`] (`lot(plage)` fournit les lignes
+/// d'une plage), puis purge les lignes du fournisseur restées sur un calcul antérieur.
+async fn upsert_lots(code_fournisseur: &str, nb: usize, lot: impl Fn(std::ops::Range<usize>) -> Vec<ProductRow>) -> AppResult<usize> {
+    if nb == 0 {
+        return Ok(0);
+    }
     let pool = db::pool()?;
     let computed_at = maintenant_utc_ms();
 
-    let values: Vec<&ProductRow> = rows.iter().filter(|r| !r.codein.is_empty()).collect();
-    if values.is_empty() {
-        return Ok(0);
-    }
-
     let mut written = 0usize;
-    for batch in values.chunks(CHUNK_UPSERT) {
+    for debut in (0..nb).step_by(CHUNK_UPSERT) {
+        let batch = lot(debut..(debut + CHUNK_UPSERT).min(nb));
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "insert into grid_rows (code_fournisseur, codein, nom_fournisseur, libelle1, gtin, reference, \
              code_centrale, code1, code2, code3, code_gamme, code_gamme_init, total_ca, total_quantite, \
@@ -177,7 +201,7 @@ pub async fn upsert_grid_rows(code_fournisseur: &str, rows: &[ProductRow]) -> Ap
         );
         let mut erreur_payload = None;
         qb.push_values(batch.iter(), |mut b, r| {
-            let mut payload = (*r).clone();
+            let mut payload = r.clone();
             payload.payload_version = Some(GRID_PAYLOAD_VERSION);
             let payload = serde_json::to_value(&payload).unwrap_or_else(|e| {
                 erreur_payload = Some(e.to_string());
