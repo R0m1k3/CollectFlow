@@ -1,20 +1,21 @@
-version: "3.8"
-
 services:
   web:
+    # Image publiée par GitHub Actions à chaque mise à jour de main.
+    # `pull_policy: always` : chaque `docker compose up -d` récupère la
+    # dernière version avant de (re)démarrer le conteneur.
+    image: ghcr.io/r0m1k3/collectflow:latest
+    pull_policy: always
+    # Construction locale possible : `docker compose build` (utilise le Dockerfile).
     build:
       context: .
       dockerfile: Dockerfile
     ports:
       - "5643:5643"
     environment:
-      - NODE_ENV=production
-      - AUTH_TRUST_HOST=true
       - AUTH_SECRET=my-super-secret-key-that-should-be-changed-in-production
       - DATABASE_URL=postgres://postgres:MOT_DE_PASSE_ICI@postgresbase:5432/collectflow
       - FF_API_BASE_URL=https://api.ffnancy.fr
-
-      # Mais comme CollectFlow permet de le configurer depuis l'interface (settings), ce n'est pas strictement obligatoire au lancement.
+      # La base, Qlik et l'API FF se règlent aussi depuis l'interface (Paramètres).
     volumes:
       - collectflow-data:/app/data
     restart: unless-stopped
