@@ -1,4 +1,6 @@
-//! Module `ff` — à porter.
+//! Module `ff` — données FF Nancy (base miroir PostgreSQL et API REST) — à porter.
+
+pub mod pg;
 
 use crate::rpc::Handler;
 use axum::Router;
