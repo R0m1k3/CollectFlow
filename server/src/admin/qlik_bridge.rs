@@ -4,8 +4,16 @@
 use serde_json::Value;
 
 /// Ouvre une session Qlik (NTLM → ticket → cookie) avec les identifiants donnés.
-pub async fn tester_session(_host: String, _user: String, _password: Option<String>) -> anyhow::Result<()> {
-    anyhow::bail!("Test Qlik indisponible : module en cours de portage")
+pub async fn tester_session(host: String, user: String, password: Option<String>) -> anyhow::Result<()> {
+    let enregistre = crate::qlik::client::get_qlik_config();
+    let mut cfg = enregistre.clone();
+    cfg.user = user;
+    cfg.password = password.unwrap_or(enregistre.password);
+    if !host.is_empty() {
+        cfg.host = host;
+    }
+    crate::qlik::client::qlik_ntlm_session(&cfg).await?;
+    Ok(())
 }
 
 /// Oublie l'URL mémorisée de l'API FF Nancy.
