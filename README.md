@@ -37,7 +37,7 @@ Construire l'image localement plutôt que la télécharger : `docker compose bui
 
 Le volume `collectflow-data` (`/app/data`) conserve les réglages saisis dans **Paramètres** (`.db-config.json` : base, Qlik, API FF, synchro nocturne), les comptes de secours (`users.json`) et le secret de session (`.auth-secret`, si `AUTH_SECRET` n'est pas défini). Il est repris tel quel depuis l'ancienne version Node : comptes et mots de passe restent valables (seules les sessions ouvertes sont à refaire).
 
-Variables d'environnement utiles : `DATABASE_URL`, `AUTH_SECRET`, `FF_API_BASE_URL`, `QLIK_HOST` / `QLIK_USER` / `QLIK_PWD` (et les réglages fins `QLIK_*`), `PG_STATEMENT_TIMEOUT_MS`, `FF_CACHE_TTL_S`, `RUST_LOG` (niveau de journalisation, `info` par défaut).
+Variables d'environnement utiles : `DATABASE_URL`, `AUTH_SECRET`, `FF_API_BASE_URL`, `QLIK_HOST` / `QLIK_USER` / `QLIK_PWD` (et les réglages fins `QLIK_*`), `PG_STATEMENT_TIMEOUT_MS`, `FF_CACHE_TTL_S`, `RUST_LOG` (niveau de journalisation ; par défaut `info`, avec sqlx et Chromium limités aux avertissements).
 
 ## Développement local
 

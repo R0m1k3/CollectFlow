@@ -48,8 +48,7 @@ ENV PORT=5643 \
     HOSTNAME=0.0.0.0 \
     DATA_DIR=/app/data \
     STATIC_DIR=/app/web \
-    PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium \
-    RUST_LOG=info
+    PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium
 
 USER collectflow
 EXPOSE 5643
