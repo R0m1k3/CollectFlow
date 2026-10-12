@@ -395,15 +395,23 @@ dependencies = [
  "base64 0.22.1",
  "chromiumoxide",
  "chrono",
+ "des",
  "futures",
  "hex",
  "hmac",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "indexmap",
+ "md-5",
+ "md4",
  "parking_lot",
  "rand 0.8.8",
  "regex",
  "reqwest 0.12.28",
  "rust_decimal",
  "rust_xlsxwriter",
+ "rustls",
  "scrypt",
  "serde",
  "serde_json",
@@ -412,12 +420,14 @@ dependencies = [
  "subtle",
  "thiserror",
  "tokio",
+ "tokio-rustls",
  "tower",
  "tower-http",
  "tracing",
  "tracing-subscriber",
  "urlencoding",
  "uuid",
+ "webpki-roots 1.0.9",
 ]
 
 [[package]]
@@ -567,6 +577,15 @@ name = "deranged"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
+
+[[package]]
+name = "des"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ffdd80ce8ce993de27e9f063a444a4d53ce8e8db4c1f00cc03af5ad5a9867a1e"
+dependencies = [
+ "cipher",
+]
 
 [[package]]
 name = "digest"
@@ -1224,6 +1243,8 @@ checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
 dependencies = [
  "equivalent",
  "hashbrown 0.17.1",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -1356,6 +1377,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
 dependencies = [
  "cfg-if",
+ "digest",
+]
+
+[[package]]
+name = "md4"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7da5ac363534dce5fabf69949225e174fbf111a498bf0ff794c8ea1fba9f3dda"
+dependencies = [
  "digest",
 ]
 
