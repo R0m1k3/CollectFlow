@@ -4,6 +4,7 @@ pub mod api_keys;
 pub mod logs;
 mod qlik_bridge;
 pub mod settings;
+pub mod sync_fournisseurs;
 pub mod sync_settings;
 pub mod users;
 
@@ -16,7 +17,9 @@ use serde_json::{Map, Value};
 
 /// Routes HTTP du module.
 pub fn router() -> Router {
-    Router::new().route("/api/logs", get(logs::get_logs))
+    Router::new()
+        .route("/api/logs", get(logs::get_logs))
+        .route("/api/admin/sync/fournisseurs", get(sync_fournisseurs::get).patch(sync_fournisseurs::patch))
 }
 
 async fn read_sync_settings_action(ctx: Ctx) -> AppResult<Value> {
