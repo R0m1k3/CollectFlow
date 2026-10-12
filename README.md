@@ -57,5 +57,5 @@ Vérifications : `cargo test` (dans `server/`), `npm run lint`, `npm run build`.
 
 - `server/src/` — serveur Rust, un module par domaine : `auth` (sessions, clés d'API), `ff` (base miroir et API FF Nancy), `qlik` (données réseau), `grid` (révision d'assortiment, API `/api/v1`), `produits`, `admin` (comptes, paramètres, synchronisation nocturne).
 - `server/sql/init.sql` — schéma joué (idempotent) à chaque démarrage.
-- `src/` — interface React : `features/*` par domaine, `components/` partagés, `pages/` et `router.tsx`.
+- `src/` — interface React : `app/` (écrans, mêmes dossiers que les URL), `features/*` par domaine, `components/` partagés, `router.tsx` (table des routes), `lib/rpc.ts` (appels au serveur).
 - `server/PORTING.md` — contrat entre l'interface et le serveur (actions, données de pages, routes).

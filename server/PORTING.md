@@ -1,11 +1,12 @@
-# Portage Rust — conventions de travail
+# Serveur Rust — contrat avec l'interface et conventions
 
 Ce document fixe le contrat entre le serveur Rust (`server/`) et l'interface
-React (`src/`, compilée en SPA par Vite). Le code TypeScript d'origine (Next.js)
-reste la **référence fonctionnelle** : chaque module Rust en est la traduction
-fidèle (mêmes requêtes SQL, mêmes règles, mêmes messages, mêmes formes JSON).
+React (`src/`, compilée en SPA par Vite). Le serveur est la traduction fidèle de
+l'ancienne version Next.js (mêmes requêtes SQL, mêmes règles, mêmes messages,
+mêmes formes JSON) ; son code TypeScript reste consultable dans l'historique
+git (`git show d2c3dc7:src/...`, dernier état avant la réécriture).
 
-## Socle déjà en place (ne pas réécrire)
+## Socle commun
 
 | Besoin | Rust |
 |---|---|
