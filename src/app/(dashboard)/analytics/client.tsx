@@ -1,5 +1,3 @@
-"use client";
-
 import { useRouter } from "next/navigation";
 import { useMemo, useTransition } from "react";
 import { Loader2 } from "lucide-react";

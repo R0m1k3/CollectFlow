@@ -1,5 +1,3 @@
-"use client";
-
 import { useMemo, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { History, Info, Megaphone, RotateCcw } from "lucide-react";

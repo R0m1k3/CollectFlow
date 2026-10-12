@@ -1,6 +1,6 @@
-import { redirect } from "next/navigation";
+import { Navigate } from "react-router";
 
 /** Ancienne adresse, conservée pour les favoris : voir /historique. */
 export default function ExportsPage() {
-    redirect("/historique?vue=exports");
+    return <Navigate to="/historique?vue=exports" replace />;
 }

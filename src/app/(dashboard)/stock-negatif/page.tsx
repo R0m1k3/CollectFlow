@@ -1,8 +1,8 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { PackageMinus, RotateCcw } from "lucide-react";
-import { pgGetStockNegatif, PgStockNegatifRow, pgGetStockSansVente, PgStockSansVenteRow, pgGetSansVente6Mois, PgSansVente6MoisRow } from "@/lib/pg-ff-client";
-import { cachedFF } from "@/lib/ff-cache";
+import type { PgStockNegatifRow, PgStockSansVenteRow, PgSansVente6MoisRow } from "@/types/ff";
+import { fetchPage } from "@/lib/rpc";
+import { usePageResult, usePageSearchParams } from "@/lib/page-data";
 import { PageHeader } from "@/components/ui/page-header";
 import { ErrorState } from "@/components/ui/states";
 import { Button } from "@/components/ui/button";
@@ -10,36 +10,23 @@ import { GestionStockClient } from "./client";
 
 export type { PgStockNegatifRow, PgStockSansVenteRow, PgSansVente6MoisRow };
 
-export const metadata: Metadata = { title: "Stocks à surveiller" };
-
 interface DonneesStock {
     rowsNegatif: PgStockNegatifRow[];
     rowsSansVente: PgStockSansVenteRow[];
     rowsSansVente6Mois: PgSansVente6MoisRow[];
 }
 
-export default async function GestionStockPage(props: {
-    searchParams: Promise<Record<string, string | string[]>>;
-}) {
-    const searchParams = await props.searchParams;
-    const magasin = (searchParams.magasin as string) || "";
-    const tab = (searchParams.tab as string) || "negatif";
+export default function GestionStockPage() {
+    const searchParams = usePageSearchParams();
+    const magasin = searchParams.magasin || "";
+    const tab = searchParams.tab || "negatif";
 
-    // Données FF recopiées chaque nuit : mises en cache (cf. lib/ff-cache.ts).
-    const site = magasin || undefined;
-    let donnees: DonneesStock | null = null;
-    let erreur: string | null = null;
-    try {
-        const [rowsNegatif, rowsSansVente, rowsSansVente6Mois] = await Promise.all([
-            cachedFF(`stock-negatif:${magasin}`, () => pgGetStockNegatif(site)),
-            cachedFF(`stock-sans-vente:${magasin}`, () => pgGetStockSansVente(site)),
-            cachedFF(`stock-sans-vente-6-mois:${magasin}`, () => pgGetSansVente6Mois(site)),
-        ]);
-        donnees = { rowsNegatif, rowsSansVente, rowsSansVente6Mois };
-    } catch (e) {
-        console.error("[stock-negatif] chargement impossible :", e);
-        erreur = e instanceof Error ? e.message : String(e);
-    }
+    // Données FF recopiées chaque nuit : mises en cache par le serveur.
+    const resultat = usePageResult(`stock-negatif?${magasin}`, () =>
+        fetchPage<DonneesStock>("stock-negatif", { magasin }),
+    );
+    const donnees: DonneesStock | null = resultat.ok ? resultat.data : null;
+    const erreur: string | null = resultat.ok ? null : resultat.error;
 
     const params = new URLSearchParams();
     if (magasin) params.set("magasin", magasin);

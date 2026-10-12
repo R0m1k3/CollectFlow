@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * CollectFlow — CA par nomenclature : nos magasins face au réseau.
  *

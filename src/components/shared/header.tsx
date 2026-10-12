@@ -1,5 +1,3 @@
-"use client";
-
 import { ChevronDown, LogOut, Moon, Rows3, Sun, User as UserIcon } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";

@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * CollectFlow — Détail mensuel d'un produit, ouvert depuis la case « Tot. 12m ».
  *

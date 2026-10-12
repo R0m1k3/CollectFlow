@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useMemo } from "react";
 import { Search, X } from "lucide-react";
 import { useGridStore } from "@/features/grid/store/use-grid-store";

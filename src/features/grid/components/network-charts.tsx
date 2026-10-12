@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * CollectFlow — Graphiques réseau (SVG fait main, aucune librairie de charts).
  *

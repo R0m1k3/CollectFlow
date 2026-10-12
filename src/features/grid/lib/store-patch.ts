@@ -10,7 +10,7 @@
  */
 
 import type { ProductRow } from "@/types/grid";
-import type { FfMensuelEntry } from "@/lib/api-ff-client";
+import type { FfMensuelEntry } from "@/types/ff";
 
 /** Chiffres d'un article pour le magasin complété. */
 export interface StorePatchEntry {

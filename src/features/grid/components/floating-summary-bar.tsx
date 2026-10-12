@@ -1,5 +1,3 @@
-"use client";
-
 import React from "react";
 
 import { useGridStore } from "@/features/grid/store/use-grid-store";

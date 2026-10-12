@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Tableau de données commun : recherche, filtres, tri par colonne, pagination,
  * export, état vide et ligne de totaux — identiques sur toutes les pages.

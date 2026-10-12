@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * CollectFlow — Carte « tendance réseau », ouverte depuis la colonne Tendance.
  *

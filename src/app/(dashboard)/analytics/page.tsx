@@ -1,14 +1,12 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { CalendarRange, RotateCcw } from "lucide-react";
-import { pgGetCaByFournisseur, pgGetCaByNomenclature } from "@/lib/pg-ff-client";
-import { cachedFF } from "@/lib/ff-cache";
+import type { CaByFournisseurRow, CaByNomenclatureRow } from "@/types/ff";
+import { fetchPage } from "@/lib/rpc";
+import { usePageResult, usePageSearchParams } from "@/lib/page-data";
 import { PageHeader } from "@/components/ui/page-header";
 import { ErrorState } from "@/components/ui/states";
 import { Button } from "@/components/ui/button";
 import { AnalyticsClient, type AnalyticsRow, type ModeAnalytics, type OptionMois } from "./client";
-
-export const metadata: Metadata = { title: "Ventes par mois" };
 
 const NOMS_MOIS = [
     "janvier", "février", "mars", "avril", "mai", "juin",
@@ -82,10 +80,10 @@ function pivotData(
     return result;
 }
 
-export default async function AnalyticsPage(props: {
-    searchParams: Promise<Record<string, string | string[]>>;
-}) {
-    const searchParams = await props.searchParams;
+type LigneCa = { code: string; label: string; site: string; mois: string; ca_ttc: number };
+
+export default function AnalyticsPage() {
+    const searchParams = usePageSearchParams();
     // Toute autre valeur que « fournisseur » affichait déjà la vue par famille.
     const mode: ModeAnalytics = ((searchParams.mode as string) || "fournisseur") === "fournisseur" ? "fournisseur" : "nomenclature";
     const moisParam = (searchParams.mois as string) || "";
@@ -108,36 +106,34 @@ export default async function AnalyticsPage(props: {
         moisDisponibles.push({ value: mois, label: libelleMois(mois) });
     }
 
-    let pivotted: AnalyticsRow[] | null = null;
-    let erreur: string | null = null;
-    try {
-        let rows: Array<{ code: string; label: string; site: string; mois: string; ca_ttc: number }> =
-            [];
-
+    // Lignes de la base FF, mises en cache par le serveur (mêmes clés qu'avant).
+    const resultat = usePageResult(`analytics?${mode}:${mois}:${moisN1}`, async (): Promise<LigneCa[]> => {
         if (mode === "fournisseur") {
-            const result = await cachedFF(`ca-fournisseur:${mois}:${moisN1}`, () => pgGetCaByFournisseur(mois, moisN1));
-            rows = result.map((r) => ({
+            const result = await fetchPage<CaByFournisseurRow[]>("analytics", { mode, mois, moisN1 });
+            return result.map((r) => ({
                 code: r.code,
                 label: r.nom,
                 site: r.site,
                 mois: r.mois,
                 ca_ttc: r.ca_ttc,
             }));
-        } else {
-            const result = await cachedFF(`ca-nomenclature:${mois}:${moisN1}`, () => pgGetCaByNomenclature(mois, moisN1));
-            rows = result.map((r) => ({
-                code: r.code,
-                label: `${r.code} — ${r.libelle}`,
-                site: r.site,
-                mois: r.mois,
-                ca_ttc: r.ca_ttc,
-            }));
         }
+        const result = await fetchPage<CaByNomenclatureRow[]>("analytics", { mode, mois, moisN1 });
+        return result.map((r) => ({
+            code: r.code,
+            label: `${r.code} — ${r.libelle}`,
+            site: r.site,
+            mois: r.mois,
+            ca_ttc: r.ca_ttc,
+        }));
+    });
 
-        pivotted = pivotData(rows, mois, moisN1, mode);
-    } catch (e) {
-        console.error("[analytics] chargement impossible :", e);
-        erreur = e instanceof Error ? e.message : String(e);
+    let pivotted: AnalyticsRow[] | null = null;
+    let erreur: string | null = null;
+    if (resultat.ok) {
+        pivotted = pivotData(resultat.data, mois, moisN1, mode);
+    } else {
+        erreur = resultat.error;
     }
 
     return (

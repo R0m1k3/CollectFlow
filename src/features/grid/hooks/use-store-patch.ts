@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect } from "react";
 import { rowsKeyFor, useGridStore } from "@/features/grid/store/use-grid-store";
 import { CODE_TOUS_MAGASINS } from "@/lib/magasins";
