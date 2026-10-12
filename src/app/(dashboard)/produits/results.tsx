@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { PackageSearch, Loader2, RefreshCw, AlertTriangle, Database, Globe } from "lucide-react";

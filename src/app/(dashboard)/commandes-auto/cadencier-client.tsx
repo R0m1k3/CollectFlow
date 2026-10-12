@@ -1,5 +1,3 @@
-"use client";
-
 import { useMemo, useState, useTransition, type FormEvent } from "react";
 import { AlertTriangle, CalendarClock, Plus, Power, Trash2 } from "lucide-react";
 import {
@@ -217,8 +215,9 @@ function SectionMagasin({
     /**
      * Exécute une action serveur et en rend compte : message de réussite, ou
      * message d'erreur (refus de l'action ou exception) — jamais d'échec muet.
-     * Pas de router.refresh() : les actions appellent déjà revalidatePath, dont
-     * la réponse rafraîchit la page. Les deux ensemble rechargeaient tout deux fois.
+     * Pas de router.refresh() : les actions rafraîchissent déjà la page après une
+     * réussite (cf. features/commandes-auto/actions.ts). Les deux ensemble
+     * rechargeaient tout deux fois.
      */
     function executer(action: () => Promise<Resultat>, messages: { succes: string; echec: string }): Promise<boolean> {
         return new Promise((resolve) => {

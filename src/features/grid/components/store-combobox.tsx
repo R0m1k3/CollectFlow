@@ -1,5 +1,3 @@
-"use client";
-
 import { useMemo } from "react";
 import { Segmented } from "@/components/ui/tabs";
 import { CODE_TOUS_MAGASINS, LIBELLE_TOUS_MAGASINS, nomMagasin } from "@/lib/magasins";

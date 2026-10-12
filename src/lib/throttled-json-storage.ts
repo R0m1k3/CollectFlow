@@ -1,5 +1,3 @@
-"use client";
-
 import { createJSONStorage, type PersistStorage, type StorageValue } from "zustand/middleware";
 
 /**

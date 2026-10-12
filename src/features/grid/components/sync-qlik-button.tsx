@@ -1,5 +1,3 @@
-"use client";
-
 import { useGridStore } from "@/features/grid/store/use-grid-store";
 import { Loader2, RefreshCw, CheckCircle, AlertCircle } from "lucide-react";
 import { useQlikSyncJob } from "@/features/qlik-sync/use-qlik-sync-job";

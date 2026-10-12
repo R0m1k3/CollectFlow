@@ -1,6 +1,7 @@
-import type { Metadata } from "next";
 import { PackageSearch, SearchX } from "lucide-react";
-import { getProduitFiche, getProduitFicheByCodeCentrale } from "@/features/produits/api/get-produit-fiche";
+import type { ProduitFiche } from "@/features/produits/types";
+import { fetchPage } from "@/lib/rpc";
+import { usePageData, usePageSearchParams } from "@/lib/page-data";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/states";
 import { Terme } from "@/components/ui/tooltip";
@@ -8,33 +9,29 @@ import { ProduitSearchBar } from "./search-bar";
 import { ProduitResults } from "./results";
 import { ProduitFicheView } from "./fiche";
 
-export const metadata: Metadata = { title: "Recherche produit" };
-
-export const dynamic = "force-dynamic";
-
 /**
  * Recherche produit — **Qlik d'abord**, catalogue FF Nancy ensuite.
  *
  * - `?q=…`      → liste de résultats (chargée côté client : l'extraction Qlik
- *                 prend plusieurs secondes, on ne bloque pas le rendu serveur)
+ *                 prend plusieurs secondes, on ne bloque pas l'affichage)
  * - `?codein=…` → fiche d'un produit de notre catalogue (URL partageable)
  * - `?cc=…`     → fiche d'un produit du réseau par son code centrale, qu'il
  *                 soit référencé chez nous ou non
  */
-export default async function ProduitsPage(props: {
-    searchParams: Promise<{ q?: string; codein?: string; cc?: string }>;
-}) {
-    const searchParams = await props.searchParams;
+export default function ProduitsPage() {
+    const searchParams = usePageSearchParams();
     const q = (searchParams.q ?? "").trim();
     const codein = (searchParams.codein ?? "").trim();
     const codeCentrale = (searchParams.cc ?? "").trim();
 
-    const fiche = codein
-        ? await getProduitFiche(codein)
-        : codeCentrale
-            ? await getProduitFicheByCodeCentrale(codeCentrale)
-            : null;
     const ficheDemandee = Boolean(codein || codeCentrale);
+    const fiche = usePageData(`produit-fiche?${codein}:${codeCentrale}`, (): Promise<ProduitFiche | null> =>
+        codein
+            ? fetchPage<ProduitFiche | null>("produit-fiche", { codein })
+            : codeCentrale
+                ? fetchPage<ProduitFiche | null>("produit-fiche", { cc: codeCentrale })
+                : Promise.resolve(null),
+    );
 
     return (
         <div className="mx-auto w-full max-w-screen-2xl">

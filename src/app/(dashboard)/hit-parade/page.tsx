@@ -1,14 +1,12 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { RotateCcw, Trophy } from "lucide-react";
-import { pgGetHitParade, HitParadeRow } from "@/lib/pg-ff-client";
-import { cachedFF } from "@/lib/ff-cache";
+import type { HitParadeRow } from "@/types/ff";
+import { fetchPage } from "@/lib/rpc";
+import { usePageResult, usePageSearchParams } from "@/lib/page-data";
 import { PageHeader } from "@/components/ui/page-header";
 import { ErrorState } from "@/components/ui/states";
 import { Button } from "@/components/ui/button";
 import { HitParadeClient } from "./client";
-
-export const metadata: Metadata = { title: "Meilleures ventes" };
 
 export interface HitParadePivotRow {
     codein: string;
@@ -84,22 +82,23 @@ function defaultDates() {
     return { debut: fmt(firstOfMonth), fin: fmt(today) };
 }
 
-export default async function HitParadePage(props: {
-    searchParams: Promise<Record<string, string | string[]>>;
-}) {
-    const searchParams = await props.searchParams;
+export default function HitParadePage() {
+    const searchParams = usePageSearchParams();
     const defaults = defaultDates();
-    const dateDebut = (searchParams.debut as string) || defaults.debut;
-    const dateFin = (searchParams.fin as string) || defaults.fin;
+    const dateDebut = searchParams.debut || defaults.debut;
+    const dateFin = searchParams.fin || defaults.fin;
+
+    // Lignes de la base FF, mises en cache par le serveur.
+    const resultat = usePageResult(`hit-parade?${dateDebut}:${dateFin}`, () =>
+        fetchPage<HitParadeRow[]>("hit-parade", { debut: dateDebut, fin: dateFin }),
+    );
 
     let pivotted: HitParadePivotRow[] | null = null;
     let erreur: string | null = null;
-    try {
-        const rows = await cachedFF(`hit-parade:${dateDebut}:${dateFin}`, () => pgGetHitParade(dateDebut, dateFin));
-        pivotted = pivotHitParade(rows);
-    } catch (e) {
-        console.error("[hit-parade] chargement impossible :", e);
-        erreur = e instanceof Error ? e.message : String(e);
+    if (resultat.ok) {
+        pivotted = pivotHitParade(resultat.data);
+    } else {
+        erreur = resultat.error;
     }
 
     return (

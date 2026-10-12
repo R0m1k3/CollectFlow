@@ -1,8 +1,8 @@
-import type { Metadata } from "next";
 import Link from "next/link";
-import { unstable_cache } from "next/cache";
 import { BarChart3, Euro, House, Receipt, ShoppingBasket, ShoppingCart, Store } from "lucide-react";
-import { pgGetDashboardData, type DashboardSiteStats, type DashboardSiteTop10, type DashboardTopItem } from "@/lib/pg-ff-client";
+import type { DashboardData, DashboardSiteStats, DashboardSiteTop10, DashboardTopItem } from "@/types/ff";
+import { fetchPage } from "@/lib/rpc";
+import { usePageResult } from "@/lib/page-data";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { Card, CardHeader } from "@/components/ui/card";
@@ -12,15 +12,6 @@ import { Terme } from "@/components/ui/tooltip";
 import { LIBELLE_TOUS_MAGASINS, nomMagasin } from "@/lib/magasins";
 import { fmtDecimal1, fmtEntier, fmtEur2 } from "@/lib/format";
 import { couleurMarge } from "@/lib/marge";
-
-export const metadata: Metadata = { title: "Accueil" };
-
-const getCachedDashboardData = unstable_cache(
-    pgGetDashboardData,
-    ["dashboard-data"],
-    // 30 minutes : ce sont les ventes de la veille, elles ne changent pas dans la journée.
-    { revalidate: 1800 }
-);
 
 // ---------------------------------------------------------------------------
 // Calculs
@@ -203,25 +194,23 @@ function TitreSection({ titre, description }: { titre: string; description?: Rea
 // Page
 // ---------------------------------------------------------------------------
 
-export default async function DashboardPage() {
-    let data;
-    try {
-        data = await getCachedDashboardData();
-    } catch (e) {
-        console.error("[Dashboard] pgGetDashboardData failed:", e);
+export default function DashboardPage() {
+    // Mis en cache 30 minutes par le serveur : ce sont les ventes de la veille.
+    const resultat = usePageResult("dashboard", () => fetchPage<DashboardData>("dashboard"));
+    if (!resultat.ok) {
         return (
             <div className="mx-auto w-full max-w-3xl">
                 <PageHeader icon={House} title="Accueil" />
                 <ErrorState
                     title="Les ventes d'hier n'ont pas pu être chargées"
                     description="Le serveur de données FF ne répond pas pour le moment. Réessayez dans quelques minutes."
-                    detail={e instanceof Error ? e.message.slice(0, 500) : String(e)}
+                    detail={resultat.error.slice(0, 500)}
                 />
             </div>
         );
     }
 
-    const { dateHier, dateN1, sites, top10BySite } = data;
+    const { dateHier, dateN1, sites, top10BySite } = resultat.data;
 
     const totalCa = sites.reduce((s, r) => s + r.ca_hier, 0);
     const totalCaN1 = sites.reduce((s, r) => s + r.ca_n1, 0);

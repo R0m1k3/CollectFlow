@@ -1,5 +1,3 @@
-"use client";
-
 import { ShoppingCart, CalendarClock } from "lucide-react";
 import { Tabs, useUrlTab } from "@/components/ui/tabs";
 import { CommandesAutoClient } from "./client";

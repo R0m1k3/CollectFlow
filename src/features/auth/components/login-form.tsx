@@ -1,10 +1,41 @@
-"use client";
-
 import { useActionState } from "react";
-import { loginAction } from "../api/login-action";
 import { AlertCircle, Loader2, Lock, ShieldCheck, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/form-controls";
+
+const MESSAGE_IDENTIFIANTS = "Utilisateur ou mot de passe incorrect.";
+const MESSAGE_TECHNIQUE = "Une erreur technique est survenue.";
+
+/**
+ * Connexion : `POST /api/auth/login` (le serveur pose le cookie de session),
+ * puis chargement complet du tableau de bord pour repartir avec la session.
+ * Renvoie le message d'erreur à afficher, ou ne rend jamais la main en cas de
+ * réussite (le bouton reste « Connexion… » jusqu'au changement de page).
+ */
+async function loginAction(_prevState: string | undefined, formData: FormData): Promise<string | undefined> {
+    let res: Response;
+    try {
+        res = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({
+                username: String(formData.get("username") ?? ""),
+                password: String(formData.get("password") ?? ""),
+            }),
+        });
+    } catch {
+        return MESSAGE_TECHNIQUE;
+    }
+    if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+        if (typeof body?.error === "string" && body.error) return body.error;
+        return res.status === 401 ? MESSAGE_IDENTIFIANTS : MESSAGE_TECHNIQUE;
+    }
+    await res.text().catch(() => "");
+    window.location.assign("/dashboard");
+    return new Promise<undefined>(() => {});
+}
 
 export function LoginForm() {
     const [error, action, isPending] = useActionState(loginAction, undefined);

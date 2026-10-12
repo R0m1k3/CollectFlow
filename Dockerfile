@@ -1,70 +1,57 @@
-FROM node:20-alpine AS base
+# CollectFlow — image de production.
+#
+# 1. web    : compile l'interface React (Vite) en fichiers statiques.
+# 2. server : compile le serveur Rust (binaire unique, optimisé).
+# 3. runner : Debian minimale + Chromium (extraction Qlik) + les deux livrables.
+#
+# L'image est construite et publiée par GitHub Actions à chaque push sur main
+# (ghcr.io/r0m1k3/collectflow:latest) ; docker-compose la tire au démarrage.
 
-# Install dependencies only when needed
-FROM base AS deps
-# Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine to understand why libc6-compat might be needed.
-RUN apk add --no-cache libc6-compat
+# ---------------------------------------------------------------------------
+FROM node:22-alpine AS web
 WORKDIR /app
-
-# Install dependencies based on the preferred package manager
-COPY package.json package-lock.json* ./
-RUN npm ci
-
-# Rebuild the source code only when needed
-FROM base AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 COPY . .
-
-# Next.js telemetry is disabled
-ENV NEXT_TELEMETRY_DISABLED=1
-# Limit workers and increase memory to prevent OOM
-ENV NODE_OPTIONS="--max-old-space-size=4096"
-ENV NEXT_PRIVATE_WORKER_THREADS=0
-
 RUN npm run build
 
-# Production image, copy all the files and run next
-FROM base AS runner
+# ---------------------------------------------------------------------------
+FROM rust:1-bookworm AS server
+WORKDIR /build
+# Dépendances d'abord : couche réutilisée tant que Cargo.lock ne change pas.
+COPY server/Cargo.toml server/Cargo.lock ./
+RUN mkdir src && echo "fn main() {}" > src/main.rs \
+    && cargo build --release --locked \
+    && rm -rf src target/release/deps/collectflow* target/release/collectflow*
+COPY server/ ./
+RUN cargo build --release --locked && cp target/release/collectflow /collectflow
+
+# ---------------------------------------------------------------------------
+FROM debian:bookworm-slim AS runner
 WORKDIR /app
 
-ENV NODE_ENV=production
-# Next.js telemetry is disabled
-ENV NEXT_TELEMETRY_DISABLED=1
+# Chromium pour l'extraction Qlik (websocket Engine ouvert dans la page) + polices.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends chromium ca-certificates fonts-liberation fonts-freefont-ttf tzdata \
+    && rm -rf /var/lib/apt/lists/*
 
-# Chromium pour l'extraction Qlik via Playwright (ws in-page) + dépendances headless
-RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont
-ENV PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium-browser
+# Même UID/GID que l'ancienne image Node : le volume /app/data existant reste lisible.
+RUN groupadd --system --gid 1001 collectflow \
+    && useradd --system --uid 1001 --gid collectflow --home-dir /app collectflow \
+    && mkdir -p /app/data \
+    && chown -R collectflow:collectflow /app
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+COPY --from=server /collectflow /app/collectflow
+COPY --from=web --chown=collectflow:collectflow /app/dist /app/web
 
-COPY --from=builder /app/public ./public
+ENV PORT=5643 \
+    HOSTNAME=0.0.0.0 \
+    DATA_DIR=/app/data \
+    STATIC_DIR=/app/web \
+    PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium
 
-# Set the correct permission for prerender cache and data storage
-RUN mkdir .next data
-RUN chown nextjs:nodejs .next data
-
-# Automatically leverage output traces to reduce image size
-# https://nextjs.org/docs/advanced-features/output-file-tracing
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-
-# playwright-core n'est pas toujours tracé par le standalone — on le copie explicitement
-COPY --from=deps --chown=nextjs:nodejs /app/node_modules/playwright-core ./node_modules/playwright-core
-
-# Grant write access to /app for settings persistence
-RUN chown -R nextjs:nodejs /app
-
-COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
-
-USER nextjs
-
+USER collectflow
 EXPOSE 5643
+VOLUME ["/app/data"]
 
-ENV PORT=5643
-# set hostname to localhost
-ENV HOSTNAME="0.0.0.0"
-
-# Run the DB init script, then start the standalone server
-CMD node scripts/db-init.js && node server.js
+CMD ["/app/collectflow"]

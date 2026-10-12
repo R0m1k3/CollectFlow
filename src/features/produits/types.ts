@@ -8,8 +8,8 @@ import type {
     PgProduitSearchRow,
     PgProduitStockRow,
     PgGammeHistoryRow,
-} from "@/lib/pg-ff-client";
-import type { NetworkMetricCached } from "@/lib/qlik-network-cache";
+    NetworkMetricCached,
+} from "@/types/ff";
 
 /**
  * Une ligne de résultat de recherche produit.

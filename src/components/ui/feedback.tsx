@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Retours à l'utilisateur, communs à toute l'application :
  * - `toast.succes / toast.erreur / toast.info` : message discret en bas à droite,

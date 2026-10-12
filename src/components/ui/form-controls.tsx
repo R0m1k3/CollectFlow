@@ -1,5 +1,3 @@
-"use client";
-
 import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
 import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";

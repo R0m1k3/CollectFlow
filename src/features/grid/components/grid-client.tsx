@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import { HeatmapGrid } from "@/features/grid/components/heatmap-grid";
 import { FloatingSummaryBar } from "@/features/grid/components/floating-summary-bar";

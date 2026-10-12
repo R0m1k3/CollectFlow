@@ -1,9 +1,7 @@
-"use client";
-
 import { useState } from "react";
 import Link from "next/link";
 import { Loader2, RefreshCw, TrendingUp } from "lucide-react";
-import type { PgOpportuniteRow } from "@/lib/pg-ff-client";
+import type { PgOpportuniteRow } from "@/types/ff";
 import { Button } from "@/components/ui/button";
 import { DataTable, type DataColumn } from "@/components/ui/data-table";
 import { EmptyState, ErrorState } from "@/components/ui/states";
