@@ -4,12 +4,76 @@
 //! Le calcul SQL de la Grille peut manquer les ventes d'un magasin pour certains
 //! articles (quantité à 0 pour ce magasin). L'API FF les connaît : on en tire,
 //! pour ces articles seulement, les séries et totaux du magasin.
-//!
-//! `buildStorePatchEntries` (qui lit les entrées mensuelles de l'API FF) viendra
-//! avec le calcul de la grille (phase 2).
 
 use super::types::{ProductRow, StorePatchEntry};
+use crate::ff::api::FfMensuelEntry;
+use crate::ff::js::js_number_or0;
 use std::collections::HashMap;
+
+/// Chiffres du magasin tirés de l'API, pour les articles où elle montre des ventes.
+///
+/// `retenus` : codes article des candidats retenus (cf. [`store_patch_candidates`]).
+pub fn build_store_patch_entries(
+    retenus: &[String],
+    magasin: &str,
+    periods: &[String],
+    mensuel: &HashMap<String, Vec<FfMensuelEntry>>,
+) -> Vec<StorePatchEntry> {
+    struct Valeurs {
+        qty: f64,
+        ca: f64,
+        marge: f64,
+        stock: f64,
+        receptions: f64,
+    }
+    let mut resultat = Vec::new();
+    for codein in retenus {
+        let entries: Vec<&FfMensuelEntry> =
+            mensuel.get(codein).map(|v| v.iter().filter(|e| e.site == magasin).collect()).unwrap_or_default();
+        if entries.is_empty() {
+            continue;
+        }
+
+        let mut by_period: HashMap<String, Valeurs> = HashMap::new();
+        for entry in entries {
+            let period = entry.mois.replacen('-', "", 1);
+            if !periods.contains(&period) {
+                continue;
+            }
+            let ventes = entry.ventes.as_ref();
+            // qte_vendue / ca_ht sont NÉGATIFS côté API (ventes nettes) : on
+            // les nie au lieu de Math.abs pour que les retours restent déduits.
+            let qty = -ventes.map(|v| js_number_or0(&v.qte_vendue)).unwrap_or(0.0);
+            let ca = -ventes.map(|v| js_number_or0(&v.ca_ht)).unwrap_or(0.0);
+            let marge = ventes.map(|v| js_number_or0(&v.marge)).unwrap_or(0.0);
+            let stock = js_number_or0(&entry.stock_fin_mois);
+            let receptions = entry.receptions.as_ref().map(|r| js_number_or0(&r.qte_recue)).unwrap_or(0.0);
+            by_period.insert(period, Valeurs { qty, ca, marge, stock, receptions });
+        }
+
+        let api_qty: f64 = by_period.values().map(|v| v.qty).sum();
+        if api_qty == 0.0 {
+            continue;
+        }
+
+        let mut e = StorePatchEntry { codein: codein.clone(), ..Default::default() };
+        let mut last_stock = 0.0;
+        for period in periods {
+            let value = by_period.get(period);
+            e.sales.insert(period.clone(), value.map(|v| v.qty).unwrap_or(0.0));
+            e.receptions.insert(period.clone(), value.map(|v| v.receptions).unwrap_or(0.0));
+            if let Some(v) = value {
+                last_stock = v.stock;
+            }
+            e.stock.insert(period.clone(), last_stock);
+            e.quantite += value.map(|v| v.qty).unwrap_or(0.0);
+            e.ca += value.map(|v| v.ca).unwrap_or(0.0);
+            e.marge += value.map(|v| v.marge).unwrap_or(0.0);
+        }
+        resultat.push(e);
+    }
+    resultat
+}
 
 /// Articles à compléter : connus de FF (noid) et sans aucune vente SQL dans ce magasin.
 pub fn store_patch_candidates<'a>(rows: &'a [ProductRow], magasin: &str) -> Vec<&'a ProductRow> {
@@ -76,6 +140,31 @@ pub fn apply_store_patch_in_place(rows: &mut [ProductRow], magasin: &str, period
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn complement_depuis_l_api() {
+        let periods = vec!["202601".to_string(), "202602".to_string(), "202603".to_string()];
+        let entree = |mois: &str, site: &str, qte: &str| -> FfMensuelEntry {
+            serde_json::from_value(serde_json::json!({
+                "mois": mois, "site": site, "stock_fin_mois": "5.000",
+                "ventes": { "qte_vendue": qte, "ca_ht": "-26.66", "marge": "12.76" }, "receptions": null
+            }))
+            .unwrap()
+        };
+        let mut mensuel = HashMap::new();
+        mensuel.insert(
+            "A1".to_string(),
+            vec![entree("2026-01", "292", "-2.000"), entree("2026-02", "579", "-9"), entree("2025-01", "292", "-4")],
+        );
+        mensuel.insert("A2".to_string(), vec![entree("2026-01", "292", "0")]);
+        let e = build_store_patch_entries(&["A1".into(), "A2".into(), "A3".into()], "292", &periods, &mensuel);
+        assert_eq!(e.len(), 1, "A2 sans vente, A3 sans donnée");
+        assert_eq!(e[0].quantite, 2.0);
+        assert!((e[0].ca - 26.66).abs() < 1e-9);
+        assert_eq!(e[0].sales["202602"], 0.0);
+        assert_eq!(e[0].stock["202603"], 5.0, "stock reporté");
+        assert_eq!(serde_json::to_value(&e[0]).unwrap()["receptions"], serde_json::json!({ "202601": 0, "202602": 0, "202603": 0 }));
+    }
 
     #[test]
     fn complement_reporte_sur_les_totaux() {
