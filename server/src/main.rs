@@ -1,4 +1,7 @@
+// Les modules portés gardent quelques utilitaires et types de l'ancienne
+// version sans appelant (déjà inutilisés côté TypeScript) : on ne les signale pas.
 #![allow(dead_code)]
+
 //! CollectFlow — serveur.
 //!
 //! Un binaire unique : API JSON (interface + `/api/v1` publique), accès à la
