@@ -159,3 +159,43 @@ async fn file_qlik_sequentielle() {
     let attendu: Vec<String> = (0..4).flat_map(|i| [format!("début {i}"), format!("fin {i}")]).collect();
     assert_eq!(o, attendu);
 }
+
+/// Extraction complète (NTLM → ticket → cookie → page → jeton CSRF → websocket
+/// Engine → 12 mois → contrôles) contre le faux Qlik de `tests/faux-qlik` :
+///
+/// ```text
+/// tests/faux-qlik/lancer.sh NB_CODES=2000 DELAI_MS=40000   # extraction de plusieurs minutes
+/// NB_CODES=2000 cargo test extraction_faux_qlik -- --ignored --nocapture
+/// ```
+///
+/// `FOURNISSEUR_TEST` (défaut `SOVA`, connu du faux Qlik) : un autre code force
+/// la sélection par codes articles. `CHROMIUM_DISTANT=http://127.0.0.1:9333` :
+/// pilote un Chromium déjà lancé, par exemple celui de l'image de production.
+#[tokio::test]
+#[ignore]
+async fn extraction_faux_qlik() {
+    let _ = tracing_subscriber::fmt().with_env_filter("info").with_test_writer().try_init();
+    if std::env::var("PLAYWRIGHT_CHROMIUM_PATH").is_err() {
+        std::env::set_var("PLAYWRIGHT_CHROMIUM_PATH", "/opt/pw-browsers/chromium-1194/chrome-linux/chrome");
+    }
+    if let Ok(url) = std::env::var("CHROMIUM_DISTANT") {
+        super::browser::utiliser_chromium_distant(&url).await.expect("Chromium distant");
+    }
+    let nb: usize = std::env::var("NB_CODES").ok().and_then(|v| v.parse().ok()).unwrap_or(400);
+    let codes: Vec<String> = (0..nb).map(|i| (10000100000u64 + i as u64).to_string()).collect();
+    let mut cfg = super::client::get_qlik_config();
+    cfg.host = "localhost".into();
+    cfg.user = "FFSCH".into();
+    cfg.password = "Mot2Passe!".into();
+    let df = super::date_range::build_grid_network_qlik_date_filter_now(12);
+    let t0 = std::time::Instant::now();
+    let r = super::playwright::fetch_network_metrics_playwright(Some(codes.clone()), Some(cfg), Some(df.clone()), Some(std::env::var("FOURNISSEUR_TEST").unwrap_or_else(|_| "SOVA".into()))).await;
+    let m = r.expect("extraction");
+    eprintln!("EXTRACTION OK : {} métriques en {:?}, fenêtre {}", m.len(), t0.elapsed(), df.label);
+    let premier = m.values().next().unwrap();
+    eprintln!("exemple {} : {:?}", premier.code_centrale, premier.qte_by_month);
+    assert!(m.len() > nb * 9 / 10);
+    for v in m.values() {
+        assert_eq!(v.qte_by_month.as_ref().unwrap().len(), 12, "{}", v.code_centrale);
+    }
+}

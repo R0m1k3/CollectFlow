@@ -67,9 +67,10 @@ async fn lancer() -> anyhow::Result<Navigateur> {
         .arg("ignore-certificate-errors")
         .user_data_dir(&profil)
         .launch_timeout(Duration::from_secs(60))
-        // Une extraction complète tient dans UN `page.evaluate` (plusieurs
-        // minutes, parfois plus de 15) : pas de délai par commande CDP, comme
-        // Playwright. Les étapes bornées le sont explicitement (tokio::time::timeout).
+        // Délai des commandes passées par le gestionnaire du navigateur. Il ne
+        // couvre PAS les commandes de page, coupées à 30 s par chromiumoxide :
+        // les scripts longs passent donc par `PageQlik::evaluer`, qui n'attend
+        // jamais une commande plus de quelques instants.
         .request_timeout(Duration::from_secs(24 * 3600));
     if let Some(chemin) = chemin_chromium() {
         builder = builder.chrome_executable(chemin);
@@ -114,6 +115,21 @@ pub async fn get_qlik_browser() -> anyhow::Result<Arc<Browser>> {
     let b = n.browser.clone();
     *garde = Some(n);
     Ok(b)
+}
+
+/// Tests : pilote un Chromium déjà lancé (`--remote-debugging-port`), par
+/// exemple celui de l'image Docker de production, au lieu d'en lancer un.
+#[cfg(test)]
+pub async fn utiliser_chromium_distant(url: &str) -> anyhow::Result<()> {
+    let (browser, mut handler) = Browser::connect(url).await.context("[qlik] connexion au Chromium distant")?;
+    let connecte = Arc::new(AtomicBool::new(true));
+    let drapeau = connecte.clone();
+    tokio::spawn(async move {
+        while handler.next().await.is_some() {}
+        drapeau.store(false, Ordering::SeqCst);
+    });
+    *NAVIGATEUR.lock().await = Some(Navigateur { browser: Arc::new(browser), connecte });
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -312,14 +328,57 @@ impl PageQlik {
     /// `page.evaluate(fn, args)` : `source` est le texte d'une fonction JS
     /// (éventuellement async), appelée avec `args` ; la promesse est attendue et
     /// le résultat rendu en JSON (`JSON.stringify` côté page, donc NaN → null).
+    ///
+    /// ⚠️ chromiumoxide coupe toute commande de page au bout de 30 s, en dur
+    /// (`REQUEST_TIMEOUT` de `CommandFuture`, insensible à `request_timeout`).
+    /// Une extraction Qlik dure plusieurs minutes : l'attendre dans un seul
+    /// `Runtime.evaluate` la faisait échouer sur « Request timed out ». Le
+    /// script est donc lancé sans être attendu, et son résultat relevé par des
+    /// évaluations courtes jusqu'à ce qu'il soit prêt.
     pub async fn evaluer(&self, source: &str, args: &Value) -> anyhow::Result<Value> {
-        let expression = format!(
-            "(async () => {{ const __f = (\n{source}\n); const __r = await __f({}); return JSON.stringify(__r === undefined ? null : __r); }})()",
+        static TRAVAUX: AtomicUsize = AtomicUsize::new(0);
+        let cle = serde_json::to_string(&format!("__cf_eval_{}", TRAVAUX.fetch_add(1, Ordering::SeqCst)))?;
+        let lancement = format!(
+            "(() => {{ const __e = window[{cle}] = {{ fini: false }}; \
+             Promise.resolve().then(() => (\n{source}\n)({})).then( \
+               (r) => {{ __e.json = JSON.stringify(r === undefined ? null : r); __e.fini = true; }}, \
+               (e) => {{ __e.erreur = String((e && e.stack) || e); __e.fini = true; }}); \
+             return true; }})()",
             serde_json::to_string(args)?
         );
+        self.evaluer_court(lancement).await?;
+
+        let releve = format!(
+            "(() => {{ const __e = window[{cle}]; if (!__e) return {{ absent: true }}; if (!__e.fini) return null; \
+             delete window[{cle}]; return __e.erreur !== undefined ? {{ erreur: __e.erreur }} : {{ json: __e.json }}; }})()"
+        );
+        let mut pause = Duration::from_millis(20);
+        loop {
+            tokio::time::sleep(pause).await;
+            pause = (pause * 2).min(Duration::from_secs(1));
+            let etat = self.evaluer_court(releve.clone()).await?;
+            if etat.is_null() {
+                continue;
+            }
+            if etat.get("absent").is_some() {
+                // La page a été rechargée : le script et son état ont disparu.
+                return Err(anyhow!("Execution context was destroyed (page rechargée pendant l'évaluation)"));
+            }
+            if let Some(erreur) = etat.get("erreur").and_then(|e| e.as_str()) {
+                return Err(anyhow!("{erreur}"));
+            }
+            return match etat.get("json").and_then(|j| j.as_str()) {
+                Some(s) => Ok(serde_json::from_str(s)?),
+                None => Ok(Value::Null),
+            };
+        }
+    }
+
+    /// `Runtime.evaluate` d'une expression synchrone, résultat par valeur.
+    /// Doit rester bien en deçà des 30 s de chromiumoxide (cf. [`Self::evaluer`]).
+    async fn evaluer_court(&self, expression: String) -> anyhow::Result<Value> {
         let params = EvaluateParams::builder()
             .expression(expression)
-            .await_promise(true)
             .return_by_value(true)
             .build()
             .map_err(|e| anyhow!("[qlik] paramètres d'évaluation : {e}"))?;
@@ -328,11 +387,7 @@ impl PageQlik {
             let message = ex.exception.as_ref().and_then(|e| e.description.clone()).unwrap_or_else(|| ex.text.clone());
             return Err(anyhow!("{message}"));
         }
-        match &res.result.result.value {
-            Some(Value::String(s)) => Ok(serde_json::from_str(s)?),
-            Some(v) => Ok(v.clone()),
-            None => Ok(Value::Null),
-        }
+        Ok(res.result.result.value.clone().unwrap_or(Value::Null))
     }
 
     /// Ferme la page puis le contexte (`ctx.close()`).
