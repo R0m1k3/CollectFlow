@@ -36,7 +36,7 @@ export function SyncQlikButton({ codeFournisseur, lastUpdate }: SyncQlikButtonPr
     return (
         <div className="flex items-center gap-2">
             <span
-                className="text-xs leading-tight text-right whitespace-nowrap hidden xl:block"
+                className={`text-xs leading-tight text-right ${status === "error" ? "max-w-[420px] line-clamp-2" : "whitespace-nowrap hidden xl:block"}`}
                 style={{ color: status === "error" ? "var(--accent-error)" : "var(--text-muted)" }}
                 title={message || undefined}
             >

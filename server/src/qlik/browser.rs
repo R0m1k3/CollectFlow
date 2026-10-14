@@ -67,10 +67,9 @@ async fn lancer() -> anyhow::Result<Navigateur> {
         .arg("ignore-certificate-errors")
         .user_data_dir(&profil)
         .launch_timeout(Duration::from_secs(60))
-        // Délai des commandes passées par le gestionnaire du navigateur. Il ne
-        // couvre PAS les commandes de page, coupées à 30 s par chromiumoxide :
-        // les scripts longs passent donc par `PageQlik::evaluer`, qui n'attend
-        // jamais une commande plus de quelques instants.
+        // Délai des commandes internes du gestionnaire CDP. Il ne couvre PAS
+        // `page.execute`, borné à 30 s par chromiumoxide : les évaluations
+        // longues passent par un relevé périodique (cf. `PageQlik::evaluer`).
         .request_timeout(Duration::from_secs(24 * 3600));
     if let Some(chemin) = chemin_chromium() {
         builder = builder.chrome_executable(chemin);
@@ -329,54 +328,49 @@ impl PageQlik {
     /// (éventuellement async), appelée avec `args` ; la promesse est attendue et
     /// le résultat rendu en JSON (`JSON.stringify` côté page, donc NaN → null).
     ///
-    /// ⚠️ chromiumoxide coupe toute commande de page au bout de 30 s, en dur
-    /// (`REQUEST_TIMEOUT` de `CommandFuture`, insensible à `request_timeout`).
-    /// Une extraction Qlik dure plusieurs minutes : l'attendre dans un seul
-    /// `Runtime.evaluate` la faisait échouer sur « Request timed out ». Le
-    /// script est donc lancé sans être attendu, et son résultat relevé par des
-    /// évaluations courtes jusqu'à ce qu'il soit prêt.
+    /// ⚠️ chromiumoxide abandonne toute commande CDP au bout de 30 s
+    /// (« Request timed out. »), quel que soit `request_timeout` : la constante
+    /// est codée en dur dans `CommandFuture`. Une extraction Qlik dure plusieurs
+    /// minutes : attendre la promesse dans un seul `Runtime.evaluate` la faisait
+    /// échouer à coup sûr. Le script est donc lancé sans être attendu, son
+    /// résultat rangé dans `window`, et relevé par des évaluations courtes.
     pub async fn evaluer(&self, source: &str, args: &Value) -> anyhow::Result<Value> {
-        static TRAVAUX: AtomicUsize = AtomicUsize::new(0);
-        let cle = serde_json::to_string(&format!("__cf_eval_{}", TRAVAUX.fetch_add(1, Ordering::SeqCst)))?;
+        static EVALUATIONS: AtomicUsize = AtomicUsize::new(0);
+        let cle = serde_json::to_string(&format!("__cf_eval_{}", EVALUATIONS.fetch_add(1, Ordering::SeqCst)))?;
         let lancement = format!(
-            "(() => {{ const __e = window[{cle}] = {{ fini: false }}; \
-             Promise.resolve().then(() => (\n{source}\n)({})).then( \
-               (r) => {{ __e.json = JSON.stringify(r === undefined ? null : r); __e.fini = true; }}, \
-               (e) => {{ __e.erreur = String((e && e.stack) || e); __e.fini = true; }}); \
+            "(() => {{ const __k = {cle}; window[__k] = {{ fini: false }}; \
+             (async () => {{ const __f = (\n{source}\n); const __r = await __f({args}); return JSON.stringify(__r === undefined ? null : __r); }})()\
+             .then((json) => {{ window[__k] = {{ fini: true, json }}; }}, \
+                   (e) => {{ window[__k] = {{ fini: true, erreur: (e && e.stack) ? String(e.stack) : String(e) }}; }}); \
              return true; }})()",
-            serde_json::to_string(args)?
+            args = serde_json::to_string(args)?
         );
         self.evaluer_court(lancement).await?;
 
         let releve = format!(
-            "(() => {{ const __e = window[{cle}]; if (!__e) return {{ absent: true }}; if (!__e.fini) return null; \
-             delete window[{cle}]; return __e.erreur !== undefined ? {{ erreur: __e.erreur }} : {{ json: __e.json }}; }})()"
+            "(() => {{ const __k = {cle}; const e = window[__k]; \
+             if (e === undefined) return JSON.stringify({{ perdu: true }}); \
+             if (!e.fini) return null; delete window[__k]; return JSON.stringify(e); }})()"
         );
-        let mut pause = Duration::from_millis(20);
         loop {
-            tokio::time::sleep(pause).await;
-            pause = (pause * 2).min(Duration::from_secs(1));
-            let etat = self.evaluer_court(releve.clone()).await?;
-            if etat.is_null() {
-                continue;
-            }
-            if etat.get("absent").is_some() {
-                // La page a été rechargée : le script et son état ont disparu.
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let Some(Value::String(etat)) = self.evaluer_court(releve.clone()).await? else { continue };
+            let etat: Value = serde_json::from_str(&etat)?;
+            if etat.get("perdu").is_some() {
                 return Err(anyhow!("Execution context was destroyed (page rechargée pendant l'évaluation)"));
             }
             if let Some(erreur) = etat.get("erreur").and_then(|e| e.as_str()) {
                 return Err(anyhow!("{erreur}"));
             }
             return match etat.get("json").and_then(|j| j.as_str()) {
-                Some(s) => Ok(serde_json::from_str(s)?),
+                Some(json) => Ok(serde_json::from_str(json)?),
                 None => Ok(Value::Null),
             };
         }
     }
 
-    /// `Runtime.evaluate` d'une expression synchrone, résultat par valeur.
-    /// Doit rester bien en deçà des 30 s de chromiumoxide (cf. [`Self::evaluer`]).
-    async fn evaluer_court(&self, expression: String) -> anyhow::Result<Value> {
+    /// Un `Runtime.evaluate` qui rend la main aussitôt (valeur JSON brute).
+    async fn evaluer_court(&self, expression: String) -> anyhow::Result<Option<Value>> {
         let params = EvaluateParams::builder()
             .expression(expression)
             .return_by_value(true)
@@ -387,7 +381,7 @@ impl PageQlik {
             let message = ex.exception.as_ref().and_then(|e| e.description.clone()).unwrap_or_else(|| ex.text.clone());
             return Err(anyhow!("{message}"));
         }
-        Ok(res.result.result.value.clone().unwrap_or(Value::Null))
+        Ok(res.result.result.value.clone())
     }
 
     /// Ferme la page puis le contexte (`ctx.close()`).

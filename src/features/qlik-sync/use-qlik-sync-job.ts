@@ -110,9 +110,10 @@ export function useQlikSyncJob({ target, onSuccess, pollIntervalMs = 3000 }: Use
             if (data.status === "success" || data.status === "error") {
                 trackingRef.current = false;
                 if (data.status === "success") onSuccessRef.current?.();
-                // Petit délai pour laisser l'utilisateur lire le message vert/rouge.
+                // Le succès s'efface après un court délai ; une erreur reste
+                // affichée jusqu'à la prochaine tentative, sinon elle passe inaperçue.
                 setTimeout(() => {
-                    setStatus((cur) => (cur === "success" || cur === "error" ? "idle" : cur));
+                    setStatus((cur) => (cur === "success" ? "idle" : cur));
                 }, 4000);
                 return false;
             }
@@ -159,10 +160,10 @@ export function useQlikSyncJob({ target, onSuccess, pollIntervalMs = 3000 }: Use
                     applyJobToUi(data);
                     startPolling();
                 } else if (data.status === "success" || data.status === "error") {
-                    // Job terminé avant le montage : on l'affiche brièvement.
+                    // Job terminé avant le montage : succès affiché brièvement, erreur conservée.
                     applyJobToUi(data);
                     setTimeout(() => {
-                        setStatus((cur) => (cur === "success" || cur === "error" ? "idle" : cur));
+                        setStatus((cur) => (cur === "success" ? "idle" : cur));
                     }, 4000);
                 }
             } catch {
@@ -208,12 +209,13 @@ export function useQlikSyncJob({ target, onSuccess, pollIntervalMs = 3000 }: Use
             }
             // Statut terminal direct (cas rare : 0 code → success immédiat).
             applyJobToUi(data);
-            if (data.status === "success") onSuccessRef.current?.();
-            setTimeout(() => setStatus("idle"), 4000);
+            if (data.status === "success") {
+                onSuccessRef.current?.();
+                setTimeout(() => setStatus("idle"), 4000);
+            }
         } catch (e) {
             setStatus("error");
             setMessage(e instanceof Error ? e.message : String(e));
-            setTimeout(() => setStatus("idle"), 6000);
         }
     }, [applyJobToUi, query, startPolling, status, target.mode]);
 

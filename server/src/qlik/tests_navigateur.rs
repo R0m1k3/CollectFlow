@@ -95,6 +95,20 @@ async fn plomberie_cdp() {
     let err = page.evaluer("() => { throw new Error('boum'); }", &json!(null)).await.unwrap_err().to_string();
     assert!(err.contains("boum"), "{err}");
 
+    // Une extraction dure plusieurs minutes : l'évaluation doit dépasser les
+    // 30 s après lesquelles chromiumoxide abandonne une commande CDP.
+    let r = page
+        .evaluer("async ({ ms }) => { await new Promise((r) => setTimeout(r, ms)); return { ok: true, ms }; }", &json!({ "ms": 35_000 }))
+        .await
+        .expect("évaluation de 35 s");
+    assert_eq!(r, json!({ "ok": true, "ms": 35000 }));
+    let err = page
+        .evaluer("async () => { await new Promise((r) => setTimeout(r, 50)); throw new Error('boum asynchrone'); }", &json!(null))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("boum asynchrone"), "{err}");
+
     // Script embarqué de la recherche, avec ses vrais arguments JSON : le
     // websocket Engine (wss) échoue ici faute de Qlik, et le script le dit.
     let args = json!({

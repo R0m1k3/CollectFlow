@@ -260,6 +260,10 @@ async fn traiter_qlik(code: &str, nom: &Option<String>) {
         e.fournisseur_courant = Some(libelle(code, nom));
         e.etape = Some("qlik");
     }
+    // Journal téléchargeable depuis Paramètres, comme la synchro manuelle : la
+    // sortie du conteneur ne garde pas les milliers de lignes d'une extraction.
+    let journal = format!("sync-nuit_qlik_{}_{}", code, Local::now().format("%Y%m%d-%H%M%S"));
+    crate::logcapture::start_capture(&journal, Some(&format!("synchro de nuit Qlik fournisseur={}", libelle(code, nom))));
     let res: anyhow::Result<Option<usize>> = async {
         let articles = crate::ff::pg::pg_get_articles_by_fournisseur(code).await?;
         let mut vus = HashSet::new();
@@ -276,6 +280,11 @@ async fn traiter_qlik(code: &str, nom: &Option<String>) {
         Ok(Some(n))
     }
     .await;
+    let pied = match &res {
+        Ok(_) => "statut final=success".to_string(),
+        Err(e) => format!("statut final=error — {e:#}"),
+    };
+    crate::logcapture::stop_capture(&journal, Some(&pied));
     let ms = t0.elapsed().as_millis() as i32;
     let Ok(pool) = crate::db::pool() else { return };
     match res {
