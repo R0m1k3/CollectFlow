@@ -67,9 +67,9 @@ async fn lancer() -> anyhow::Result<Navigateur> {
         .arg("ignore-certificate-errors")
         .user_data_dir(&profil)
         .launch_timeout(Duration::from_secs(60))
-        // Une extraction complète tient dans UN `page.evaluate` (plusieurs
-        // minutes, parfois plus de 15) : pas de délai par commande CDP, comme
-        // Playwright. Les étapes bornées le sont explicitement (tokio::time::timeout).
+        // Délai des commandes internes du gestionnaire CDP. Il ne couvre PAS
+        // `page.execute`, borné à 30 s par chromiumoxide : les évaluations
+        // longues passent par un relevé périodique (cf. `PageQlik::evaluer`).
         .request_timeout(Duration::from_secs(24 * 3600));
     if let Some(chemin) = chemin_chromium() {
         builder = builder.chrome_executable(chemin);
@@ -312,14 +312,52 @@ impl PageQlik {
     /// `page.evaluate(fn, args)` : `source` est le texte d'une fonction JS
     /// (éventuellement async), appelée avec `args` ; la promesse est attendue et
     /// le résultat rendu en JSON (`JSON.stringify` côté page, donc NaN → null).
+    ///
+    /// ⚠️ chromiumoxide abandonne toute commande CDP au bout de 30 s
+    /// (« Request timed out. »), quel que soit `request_timeout` : la constante
+    /// est codée en dur dans `CommandFuture`. Une extraction Qlik dure plusieurs
+    /// minutes : attendre la promesse dans un seul `Runtime.evaluate` la faisait
+    /// échouer à coup sûr. Le script est donc lancé sans être attendu, son
+    /// résultat rangé dans `window`, et relevé par des évaluations courtes.
     pub async fn evaluer(&self, source: &str, args: &Value) -> anyhow::Result<Value> {
-        let expression = format!(
-            "(async () => {{ const __f = (\n{source}\n); const __r = await __f({}); return JSON.stringify(__r === undefined ? null : __r); }})()",
-            serde_json::to_string(args)?
+        static EVALUATIONS: AtomicUsize = AtomicUsize::new(0);
+        let cle = serde_json::to_string(&format!("__cf_eval_{}", EVALUATIONS.fetch_add(1, Ordering::SeqCst)))?;
+        let lancement = format!(
+            "(() => {{ const __k = {cle}; window[__k] = {{ fini: false }}; \
+             (async () => {{ const __f = (\n{source}\n); const __r = await __f({args}); return JSON.stringify(__r === undefined ? null : __r); }})()\
+             .then((json) => {{ window[__k] = {{ fini: true, json }}; }}, \
+                   (e) => {{ window[__k] = {{ fini: true, erreur: (e && e.stack) ? String(e.stack) : String(e) }}; }}); \
+             return true; }})()",
+            args = serde_json::to_string(args)?
         );
+        self.evaluer_court(lancement).await?;
+
+        let releve = format!(
+            "(() => {{ const __k = {cle}; const e = window[__k]; \
+             if (e === undefined) return JSON.stringify({{ perdu: true }}); \
+             if (!e.fini) return null; delete window[__k]; return JSON.stringify(e); }})()"
+        );
+        loop {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let Some(Value::String(etat)) = self.evaluer_court(releve.clone()).await? else { continue };
+            let etat: Value = serde_json::from_str(&etat)?;
+            if etat.get("perdu").is_some() {
+                return Err(anyhow!("Execution context was destroyed (page rechargée pendant l'évaluation)"));
+            }
+            if let Some(erreur) = etat.get("erreur").and_then(|e| e.as_str()) {
+                return Err(anyhow!("{erreur}"));
+            }
+            return match etat.get("json").and_then(|j| j.as_str()) {
+                Some(json) => Ok(serde_json::from_str(json)?),
+                None => Ok(Value::Null),
+            };
+        }
+    }
+
+    /// Un `Runtime.evaluate` qui rend la main aussitôt (valeur JSON brute).
+    async fn evaluer_court(&self, expression: String) -> anyhow::Result<Option<Value>> {
         let params = EvaluateParams::builder()
             .expression(expression)
-            .await_promise(true)
             .return_by_value(true)
             .build()
             .map_err(|e| anyhow!("[qlik] paramètres d'évaluation : {e}"))?;
@@ -328,11 +366,7 @@ impl PageQlik {
             let message = ex.exception.as_ref().and_then(|e| e.description.clone()).unwrap_or_else(|| ex.text.clone());
             return Err(anyhow!("{message}"));
         }
-        match &res.result.result.value {
-            Some(Value::String(s)) => Ok(serde_json::from_str(s)?),
-            Some(v) => Ok(v.clone()),
-            None => Ok(Value::Null),
-        }
+        Ok(res.result.result.value.clone())
     }
 
     /// Ferme la page puis le contexte (`ctx.close()`).
