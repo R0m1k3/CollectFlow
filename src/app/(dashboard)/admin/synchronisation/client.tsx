@@ -50,9 +50,11 @@ interface FournisseurRow {
     dernierSqlStatut: string | null;
     dernierSqlLignes: number | null;
     dernierSqlMs: number | null;
+    dernierSqlErreur: string | null;
     dernierQlikAt: string | null;
     dernierQlikStatut: string | null;
     dernierQlikCodes: number | null;
+    dernierQlikErreur: string | null;
 }
 
 interface Resume {
@@ -357,9 +359,23 @@ export function SynchronisationClient() {
         {
             id: "remarque",
             header: "Remarque",
-            cell: (r) => (r.desactiveMotif
-                ? <span className="text-[13px] text-[var(--text-secondary)]">{r.desactiveMotif}</span>
-                : null),
+            // Le badge « Échec » seul ne dit pas quoi corriger : on affiche le
+            // message enregistré par la dernière tentative.
+            cell: (r) => {
+                const erreurs = [
+                    r.dernierSqlStatut === "echec" && r.dernierSqlErreur ? `${VENTES} : ${r.dernierSqlErreur}` : null,
+                    r.dernierQlikStatut === "echec" && r.dernierQlikErreur ? `${RESEAU} : ${r.dernierQlikErreur}` : null,
+                ].filter((e): e is string => e !== null);
+                if (!r.desactiveMotif && erreurs.length === 0) return null;
+                return (
+                    <div className="max-w-[480px] space-y-1 text-[13px]">
+                        {r.desactiveMotif && <div className="text-[var(--text-secondary)]">{r.desactiveMotif}</div>}
+                        {erreurs.map((e) => (
+                            <div key={e} className="break-words text-[var(--accent-error)]">{e}</div>
+                        ))}
+                    </div>
+                );
+            },
         },
     ];
 
