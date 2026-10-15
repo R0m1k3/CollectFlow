@@ -116,6 +116,21 @@ pub async fn get_qlik_browser() -> anyhow::Result<Arc<Browser>> {
     Ok(b)
 }
 
+/// Tests : pilote un Chromium déjà lancé (`--remote-debugging-port`), par
+/// exemple celui de l'image Docker de production, au lieu d'en lancer un.
+#[cfg(test)]
+pub async fn utiliser_chromium_distant(url: &str) -> anyhow::Result<()> {
+    let (browser, mut handler) = Browser::connect(url).await.context("[qlik] connexion au Chromium distant")?;
+    let connecte = Arc::new(AtomicBool::new(true));
+    let drapeau = connecte.clone();
+    tokio::spawn(async move {
+        while handler.next().await.is_some() {}
+        drapeau.store(false, Ordering::SeqCst);
+    });
+    *NAVIGATEUR.lock().await = Some(Navigateur { browser: Arc::new(browser), connecte });
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // File unique des extractions
 // ---------------------------------------------------------------------------

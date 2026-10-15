@@ -298,6 +298,26 @@ mod tests {
         NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
     }
 
+    /// Valeurs de référence calculées par l'ancien `qlik-date-range.ts`
+    /// (`buildGridNetworkQlikDateFilter` + `getMonthRanges`).
+    #[test]
+    fn fenetre_identique_au_ts() {
+        for (jour, label, q_start, q_end, premier_mois) in [
+            ("2026-10-10", "2025-10_2026-09", 45931, 46295, (45931, 45961)),
+            ("2026-10-14", "2025-10_2026-09", 45931, 46295, (45931, 45961)),
+            ("2026-01-05", "2025-01_2025-12", 45658, 46022, (45658, 45688)),
+            ("2026-03-31", "2025-03_2026-02", 45717, 46081, (45717, 45747)),
+        ] {
+            let f = build_grid_network_qlik_date_filter(d(jour), 12);
+            assert_eq!((f.label.as_str(), f.q_start, f.q_end, f.daily_serials.len()), (label, q_start, q_end, 365), "{jour}");
+            let mois = get_month_ranges(&f);
+            assert_eq!(mois.len(), 12, "{jour}");
+            assert_eq!((mois[0].q_start, mois[0].q_end), premier_mois, "{jour}");
+            assert_eq!(mois[11].q_end, q_end, "{jour}");
+            assert_eq!(mois.iter().map(|m| m.daily_serials.len()).sum::<usize>(), 365, "{jour}");
+        }
+    }
+
     // [1] + [2] Repères Qlik et aller-retour.
     #[test]
     fn reperes_qlik() {

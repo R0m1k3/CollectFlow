@@ -1,0 +1,8 @@
+{
+  "name": "collectflow-faux-qlik",
+  "private": true,
+  "description": "Faux serveur Qlik Sense pour le test de bout en bout de l'extraction réseau",
+  "dependencies": {
+    "ws": "8.18.0"
+  }
+}
