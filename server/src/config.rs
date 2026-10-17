@@ -43,6 +43,9 @@ pub struct DbConfig {
     /// API REST FF Nancy (ex. https://api.ffnancy.fr).
     #[serde(default)]
     pub ff_api_base_url: Option<String>,
+    /// Clé d'API FF Nancy, envoyée dans l'en-tête `X-API-Key`.
+    #[serde(default)]
+    pub ff_api_key: Option<String>,
 }
 
 fn read_raw_sync() -> Map<String, Value> {

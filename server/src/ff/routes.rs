@@ -1,7 +1,7 @@
 //! Routes HTTP du module FF : `/api/ff-status`, `/api/diag`,
 //! `/api/diag/stock-fournisseur`, `/api/test-db`, `/api/commandes-auto`.
 
-use super::api::{ff_client, get_ff_api_base};
+use super::api::{avec_cle_ff, ff_client, get_ff_api_base};
 use super::diagnostic::diagnostiquer_api_ff;
 use super::js::{encode, js_string, message_erreur};
 use super::pg::{pg_diag_fournisseur_derniere_entree, pg_get_stock_for_codeins};
@@ -31,7 +31,7 @@ fn string_erreur(e: &dyn std::fmt::Display) -> String {
 /// et *quelle adresse* a été appelée. L'ancienne version renvoyait un 503 sans
 /// détail, impossible à distinguer d'une simple erreur d'URL.
 pub async fn ff_status(_user: SessionUser) -> Response {
-    let res = diagnostiquer_api_ff(None).await;
+    let res = diagnostiquer_api_ff(None, None).await;
     if !res.success {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -115,7 +115,7 @@ pub async fn commandes_auto(_user: SessionUser, Query(q): Query<HashMap<String, 
         }
         let base = get_ff_api_base().await;
         let url = format!("{base}/api/commandes-auto");
-        let res = ff_client().get(&url).query(&params).send().await?;
+        let res = avec_cle_ff(ff_client().get(&url).query(&params)).await.send().await?;
         if !res.status().is_success() {
             let status = res.status();
             return anyhow::Ok(
@@ -142,7 +142,7 @@ pub async fn commandes_auto(_user: SessionUser, Query(q): Query<HashMap<String, 
 /// Résumé d'une sonde : statut HTTP et aperçu du contenu.
 async fn probe(url: String) -> Value {
     let res = async {
-        let res = reqwest::Client::new().get(&url).header(reqwest::header::CACHE_CONTROL, "no-store").send().await?;
+        let res = avec_cle_ff(reqwest::Client::new().get(&url).header(reqwest::header::CACHE_CONTROL, "no-store")).await.send().await?;
         let status = res.status().as_u16();
         let text = res.text().await?;
         anyhow::Ok((status, text))
@@ -189,7 +189,7 @@ fn premiere_liste(data: &Value) -> Vec<Value> {
 }
 
 async fn get_json(url: &str) -> anyhow::Result<Value> {
-    let res = reqwest::Client::new().get(url).header(reqwest::header::CACHE_CONTROL, "no-store").send().await?;
+    let res = avec_cle_ff(reqwest::Client::new().get(url).header(reqwest::header::CACHE_CONTROL, "no-store")).await.send().await?;
     Ok(res.json::<Value>().await?)
 }
 

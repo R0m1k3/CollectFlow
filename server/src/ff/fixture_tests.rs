@@ -247,8 +247,8 @@ async fn module_ff_sur_base_de_test() {
     montrer("get_mensuel_by_articles", api::get_mensuel_by_articles(&ffarts, d, f, 50).await);
     montrer("get_referentiel_by_articles", api::get_referentiel_by_articles(&ffarts, 50).await);
     montrer("get_commandes_by_fournisseur", api::get_commandes_by_fournisseur("F001").await);
-    montrer("diagnostiquer_api_ff", diagnostic::diagnostiquer_api_ff(None).await);
-    montrer("diagnostiquer_api_ff(injoignable)", diagnostic::diagnostiquer_api_ff(Some("http://127.0.0.1:9".into())).await);
+    montrer("diagnostiquer_api_ff", diagnostic::diagnostiquer_api_ff(None, None).await);
+    montrer("diagnostiquer_api_ff(injoignable)", diagnostic::diagnostiquer_api_ff(Some("http://127.0.0.1:9".into()), None).await);
 
     // ── cache.rs
     montrer("get_derniere_reception_cached", cache::get_derniere_reception_cached(&codes(&["F002", "F001"])).await.unwrap());

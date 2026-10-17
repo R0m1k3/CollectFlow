@@ -292,22 +292,28 @@ function SectionFfApi() {
     const [savedUrl, setSavedUrl] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [testedUrl, setTestedUrl] = useState<string | null>(null);
+    // Toujours vide au chargement : la clé enregistrée ne quitte pas le serveur.
+    const [cle, setCle] = useState("");
+    const [cleEnregistree, setCleEnregistree] = useState(false);
+    const [showCle, setShowCle] = useState(false);
 
-    // Charge l'URL enregistrée pour la préremplir (vide = valeur par défaut).
+    // Charge l'URL enregistrée pour la préremplir (vide = valeur par défaut)
+    // et l'indication qu'une clé est enregistrée.
     useEffect(() => {
         loadSavedConfig()
             .then((cfg) => {
                 setSavedUrl(cfg.ffApiBaseUrl || null);
                 if (cfg.ffApiBaseUrl) setUrl(cfg.ffApiBaseUrl);
+                setCleEnregistree(cfg.ffApiKeyEnregistree);
             })
             .catch(() => { /* réglage optionnel ; l'échec de lecture est signalé par la page */ });
     }, []);
 
-    const runTest = useCallback((candidate?: string) => {
+    const runTest = useCallback((candidate?: string, cleCandidate?: string) => {
         setLoading(true);
         setError(null);
         setStatus(null);
-        testFfApiConnection(candidate)
+        testFfApiConnection(candidate, cleCandidate)
             .then((res) => {
                 setTestedUrl(res.url);
                 if (res.success) setStatus(res.status as FfSyncStatus);
@@ -322,13 +328,17 @@ function SectionFfApi() {
     const save = async () => {
         setSaving(true);
         try {
-            const res = await saveFfApiSettings(url);
+            const res = await saveFfApiSettings(url, cle || undefined);
             if (!res.success) {
                 toast.erreur(res.error ?? "Enregistrement impossible.");
                 return;
             }
             setSavedUrl(url.trim() || null);
-            toast.succes(url.trim() ? "Adresse de l'API FF enregistrée." : "L'adresse par défaut de l'API FF sera utilisée.");
+            if (cle) {
+                setCle("");
+                setCleEnregistree(true);
+            }
+            toast.succes(url.trim() ? "Réglages de l'API FF enregistrés." : "Réglages de l'API FF enregistrés (adresse par défaut).");
             runTest(url);
         } catch (e) {
             toast.erreur(`Enregistrement impossible : ${messageErreur(e)}`);
@@ -361,13 +371,36 @@ function SectionFfApi() {
                         className="w-full font-mono"
                     />
                 </Champ>
+                <Champ
+                    id="ff-cle"
+                    label="Clé d'API"
+                    aide={cleEnregistree ? "Laissez vide pour conserver la clé enregistrée." : "Clé fournie par l'administrateur de l'API FF Nancy, envoyée à chaque appel."}
+                >
+                    <div className="relative">
+                        <Input id="ff-cle" type={showCle ? "text" : "password"} placeholder={placeholderMotDePasse(cleEnregistree)} value={cle}
+                            onChange={(e) => setCle(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") void save(); }}
+                            className="w-full pr-10 font-mono" autoComplete="new-password" />
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => setShowCle((v) => !v)}
+                            aria-label={showCle ? "Masquer la clé" : "Afficher la clé"}
+                            title={showCle ? "Masquer la clé" : "Afficher la clé"}
+                            className="absolute right-0.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]"
+                        >
+                            {showCle ? <EyeOff /> : <Eye />}
+                        </Button>
+                    </div>
+                </Champ>
 
                 <div className="flex flex-wrap items-center gap-3 border-t border-[var(--border)] pt-4">
                     <Button onClick={save} disabled={saving}>
                         {saving ? <Loader2 className="animate-spin" /> : <Save />}
                         Enregistrer
                     </Button>
-                    <Button variant="outline" onClick={() => runTest(url)} disabled={loading}>
+                    <Button variant="outline" onClick={() => runTest(url, cle || undefined)} disabled={loading}>
                         {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
                         Tester la connexion
                     </Button>

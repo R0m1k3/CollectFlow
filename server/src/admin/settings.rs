@@ -116,6 +116,9 @@ pub async fn get_parametres_affichables(ctx: Ctx) -> AppResult<Value> {
             "motDePasseEnregistre": config.qlik_password.as_deref().map(|p| !p.is_empty()).unwrap_or(false) || qlik_pwd_env,
         },
         "ffApiBaseUrl": config.ff_api_base_url.clone().unwrap_or_default(),
+        // La clé ne quitte pas le serveur : seulement l'indication qu'il y en a une
+        // (réglage enregistré, puis variable d'environnement `FF_API_KEY`).
+        "ffApiKeyEnregistree": crate::ff::api::resoudre_ff_api_key(config.ff_api_key.clone()).is_some(),
     }))
 }
 
@@ -219,12 +222,14 @@ pub async fn test_qlik_connection(ctx: Ctx) -> AppResult<Value> {
     }
 }
 
-/// Enregistre l'URL de l'API FF Nancy. Chaîne vide = revenir au défaut.
+/// Enregistre l'URL de l'API FF Nancy (chaîne vide = revenir au défaut) et sa
+/// clé d'API (vide ou absente = conserver celle qui est enregistrée).
 pub async fn save_ff_api_settings(ctx: Ctx) -> AppResult<Value> {
     if let Err(e) = ctx.admin().await {
         return Ok(refus(e));
     }
     let brut: String = ctx.arg::<Option<String>>(0)?.unwrap_or_default();
+    let cle: Option<String> = ctx.arg::<Option<String>>(1)?.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     let cleaned = brut.trim().trim_end_matches('/').to_string();
     let lower = cleaned.to_ascii_lowercase();
     if !cleaned.is_empty() && !(lower.starts_with("http://") || lower.starts_with("https://")) {
@@ -232,6 +237,9 @@ pub async fn save_ff_api_settings(ctx: Ctx) -> AppResult<Value> {
     }
     let mut patch = Map::new();
     patch.insert("ffApiBaseUrl".into(), if cleaned.is_empty() { Value::Null } else { Value::String(cleaned.clone()) });
+    if let Some(cle) = cle {
+        patch.insert("ffApiKey".into(), Value::String(cle));
+    }
     match write_config(patch) {
         Ok(()) => {
             // Sans cela, l'ancienne URL resterait servie jusqu'à 30 s après la sauvegarde.
@@ -252,7 +260,8 @@ pub async fn test_ff_api_connection(ctx: Ctx) -> AppResult<Value> {
         return Ok(j!({ "success": false, "url": "", "error": e.message }));
     }
     let base: Option<String> = ctx.arg(0)?;
-    Ok(super::qlik_bridge::diagnostiquer_api_ff(base).await)
+    let cle: Option<String> = ctx.arg::<Option<String>>(1)?;
+    Ok(super::qlik_bridge::diagnostiquer_api_ff(base, cle).await)
 }
 
 #[cfg(test)]

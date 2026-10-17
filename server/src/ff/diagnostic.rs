@@ -5,7 +5,7 @@
 //! route `/api/ff-status` (tout utilisateur connecté). Chaque appelant fait son
 //! propre contrôle d'accès.
 
-use super::api::{normalize_sync_status, status_text, FfSyncStatus, FF_API_BASE_DEFAULT};
+use super::api::{get_ff_api_key, normalize_sync_status, status_text, FfSyncStatus, FF_API_BASE_DEFAULT, FF_API_KEY_HEADER};
 use super::js::truthy;
 use serde::Serialize;
 use serde_json::Value;
@@ -77,7 +77,13 @@ fn message_complet(e: &dyn std::error::Error) -> String {
 /// L'ancien panneau se contentait d'un « HTTP 503 » opaque : impossible de savoir
 /// si l'hôte était injoignable, l'URL erronée ou le service en panne. On distingue
 /// donc ici l'échec réseau (DNS, refus de connexion, délai dépassé) du code HTTP.
-pub async fn diagnostiquer_api_ff(ff_api_base_url: Option<String>) -> DiagnosticApiFf {
+///
+/// `ff_api_key` : clé saisie à tester ; vide ou absente, on reprend la clé enregistrée.
+pub async fn diagnostiquer_api_ff(ff_api_base_url: Option<String>, ff_api_key: Option<String>) -> DiagnosticApiFf {
+    let cle = match ff_api_key.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+        Some(c) => Some(c),
+        None => get_ff_api_key().await,
+    };
     let saisie = ff_api_base_url.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     let base = match saisie {
         Some(b) => b,
@@ -97,9 +103,24 @@ pub async fn diagnostiquer_api_ff(ff_api_base_url: Option<String>) -> Diagnostic
     let started = Instant::now();
 
     let client = reqwest::Client::builder().timeout(Duration::from_millis(8000)).build().unwrap_or_default();
-    match client.get(&url).header(reqwest::header::CACHE_CONTROL, "no-store").send().await {
+    let mut req = client.get(&url).header(reqwest::header::CACHE_CONTROL, "no-store");
+    if let Some(cle) = &cle {
+        req = req.header(FF_API_KEY_HEADER, cle);
+    }
+    match req.send().await {
         Ok(res) => {
             let ms = started.elapsed().as_millis() as u64;
+            // 401/403 : le serveur répond, c'est la clé qui manque ou qui est refusée.
+            if matches!(res.status().as_u16(), 401 | 403) {
+                return DiagnosticApiFf::echec(
+                    &url,
+                    if cle.is_some() {
+                        format!("Clé d'API refusée (HTTP {}) — vérifiez la clé saisie.", res.status().as_u16())
+                    } else {
+                        format!("Clé d'API requise (HTTP {}) — renseignez la clé d'API.", res.status().as_u16())
+                    },
+                );
+            }
             if !res.status().is_success() {
                 let txt = status_text(res.status());
                 return DiagnosticApiFf::echec(
