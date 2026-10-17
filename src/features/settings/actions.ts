@@ -32,6 +32,8 @@ export interface ParametresAffichables {
     } | null;
     qlik: { host: string; user: string; motDePasseEnregistre: boolean };
     ffApiBaseUrl: string;
+    /** Une clé d'API FF est enregistrée (la clé elle-même ne quitte pas le serveur). */
+    ffApiKeyEnregistree: boolean;
 }
 
 export interface ResultatAction {
@@ -67,12 +69,18 @@ export async function testQlikConnection(qlikHost: string, qlikUser: string, qli
     return callAction("testQlikConnection", [qlikHost, qlikUser, qlikPassword]);
 }
 
-/** Enregistre l'URL de l'API FF Nancy. Chaîne vide = revenir au défaut. */
-export async function saveFfApiSettings(ffApiBaseUrl: string): Promise<ResultatAction> {
-    return callAction("saveFfApiSettings", [ffApiBaseUrl]);
+/**
+ * Enregistre l'URL de l'API FF Nancy (chaîne vide = revenir au défaut) et sa clé
+ * d'API (vide ou absente : celle qui est enregistrée est conservée).
+ */
+export async function saveFfApiSettings(ffApiBaseUrl: string, ffApiKey?: string): Promise<ResultatAction> {
+    return callAction("saveFfApiSettings", [ffApiBaseUrl, ffApiKey]);
 }
 
-/** Teste l'API FF Nancy (diagnostic détaillé : DNS, refus, délai, code HTTP). */
-export async function testFfApiConnection(ffApiBaseUrl?: string): Promise<DiagnosticApiFf> {
-    return callAction("testFfApiConnection", [ffApiBaseUrl]);
+/**
+ * Teste l'API FF Nancy (diagnostic détaillé : DNS, refus, délai, code HTTP, clé).
+ * Clé vide ou absente : on teste avec celle qui est enregistrée.
+ */
+export async function testFfApiConnection(ffApiBaseUrl?: string, ffApiKey?: string): Promise<DiagnosticApiFf> {
+    return callAction("testFfApiConnection", [ffApiBaseUrl, ffApiKey]);
 }

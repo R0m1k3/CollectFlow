@@ -3,7 +3,7 @@
 //! commandes fournisseurs et publicités.
 
 use super::actions::lister_cadences;
-use super::api::get_ff_api_base;
+use super::api::{avec_cle_ff, get_ff_api_base};
 use super::cache::get_fournisseurs_cached;
 use super::js::{get, js_number, js_number_to_string, message_erreur};
 use super::pg::{
@@ -223,12 +223,11 @@ async fn fetch_publicites_api(statut: String, page: String) -> PublicitesResult 
     }
     let base = get_ff_api_base().await;
     let res = async {
-        let res = client_publicites()
+        let req = client_publicites()
             .get(format!("{base}/api/publicites"))
             .query(&params)
-            .header(reqwest::header::CACHE_CONTROL, "no-store")
-            .send()
-            .await?;
+            .header(reqwest::header::CACHE_CONTROL, "no-store");
+        let res = avec_cle_ff(req).await.send().await?;
         if !res.status().is_success() {
             return anyhow::Ok(PublicitesResult {
                 data: json_value!([]),
@@ -262,11 +261,10 @@ async fn fetch_publicites_api(statut: String, page: String) -> PublicitesResult 
 async fn fetch_historique_api() -> HistoriqueResult {
     let base = get_ff_api_base().await;
     let res = async {
-        let res = client_publicites()
+        let req = client_publicites()
             .get(format!("{base}/api/publicites/historique"))
-            .header(reqwest::header::CACHE_CONTROL, "no-store")
-            .send()
-            .await?;
+            .header(reqwest::header::CACHE_CONTROL, "no-store");
+        let res = avec_cle_ff(req).await.send().await?;
         if !res.status().is_success() {
             return anyhow::Ok(HistoriqueResult {
                 data: json_value!([]),

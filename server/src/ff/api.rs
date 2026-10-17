@@ -42,9 +42,21 @@ pub fn ff_client() -> &'static reqwest::Client {
     })
 }
 
-/// `fetch(url, ffFetchInit())`.
+/// `fetch(url, ffFetchInit())`, clé d'API comprise.
 pub async fn ff_get(url: &str) -> reqwest::Result<reqwest::Response> {
-    ff_client().get(url).header(reqwest::header::CACHE_CONTROL, "no-store").send().await
+    avec_cle_ff(ff_client().get(url).header(reqwest::header::CACHE_CONTROL, "no-store")).await.send().await
+}
+
+/// En-tête d'authentification attendu par l'API FF Nancy.
+pub const FF_API_KEY_HEADER: &str = "X-API-Key";
+
+/// Ajoute la clé d'API enregistrée (en-tête `X-API-Key`) à une requête vers l'API FF.
+/// Sans clé configurée, la requête part telle quelle.
+pub async fn avec_cle_ff(req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+    match get_ff_api_key().await {
+        Some(cle) => req.header(FF_API_KEY_HEADER, cle),
+        None => req,
+    }
 }
 
 /// Libellé HTTP d'un statut (équivalent de `res.statusText`).
@@ -52,7 +64,43 @@ pub fn status_text(status: reqwest::StatusCode) -> &'static str {
     status.canonical_reason().unwrap_or("")
 }
 
-static FF_API_BASE_CACHE: LazyLock<Mutex<Option<(String, Instant)>>> = LazyLock::new(|| Mutex::new(None));
+/// Réglages de connexion à l'API FF résolus : adresse et clé.
+#[derive(Clone)]
+struct FfApiReglages {
+    base: String,
+    cle: Option<String>,
+}
+
+static FF_API_CACHE: LazyLock<Mutex<Option<(FfApiReglages, Instant)>>> = LazyLock::new(|| Mutex::new(None));
+
+/// Chaîne non vide après `trim`, sinon `None`.
+fn non_vide(s: Option<String>) -> Option<String> {
+    s.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+/// Clé d'API FF : réglage enregistré dans Paramètres → variable d'environnement
+/// `FF_API_KEY` → aucune.
+pub fn resoudre_ff_api_key(configured: Option<String>) -> Option<String> {
+    non_vide(configured).or_else(|| non_vide(std::env::var("FF_API_KEY").ok()))
+}
+
+async fn get_ff_api_reglages() -> FfApiReglages {
+    if let Some((value, at)) = FF_API_CACHE.lock().as_ref() {
+        if at.elapsed() < FF_API_BASE_TTL {
+            return value.clone();
+        }
+    }
+    // Fichier absent ou illisible : on retombe sur l'environnement.
+    let config = tokio::task::spawn_blocking(crate::config::read_config).await.unwrap_or_default();
+    let base = non_vide(config.ff_api_base_url)
+        .or_else(|| non_vide(std::env::var("FF_API_BASE_URL").ok()))
+        .unwrap_or_else(|| FF_API_BASE_DEFAULT.to_string())
+        .trim_end_matches('/')
+        .to_string();
+    let value = FfApiReglages { base, cle: resoudre_ff_api_key(config.ff_api_key) };
+    *FF_API_CACHE.lock() = Some((value.clone(), Instant::now()));
+    value
+}
 
 /// URL de l'API FF Nancy, résolue **au moment de l'appel**.
 ///
@@ -63,31 +111,17 @@ static FF_API_BASE_CACHE: LazyLock<Mutex<Option<(String, Instant)>>> = LazyLock:
 ///
 /// Le résultat est mémorisé 30 s pour ne pas relire le fichier à chaque requête.
 pub async fn get_ff_api_base() -> String {
-    if let Some((value, at)) = FF_API_BASE_CACHE.lock().as_ref() {
-        if at.elapsed() < FF_API_BASE_TTL {
-            return value.clone();
-        }
-    }
-    // Fichier absent ou illisible : on retombe sur l'environnement.
-    let configured = tokio::task::spawn_blocking(|| crate::config::read_config().ff_api_base_url)
-        .await
-        .ok()
-        .flatten()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let env = std::env::var("FF_API_BASE_URL").ok().filter(|s| !s.is_empty());
-    let value = configured
-        .or(env)
-        .unwrap_or_else(|| FF_API_BASE_DEFAULT.to_string())
-        .trim_end_matches('/')
-        .to_string();
-    *FF_API_BASE_CACHE.lock() = Some((value.clone(), Instant::now()));
-    value
+    get_ff_api_reglages().await.base
+}
+
+/// Clé d'API FF Nancy (même cache que l'adresse).
+pub async fn get_ff_api_key() -> Option<String> {
+    get_ff_api_reglages().await.cle
 }
 
 /// Vide le cache — appelé après un enregistrement dans Paramètres.
 pub fn reset_ff_api_base_cache() {
-    *FF_API_BASE_CACHE.lock() = None;
+    *FF_API_CACHE.lock() = None;
 }
 
 // ---------------------------------------------------------------------------

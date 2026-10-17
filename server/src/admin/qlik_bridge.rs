@@ -22,8 +22,8 @@ pub fn reset_ff_api_base() {
 }
 
 /// Diagnostic de l'API FF Nancy.
-pub async fn diagnostiquer_api_ff(base: Option<String>) -> Value {
-    serde_json::to_value(crate::ff::diagnostic::diagnostiquer_api_ff(base).await).unwrap_or(Value::Null)
+pub async fn diagnostiquer_api_ff(base: Option<String>, cle: Option<String>) -> Value {
+    serde_json::to_value(crate::ff::diagnostic::diagnostiquer_api_ff(base, cle).await).unwrap_or(Value::Null)
 }
 
 /// Extraction Qlik d'un fournisseur sur la fenêtre de la synchro (`QLIK_SYNC_MONTHS_BACK`),
