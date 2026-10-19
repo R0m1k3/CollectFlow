@@ -101,4 +101,40 @@ async fn article_sans_fournisseur_principal() {
     assert_eq!(catalogue["CC100001"].fournisseur, "ALPHA");
     assert_eq!(catalogue["CC100003"].fournisseur, "Sans fournisseur");
     assert!(catalogue["CC504202"].codefou.is_empty());
+
+    // Article absent de la base miroir (100003) : l'API FF en direct le connaît.
+    std::env::set_var("FF_API_BASE_URL", fausse_api().await);
+    super::api::reset_ff_api_base_cache();
+    let mut hp = hp;
+    completer_fournisseurs(&mut hp, |r| (r.codein.as_str(), &mut r.fournisseur)).await;
+    for r in &hp {
+        let voulu = if r.codein == "100003" { "FOURNISSEUR API" } else { attendu(&r.codein) };
+        assert_eq!(r.fournisseur, voulu, "hit parade complété {}", r.codein);
+    }
+}
+
+/// Fausse API FF : seul l'article 4 (codein 100003) y a un fournisseur.
+async fn fausse_api() -> String {
+    use axum::extract::{Path, Query};
+    use axum::routing::get;
+    use axum::Json;
+    use serde_json::{json, Value};
+    use std::collections::HashMap;
+    async fn articles(Query(q): Query<HashMap<String, String>>) -> Json<Value> {
+        match q.get("codein").map(|c| c.as_str()) {
+            Some("100003") => Json(json!({ "articles": [{ "no_id": 4, "codein": "100003" }] })),
+            _ => Json(json!({ "articles": [] })),
+        }
+    }
+    async fn referentiel(Path(_id): Path<String>) -> Json<Value> {
+        Json(json!({ "stock": [], "fournisseurs": [{ "codefou": "F9", "nom_fou": " FOURNISSEUR API ", "preference": 0 }] }))
+    }
+    let app = axum::Router::new()
+        .route("/api/articles", get(articles))
+        .route("/api/articles/{id}/referentiel", get(referentiel))
+        .route("/api/articles/{id}/dernier-fournisseur", get(|| async { Json(json!({ "fournisseurs_par_site": [] })) }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    format!("http://{addr}")
 }
