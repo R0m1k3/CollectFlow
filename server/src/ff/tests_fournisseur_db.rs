@@ -108,7 +108,7 @@ async fn article_sans_fournisseur_principal() {
     let mut hp = hp;
     completer_fournisseurs(&mut hp, |r| (r.codein.as_str(), &mut r.fournisseur)).await;
     for r in &hp {
-        let voulu = if r.codein == "100003" { "FOURNISSEUR API" } else { attendu(&r.codein) };
+        let voulu = if r.codein == "100003" { "PUCKATOR BV" } else { attendu(&r.codein) };
         assert_eq!(r.fournisseur, voulu, "hit parade complété {}", r.codein);
     }
 }
@@ -126,13 +126,21 @@ async fn fausse_api() -> String {
             _ => Json(json!({ "articles": [] })),
         }
     }
-    async fn referentiel(Path(_id): Path<String>) -> Json<Value> {
-        Json(json!({ "stock": [], "fournisseurs": [{ "codefou": "F9", "nom_fou": " FOURNISSEUR API ", "preference": 0 }] }))
+    // Comme pour le codein 503996 : fiche sans fournisseur, et seule la
+    // dernière entrée de Houdemont (`?site=579`) donne le fournisseur.
+    async fn dernier(Path(_id): Path<String>, Query(q): Query<HashMap<String, String>>) -> Json<Value> {
+        match q.get("site").map(|s| s.as_str()) {
+            Some("579") => Json(json!({ "fournisseurs_par_site": [{
+                "site": "579", "codefou": "P024", "nom_fournisseur": "PUCKATOR BV ",
+                "date_derniere_entree": "2026-09-29", "qte_entree": 240, "prmp": 1.16
+            }] })),
+            _ => Json(json!({ "fournisseurs_par_site": [] })),
+        }
     }
     let app = axum::Router::new()
         .route("/api/articles", get(articles))
-        .route("/api/articles/{id}/referentiel", get(referentiel))
-        .route("/api/articles/{id}/dernier-fournisseur", get(|| async { Json(json!({ "fournisseurs_par_site": [] })) }));
+        .route("/api/articles/{id}/referentiel", get(|| async { Json(json!({ "stock": [], "fournisseurs": [] })) }))
+        .route("/api/articles/{id}/dernier-fournisseur", get(dernier));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
