@@ -13,6 +13,8 @@ pub mod routes;
 
 #[cfg(test)]
 mod fixture_tests;
+#[cfg(test)]
+mod tests_fournisseur_db;
 
 use crate::handler;
 use crate::rpc::Handler;

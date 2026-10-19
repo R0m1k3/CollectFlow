@@ -1109,7 +1109,8 @@ fn push_filtre_deux_mois(qb: &mut QueryBuilder<'_, Postgres>, mois: &str, mois_n
 }
 
 /// Retourne le CA TTC par fournisseur et site pour deux mois donnés (mois et mois N-1).
-/// Attribution via artfou1.preference = true (fournisseur principal de l'article).
+/// Attribution au fournisseur principal de l'article (artfou1.preference = 1),
+/// sinon au fournisseur référencé le plus récent.
 /// CA NET : SUM(-mntmvtttc) — les retours clients sont déduits (même convention
 /// que pg_get_mensuel_by_fournisseur / pg_get_hit_parade). Fournisseur préféré résolu
 /// via une sous-requête artfou1 dédupliquée (DISTINCT ON) : un seul code par
@@ -1128,8 +1129,7 @@ pub async fn pg_get_ca_by_fournisseur(mois: &str, mois_n1: &str) -> anyhow::Resu
         LEFT JOIN (
             SELECT DISTINCT ON (art_no_id) art_no_id, code
             FROM artfou1
-            WHERE preference = 1
-            ORDER BY art_no_id, code
+            ORDER BY art_no_id, (preference = 1) DESC NULLS LAST, no_id DESC
         ) af ON af.art_no_id = a.no_id
         LEFT JOIN fouident fi ON fi.code     = af.code
         WHERE ",
@@ -1231,7 +1231,8 @@ pub struct HitParadeRow {
 /// portant le même codein (ré-créations d'article), la plus récente d'abord.
 /// Exiger `preference = 1` laissait en « Sans fournisseur » les articles dont
 /// la préférence n'est pas renseignée dans FF ou n'est posée que sur une
-/// ancienne fiche du même codein.
+/// ancienne fiche du même codein. Sans aucune ligne `artfou1`, on prend le
+/// fournisseur des données du réseau (cache Qlik, par code centrale).
 ///
 /// Cas vérifié (codein 487673, site 579, jan→juil 2026) : 31 ventes brutes,
 /// 7 retours clients → 24 net. L'ancien SUM(ABS(qtemvt)) affichait 38 (retours
@@ -1272,12 +1273,13 @@ pub async fn pg_get_hit_parade(date_debut: &str, date_fin: &str) -> anyhow::Resu
                 TRIM(a.codein::text)                                    AS codein,
                 a.libelle1::text                                        AS libelle,
                 COALESCE(TRIM(af.reference::text), '')                  AS reference,
-                COALESCE(fi.nom, af.code, 'Sans fournisseur')::text     AS fournisseur,
+                COALESCE(fi.nom, af.code, qn.fournisseur_reseau, 'Sans fournisseur')::text AS fournisseur,
                 COALESCE(n.code, '')::text                              AS nomenclature_code,
                 COALESCE(n.libelle, 'Sans nomenclature')::text          AS nomenclature
             FROM articles a
             LEFT JOIN fou af ON af.codein = TRIM(a.codein::text)
             LEFT JOIN fouident fi ON fi.code = af.code
+            LEFT JOIN qlik_network_metrics qn ON qn.code_centrale = TRIM(a.artcentrale::text)
             LEFT JOIN nomenclature n ON n.no_id = a.nom_no_id
             WHERE TRIM(a.codein::text) IN (SELECT codein FROM ventes)
             ORDER BY TRIM(a.codein::text), a.no_id DESC
@@ -1488,13 +1490,27 @@ fn last_entry_join(link: Option<MvtartFouLink>, artnoid_expr: &str, site_expr: &
     )
 }
 
+/// Fournisseur d'un article `a`, en jointures FACULTATIVES : un article sans
+/// fournisseur reste listé (en « Sans fournisseur ») au lieu de disparaître.
+///  - `af` / `f` : le principal (`artfou1.preference = 1`) s'il existe, sinon
+///    le fournisseur référencé le plus récent ;
+///  - `qn` : le fournisseur indiqué par les données du réseau (cache Qlik),
+///    pour l'article qu'aucune ligne `artfou1` ne rattache (ex. codein 504202).
+const FOURNISSEUR_ARTICLE_JOIN: &str = "LEFT JOIN (
+            SELECT DISTINCT ON (art_no_id) art_no_id, code
+            FROM artfou1
+            ORDER BY art_no_id, (preference = 1) DESC NULLS LAST, no_id DESC
+        ) af ON af.art_no_id = a.no_id
+        LEFT JOIN fouident f ON f.code = af.code
+        LEFT JOIN qlik_network_metrics qn ON qn.code_centrale = TRIM(a.artcentrale::text)";
+
 /// Libellé fournisseur affiché : celui de la dernière entrée quand la base le
-/// permet, sinon repli documenté sur `artfou1.preference = 1`.
+/// permet, sinon celui de `FOURNISSEUR_ARTICLE_JOIN`.
 fn fournisseur_expr(link: Option<MvtartFouLink>) -> &'static str {
     if link.is_some() {
-        "COALESCE(flast.nom, lastentry.code, f.nom, af.code)"
+        "COALESCE(flast.nom, lastentry.code, f.nom, af.code, qn.fournisseur_reseau, 'Sans fournisseur')"
     } else {
-        "COALESCE(f.nom, af.code)"
+        "COALESCE(f.nom, af.code, qn.fournisseur_reseau, 'Sans fournisseur')"
     }
 }
 
@@ -1604,13 +1620,7 @@ pub async fn pg_get_stock_sans_vente(site: Option<&str>) -> anyhow::Result<Vec<P
             MAX(m.datmvt)::text AS derniere_entree
         FROM mvtart m
         JOIN articles a ON a.no_id = m.artnoid
-        JOIN (
-            SELECT DISTINCT ON (art_no_id) art_no_id, code
-            FROM artfou1
-            WHERE preference = 1
-            ORDER BY art_no_id, code
-        ) af ON af.art_no_id = a.no_id
-        JOIN fouident f ON f.code = af.code
+        {FOURNISSEUR_ARTICLE_JOIN}
         LEFT JOIN cube_stock cs ON cs.artnoid = a.no_id AND cs.site = m.site
         {}
         WHERE m.genremvt IN (1, 2)
@@ -1663,13 +1673,7 @@ pub async fn pg_get_stock_negatif(site: Option<&str>) -> anyhow::Result<Vec<PgSt
             lastentry.datmvt::text AS derniereentree
         FROM cube_stock cs
         JOIN articles a ON a.no_id = cs.artnoid
-        JOIN (
-            SELECT DISTINCT ON (art_no_id) art_no_id, code
-            FROM artfou1
-            WHERE preference = 1
-            ORDER BY art_no_id, code
-        ) af ON af.art_no_id = a.no_id
-        JOIN fouident f ON f.code = af.code
+        {FOURNISSEUR_ARTICLE_JOIN}
         {}
         WHERE cs.qte < 0
           AND cs.site IN ('292', '579')
@@ -1737,13 +1741,7 @@ pub async fn pg_get_sans_vente_6_mois(site: Option<&str>) -> anyhow::Result<Vec<
             lastentry.datmvt::text AS derniere_entree
         FROM cube_stock cs
         JOIN articles a ON a.no_id = cs.artnoid
-        JOIN (
-            SELECT DISTINCT ON (art_no_id) art_no_id, code
-            FROM artfou1
-            WHERE preference = 1
-            ORDER BY art_no_id, code
-        ) af ON af.art_no_id = a.no_id
-        JOIN fouident f ON f.code = af.code
+        {FOURNISSEUR_ARTICLE_JOIN}
         {}
         WHERE cs.site IN ('292', '579')
           AND cs.qte > 0
@@ -1995,7 +1993,8 @@ fn colonne_iso(row: &PgRow, col: &str) -> anyhow::Result<Option<String>> {
 ///
 /// Source : mvtart (genremvt IN (1, 2) = réceptions, voir pg_get_mensuel_by_fournisseur).
 /// La réception est rattachée à l'article ; on l'attribue au fournisseur
-/// principal de l'article (artfou1.preference = 1), comme partout ailleurs.
+/// principal de l'article (artfou1.preference = 1), sinon au fournisseur
+/// référencé le plus récent, comme partout ailleurs.
 ///
 /// Clé de la Map : `${codefou}|${site}`. Map vide en cas d'erreur
 /// (l'UI affichera alors « échéance inconnue »).
@@ -2014,7 +2013,11 @@ pub async fn pg_get_derniere_reception_par_fournisseur(codes: Option<&[String]>)
                 MAX(m.datmvt)  AS derniere
             FROM mvtart m
             JOIN articles a ON a.no_id = m.artnoid
-            JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
+            JOIN (
+                SELECT DISTINCT ON (art_no_id) art_no_id, code
+                FROM artfou1
+                ORDER BY art_no_id, (preference = 1) DESC NULLS LAST, no_id DESC
+            ) af ON af.art_no_id = a.no_id
             WHERE m.genremvt IN (1, 2)
               AND m.site IN ('292', '579')
               AND m.datmvt IS NOT NULL
@@ -2066,7 +2069,8 @@ pub struct PgProduitSearchRow {
     pub codein: String,
     pub code_centrale: String,
     pub libelle1: String,
-    /// Nom du fournisseur principal (artfou1.preference = 1), sinon son code.
+    /// Nom du fournisseur principal (artfou1.preference = 1), sinon d'un autre
+    /// fournisseur référencé, sinon celui des données du réseau.
     pub fournisseur: String,
     pub codefou: String,
     pub nomenclature_code: String,
@@ -2255,7 +2259,7 @@ pub async fn pg_search_produits(term: &str, limit: i64) -> Vec<PgProduitSearchRo
                 m.codein,
                 m.code_centrale,
                 m.libelle1,
-                COALESCE(fi.nom, af.code, 'Sans fournisseur')::text AS fournisseur,
+                COALESCE(fi.nom, af.code, q.fournisseur_reseau, 'Sans fournisseur')::text AS fournisseur,
                 COALESCE(af.code, '')::text                         AS codefou,
                 COALESCE(n.code, '')::text                          AS nomenclature_code,
                 COALESCE(n.libelle, '')::text                       AS nomenclature,
@@ -2341,7 +2345,7 @@ pub async fn pg_get_produits_by_code_centrale(codes_centraux: &[String]) -> Hash
                 m.codein,
                 m.code_centrale,
                 m.libelle1,
-                COALESCE(fi.nom, af.code, 'Sans fournisseur')::text AS fournisseur,
+                COALESCE(fi.nom, af.code, q.fournisseur_reseau, 'Sans fournisseur')::text AS fournisseur,
                 COALESCE(af.code, '')::text                         AS codefou,
                 COALESCE(n.code, '')::text                          AS nomenclature_code,
                 COALESCE(n.libelle, '')::text                       AS nomenclature,
@@ -2364,6 +2368,7 @@ pub async fn pg_get_produits_by_code_centrale(codes_centraux: &[String]) -> Hash
                 FROM cube_stock cs
                 WHERE cs.artnoid = m.no_id AND cs.site IN ('292', '579')
             ) st ON TRUE
+            LEFT JOIN qlik_network_metrics q ON q.code_centrale = m.code_centrale
         ",
     );
 
@@ -2880,7 +2885,8 @@ pub async fn pg_get_opportunites_famille(nom_no_id: i64, date_debut: &str, date_
                     q.qte_reseau::float             AS qte_reseau,
                     q.nb_magasins_reseau            AS nb_magasins_reseau,
                     COALESCE(q.ca_reseau, 0)::float AS ca_reseau,
-                    COALESCE(q.ca_par_magasin_reseau, 0)::float AS ca_par_magasin_reseau
+                    COALESCE(q.ca_par_magasin_reseau, 0)::float AS ca_par_magasin_reseau,
+                    q.fournisseur_reseau
                 FROM famille f
                 JOIN qlik_network_metrics q ON q.code_centrale = f.code_centrale
                 WHERE q.nb_magasins_reseau > 0
@@ -2903,7 +2909,7 @@ pub async fn pg_get_opportunites_famille(nom_no_id: i64, date_debut: &str, date_
                 r.codein,
                 r.libelle1,
                 r.code_centrale,
-                COALESCE(fi.nom, af.code, 'Sans fournisseur')::text AS fournisseur,
+                COALESCE(fi.nom, af.code, r.fournisseur_reseau, 'Sans fournisseur')::text AS fournisseur,
                 r.qte_reseau,
                 r.nb_magasins_reseau,
                 r.ca_reseau,
