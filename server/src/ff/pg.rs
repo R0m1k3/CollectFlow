@@ -851,6 +851,103 @@ async fn enrichir_article_dashboard(base: &str, codein: &str, out: &mut Enrichis
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Fournisseur manquant — repli sur l'API FF en direct
+// ---------------------------------------------------------------------------
+
+/// Libellé posé par les requêtes quand aucun fournisseur n'est trouvé.
+pub const SANS_FOURNISSEUR: &str = "Sans fournisseur";
+
+/// Au plus autant d'articles interrogés par appel (les premiers de la liste,
+/// donc les plus gros CA du Hit Parade) : chacun coûte 3 appels à l'API FF.
+const MAX_FOURNISSEURS_API: usize = 200;
+
+/// Réponses de l'API déjà obtenues, y compris « aucun fournisseur », pour ne
+/// pas réinterroger l'API à chaque page ni à chaque onglet.
+type MemoFournisseurs = HashMap<String, (std::time::Instant, Option<String>)>;
+static FOURNISSEURS_API: LazyLock<parking_lot::Mutex<MemoFournisseurs>> = LazyLock::new(Default::default);
+
+/// Fournisseur d'articles que la base miroir ne rattache à aucun fournisseur :
+/// aucune ligne `artfou1`, typiquement un article créé depuis la dernière
+/// recopie de FF (codeins 503996, 504022…, sans référence ni fournisseur).
+/// L'API FF répond en direct : fournisseur de la dernière entrée en stock,
+/// sinon celui du référentiel (même règle que le tableau de bord).
+/// Les codeins sans réponse sont absents de la map.
+pub async fn ff_fournisseurs_par_codein(codeins: &[String]) -> HashMap<String, String> {
+    let ttl = crate::ff_cache::default_ttl();
+    let mut out = HashMap::new();
+    let mut a_lire = vec![];
+    {
+        let memo = FOURNISSEURS_API.lock();
+        for c in codeins {
+            match memo.get(c) {
+                Some((t, f)) if t.elapsed() < ttl => out.extend(f.clone().map(|f| (c.clone(), f))),
+                _ if a_lire.len() < MAX_FOURNISSEURS_API => a_lire.push(c.clone()),
+                _ => {}
+            }
+        }
+    }
+    if a_lire.is_empty() {
+        return out;
+    }
+    let base = get_ff_api_base().await;
+    let lus: Vec<(String, Option<String>)> = futures::stream::iter(a_lire)
+        .map(|codein| {
+            let base = base.clone();
+            async move {
+                let mut e = EnrichissementDashboard::default();
+                if let Err(err) = enrichir_article_dashboard(&base, &codein, &mut e).await {
+                    tracing::error!("[pg-ff] fournisseur API pour {codein} : {}", message_erreur(&err));
+                }
+                (codein, e.fournisseur.filter(|f| !f.is_empty()))
+            }
+        })
+        .buffer_unordered(12)
+        .collect()
+        .await;
+    tracing::info!(
+        "[pg-ff] fournisseur via l'API FF : {}/{} article(s) résolu(s)",
+        lus.iter().filter(|(_, f)| f.is_some()).count(),
+        lus.len()
+    );
+    let mut memo = FOURNISSEURS_API.lock();
+    let maintenant = std::time::Instant::now();
+    for (codein, f) in lus {
+        if let Some(f) = &f {
+            out.insert(codein.clone(), f.clone());
+        }
+        memo.insert(codein, (maintenant, f));
+    }
+    out
+}
+
+/// Complète, via l'API FF, le fournisseur des lignes restées en
+/// « Sans fournisseur » après la requête SQL. `champs` donne le codein et le
+/// fournisseur d'une ligne.
+pub async fn completer_fournisseurs<T>(rows: &mut [T], champs: fn(&mut T) -> (&str, &mut String)) {
+    let mut vus = HashSet::new();
+    let manquants: Vec<String> = rows
+        .iter_mut()
+        .filter_map(|r| {
+            let (codein, fou) = champs(r);
+            (fou == SANS_FOURNISSEUR && !codein.trim().is_empty()).then(|| codein.trim().to_string())
+        })
+        .filter(|c| vus.insert(c.clone()))
+        .collect();
+    if manquants.is_empty() {
+        return;
+    }
+    let trouves = ff_fournisseurs_par_codein(&manquants).await;
+    for r in rows.iter_mut() {
+        let (codein, fou) = champs(r);
+        if let Some(f) = trouves.get(codein.trim()) {
+            if fou == SANS_FOURNISSEUR {
+                *fou = f.clone();
+            }
+        }
+    }
+}
+
 /// Retourne toutes les données nécessaires pour le dashboard quotidien.
 /// 100% via l'API REST api.ffnancy.fr — aucune requête PostgreSQL directe.
 /// N-1 : même jour de semaine (52 semaines = 364 jours avant hier).

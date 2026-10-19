@@ -7,7 +7,7 @@ use super::api::{avec_cle_ff, get_ff_api_base};
 use super::cache::get_fournisseurs_cached;
 use super::js::{get, js_number, js_number_to_string, message_erreur};
 use super::pg::{
-    pg_get_ca_by_fournisseur, pg_get_ca_by_nomenclature, pg_get_commandes_auto, pg_get_dashboard_data, pg_get_hit_parade,
+    completer_fournisseurs, pg_get_ca_by_fournisseur, pg_get_ca_by_nomenclature, pg_get_commandes_auto, pg_get_dashboard_data, pg_get_hit_parade,
     pg_get_sans_vente_6_mois, pg_get_stock_negatif, pg_get_stock_sans_vente, PgCommandeAutoRow,
 };
 use crate::error::{AppError, AppResult};
@@ -115,7 +115,9 @@ pub async fn page_hit_parade(ctx: Ctx) -> AppResult<Value> {
 
     let (d, f) = (date_debut.clone(), date_fin.clone());
     match cached(&format!("hit-parade:{date_debut}:{date_fin}"), CacheOpts::default(), move || async move {
-        pg_get_hit_parade(&d, &f).await
+        let mut rows = pg_get_hit_parade(&d, &f).await?;
+        completer_fournisseurs(&mut rows, |r| (r.codein.as_str(), &mut r.fournisseur)).await;
+        anyhow::Ok(rows)
     })
     .await
     {
@@ -142,10 +144,20 @@ pub async fn page_stock_negatif(ctx: Ctx) -> AppResult<Value> {
     let (k1, k2, k3) =
         (format!("stock-negatif:{magasin}"), format!("stock-sans-vente:{magasin}"), format!("stock-sans-vente-6-mois:{magasin}"));
     let res = tokio::try_join!(
-        cached(&k1, CacheOpts::default(), move || async move { pg_get_stock_negatif(s1.as_deref()).await }),
-        cached(&k2, CacheOpts::default(), move || async move { pg_get_stock_sans_vente(s2.as_deref()).await }),
+        cached(&k1, CacheOpts::default(), move || async move {
+            let mut rows = pg_get_stock_negatif(s1.as_deref()).await?;
+            completer_fournisseurs(&mut rows, |r| (r.codein.as_str(), &mut r.fournisseur)).await;
+            anyhow::Ok(rows)
+        }),
+        cached(&k2, CacheOpts::default(), move || async move {
+            let mut rows = pg_get_stock_sans_vente(s2.as_deref()).await?;
+            completer_fournisseurs(&mut rows, |r| (r.codein.as_str(), &mut r.fournisseur)).await;
+            anyhow::Ok(rows)
+        }),
         cached(&k3, CacheOpts::default(), move || async move {
-            pg_get_sans_vente_6_mois(s3.as_deref()).await
+            let mut rows = pg_get_sans_vente_6_mois(s3.as_deref()).await?;
+            completer_fournisseurs(&mut rows, |r| (r.codein.as_str(), &mut r.fournisseur)).await;
+            anyhow::Ok(rows)
         }),
     );
     match res {
