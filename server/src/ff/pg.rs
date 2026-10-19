@@ -780,8 +780,11 @@ async fn enrichir_article_dashboard(base: &str, codein: &str, out: &mut Enrichis
         return Ok(());
     }
     let art_data: Value = art_res.json().await?;
+    // L'article dont le codein est bien celui demandé, sinon le premier renvoyé.
     let first = match get(&art_data, "articles") {
-        Some(Value::Array(a)) if !a.is_empty() => a[0].clone(),
+        Some(Value::Array(a)) if !a.is_empty() => {
+            a.iter().find(|x| str_field(x, "codein").trim() == codein.trim()).unwrap_or(&a[0]).clone()
+        }
         _ => return Ok(()),
     };
     let no_id = match get(&first, "no_id") {
@@ -791,9 +794,8 @@ async fn enrichir_article_dashboard(base: &str, codein: &str, out: &mut Enrichis
 
     let url_ref = format!("{base}/api/articles/{}/referentiel", encode(&no_id));
     let url_dernier = format!("{base}/api/articles/{}/dernier-fournisseur", encode(&no_id));
-    let (ref_res, dernier_res) = tokio::join!(ff_get(&url_ref), ff_get(&url_dernier));
+    let (ref_res, dernier) = tokio::join!(ff_get(&url_ref), fournisseur_derniere_entree(&url_dernier));
     let ref_res = ref_res?;
-    let dernier_res = dernier_res?;
 
     // Stock (toujours depuis referentiel)
     let mut ref_fournisseur_fallback = String::new();
@@ -832,23 +834,46 @@ async fn enrichir_article_dashboard(base: &str, codein: &str, out: &mut Enrichis
         }
     }
 
-    // Fournisseur réel : /dernier-fournisseur (dernière entrée en stock par site)
-    // Fallback : premier non-dépôt du référentiel
-    if dernier_res.status().is_success() {
-        let dernier_data: Value = dernier_res.json().await?;
-        // Prendre le fournisseur du premier site disponible
-        let first = arr(&dernier_data, "fournisseurs_par_site")
-            .iter()
-            .find(|e| get(e, "nom_fournisseur").map(truthy).unwrap_or(false));
-        if let Some(e) = first {
-            out.fournisseur = Some(str_field(e, "nom_fournisseur").trim().to_string());
-        } else if !ref_fournisseur_fallback.is_empty() {
-            out.fournisseur = Some(ref_fournisseur_fallback);
-        }
-    } else if !ref_fournisseur_fallback.is_empty() {
-        out.fournisseur = Some(ref_fournisseur_fallback);
+    // Fournisseur réel : /dernier-fournisseur (dernière entrée en stock),
+    // sinon le fournisseur du référentiel.
+    match dernier? {
+        Some(f) => out.fournisseur = Some(f),
+        None if !ref_fournisseur_fallback.is_empty() => out.fournisseur = Some(ref_fournisseur_fallback),
+        None => {}
     }
     Ok(())
+}
+
+/// Fournisseur de la dernière entrée en stock d'un article, tous magasins
+/// confondus : la plus récente (`date_derniere_entree`), sinon la première.
+///
+/// Sans `?site=`, l'API ne renvoie pas toujours tous les magasins : pour le
+/// codein 503996, seule `?site=579` donne l'entrée (P024 PUCKATOR BV, reçue
+/// à Houdemont). On interroge donc aussi chaque magasin.
+async fn fournisseur_derniere_entree(url: &str) -> anyhow::Result<Option<String>> {
+    let urls = [url.to_string(), format!("{url}?site=292"), format!("{url}?site=579")];
+    let reponses = futures::future::join_all(urls.iter().map(|u| ff_get(u))).await;
+    let mut meilleur: Option<(String, String)> = None; // (date, fournisseur)
+    for res in reponses {
+        let res = res?;
+        if !res.status().is_success() {
+            continue;
+        }
+        let data: Value = res.json().await?;
+        // Entrées sous `fournisseurs_par_site`, ou l'objet lui-même.
+        let entrees = arr(&data, "fournisseurs_par_site").iter().chain(std::iter::once(&data));
+        for e in entrees {
+            let nom = str_field(e, "nom_fournisseur").trim().to_string();
+            if nom.is_empty() {
+                continue;
+            }
+            let date = str_field(e, "date_derniere_entree");
+            if meilleur.as_ref().is_none_or(|(d, _)| date > *d) {
+                meilleur = Some((date, nom));
+            }
+        }
+    }
+    Ok(meilleur.map(|(_, f)| f))
 }
 
 // ---------------------------------------------------------------------------
