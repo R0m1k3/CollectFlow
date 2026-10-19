@@ -502,7 +502,14 @@ async fn executer_recherche(term: &str, on_etape: impl Fn(&str)) -> ProduitReche
                 code_centrale: m.code_centrale.clone(),
                 libelle: ou(ou(local.map_or("", |l| l.libelle1.as_str()), &m.libelle), &m.code_centrale).to_string(),
                 libelle_reseau: m.libelle.clone(),
-                fournisseur: ou(local.map_or("", |l| l.fournisseur.as_str()), &m.fournisseur).to_string(),
+                // Fournisseur de notre catalogue, sinon celui que Qlik vient de
+                // renvoyer, sinon le repli du catalogue (cache réseau ou
+                // « Sans fournisseur ») : ce repli ne doit pas masquer Qlik.
+                fournisseur: ou(
+                    ou(local.filter(|l| !l.codefou.is_empty()).map_or("", |l| l.fournisseur.as_str()), &m.fournisseur),
+                    local.map_or("", |l| l.fournisseur.as_str()),
+                )
+                .to_string(),
                 codein: local.map(|l| l.codein.clone()),
                 nomenclature: local.map(|l| l.nomenclature.clone()).unwrap_or_default(),
                 stock_local: local.map(|l| if l.stock_total.is_nan() { 0.0 } else { l.stock_total }),

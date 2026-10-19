@@ -72,11 +72,18 @@ pub async fn test_db(_admin: AdminUser, Query(q): Query<HashMap<String, String>>
             r#"
             SELECT
                 a.codein::text AS codein,
-                COALESCE(fi.nom, af.code, 'Sans fournisseur')::text AS fournisseur
+                COALESCE(fi.nom, af.code, q.fournisseur_reseau, 'Sans fournisseur')::text AS fournisseur
             FROM articles a
-            LEFT JOIN artfou1 af ON af.art_no_id = a.no_id AND af.preference = 1
+            LEFT JOIN LATERAL (
+                SELECT af1.code
+                FROM artfou1 af1
+                WHERE af1.art_no_id = a.no_id
+                ORDER BY (af1.preference = 1) DESC NULLS LAST, af1.no_id DESC
+                LIMIT 1
+            ) af ON TRUE
             LEFT JOIN fouident fi ON fi.code = af.code
-            WHERE a.codein::text = $1
+            LEFT JOIN qlik_network_metrics q ON q.code_centrale = TRIM(a.artcentrale::text)
+            WHERE TRIM(a.codein::text) = $1
         "#,
         )
         .bind(&codein)
