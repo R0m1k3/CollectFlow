@@ -37,12 +37,20 @@ Construire l'image localement plutôt que la télécharger : `docker compose bui
 
 Le volume `collectflow-data` (`/app/data`) conserve les réglages saisis dans **Paramètres** (`.db-config.json` : base, Qlik, API FF, synchro nocturne), les comptes de secours (`users.json`) et le secret de session (`.auth-secret`, si `AUTH_SECRET` n'est pas défini). Il est repris tel quel depuis l'ancienne version Node : comptes et mots de passe restent valables (seules les sessions ouvertes sont à refaire).
 
-Variables d'environnement utiles : `DATABASE_URL`, `AUTH_SECRET`, `FF_API_BASE_URL`, `QLIK_HOST` / `QLIK_USER` / `QLIK_PWD` (et les réglages fins `QLIK_*`), `PG_STATEMENT_TIMEOUT_MS`, `FF_CACHE_TTL_S`, `RUST_LOG` (niveau de journalisation ; par défaut `info`, avec sqlx et Chromium limités aux avertissements).
+### Sécurité / variables obligatoires
+
+- **Secret de session** : `AUTH_SECRET` n'est plus fixé dans `docker-compose.yml`. Sans lui, un secret aléatoire est généré au premier démarrage et conservé dans `data/.auth-secret` (recommandé). L'ancienne valeur d'exemple (`my-super-secret-key-…`) et toute valeur de moins de 16 caractères sont ignorées. Après la mise à jour, les sessions ouvertes sont à refaire.
+- **Compte admin initial** : plus de compte `admin`/`admin`. Sur une base vide, le compte `admin` reçoit le mot de passe de `ADMIN_PASSWORD`, sinon un mot de passe aléatoire affiché une seule fois dans les journaux (`docker compose logs web`). Un compte existant n'est pas modifié ; s'il a encore le mot de passe `admin`, un message d'erreur le signale au démarrage : changez-le dans **Paramètres**.
+- **Comptes de secours** (`data/users.json`) : utilisables seulement à la première installation, tant que la base n'a jamais répondu. Dès qu'elle répond (`data/.db-initialisee`), ils sont désactivés ; une panne de la base ne rouvre plus d'accès. L'ancien mot de passe `admin` de ces comptes est remplacé (nouveau mot de passe dans les journaux). Pour les réactiver (changement de serveur de base), supprimer `data/.db-initialisee`.
+- **Connexion** : les échecs sont limités (10 par adresse IP et identifiant, 50 par adresse IP, sur 15 minutes).
+
+Variables d'environnement utiles : `DATABASE_URL`, `AUTH_SECRET`, `ADMIN_PASSWORD`, `FF_API_BASE_URL`, `QLIK_HOST` / `QLIK_USER` / `QLIK_PWD` (et les réglages fins `QLIK_*`), `PG_STATEMENT_TIMEOUT_MS`, `FF_CACHE_TTL_S`, `RUST_LOG` (niveau de journalisation ; par défaut `info`, avec sqlx et Chromium limités aux avertissements).
 
 ## Développement local
 
 ```bash
-# Serveur (port 5643) — tables créées et compte admin/admin initialisé au premier démarrage
+# Serveur (port 5643) — tables créées et compte admin initialisé au premier démarrage
+# (mot de passe : ADMIN_PASSWORD, sinon aléatoire dans les journaux)
 cd server
 DATABASE_URL=postgres://postgres:postgres@localhost/collectflow cargo run
 
