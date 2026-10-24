@@ -12,7 +12,13 @@ services:
     ports:
       - "5643:5643"
     environment:
-      - AUTH_SECRET=my-super-secret-key-that-should-be-changed-in-production
+      # Secret de session : sans AUTH_SECRET, un secret aléatoire est généré au
+      # premier démarrage et conservé dans le volume (data/.auth-secret).
+      # Pour en imposer un : AUTH_SECRET=<openssl rand -hex 32> dans .env.
+      - AUTH_SECRET=${AUTH_SECRET:-}
+      # Mot de passe du compte admin créé sur une base vide (sinon aléatoire,
+      # affiché une fois dans les journaux : docker compose logs web).
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       - DATABASE_URL=postgres://postgres:MOT_DE_PASSE_ICI@postgresbase:5432/collectflow
       - FF_API_BASE_URL=https://api.ffnancy.fr
       # Clé d'API FF Nancy (en-tête X-API-Key) — ou à saisir dans Paramètres.

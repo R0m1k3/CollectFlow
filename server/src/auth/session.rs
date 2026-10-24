@@ -30,10 +30,22 @@ pub struct Claims {
     pub exp: i64,
 }
 
+/// Valeur d'exemple autrefois versionnée dans `docker-compose.yml` : publique,
+/// donc refusée (le secret aléatoire de `data/.auth-secret` est utilisé à la place).
+const SECRETS_PUBLIES: &[&str] = &["my-super-secret-key-that-should-be-changed-in-production"];
+
 static SECRET: LazyLock<Vec<u8>> = LazyLock::new(|| {
     if let Ok(s) = std::env::var("AUTH_SECRET") {
-        if !s.trim().is_empty() {
-            return s.into_bytes();
+        let s = s.trim();
+        if SECRETS_PUBLIES.contains(&s) {
+            tracing::error!(
+                "[auth] AUTH_SECRET a une valeur publique (ancien docker-compose.yml) : ignorée, \
+                 secret aléatoire de data/.auth-secret utilisé. Retirez AUTH_SECRET ou générez-en un (openssl rand -hex 32)."
+            );
+        } else if s.len() < 16 && !s.is_empty() {
+            tracing::error!("[auth] AUTH_SECRET trop court (16 caractères minimum) : ignoré, secret aléatoire de data/.auth-secret utilisé.");
+        } else if !s.is_empty() {
+            return s.as_bytes().to_vec();
         }
     }
     let path = crate::config::data_dir().join(".auth-secret");
@@ -51,6 +63,11 @@ static SECRET: LazyLock<Vec<u8>> = LazyLock::new(|| {
     }
     s.into_bytes()
 });
+
+/// Charge le secret de session au démarrage (avertissements visibles tout de suite).
+pub fn initialiser_secret() {
+    LazyLock::force(&SECRET);
+}
 
 fn sign(payload: &str) -> String {
     let mut mac = Hmac::<Sha256>::new_from_slice(&SECRET).expect("hmac");

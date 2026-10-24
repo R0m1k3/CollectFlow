@@ -90,6 +90,7 @@ async fn main() -> anyhow::Result<()> {
     init_tracing();
     tracing::info!("CollectFlow {} — démarrage", env!("CARGO_PKG_VERSION"));
     let _ = std::fs::create_dir_all(config::data_dir());
+    auth::session::initialiser_secret();
 
     migrations::run().await;
     tokio::spawn(async {
@@ -106,6 +107,9 @@ async fn main() -> anyhow::Result<()> {
         Err(_) => tokio::net::TcpListener::bind(("0.0.0.0", port)).await?,
     };
     tracing::info!("Écoute sur http://{}", listener.local_addr()?);
-    axum::serve(listener, app()).with_graceful_shutdown(shutdown_signal()).await?;
+    // Adresse du client connue des routes (limitation des échecs de connexion).
+    axum::serve(listener, app().into_make_service_with_connect_info::<std::net::SocketAddr>())
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
     Ok(())
 }
