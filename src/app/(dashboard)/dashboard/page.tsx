@@ -219,7 +219,7 @@ function TopFamilles({ rows, sites }: { rows: DashboardNomenclatureRow[]; sites:
     const lignes = useMemo(() => pivoterFamilles(rows), [rows]);
 
     const colonnes = useMemo<DataColumn<LigneFamille>[]>(() => {
-        // Un groupe par magasin, puis le total (même présentation que la page Analyses).
+        // Un groupe par magasin, puis le total, comme la page Analyses.
         const groupes = [
             ...sites.map((site) => ({
                 id: site,
@@ -227,7 +227,7 @@ function TopFamilles({ rows, sites }: { rows: DashboardNomenclatureRow[]; sites:
                 ca: (l: LigneFamille) => l.parSite[site]?.ca ?? 0,
                 caN1: (l: LigneFamille) => l.parSite[site]?.caN1 ?? 0,
             })),
-            { id: "total", titre: LIBELLE_TOUS_MAGASINS, ca: (l: LigneFamille) => l.ca, caN1: (l: LigneFamille) => l.caN1 },
+            { id: "total", titre: "Total nos magasins", ca: (l: LigneFamille) => l.ca, caN1: (l: LigneFamille) => l.caN1 },
         ];
         const somme = (ls: readonly LigneFamille[], champ: (l: LigneFamille) => number) => ls.reduce((acc, l) => acc + champ(l), 0);
         return [
@@ -273,7 +273,9 @@ function TopFamilles({ rows, sites }: { rows: DashboardNomenclatureRow[]; sites:
                         footer: (ls) => <Montant v={somme(ls, g.ca)} />,
                         className: cn(total && "font-semibold"),
                     },
-                    {
+                    // N-1 en montant pour le total seulement : avec celui de chaque magasin,
+                    // le total sortait de l'écran d'un portable.
+                    ...(total ? [{
                         ...commun,
                         id: `${g.id}-n1`,
                         header: <Terme id="n1" />,
@@ -281,12 +283,12 @@ function TopFamilles({ rows, sites }: { rows: DashboardNomenclatureRow[]; sites:
                         sortValue: g.caN1,
                         cell: (l) => <Montant v={g.caN1(l)} />,
                         footer: (ls) => <Montant v={somme(ls, g.caN1)} />,
-                    },
+                    } satisfies DataColumn<LigneFamille>] : []),
                     {
                         ...commun,
                         id: `${g.id}-evolution`,
                         header: "Évolution",
-                        hint: `Évolution du chiffre d'affaires (${g.titre}) par rapport à N-1`,
+                        hint: `Évolution du chiffre d'affaires (${g.titre}) par rapport au même jour de la semaine l'an dernier`,
                         sortValue: (l) => evolution(g.ca(l), g.caN1(l)),
                         cell: (l) => <DeltaBadge pct={evolution(g.ca(l), g.caN1(l))} />,
                         footer: (ls) => <DeltaBadge pct={evolution(somme(ls, g.ca), somme(ls, g.caN1))} />,
@@ -304,7 +306,6 @@ function TopFamilles({ rows, sites }: { rows: DashboardNomenclatureRow[]; sites:
             pageSize={0}
             unite="familles"
             showFooter
-            maxHeight="none"
             emptyTitle="Aucune vente enregistrée hier"
         />
     );
