@@ -37,11 +37,22 @@ export interface DashboardSiteTop10 {
     marge: DashboardTopItem[];
 }
 
+/** CA d'une nomenclature dans un magasin, hier et le même jour N-1. */
+export interface DashboardNomenclatureRow {
+    code: string;
+    libelle: string;
+    site: string;
+    ca: number;
+    ca_n1: number;
+}
+
 export interface DashboardData {
     dateHier: string;
     dateN1: string;
     sites: DashboardSiteStats[];
     top10BySite: DashboardSiteTop10[];
+    /** Lignes par magasin, dans l'ordre du classement ; `null` si la base n'a pas répondu. */
+    topNomenclatures: DashboardNomenclatureRow[] | null;
 }
 
 export interface CaByFournisseurRow {
