@@ -739,7 +739,7 @@ pub struct DashboardData {
     pub sites: Vec<DashboardSiteStats>,
     #[serde(rename = "top10BySite")]
     pub top10_by_site: Vec<DashboardSiteTop10>,
-    /// Top 10 des nomenclatures d'hier (lignes par magasin, classées).
+    /// Top 10 des nomenclatures d'hier de chaque magasin (magasin par magasin).
     /// `None` quand la base miroir n'a pas répondu : le reste de la page
     /// (100 % API) s'affiche quand même.
     pub top_nomenclatures: Option<Vec<DashboardNomenclatureRow>>,
@@ -1340,11 +1340,15 @@ pub async fn pg_get_ca_by_nomenclature(mois: &str, mois_n1: &str) -> anyhow::Res
         .collect())
 }
 
-/// Top `n` des nomenclatures sur une journée (CA de tous nos magasins), avec
-/// le CA de chaque magasin ce jour-là et le même jour N-1.
+/// Top `n` des nomenclatures de chaque magasin sur une journée, avec le CA
+/// du même jour N-1.
 /// Même calcul que `pg_get_ca_by_nomenclature` (CA net, retours déduits),
-/// sur deux jours au lieu de deux mois. Lignes rendues dans l'ordre du
-/// classement, un magasin après l'autre.
+/// sur deux jours au lieu de deux mois. Lignes rendues magasin par magasin,
+/// dans l'ordre du classement.
+///
+/// Chaque jour est filtré sur [jour, jour + 1[ : `datmvt` peut être un
+/// horodatage, et `datmvt = jour` ne garderait alors que les mouvements
+/// enregistrés à minuit.
 pub async fn pg_get_top_nomenclatures_jour(
     date: &str,
     date_n1: &str,
@@ -1356,12 +1360,13 @@ pub async fn pg_get_top_nomenclatures_jour(
             COALESCE(n.code, 'SANS_NOM')::text                 AS code,
             COALESCE(n.libelle, 'Sans nomenclature')::text     AS libelle,
             m.site,
-            COALESCE(SUM(-m.mntmvtttc) FILTER (WHERE m.datmvt = $1::date), 0)::float AS ca,
-            COALESCE(SUM(-m.mntmvtttc) FILTER (WHERE m.datmvt = $2::date), 0)::float AS ca_n1
+            COALESCE(SUM(-m.mntmvtttc) FILTER (WHERE m.datmvt >= $1::date AND m.datmvt < $1::date + 1), 0)::float AS ca,
+            COALESCE(SUM(-m.mntmvtttc) FILTER (WHERE m.datmvt >= $2::date AND m.datmvt < $2::date + 1), 0)::float AS ca_n1
         FROM mvtart m
         JOIN articles      a ON a.no_id    = m.artnoid
         LEFT JOIN nomenclature n ON n.no_id = a.nom_no_id
-        WHERE m.datmvt IN ($1::date, $2::date)
+        WHERE ((m.datmvt >= $1::date AND m.datmvt < $1::date + 1)
+            OR (m.datmvt >= $2::date AND m.datmvt < $2::date + 1))
           AND m.site IN ('292', '579')
           AND m.genremvt = 3
         GROUP BY n.no_id, n.code, n.libelle, m.site
@@ -1382,27 +1387,31 @@ pub async fn pg_get_top_nomenclatures_jour(
             ca_n1: f(r, "ca_n1"),
         })
         .collect();
+    let nb_lignes = lignes.len();
     let top = classer_nomenclatures(lignes, n);
-    tracing::info!("[pg-ff] TopNomenclatures: {} lignes pour {date} (N-1 {date_n1})", top.len());
+    tracing::info!(
+        "[pg-ff] TopNomenclatures: {} lignes classées sur {nb_lignes} pour {date} (N-1 {date_n1})",
+        top.len()
+    );
     Ok(top)
 }
 
-/// Garde les lignes des `n` nomenclatures au plus gros CA (tous magasins),
-/// dans l'ordre du classement puis du magasin. Une nomenclature sans vente
-/// le jour même (seulement N-1) n'est pas classée.
+/// Garde, pour chaque magasin, les `n` nomenclatures au plus gros CA, rendues
+/// magasin par magasin dans l'ordre du classement. Une nomenclature sans
+/// vente le jour même (seulement N-1) n'est pas classée.
 fn classer_nomenclatures(lignes: Vec<DashboardNomenclatureRow>, n: usize) -> Vec<DashboardNomenclatureRow> {
-    let mut totaux: HashMap<String, f64> = HashMap::new();
-    for l in &lignes {
-        *totaux.entry(l.code.clone()).or_default() += l.ca;
+    let mut par_site: BTreeMap<String, Vec<DashboardNomenclatureRow>> = BTreeMap::new();
+    for l in lignes.into_iter().filter(|l| l.ca > 0.0) {
+        par_site.entry(l.site.clone()).or_default().push(l);
     }
-    let mut classement: Vec<(String, f64)> = totaux.into_iter().filter(|(_, ca)| *ca > 0.0).collect();
-    classement.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.0.cmp(&b.0)));
-    classement.truncate(n);
-    let rang: HashMap<String, usize> = classement.into_iter().enumerate().map(|(i, (code, _))| (code, i)).collect();
-
-    let mut top: Vec<DashboardNomenclatureRow> = lignes.into_iter().filter(|l| rang.contains_key(&l.code)).collect();
-    top.sort_by(|a, b| rang[&a.code].cmp(&rang[&b.code]).then_with(|| a.site.cmp(&b.site)));
-    top
+    par_site
+        .into_values()
+        .flat_map(|mut v| {
+            v.sort_by(|a, b| b.ca.partial_cmp(&a.ca).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.code.cmp(&b.code)));
+            v.truncate(n);
+            v
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -3232,18 +3241,19 @@ mod tests {
     }
 
     #[test]
-    fn classe_sur_le_total_des_magasins() {
+    fn classe_chaque_magasin_separement() {
         let lignes = vec![
-            ligne_nom("A", "292", 100.0, 80.0),
-            ligne_nom("B", "292", 150.0, 0.0),
             ligne_nom("A", "579", 90.0, 50.0),
+            ligne_nom("B", "292", 150.0, 0.0),
+            ligne_nom("A", "292", 100.0, 80.0),
             ligne_nom("C", "579", 10.0, 500.0),
+            ligne_nom("C", "292", 5.0, 0.0),
             ligne_nom("D", "292", 0.0, 900.0),
         ];
         let top = classer_nomenclatures(lignes, 2);
-        let ordre: Vec<(&str, &str)> = top.iter().map(|l| (l.code.as_str(), l.site.as_str())).collect();
-        // A : 190 € sur deux magasins, devant B : 150 € ; C hors top ; D sans vente le jour même.
-        assert_eq!(ordre, vec![("A", "292"), ("A", "579"), ("B", "292")]);
+        let ordre: Vec<(&str, &str)> = top.iter().map(|l| (l.site.as_str(), l.code.as_str())).collect();
+        // Frouard : B devant A, C hors top 2 ; Houdemont : A devant C ; D sans vente le jour même.
+        assert_eq!(ordre, vec![("292", "B"), ("292", "A"), ("579", "A"), ("579", "C")]);
     }
 
     #[test]

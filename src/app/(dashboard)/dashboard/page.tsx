@@ -44,30 +44,24 @@ function dateLongue(iso: string): string {
     return d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 }
 
-/** Une famille du top 10, avec son CA par magasin. */
+/** Une famille du top 10 d'un magasin. */
 interface LigneFamille {
     rang: number;
     code: string;
     libelle: string;
-    parSite: Record<string, { ca: number; caN1: number }>;
     ca: number;
     caN1: number;
 }
 
-/** Lignes « nomenclature × magasin » du serveur → une ligne par famille, dans l'ordre reçu. */
-function pivoterFamilles(rows: readonly DashboardNomenclatureRow[]): LigneFamille[] {
-    const parCode = new Map<string, LigneFamille>();
+/** Lignes du serveur (magasin par magasin, déjà classées) → top 10 de chaque magasin. */
+function famillesParSite(rows: readonly DashboardNomenclatureRow[]): Map<string, LigneFamille[]> {
+    const parSite = new Map<string, LigneFamille[]>();
     for (const r of rows) {
-        let ligne = parCode.get(r.code);
-        if (!ligne) {
-            ligne = { rang: parCode.size + 1, code: r.code, libelle: r.libelle, parSite: {}, ca: 0, caN1: 0 };
-            parCode.set(r.code, ligne);
-        }
-        ligne.parSite[r.site] = { ca: r.ca, caN1: r.ca_n1 };
-        ligne.ca += r.ca;
-        ligne.caN1 += r.ca_n1;
+        const lignes = parSite.get(r.site) ?? [];
+        lignes.push({ rang: lignes.length + 1, code: r.code, libelle: r.libelle, ca: r.ca, caN1: r.ca_n1 });
+        parSite.set(r.site, lignes);
     }
-    return [...parCode.values()];
+    return parSite;
 }
 
 // ---------------------------------------------------------------------------
@@ -215,99 +209,95 @@ function Montant({ v }: { v: number }) {
     return <span className={cn("whitespace-nowrap", v === 0 && "text-[var(--text-muted)]")}>{fmtEur2(v)}</span>;
 }
 
+const sommeFamilles = (ls: readonly LigneFamille[], champ: "ca" | "caN1") => ls.reduce((acc, l) => acc + l[champ], 0);
+
+const COLONNES_FAMILLES: DataColumn<LigneFamille>[] = [
+    {
+        id: "rang",
+        header: "#",
+        align: "center",
+        sortValue: (l) => l.rang,
+        cell: (l) => (
+            <span
+                className={cn(
+                    "inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold",
+                    l.rang <= 3 ? "bg-[var(--accent)] text-white" : "bg-[var(--bg-elevated)] text-[var(--text-secondary)]",
+                )}
+            >
+                {l.rang}
+            </span>
+        ),
+        sticky: true,
+    },
+    {
+        id: "famille",
+        header: "Famille",
+        hint: "Nomenclature FF de l'article",
+        sortValue: (l) => l.libelle,
+        cell: (l) => <span className="font-medium">{l.libelle}</span>,
+        footer: () => "Total du top 10",
+        className: "min-w-[140px]",
+        sticky: true,
+        label: true,
+    },
+    {
+        id: "ca",
+        header: "Hier",
+        hint: "Chiffre d'affaires TTC d'hier, retours déduits",
+        align: "right",
+        sortValue: (l) => l.ca,
+        cell: (l) => <Montant v={l.ca} />,
+        footer: (ls) => <Montant v={sommeFamilles(ls, "ca")} />,
+        className: "font-semibold",
+    },
+    {
+        id: "n1",
+        header: <Terme id="n1" />,
+        hint: "Chiffre d'affaires TTC le même jour de la semaine l'an dernier",
+        align: "right",
+        sortValue: (l) => l.caN1,
+        cell: (l) => <Montant v={l.caN1} />,
+        footer: (ls) => <Montant v={sommeFamilles(ls, "caN1")} />,
+    },
+    {
+        id: "evolution",
+        header: "Évolution",
+        hint: "Évolution du chiffre d'affaires par rapport au même jour de la semaine l'an dernier",
+        align: "right",
+        sortValue: (l) => evolution(l.ca, l.caN1),
+        cell: (l) => <DeltaBadge pct={evolution(l.ca, l.caN1)} />,
+        footer: (ls) => <DeltaBadge pct={evolution(sommeFamilles(ls, "ca"), sommeFamilles(ls, "caN1"))} />,
+    },
+];
+
+/** Top 10 des familles de chaque magasin, côte à côte sur grand écran. */
 function TopFamilles({ rows, sites }: { rows: DashboardNomenclatureRow[]; sites: string[] }) {
-    const lignes = useMemo(() => pivoterFamilles(rows), [rows]);
-
-    const colonnes = useMemo<DataColumn<LigneFamille>[]>(() => {
-        // Un groupe par magasin, puis le total, comme la page Analyses.
-        const groupes = [
-            ...sites.map((site) => ({
-                id: site,
-                titre: nomMagasin(site),
-                ca: (l: LigneFamille) => l.parSite[site]?.ca ?? 0,
-                caN1: (l: LigneFamille) => l.parSite[site]?.caN1 ?? 0,
-            })),
-            { id: "total", titre: "Total nos magasins", ca: (l: LigneFamille) => l.ca, caN1: (l: LigneFamille) => l.caN1 },
-        ];
-        const somme = (ls: readonly LigneFamille[], champ: (l: LigneFamille) => number) => ls.reduce((acc, l) => acc + champ(l), 0);
-        return [
-            {
-                id: "rang",
-                header: "#",
-                align: "center",
-                sortValue: (l) => l.rang,
-                cell: (l) => (
-                    <span
-                        className={cn(
-                            "inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold",
-                            l.rang <= 3 ? "bg-[var(--accent)] text-white" : "bg-[var(--bg-elevated)] text-[var(--text-secondary)]",
-                        )}
-                    >
-                        {l.rang}
-                    </span>
-                ),
-                sticky: true,
-            },
-            {
-                id: "famille",
-                header: "Famille",
-                hint: "Nomenclature FF de l'article",
-                sortValue: (l) => l.libelle,
-                cell: (l) => <span className="font-medium">{l.libelle}</span>,
-                footer: () => "Total du top 10",
-                className: "min-w-[140px] sm:min-w-[220px]",
-                sticky: true,
-                label: true,
-            },
-            ...groupes.flatMap((g): DataColumn<LigneFamille>[] => {
-                const total = g.id === "total";
-                const commun = { group: g.titre, highlight: total, align: "right" as const };
-                return [
-                    {
-                        ...commun,
-                        id: `${g.id}-ca`,
-                        header: "Hier",
-                        hint: `Chiffre d'affaires TTC d'hier (${g.titre}), retours déduits`,
-                        sortValue: g.ca,
-                        cell: (l) => <Montant v={g.ca(l)} />,
-                        footer: (ls) => <Montant v={somme(ls, g.ca)} />,
-                        className: cn(total && "font-semibold"),
-                    },
-                    // N-1 en montant pour le total seulement : avec celui de chaque magasin,
-                    // le total sortait de l'écran d'un portable.
-                    ...(total ? [{
-                        ...commun,
-                        id: `${g.id}-n1`,
-                        header: <Terme id="n1" />,
-                        hint: `Chiffre d'affaires TTC (${g.titre}) le même jour de la semaine l'an dernier`,
-                        sortValue: g.caN1,
-                        cell: (l) => <Montant v={g.caN1(l)} />,
-                        footer: (ls) => <Montant v={somme(ls, g.caN1)} />,
-                    } satisfies DataColumn<LigneFamille>] : []),
-                    {
-                        ...commun,
-                        id: `${g.id}-evolution`,
-                        header: "Évolution",
-                        hint: `Évolution du chiffre d'affaires (${g.titre}) par rapport au même jour de la semaine l'an dernier`,
-                        sortValue: (l) => evolution(g.ca(l), g.caN1(l)),
-                        cell: (l) => <DeltaBadge pct={evolution(g.ca(l), g.caN1(l))} />,
-                        footer: (ls) => <DeltaBadge pct={evolution(somme(ls, g.ca), somme(ls, g.caN1))} />,
-                    },
-                ];
-            }),
-        ];
-    }, [sites]);
-
+    const parSite = useMemo(() => famillesParSite(rows), [rows]);
+    // Magasins de la journée, puis ceux que seule la base connaît.
+    const magasins = [...new Set([...sites, ...parSite.keys()])];
     return (
-        <DataTable
-            rows={lignes}
-            columns={colonnes}
-            rowKey={(l) => l.code}
-            pageSize={0}
-            unite="familles"
-            showFooter
-            emptyTitle="Aucune vente enregistrée hier"
-        />
+        // Colonnes à la largeur des tableaux (DataTable ne s'étire pas) : le
+        // compteur de lignes reste collé au tableau.
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[repeat(2,max-content)]">
+            {magasins.map((site) => (
+                <div key={site} className="min-w-0 space-y-2">
+                    <h3 className="flex items-center gap-2 text-base font-semibold text-[var(--text-primary)]">
+                        <Store className="h-4 w-4 text-[var(--accent)]" aria-hidden />
+                        {nomMagasin(site)}
+                    </h3>
+                    <DataTable
+                        rows={parSite.get(site) ?? []}
+                        columns={COLONNES_FAMILLES}
+                        rowKey={(l) => l.code}
+                        pageSize={0}
+                        unite="familles"
+                        showFooter
+                        emptyTitle="Aucune vente enregistrée hier"
+                        emptyDescription="Les ventes de la veille ne sont peut-être pas encore arrivées dans la base FF."
+                    />
+                </div>
+            ))}
+        </div>
     );
 }
 
@@ -435,7 +425,7 @@ export default function DashboardPage() {
                     <section>
                         <TitreSection
                             titre="Top 10 des familles d'hier"
-                            description={<>Les familles (nomenclatures) qui ont fait le plus de chiffre d&apos;affaires dans nos magasins, comparées à <Terme id="n1" />.</>}
+                            description={<>Les familles (nomenclatures) qui ont fait le plus de chiffre d&apos;affaires dans chaque magasin, comparées à <Terme id="n1" />.</>}
                         />
                         {topNomenclatures === null ? (
                             <EmptyState

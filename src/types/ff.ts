@@ -51,7 +51,7 @@ export interface DashboardData {
     dateN1: string;
     sites: DashboardSiteStats[];
     top10BySite: DashboardSiteTop10[];
-    /** Lignes par magasin, dans l'ordre du classement ; `null` si la base n'a pas répondu. */
+    /** Top 10 de chaque magasin, magasin par magasin dans l'ordre du classement ; `null` si la base n'a pas répondu. */
     topNomenclatures: DashboardNomenclatureRow[] | null;
 }
 
