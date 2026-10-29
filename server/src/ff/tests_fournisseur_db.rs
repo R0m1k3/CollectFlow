@@ -90,6 +90,11 @@ async fn article_sans_fournisseur_principal() {
     assert_eq!(nom("F2").as_deref(), Some("BETA"), "{ca:?}");
     assert_eq!(nom("SANS_FOURNISSEUR").as_deref(), Some("Sans fournisseur"), "{ca:?}");
 
+    // Accueil : articles sans nomenclature, regroupés ; aucune vente le même jour N-1.
+    let top = pg_get_top_nomenclatures_jour("2026-03-05", "2025-03-06", 10).await.unwrap();
+    assert_eq!(top.len(), 1, "{top:?}");
+    assert_eq!((top[0].code.as_str(), top[0].site.as_str(), top[0].ca, top[0].ca_n1), ("SANS_NOM", "292", 40.0, 0.0));
+
     let receptions = pg_get_derniere_reception_par_fournisseur(None).await;
     assert!(receptions.contains_key("F1|292"), "{receptions:?}");
 

@@ -1,17 +1,27 @@
 import Link from "next/link";
+import { useMemo, useState } from "react";
 import { BarChart3, Euro, House, Receipt, ShoppingBasket, ShoppingCart, Store } from "lucide-react";
-import type { DashboardData, DashboardSiteStats, DashboardSiteTop10, DashboardTopItem } from "@/types/ff";
+import type {
+    DashboardData,
+    DashboardNomenclatureRow,
+    DashboardSiteStats,
+    DashboardSiteTop10,
+    DashboardTopItem,
+} from "@/types/ff";
 import { fetchPage } from "@/lib/rpc";
 import { usePageResult } from "@/lib/page-data";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Badge, DeltaBadge } from "@/components/ui/badge";
+import { DataTable, type DataColumn } from "@/components/ui/data-table";
+import { Segmented } from "@/components/ui/tabs";
 import { EmptyState, ErrorState } from "@/components/ui/states";
 import { Terme } from "@/components/ui/tooltip";
 import { LIBELLE_TOUS_MAGASINS, nomMagasin } from "@/lib/magasins";
 import { fmtDecimal1, fmtEntier, fmtEur2 } from "@/lib/format";
 import { couleurMarge } from "@/lib/marge";
+import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
 // Calculs
@@ -32,6 +42,32 @@ function dateLongue(iso: string): string {
     const d = new Date(`${iso}T12:00:00`);
     if (Number.isNaN(d.getTime())) return iso;
     return d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}
+
+/** Une famille du top 10, avec son CA par magasin. */
+interface LigneFamille {
+    rang: number;
+    code: string;
+    libelle: string;
+    parSite: Record<string, { ca: number; caN1: number }>;
+    ca: number;
+    caN1: number;
+}
+
+/** Lignes « nomenclature × magasin » du serveur → une ligne par famille, dans l'ordre reçu. */
+function pivoterFamilles(rows: readonly DashboardNomenclatureRow[]): LigneFamille[] {
+    const parCode = new Map<string, LigneFamille>();
+    for (const r of rows) {
+        let ligne = parCode.get(r.code);
+        if (!ligne) {
+            ligne = { rang: parCode.size + 1, code: r.code, libelle: r.libelle, parSite: {}, ca: 0, caN1: 0 };
+            parCode.set(r.code, ligne);
+        }
+        ligne.parSite[r.site] = { ca: r.ca, caN1: r.ca_n1 };
+        ligne.ca += r.ca;
+        ligne.caN1 += r.ca_n1;
+    }
+    return [...parCode.values()];
 }
 
 // ---------------------------------------------------------------------------
@@ -167,26 +203,144 @@ function ListeTop10({ items, critere }: { items: DashboardTopItem[]; critere: Cr
 
 function Top10Magasin({ siteData }: { siteData: DashboardSiteTop10 }) {
     return (
-        <section className="space-y-3">
-            <h3 className="flex items-center gap-2 text-base font-semibold text-[var(--text-primary)]">
-                <Store className="h-4 w-4 text-[var(--accent)]" aria-hidden />
-                {nomMagasin(siteData.site)}
-            </h3>
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                <ListeTop10 items={siteData.ca} critere="ca" />
-                <ListeTop10 items={siteData.qte} critere="qte" />
-                <ListeTop10 items={siteData.marge} critere="marge" />
-            </div>
-        </section>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <ListeTop10 items={siteData.ca} critere="ca" />
+            <ListeTop10 items={siteData.qte} critere="qte" />
+            <ListeTop10 items={siteData.marge} critere="marge" />
+        </div>
     );
 }
 
-function TitreSection({ titre, description }: { titre: string; description?: React.ReactNode }) {
+function Montant({ v }: { v: number }) {
+    return <span className={cn("whitespace-nowrap", v === 0 && "text-[var(--text-muted)]")}>{fmtEur2(v)}</span>;
+}
+
+function TopFamilles({ rows, sites }: { rows: DashboardNomenclatureRow[]; sites: string[] }) {
+    const lignes = useMemo(() => pivoterFamilles(rows), [rows]);
+
+    const colonnes = useMemo<DataColumn<LigneFamille>[]>(() => {
+        // Un groupe par magasin, puis le total (même présentation que la page Analyses).
+        const groupes = [
+            ...sites.map((site) => ({
+                id: site,
+                titre: nomMagasin(site),
+                ca: (l: LigneFamille) => l.parSite[site]?.ca ?? 0,
+                caN1: (l: LigneFamille) => l.parSite[site]?.caN1 ?? 0,
+            })),
+            { id: "total", titre: LIBELLE_TOUS_MAGASINS, ca: (l: LigneFamille) => l.ca, caN1: (l: LigneFamille) => l.caN1 },
+        ];
+        const somme = (ls: readonly LigneFamille[], champ: (l: LigneFamille) => number) => ls.reduce((acc, l) => acc + champ(l), 0);
+        return [
+            {
+                id: "rang",
+                header: "#",
+                align: "center",
+                sortValue: (l) => l.rang,
+                cell: (l) => (
+                    <span
+                        className={cn(
+                            "inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold",
+                            l.rang <= 3 ? "bg-[var(--accent)] text-white" : "bg-[var(--bg-elevated)] text-[var(--text-secondary)]",
+                        )}
+                    >
+                        {l.rang}
+                    </span>
+                ),
+                sticky: true,
+            },
+            {
+                id: "famille",
+                header: "Famille",
+                hint: "Nomenclature FF de l'article",
+                sortValue: (l) => l.libelle,
+                cell: (l) => <span className="font-medium">{l.libelle}</span>,
+                footer: () => "Total du top 10",
+                className: "min-w-[140px] sm:min-w-[220px]",
+                sticky: true,
+                label: true,
+            },
+            ...groupes.flatMap((g): DataColumn<LigneFamille>[] => {
+                const total = g.id === "total";
+                const commun = { group: g.titre, highlight: total, align: "right" as const };
+                return [
+                    {
+                        ...commun,
+                        id: `${g.id}-ca`,
+                        header: "Hier",
+                        hint: `Chiffre d'affaires TTC d'hier (${g.titre}), retours déduits`,
+                        sortValue: g.ca,
+                        cell: (l) => <Montant v={g.ca(l)} />,
+                        footer: (ls) => <Montant v={somme(ls, g.ca)} />,
+                        className: cn(total && "font-semibold"),
+                    },
+                    {
+                        ...commun,
+                        id: `${g.id}-n1`,
+                        header: <Terme id="n1" />,
+                        hint: `Chiffre d'affaires TTC (${g.titre}) le même jour de la semaine l'an dernier`,
+                        sortValue: g.caN1,
+                        cell: (l) => <Montant v={g.caN1(l)} />,
+                        footer: (ls) => <Montant v={somme(ls, g.caN1)} />,
+                    },
+                    {
+                        ...commun,
+                        id: `${g.id}-evolution`,
+                        header: "Évolution",
+                        hint: `Évolution du chiffre d'affaires (${g.titre}) par rapport à N-1`,
+                        sortValue: (l) => evolution(g.ca(l), g.caN1(l)),
+                        cell: (l) => <DeltaBadge pct={evolution(g.ca(l), g.caN1(l))} />,
+                        footer: (ls) => <DeltaBadge pct={evolution(somme(ls, g.ca), somme(ls, g.caN1))} />,
+                    },
+                ];
+            }),
+        ];
+    }, [sites]);
+
     return (
-        <div className="mb-3">
-            <h2 className="text-lg font-semibold text-[var(--text-primary)]">{titre}</h2>
-            {description && <p className="text-sm text-[var(--text-secondary)]">{description}</p>}
+        <DataTable
+            rows={lignes}
+            columns={colonnes}
+            rowKey={(l) => l.code}
+            pageSize={0}
+            unite="familles"
+            showFooter
+            maxHeight="none"
+            emptyTitle="Aucune vente enregistrée hier"
+        />
+    );
+}
+
+function TitreSection({ titre, description, actions }: { titre: string; description?: React.ReactNode; actions?: React.ReactNode }) {
+    return (
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+            <div className="min-w-0">
+                <h2 className="text-lg font-semibold text-[var(--text-primary)]">{titre}</h2>
+                {description && <p className="text-sm text-[var(--text-secondary)]">{description}</p>}
+            </div>
+            {actions}
         </div>
+    );
+}
+
+/** Top 10 des produits, un magasin à la fois (choix du magasin en haut à droite). */
+function TopProduits({ top10BySite }: { top10BySite: DashboardSiteTop10[] }) {
+    const [choix, setChoix] = useState(top10BySite[0].site);
+    const siteData = top10BySite.find((s) => s.site === choix) ?? top10BySite[0];
+    return (
+        <section>
+            <TitreSection
+                titre="Top 10 des produits d'hier"
+                description="Les produits qui ont le plus rapporté, le plus vendu et le plus margé. Cliquez sur un produit pour ouvrir sa fiche."
+                actions={top10BySite.length > 1 && (
+                    <Segmented
+                        items={top10BySite.map((s) => ({ value: s.site, label: nomMagasin(s.site) }))}
+                        value={siteData.site}
+                        onChange={setChoix}
+                    />
+                )}
+            />
+            <Top10Magasin siteData={siteData} />
+        </section>
     );
 }
 
@@ -210,7 +364,7 @@ export default function DashboardPage() {
         );
     }
 
-    const { dateHier, dateN1, sites, top10BySite } = resultat.data;
+    const { dateHier, dateN1, sites, top10BySite, topNomenclatures } = resultat.data;
 
     const totalCa = sites.reduce((s, r) => s + r.ca_hier, 0);
     const totalCaN1 = sites.reduce((s, r) => s + r.ca_n1, 0);
@@ -277,17 +431,22 @@ export default function DashboardPage() {
                         </div>
                     </section>
 
-                    {top10BySite.length > 0 && (
-                        <section>
-                            <TitreSection
-                                titre="Top 10 des produits d'hier"
-                                description="Les produits qui ont le plus rapporté, le plus vendu et le plus margé, par magasin. Cliquez sur un produit pour ouvrir sa fiche."
+                    <section>
+                        <TitreSection
+                            titre="Top 10 des familles d'hier"
+                            description={<>Les familles (nomenclatures) qui ont fait le plus de chiffre d&apos;affaires dans nos magasins, comparées à <Terme id="n1" />.</>}
+                        />
+                        {topNomenclatures === null ? (
+                            <EmptyState
+                                title="Classement des familles indisponible"
+                                description="La base de données FF n'a pas répondu. Le classement reviendra au prochain chargement de la page."
                             />
-                            <div className="space-y-8">
-                                {top10BySite.map((s) => <Top10Magasin key={s.site} siteData={s} />)}
-                            </div>
-                        </section>
-                    )}
+                        ) : (
+                            <TopFamilles rows={topNomenclatures} sites={sites.map((s) => s.site)} />
+                        )}
+                    </section>
+
+                    {top10BySite.length > 0 && <TopProduits top10BySite={top10BySite} />}
                 </div>
             )}
         </div>
