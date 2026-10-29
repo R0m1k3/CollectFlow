@@ -116,6 +116,19 @@ async fn article_sans_fournisseur_principal() {
         let voulu = if r.codein == "100003" { "PUCKATOR BV" } else { attendu(&r.codein) };
         assert_eq!(r.fournisseur, voulu, "hit parade complété {}", r.codein);
     }
+
+    // `datmvt` en horodatage (cas de la base réelle) : les ventes du jour ne
+    // sont pas toutes enregistrées à minuit.
+    sqlx::raw_sql(
+        "ALTER TABLE mvtart ALTER COLUMN datmvt TYPE timestamp;
+         INSERT INTO mvtart VALUES (120, 2, '579', 3, TIMESTAMP '2026-03-05 14:30', -1, -25, 3);",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let top = pg_get_top_nomenclatures_jour("2026-03-05", "2025-03-06", 10).await.unwrap();
+    let ca: Vec<(&str, f64)> = top.iter().map(|l| (l.site.as_str(), l.ca)).collect();
+    assert_eq!(ca, vec![("292", 40.0), ("579", 25.0)], "{top:?}");
 }
 
 /// Fausse API FF : seul l'article 4 (codein 100003) y a un fournisseur.
