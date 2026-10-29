@@ -739,10 +739,22 @@ pub struct DashboardData {
     pub sites: Vec<DashboardSiteStats>,
     #[serde(rename = "top10BySite")]
     pub top10_by_site: Vec<DashboardSiteTop10>,
-    /// Top 10 des nomenclatures d'hier de chaque magasin (magasin par magasin).
-    /// `None` quand la base miroir n'a pas répondu : le reste de la page
-    /// (100 % API) s'affiche quand même.
-    pub top_nomenclatures: Option<Vec<DashboardNomenclatureRow>>,
+    /// Top 10 des nomenclatures de chaque magasin. `None` quand la base miroir
+    /// n'a pas répondu : le reste de la page (100 % API) s'affiche quand même.
+    pub top_nomenclatures: Option<DashboardTopNomenclatures>,
+}
+
+/// Top des nomenclatures d'une journée, magasin par magasin.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardTopNomenclatures {
+    /// Jour classé : hier, ou le dernier jour de ventes de la base miroir
+    /// quand elle n'a pas encore reçu ceux d'hier.
+    pub date: String,
+    /// Même jour de la semaine, un an plus tôt (364 jours).
+    #[serde(rename = "dateN1")]
+    pub date_n1: String,
+    pub lignes: Vec<DashboardNomenclatureRow>,
 }
 
 /// CA d'une nomenclature dans un magasin, hier et le même jour N-1.
@@ -1019,8 +1031,8 @@ pub async fn pg_get_dashboard_data() -> anyhow::Result<DashboardData> {
             }
         },
         async {
-            match pg_get_top_nomenclatures_jour(&date_hier, &date_n1_param, 10).await {
-                Ok(rows) => Some(rows),
+            match pg_get_top_nomenclatures_jour(&date_hier, 10).await {
+                Ok(top) => Some(top),
                 Err(err) => {
                     tracing::error!("[pg-ff] Dashboard : top nomenclatures indisponible : {}", message_erreur(&err));
                     None
@@ -1340,20 +1352,46 @@ pub async fn pg_get_ca_by_nomenclature(mois: &str, mois_n1: &str) -> anyhow::Res
         .collect())
 }
 
+/// Même jour de la semaine un an plus tôt (364 jours = 52 semaines).
+fn meme_jour_n1(jour: &str) -> String {
+    NaiveDate::parse_from_str(jour, "%Y-%m-%d")
+        .map(|d| (d - chrono::Duration::days(364)).format("%Y-%m-%d").to_string())
+        .unwrap_or_default()
+}
+
 /// Top `n` des nomenclatures de chaque magasin sur une journée, avec le CA
 /// du même jour N-1.
 /// Même calcul que `pg_get_ca_by_nomenclature` (CA net, retours déduits),
 /// sur deux jours au lieu de deux mois. Lignes rendues magasin par magasin,
 /// dans l'ordre du classement.
 ///
+/// La base miroir peut ne pas avoir encore reçu les ventes de `date` (l'API
+/// FF, elle, les a) : le classement porte alors sur son dernier jour de
+/// ventes, dans les 31 jours qui précèdent, et `date` dans la réponse le dit.
+///
 /// Chaque jour est filtré sur [jour, jour + 1[ : `datmvt` peut être un
 /// horodatage, et `datmvt = jour` ne garderait alors que les mouvements
 /// enregistrés à minuit.
-pub async fn pg_get_top_nomenclatures_jour(
-    date: &str,
-    date_n1: &str,
-    n: usize,
-) -> anyhow::Result<Vec<DashboardNomenclatureRow>> {
+pub async fn pg_get_top_nomenclatures_jour(date: &str, n: usize) -> anyhow::Result<DashboardTopNomenclatures> {
+    let pool = pool()?;
+    let dernier: Option<String> = sqlx::query_scalar(
+        "
+        SELECT MAX(m.datmvt)::date::text
+        FROM mvtart m
+        WHERE m.datmvt >= $1::date - 31 AND m.datmvt < $1::date + 1
+          AND m.site IN ('292', '579')
+          AND m.genremvt = 3
+    ",
+    )
+    .bind(date)
+    .fetch_one(&pool)
+    .await?;
+    let Some(jour) = dernier else {
+        tracing::info!("[pg-ff] TopNomenclatures: aucune vente dans la base miroir dans les 31 jours avant {date}");
+        return Ok(DashboardTopNomenclatures { date: date.to_string(), date_n1: meme_jour_n1(date), lignes: vec![] });
+    };
+    let date_n1 = meme_jour_n1(&jour);
+
     let rows = sqlx::query(
         "
         SELECT
@@ -1372,9 +1410,9 @@ pub async fn pg_get_top_nomenclatures_jour(
         GROUP BY n.no_id, n.code, n.libelle, m.site
     ",
     )
-    .bind(date)
-    .bind(date_n1)
-    .fetch_all(&pool()?)
+    .bind(&jour)
+    .bind(&date_n1)
+    .fetch_all(&pool)
     .await?;
 
     let lignes: Vec<DashboardNomenclatureRow> = rows
@@ -1390,10 +1428,10 @@ pub async fn pg_get_top_nomenclatures_jour(
     let nb_lignes = lignes.len();
     let top = classer_nomenclatures(lignes, n);
     tracing::info!(
-        "[pg-ff] TopNomenclatures: {} lignes classées sur {nb_lignes} pour {date} (N-1 {date_n1})",
+        "[pg-ff] TopNomenclatures: {} lignes classées sur {nb_lignes} pour {jour} (demandé {date}, N-1 {date_n1})",
         top.len()
     );
-    Ok(top)
+    Ok(DashboardTopNomenclatures { date: jour, date_n1, lignes: top })
 }
 
 /// Garde, pour chaque magasin, les `n` nomenclatures au plus gros CA, rendues

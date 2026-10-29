@@ -242,8 +242,8 @@ const COLONNES_FAMILLES: DataColumn<LigneFamille>[] = [
     },
     {
         id: "ca",
-        header: "Hier",
-        hint: "Chiffre d'affaires TTC d'hier, retours déduits",
+        header: "CA",
+        hint: "Chiffre d'affaires TTC du jour classé, retours déduits",
         align: "right",
         sortValue: (l) => l.ca,
         cell: (l) => <Montant v={l.ca} />,
@@ -292,8 +292,8 @@ function TopFamilles({ rows, sites }: { rows: DashboardNomenclatureRow[]; sites:
                         pageSize={0}
                         unite="familles"
                         showFooter
-                        emptyTitle="Aucune vente enregistrée hier"
-                        emptyDescription="Les ventes de la veille ne sont peut-être pas encore arrivées dans la base FF."
+                        emptyTitle="Aucune vente dans la base FF"
+                        emptyDescription="La base FF n'a aucune vente de ce magasin sur le dernier mois."
                     />
                 </div>
             ))}
@@ -424,16 +424,25 @@ export default function DashboardPage() {
 
                     <section>
                         <TitreSection
-                            titre="Top 10 des familles d'hier"
+                            titre={topNomenclatures && topNomenclatures.date !== dateHier ? "Top 10 des familles" : "Top 10 des familles d'hier"}
                             description={<>Les familles (nomenclatures) qui ont fait le plus de chiffre d&apos;affaires dans chaque magasin, comparées à <Terme id="n1" />.</>}
                         />
+                        {topNomenclatures && topNomenclatures.date !== dateHier && (
+                            <p className="mb-3 flex flex-wrap items-center gap-2 text-sm text-[var(--text-secondary)]">
+                                <Badge ton="alerte">Base FF pas encore à jour</Badge>
+                                <span>
+                                    Les ventes d&apos;hier n&apos;y sont pas encore : classement du{" "}
+                                    <strong className="text-[var(--text-primary)]">{dateLongue(topNomenclatures.date)}</strong>, son dernier jour de ventes.
+                                </span>
+                            </p>
+                        )}
                         {topNomenclatures === null ? (
                             <EmptyState
                                 title="Classement des familles indisponible"
                                 description="La base de données FF n'a pas répondu. Le classement reviendra au prochain chargement de la page."
                             />
                         ) : (
-                            <TopFamilles rows={topNomenclatures} sites={sites.map((s) => s.site)} />
+                            <TopFamilles rows={topNomenclatures.lignes} sites={sites.map((s) => s.site)} />
                         )}
                     </section>
 

@@ -91,9 +91,18 @@ async fn article_sans_fournisseur_principal() {
     assert_eq!(nom("SANS_FOURNISSEUR").as_deref(), Some("Sans fournisseur"), "{ca:?}");
 
     // Accueil : articles sans nomenclature, regroupés ; aucune vente le même jour N-1.
-    let top = pg_get_top_nomenclatures_jour("2026-03-05", "2025-03-06", 10).await.unwrap();
-    assert_eq!(top.len(), 1, "{top:?}");
-    assert_eq!((top[0].code.as_str(), top[0].site.as_str(), top[0].ca, top[0].ca_n1), ("SANS_NOM", "292", 40.0, 0.0));
+    let top = pg_get_top_nomenclatures_jour("2026-03-05", 10).await.unwrap();
+    assert_eq!((top.date.as_str(), top.date_n1.as_str()), ("2026-03-05", "2025-03-06"));
+    assert_eq!(top.lignes.len(), 1, "{top:?}");
+    let l = &top.lignes[0];
+    assert_eq!((l.code.as_str(), l.site.as_str(), l.ca, l.ca_n1), ("SANS_NOM", "292", 40.0, 0.0));
+
+    // Base miroir en retard : pas de vente le 10, classement du dernier jour de ventes.
+    let top = pg_get_top_nomenclatures_jour("2026-03-10", 10).await.unwrap();
+    assert_eq!((top.date.as_str(), top.lignes.len()), ("2026-03-05", 1), "{top:?}");
+    // Plus de 31 jours sans vente : rien à classer, la date demandée est gardée.
+    let top = pg_get_top_nomenclatures_jour("2026-06-01", 10).await.unwrap();
+    assert_eq!((top.date.as_str(), top.lignes.len()), ("2026-06-01", 0), "{top:?}");
 
     let receptions = pg_get_derniere_reception_par_fournisseur(None).await;
     assert!(receptions.contains_key("F1|292"), "{receptions:?}");
@@ -126,8 +135,8 @@ async fn article_sans_fournisseur_principal() {
     .execute(&pool)
     .await
     .unwrap();
-    let top = pg_get_top_nomenclatures_jour("2026-03-05", "2025-03-06", 10).await.unwrap();
-    let ca: Vec<(&str, f64)> = top.iter().map(|l| (l.site.as_str(), l.ca)).collect();
+    let top = pg_get_top_nomenclatures_jour("2026-03-05", 10).await.unwrap();
+    let ca: Vec<(&str, f64)> = top.lignes.iter().map(|l| (l.site.as_str(), l.ca)).collect();
     assert_eq!(ca, vec![("292", 40.0), ("579", 25.0)], "{top:?}");
 }
 

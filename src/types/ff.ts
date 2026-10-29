@@ -46,13 +46,22 @@ export interface DashboardNomenclatureRow {
     ca_n1: number;
 }
 
+/** Top 10 des nomenclatures de chaque magasin sur une journée. */
+export interface DashboardTopNomenclatures {
+    /** Jour classé : hier, ou le dernier jour de ventes de la base FF si elle n'a pas encore hier. */
+    date: string;
+    dateN1: string;
+    /** Magasin par magasin, dans l'ordre du classement. */
+    lignes: DashboardNomenclatureRow[];
+}
+
 export interface DashboardData {
     dateHier: string;
     dateN1: string;
     sites: DashboardSiteStats[];
     top10BySite: DashboardSiteTop10[];
-    /** Top 10 de chaque magasin, magasin par magasin dans l'ordre du classement ; `null` si la base n'a pas répondu. */
-    topNomenclatures: DashboardNomenclatureRow[] | null;
+    /** `null` si la base n'a pas répondu. */
+    topNomenclatures: DashboardTopNomenclatures | null;
 }
 
 export interface CaByFournisseurRow {
