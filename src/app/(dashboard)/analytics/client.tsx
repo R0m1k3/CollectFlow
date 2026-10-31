@@ -229,7 +229,9 @@ export function AnalyticsClient({
                     rowKey={(r) => `${r.key}|${r.label}`}
                     searchIn={recherche}
                     searchPlaceholder={mode === "fournisseur" ? "Rechercher un fournisseur…" : "Rechercher une famille…"}
-                    pageSize={100}
+                    // Toutes les lignes d'un seul tenant : on parcourt la liste en
+                    // défilant (la pagination arrêtait la liste à la 100e famille).
+                    pageSize={0}
                     unite={mode === "fournisseur" ? "fournisseurs" : "familles"}
                     showFooter
                     emptyTitle={`Aucune vente en ${libelleMois}`}

@@ -95,6 +95,12 @@ interface DataTableProps<T> {
 
 const collator = new Intl.Collator("fr", { numeric: true, sensitivity: "base" });
 
+/**
+ * Valeur par défaut de `filters`, partagée : un `[]` écrit dans la signature
+ * serait un nouveau tableau à chaque rendu et relancerait les calculs mémoïsés.
+ */
+const AUCUN_FILTRE: readonly never[] = [];
+
 function comparer(a: string | number | null | undefined, b: string | number | null | undefined): number {
     const videA = a === null || a === undefined || a === "";
     const videB = b === null || b === undefined || b === "";
@@ -111,7 +117,7 @@ export function DataTable<T>({
     rowKey,
     searchIn,
     searchPlaceholder = "Rechercher…",
-    filters = [],
+    filters = AUCUN_FILTRE,
     pageSize = 50,
     unite = "lignes",
     emptyTitle = "Aucun résultat",
@@ -174,11 +180,16 @@ export function DataTable<T>({
         });
     }, [filtrees, tri, columns]);
 
-    // Tout changement de filtre, de recherche ou de tri ramène à la page 1
-    // (ajusté pendant le rendu, sans effet ni rendu supplémentaire).
-    const [jeuPagine, setJeuPagine] = useState(triees);
-    if (jeuPagine !== triees) {
-        setJeuPagine(triees);
+    // Tout changement de données, de filtre, de recherche ou de tri ramène à la
+    // page 1 (ajusté pendant le rendu, sans effet ni rendu supplémentaire).
+    // On compare ces critères, et non le tableau des lignes calculées : celui-ci
+    // peut être recalculé à chaque rendu (props passées sans mémoïsation), et
+    // le comparer relançait le rendu sans fin — « Too many re-renders » dès
+    // qu'une recherche était saisie.
+    const criteres = [rows, rechercheDifferee, valeursFiltres, tri] as const;
+    const [criteresPagines, setCriteresPagines] = useState(criteres);
+    if (criteres.some((c, i) => c !== criteresPagines[i])) {
+        setCriteresPagines(criteres);
         setPage(1);
     }
 

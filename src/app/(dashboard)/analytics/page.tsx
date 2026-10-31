@@ -46,7 +46,10 @@ function pivotData(
             map.set(key, { code: row.code, label: row.label, data: {} });
         }
         const entry = map.get(key)!;
-        entry.data[`${row.site}_${row.mois}`] = row.ca_ttc;
+        // Cumul : deux nœuds de nomenclature peuvent porter le même code et le
+        // même libellé (lignes distinctes côté serveur, une seule ligne ici).
+        const cle = `${row.site}_${row.mois}`;
+        entry.data[cle] = (entry.data[cle] ?? 0) + row.ca_ttc;
     }
 
     const result = Array.from(map.values()).map(({ code, label, data }) => {
