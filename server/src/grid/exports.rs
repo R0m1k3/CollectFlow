@@ -189,7 +189,7 @@ pub fn classeur_assortiment(rows: &[ExportRow]) -> Result<Vec<u8>, XlsxError> {
         ("Gamme Après", 14),
         ("Delta", 10),
         ("Vol. 12m", 12),
-        ("CA 12m (€)", 14),
+        ("CA HT 12m (€)", 14),
         ("Marge (%)", 12),
     ];
     for (i, (titre, w)) in colonnes.iter().enumerate() {

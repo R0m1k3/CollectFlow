@@ -400,7 +400,7 @@ const LIBELLES_COLONNES: Record<string, string> = {
     caParMagasinReseau: "CA par magasin (réseau)",
     margePctReseau: "Marge % réseau",
     totalQuantite: "Total 12 mois",
-    totalCa: "Chiffre d'affaires",
+    totalCa: "Chiffre d'affaires HT",
     totalMarge: "Marge",
     gammeInitial: "Gamme actuelle (FF)",
     gamme: "Gamme",
@@ -1121,7 +1121,7 @@ function HeatmapGridInner({ codeFournisseur, onSelectionChange, isAdmin, nomFour
         {
             id: "totalCa",
             accessorFn: (row: ProductRow) => activeMagasin === "TOTAL" ? row.totalCa : (row.caByStore?.[activeMagasin] ?? 0),
-            header: () => <div className="text-center w-full" title="Chiffre d'affaires sur 12 mois">CA</div>,
+            header: () => <div className="text-center w-full" title="Chiffre d'affaires HT sur 12 mois, retours déduits">CA HT</div>,
             size: 105,
             cell: ({ row }: { row: { original: ProductRow } }) => {
                 const ca = activeMagasin === "TOTAL"

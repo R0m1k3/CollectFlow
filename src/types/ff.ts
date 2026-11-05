@@ -23,7 +23,10 @@ export interface DashboardSiteStats {
 export interface DashboardTopItem {
     codein: string;
     libelle1: string;
+    /** CA TTC net (caisses), affiché. */
     ca: number;
+    /** CA HT net : base du taux de marge (0 si l'API ne le fournit pas). */
+    ca_ht: number;
     qte: number;
     marge: number;
     stock: number;
@@ -90,6 +93,8 @@ export interface HitParadeRow {
     nomenclature: string;
     site: string;
     qte_vendue: number;
+    /** CA HT net des retours : base du taux de marge (comme Qlik). */
+    ca_ht: number;
     ca_ttc: number;
     marge: number;
     stock292: number;

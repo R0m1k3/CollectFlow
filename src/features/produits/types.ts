@@ -80,7 +80,7 @@ export interface ProduitMois {
     /** Clé de mois FF, format "YYYYMM". */
     mois: string;
     qte: number;
-    /** Issu de mntmvtttc — TTC malgré le nom historique `ca_ht`. */
+    /** CA HT net des retours (mntmvtht), base du taux de marge. */
     ca: number;
     marge: number;
     stockFinMois: number;

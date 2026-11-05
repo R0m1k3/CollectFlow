@@ -145,7 +145,7 @@ function ListeTop10({ items, critere }: { items: DashboardTopItem[]; critere: Cr
             ) : (
                 <ol>
                     {items.map((item, i) => {
-                        const taux = item.ca > 0 ? (item.marge / item.ca) * 100 : null;
+                        const taux = item.ca_ht > 0 ? (item.marge / item.ca_ht) * 100 : null; // taux sur le HT, comme partout
                         return (
                             <li key={item.codein} className="flex items-start gap-3 border-b border-[var(--border)] px-4 py-2.5 last:border-b-0">
                                 <span
@@ -171,7 +171,7 @@ function ListeTop10({ items, critere }: { items: DashboardTopItem[]; critere: Cr
                                     </div>
                                     <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
                                         <span className="truncate">{item.fournisseur}</span>
-                                        {critere !== "ca" && <span>CA {fmtEur2(item.ca)}</span>}
+                                        {critere !== "ca" && <span>CA TTC {fmtEur2(item.ca)}</span>}
                                         {critere !== "qte" && <span>{fmtEntier(item.qte)} vendus</span>}
                                         <span
                                             style={{ color: item.stock <= 0 ? "var(--accent-error)" : undefined }}

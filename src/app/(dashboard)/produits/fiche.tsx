@@ -571,7 +571,7 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
                 <Bloc
                     titre="Nos ventes · 12 derniers mois"
                     icone={ShoppingCart}
-                    description="Chiffre d'affaires TTC, tiré des caisses de nos magasins."
+                    description="Chiffre d'affaires HT, retours déduits, tiré des caisses de nos magasins."
                     actions={
                         <Segmented
                             items={[
@@ -585,7 +585,7 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
                 >
                     <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
                         <StatCard label="Quantité vendue" value={fmtEntier(totauxAffiches.qte)} />
-                        <StatCard label="Chiffre d'affaires TTC" value={fmtEur2(totauxAffiches.ca)} />
+                        <StatCard label="Chiffre d'affaires HT" value={fmtEur2(totauxAffiches.ca)} />
                         <StatCard label={<Terme id="marge" />} value={fmtEur2(totauxAffiches.marge)} />
                         <StatCard
                             label="Taux de marge"
@@ -621,7 +621,7 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
                                     ))}
                                 </tr>
                                 <tr className="border-t border-[var(--border)]">
-                                    <th scope="row" className={TH_LIGNE}>Chiffre d&apos;affaires TTC (€)</th>
+                                    <th scope="row" className={TH_LIGNE}>Chiffre d&apos;affaires HT (€)</th>
                                     {months.map((m) => (
                                         <td key={m} className={TD}>
                                             {serie[m]?.ca ? fmtDecimal2(serie[m].ca) : <span className="text-[var(--text-muted)]">—</span>}
@@ -704,8 +704,8 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
 
                     <p className="mt-3 text-[13px] text-[var(--text-secondary)]">
                         L&apos;indice compare les <strong>quantités</strong> vendues par magasin, seule base commune fiable.
-                        Notre chiffre d&apos;affaires est TTC (caisses) ; la base de celui du réseau n&apos;est pas connue :
-                        montants et marges sont donc donnés à titre indicatif.
+                        Notre chiffre d&apos;affaires et notre taux de marge sont HT, retours déduits, comme ceux du réseau
+                        (Qlik) ; les montants restent donnés à titre indicatif.
                     </p>
 
                     {comparatif.hasMonthly && (

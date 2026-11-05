@@ -58,7 +58,7 @@ const CRITERES: Record<string, Critere> = {
     margePctReseau:     { label: "Marge % réseau",     format: (v) => `${(Math.abs(v) <= 1 ? v * 100 : v).toFixed(1)} %`,
                           xlsx: '0.0 "%"', brut: (v) => (Math.abs(v) <= 1 ? v * 100 : v) },
     totalQuantite:      { label: "Qté 12 m",           format: nb,   xlsx: "#,##0" },
-    totalCa:            { label: "CA 12 m",            format: eur2, xlsx: '#,##0.00 "€"' },
+    totalCa:            { label: "CA HT 12 m",            format: eur2, xlsx: '#,##0.00 "€"' },
     totalMarge:         { label: "Marge 12 m",         format: eur2, xlsx: '#,##0.00 "€"' },
 };
 

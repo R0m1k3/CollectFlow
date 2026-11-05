@@ -84,8 +84,8 @@ function colonnesGroupe(g: Groupe): DataColumn<Ligne>[] {
         {
             ...commun,
             id: `${g.id}-ca`,
-            header: "CA TTC",
-            hint: `Chiffre d'affaires TTC (${g.nom}) sur la période, retours déduits`,
+            header: "CA HT",
+            hint: `Chiffre d'affaires HT (${g.nom}) sur la période, retours déduits`,
             sortValue: r => r[g.ca],
             cell: r => (r[g.ca] !== 0 ? fmtEur2(r[g.ca]) : vide),
             footer: rows => fmtEur2(somme(rows, g.ca)),
@@ -95,7 +95,7 @@ function colonnesGroupe(g: Groupe): DataColumn<Ligne>[] {
             ...commun,
             id: `${g.id}-marge`,
             header: "% marge",
-            hint: `Taux de marge (${g.nom}) : marge divisée par le chiffre d'affaires TTC`,
+            hint: `Taux de marge (${g.nom}) : marge divisée par le chiffre d'affaires HT`,
             sortValue: r => tauxMarge(r[g.ca], r[g.marge]),
             cell: r => <CelluleMarge taux={tauxMarge(r[g.ca], r[g.marge])} />,
             footer: rows => <CelluleMarge taux={tauxMarge(somme(rows, g.ca), somme(rows, g.marge))} />,
@@ -195,7 +195,10 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
     }
 
     async function exportToExcel(rows: readonly Ligne[]) {
-        const pct = (ca: number, marge: number) => ca === 0 ? 0 : Math.round((marge / ca) * 1000) / 10;
+        const pct = (ca: number, marge: number) => {
+            const t = tauxMarge(ca, marge);
+            return t === null ? 0 : Math.round(t * 10) / 10;
+        };
         const nomExport = (g: Groupe) => (g.id === "total" ? "Total" : g.nom);
 
         await telechargerExcel({
@@ -204,7 +207,7 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
             entetes: [
                 "Code", "Désignation", "Référence", "Fournisseur", "Nomenclature",
                 ...GROUPES.flatMap(g => [
-                    `Qté ${nomExport(g)}`, `CA TTC ${nomExport(g)}`, `% Marge ${nomExport(g)}`, `Stock ${nomExport(g)}`,
+                    `Qté ${nomExport(g)}`, `CA HT ${nomExport(g)}`, `% Marge ${nomExport(g)}`, `Stock ${nomExport(g)}`,
                 ]),
             ],
             largeurs: [12, 40, 18, 25, 30, ...GROUPES.flatMap(() => [10, 14, 12, 10])],

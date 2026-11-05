@@ -163,7 +163,7 @@ export async function imprimerPdf(nomFournisseur: string): Promise<boolean> {
     doc.text(`Export généré le : ${new Date().toLocaleDateString("fr-FR")}`, 14, 30);
 
     const eur = (v: number) => v.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const head = [["Code-barres", "Code article", "Réf.", "Libellé", "Magasins réseau", "Qté", "CA", "Marge", "Gamme"]];
+    const head = [["Code-barres", "Code article", "Réf.", "Libellé", "Magasins réseau", "Qté", "CA HT", "Marge", "Gamme"]];
     const body = rows.map((r) => [
         r.gtin || r.codein,
         r.codein,

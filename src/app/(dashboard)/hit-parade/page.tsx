@@ -57,11 +57,11 @@ function pivotHitParade(rows: HitParadeRow[]): HitParadePivotRow[] {
         const site = String(row.site).trim();
         if (site === "292") {
             entry.qte292 += row.qte_vendue;
-            entry.ca292 += row.ca_ttc;
+            entry.ca292 += row.ca_ht;
             entry.marge292 += row.marge;
         } else if (site === "579") {
             entry.qte579 += row.qte_vendue;
-            entry.ca579 += row.ca_ttc;
+            entry.ca579 += row.ca_ht;
             entry.marge579 += row.marge;
         }
     }

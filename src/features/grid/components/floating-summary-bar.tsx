@@ -195,7 +195,7 @@ function FloatingSummaryBarInner({ isAdmin, nomFournisseur }: { isAdmin: boolean
             <div className="flex flex-wrap items-center gap-x-8 gap-y-1">
                 <Stat label="Produits actifs" value={fmtEntier(summary.totalRows)} sub={summary.totalProducts !== summary.totalRows ? `sur ${fmtEntier(summary.totalProducts)}` : undefined} subColor="var(--text-muted)" />
                 <Stat label="Quantités vendues (12 mois)" value={fmtEntier(summary.totalQuantite)} />
-                <Stat label="Chiffre d'affaires" value={fmtEur2(summary.totalCa)} />
+                <Stat label="Chiffre d'affaires HT" value={fmtEur2(summary.totalCa)} />
                 <Stat
                     label="Marge"
                     value={fmtEur2(summary.totalMarge)}

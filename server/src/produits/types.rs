@@ -104,7 +104,7 @@ pub struct ProduitMois {
     pub mois: String,
     #[serde(serialize_with = "jsnum::ser")]
     pub qte: f64,
-    /// Issu de mntmvtttc — TTC malgré le nom historique `ca_ht`.
+    /// CA HT net des retours (mntmvtht), base du taux de marge.
     #[serde(serialize_with = "jsnum::ser")]
     pub ca: f64,
     #[serde(serialize_with = "jsnum::ser")]
