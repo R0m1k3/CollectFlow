@@ -124,7 +124,7 @@ pub struct GridQueryResult {
 /// Version du format des lignes persistées. À incrémenter dès qu'un champ de
 /// `ProductRow` est ajouté ou change de sens : les instantanés plus anciens ne
 /// seront plus servis à la Grille (recalcul), mais restent lisibles par /api/v1.
-pub const GRID_PAYLOAD_VERSION: f64 = 2.0; // 2.0 : totalCa et tauxMarge sur le CA HT net (05/11/2026)
+pub const GRID_PAYLOAD_VERSION: f64 = 2.0; // 2.0 : totalCa = CA HT net (base de tauxMarge), totalCaTtc = CA TTC affiché (05/11/2026)
 
 /// Lots d'écriture : payload jsonb volumineux, lots plus petits que pour des scalaires.
 const CHUNK_UPSERT: usize = 200;

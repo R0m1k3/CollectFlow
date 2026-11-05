@@ -17,13 +17,17 @@ export interface HitParadePivotRow {
     nomenclature_code: string;
     nomenclature: string;
     qte292: number;
+    /** CA HT : base du taux de marge. Les champs caTtc* portent le CA affiché. */
     ca292: number;
+    caTtc292: number;
     marge292: number;
     qte579: number;
     ca579: number;
+    caTtc579: number;
     marge579: number;
     qteTotal: number;
     caTotal: number;
+    caTtcTotal: number;
     margeTotal: number;
     stock292: number;
     stock579: number;
@@ -42,9 +46,9 @@ function pivotHitParade(rows: HitParadeRow[]): HitParadePivotRow[] {
                 fournisseur: row.fournisseur,
                 nomenclature_code: row.nomenclature_code,
                 nomenclature: row.nomenclature,
-                qte292: 0, ca292: 0, marge292: 0,
-                qte579: 0, ca579: 0, marge579: 0,
-                qteTotal: 0, caTotal: 0, margeTotal: 0,
+                qte292: 0, ca292: 0, caTtc292: 0, marge292: 0,
+                qte579: 0, ca579: 0, caTtc579: 0, marge579: 0,
+                qteTotal: 0, caTotal: 0, caTtcTotal: 0, margeTotal: 0,
                 // Stock comes from the SQL query directly (LEFT JOIN cube_stock)
                 stock292: row.stock292 ?? 0,
                 stock579: row.stock579 ?? 0,
@@ -58,10 +62,12 @@ function pivotHitParade(rows: HitParadeRow[]): HitParadePivotRow[] {
         if (site === "292") {
             entry.qte292 += row.qte_vendue;
             entry.ca292 += row.ca_ht;
+            entry.caTtc292 += row.ca_ttc;
             entry.marge292 += row.marge;
         } else if (site === "579") {
             entry.qte579 += row.qte_vendue;
             entry.ca579 += row.ca_ht;
+            entry.caTtc579 += row.ca_ttc;
             entry.marge579 += row.marge;
         }
     }
@@ -69,6 +75,7 @@ function pivotHitParade(rows: HitParadeRow[]): HitParadePivotRow[] {
     for (const entry of map.values()) {
         entry.qteTotal = entry.qte292 + entry.qte579;
         entry.caTotal = entry.ca292 + entry.ca579;
+        entry.caTtcTotal = entry.caTtc292 + entry.caTtc579;
         entry.margeTotal = entry.marge292 + entry.marge579;
     }
 

@@ -127,7 +127,7 @@ const LIGNES_MENSUELLES_RESEAU: Array<{
     { label: "Quantité vendue", get: (v) => v.qte, fmt: fmtEntier },
     { label: "Magasins vendeurs", get: (v) => v.nbMag, fmt: fmtEntier },
     { label: "Quantité par magasin", get: (v) => (v.nbMag && v.nbMag > 0 ? v.qte / v.nbMag : undefined), fmt: fmtDecimal1 },
-    { label: "Chiffre d'affaires (€)", get: (v) => v.ca, fmt: fmtDecimal2 },
+    { label: "Chiffre d'affaires HT (€)", get: (v) => v.ca, fmt: fmtDecimal2 },
     { label: "Prix moyen", get: (v) => (v.ca != null && v.qte > 0 ? v.ca / v.qte : undefined), fmt: fmtEur2 },
     { label: "Taux de marge", get: (v) => normalizeMargePct(v.margePct) ?? undefined, fmt: (n) => `${fmtDecimal1(n)} %` },
 ];
@@ -205,7 +205,7 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
     // Série affichée selon le magasin sélectionné.
     const tous = magasin === CODE_TOUS_MAGASINS;
     const serie = tous ? fiche.mensuelTotal : (fiche.mensuelParSite[magasin] ?? {});
-    const totauxAffiches = tous ? fiche.totaux : (fiche.totauxParSite[magasin] ?? { qte: 0, ca: 0, marge: 0, tauxMarge: 0 });
+    const totauxAffiches = tous ? fiche.totaux : (fiche.totauxParSite[magasin] ?? { qte: 0, ca: 0, caTtc: 0, marge: 0, tauxMarge: 0 });
 
     /** Magasins vendeurs par mois — dénominateur de la tendance ET 3e bande du graphique. */
     const nbMagByMonth = useMemo(() => {
@@ -571,7 +571,7 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
                 <Bloc
                     titre="Nos ventes · 12 derniers mois"
                     icone={ShoppingCart}
-                    description="Chiffre d'affaires HT, retours déduits, tiré des caisses de nos magasins."
+                    description="Chiffre d'affaires TTC, retours déduits, tiré des caisses de nos magasins ; taux de marge calculé sur le HT, comme Qlik."
                     actions={
                         <Segmented
                             items={[
@@ -585,7 +585,7 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
                 >
                     <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
                         <StatCard label="Quantité vendue" value={fmtEntier(totauxAffiches.qte)} />
-                        <StatCard label="Chiffre d'affaires HT" value={fmtEur2(totauxAffiches.ca)} />
+                        <StatCard label="Chiffre d'affaires TTC" value={fmtEur2(totauxAffiches.caTtc ?? 0)} />
                         <StatCard label={<Terme id="marge" />} value={fmtEur2(totauxAffiches.marge)} />
                         <StatCard
                             label="Taux de marge"
@@ -621,10 +621,10 @@ export function ProduitFicheView({ fiche, backQuery }: { fiche: ProduitFiche; ba
                                     ))}
                                 </tr>
                                 <tr className="border-t border-[var(--border)]">
-                                    <th scope="row" className={TH_LIGNE}>Chiffre d&apos;affaires HT (€)</th>
+                                    <th scope="row" className={TH_LIGNE}>Chiffre d&apos;affaires TTC (€)</th>
                                     {months.map((m) => (
                                         <td key={m} className={TD}>
-                                            {serie[m]?.ca ? fmtDecimal2(serie[m].ca) : <span className="text-[var(--text-muted)]">—</span>}
+                                            {serie[m]?.caTtc ? fmtDecimal2(serie[m].caTtc) : <span className="text-[var(--text-muted)]">—</span>}
                                         </td>
                                     ))}
                                 </tr>

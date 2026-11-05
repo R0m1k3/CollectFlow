@@ -21,7 +21,10 @@ export interface StorePatchEntry {
     stock: Record<string, number>;
     receptions: Record<string, number>;
     quantite: number;
+    /** CA HT (base du taux de marge). */
     ca: number;
+    /** CA TTC (affiché). */
+    caTtc: number;
     marge: number;
 }
 
@@ -49,7 +52,7 @@ export function buildStorePatchEntries(
         const entries = (mensuel.get(row.codein) ?? []).filter((entry) => entry.site === magasin);
         if (entries.length === 0) continue;
 
-        const byPeriod = new Map<string, { qty: number; ca: number; marge: number; stock: number; receptions: number }>();
+        const byPeriod = new Map<string, { qty: number; ca: number; caTtc: number; marge: number; stock: number; receptions: number }>();
         for (const entry of entries) {
             const period = entry.mois.replace("-", "");
             if (!periods.includes(period)) continue;
@@ -57,16 +60,17 @@ export function buildStorePatchEntries(
             // les nie au lieu de Math.abs pour que les retours restent déduits.
             const qty = -(Number(entry.ventes?.qte_vendue ?? 0) || 0);
             const ca = -(Number(entry.ventes?.ca_ht ?? 0) || 0);
+            const caTtc = -(Number(entry.ventes?.ca_ttc ?? 0) || 0);
             const marge = Number(entry.ventes?.marge ?? 0) || 0;
             const stock = Number(entry.stock_fin_mois ?? 0) || 0;
             const receptions = Number(entry.receptions?.qte_recue ?? 0) || 0;
-            byPeriod.set(period, { qty, ca, marge, stock, receptions });
+            byPeriod.set(period, { qty, ca, caTtc, marge, stock, receptions });
         }
 
         const apiQty = [...byPeriod.values()].reduce((sum, value) => sum + value.qty, 0);
         if (apiQty === 0) continue;
 
-        const e: StorePatchEntry = { codein: row.codein, sales: {}, stock: {}, receptions: {}, quantite: 0, ca: 0, marge: 0 };
+        const e: StorePatchEntry = { codein: row.codein, sales: {}, stock: {}, receptions: {}, quantite: 0, ca: 0, caTtc: 0, marge: 0 };
         let lastStock = 0;
         for (const period of periods) {
             const value = byPeriod.get(period);
@@ -76,6 +80,7 @@ export function buildStorePatchEntries(
             e.stock[period] = lastStock;
             e.quantite += value?.qty ?? 0;
             e.ca += value?.ca ?? 0;
+            e.caTtc += value?.caTtc ?? 0;
             e.marge += value?.marge ?? 0;
         }
         resultat.push(e);
@@ -104,6 +109,7 @@ export function applyStorePatchInPlace(
         row.stock12mByStore ??= {};
         row.receptions12mByStore ??= {};
         row.caByStore ??= {};
+        row.caTtcByStore ??= {};
         row.quantiteByStore ??= {};
         row.margeByStore ??= {};
         row.sales12mByStore[magasin] ??= {};
@@ -121,13 +127,16 @@ export function applyStorePatchInPlace(
 
         const deltaTotalQty = e.quantite - (row.quantiteByStore[magasin] ?? 0);
         const deltaTotalCa = e.ca - (row.caByStore[magasin] ?? 0);
+        const deltaTotalCaTtc = e.caTtc - (row.caTtcByStore[magasin] ?? 0);
         const deltaTotalMarge = e.marge - (row.margeByStore[magasin] ?? 0);
 
         row.quantiteByStore[magasin] = e.quantite;
         row.caByStore[magasin] = e.ca;
+        row.caTtcByStore[magasin] = e.caTtc;
         row.margeByStore[magasin] = e.marge;
         row.totalQuantite += deltaTotalQty;
         row.totalCa += deltaTotalCa;
+        row.totalCaTtc = (row.totalCaTtc ?? 0) + deltaTotalCaTtc;
         row.totalMarge += deltaTotalMarge;
         row.tauxMarge = row.totalCa > 0 ? (row.totalMarge / row.totalCa) * 100 : 0;
         if (!row.workingStores.includes(magasin)) row.workingStores.push(magasin);
@@ -149,6 +158,7 @@ export function withStorePatch(row: ProductRow, magasin: string, e: StorePatchEn
         receptions12mByStore: { ...row.receptions12mByStore, [magasin]: e.receptions },
         quantiteByStore: { ...row.quantiteByStore, [magasin]: e.quantite },
         caByStore: { ...row.caByStore, [magasin]: e.ca },
+        caTtcByStore: { ...row.caTtcByStore, [magasin]: e.caTtc },
         margeByStore: { ...row.margeByStore, [magasin]: e.marge },
         workingStores: row.workingStores.includes(magasin) ? row.workingStores : [...row.workingStores, magasin],
     };

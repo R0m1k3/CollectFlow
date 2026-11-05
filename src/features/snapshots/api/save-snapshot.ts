@@ -16,7 +16,10 @@ export interface SaveSnapshotInput {
     type?: "snapshot" | "export";
     summary?: {
         totalRows: number;
+        /** CA HT : base de tauxMargeGlobal. */
         totalCa: number;
+        /** CA TTC affiché. */
+        totalCaTtc?: number;
         totalMarge: number;
         tauxMargeGlobal: number;
     };

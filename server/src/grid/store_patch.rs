@@ -22,6 +22,7 @@ pub fn build_store_patch_entries(
     struct Valeurs {
         qty: f64,
         ca: f64,
+        ca_ttc: f64,
         marge: f64,
         stock: f64,
         receptions: f64,
@@ -45,10 +46,11 @@ pub fn build_store_patch_entries(
             // les nie au lieu de Math.abs pour que les retours restent déduits.
             let qty = -ventes.map(|v| js_number_or0(&v.qte_vendue)).unwrap_or(0.0);
             let ca = -ventes.map(|v| js_number_or0(&v.ca_ht)).unwrap_or(0.0);
+            let ca_ttc = -ventes.map(|v| js_number_or0(&v.ca_ttc)).unwrap_or(0.0);
             let marge = ventes.map(|v| js_number_or0(&v.marge)).unwrap_or(0.0);
             let stock = js_number_or0(&entry.stock_fin_mois);
             let receptions = entry.receptions.as_ref().map(|r| js_number_or0(&r.qte_recue)).unwrap_or(0.0);
-            by_period.insert(period, Valeurs { qty, ca, marge, stock, receptions });
+            by_period.insert(period, Valeurs { qty, ca, ca_ttc, marge, stock, receptions });
         }
 
         let api_qty: f64 = by_period.values().map(|v| v.qty).sum();
@@ -68,6 +70,7 @@ pub fn build_store_patch_entries(
             e.stock.insert(period.clone(), last_stock);
             e.quantite += value.map(|v| v.qty).unwrap_or(0.0);
             e.ca += value.map(|v| v.ca).unwrap_or(0.0);
+            e.ca_ttc += value.map(|v| v.ca_ttc).unwrap_or(0.0);
             e.marge += value.map(|v| v.marge).unwrap_or(0.0);
         }
         resultat.push(e);
@@ -116,17 +119,21 @@ pub fn apply_store_patch_in_place(rows: &mut [ProductRow], magasin: &str, period
         }
 
         let ca_by_store = row.ca_by_store.get_or_insert_with(Default::default);
+        let ca_ttc_by_store = row.ca_ttc_by_store.get_or_insert_with(Default::default);
         let quantite_by_store = row.quantite_by_store.get_or_insert_with(Default::default);
         let marge_by_store = row.marge_by_store.get_or_insert_with(Default::default);
         let delta_qty = e.quantite - quantite_by_store.get(magasin).copied().unwrap_or(0.0);
         let delta_ca = e.ca - ca_by_store.get(magasin).copied().unwrap_or(0.0);
+        let delta_ca_ttc = e.ca_ttc - ca_ttc_by_store.get(magasin).copied().unwrap_or(0.0);
         let delta_marge = e.marge - marge_by_store.get(magasin).copied().unwrap_or(0.0);
 
         quantite_by_store.insert(magasin.to_string(), e.quantite);
         ca_by_store.insert(magasin.to_string(), e.ca);
+        ca_ttc_by_store.insert(magasin.to_string(), e.ca_ttc);
         marge_by_store.insert(magasin.to_string(), e.marge);
         row.total_quantite += delta_qty;
         row.total_ca += delta_ca;
+        row.total_ca_ttc += delta_ca_ttc;
         row.total_marge += delta_marge;
         row.taux_marge = if row.total_ca > 0.0 { (row.total_marge / row.total_ca) * 100.0 } else { 0.0 };
         if !row.working_stores.iter().any(|s| s == magasin) {

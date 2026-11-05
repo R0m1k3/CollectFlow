@@ -86,10 +86,10 @@ async fn article_sans_fournisseur_principal() {
         assert_eq!((r.ca_ht, r.ca_ttc, r.marge), (8.0, 10.0, 3.0), "hit parade CA {}", r.codein);
     }
 
-    // Grille : CA HT net (mntmvtht), et non plus le TTC (10).
+    // Grille : taux sur le CA HT net (mntmvtht), CA affiché en TTC net (mntmvtttc).
     let m = pg_get_mensuel_by_fournisseur("F2", "2026-03-01", "2026-03-31").await.unwrap();
     assert_eq!(m.len(), 1, "{m:?}");
-    assert_eq!((m[0].codein.trim(), m[0].ca_ht, m[0].marge), ("100002", 8.0, 3.0));
+    assert_eq!((m[0].codein.trim(), m[0].ca_ht, m[0].ca_ttc, m[0].marge), ("100002", 8.0, 10.0, 3.0));
 
     let ca = pg_get_ca_by_fournisseur("2026-03", "2025-03").await.unwrap();
     let nom = |code: &str| ca.iter().find(|r| r.code == code).map(|r| r.nom.clone());

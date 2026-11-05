@@ -177,7 +177,7 @@ pub struct SaveSnapshotInput {
     /// codein → `{ before, after }`.
     pub changes: Map<String, Value>,
     pub type_: Option<String>,
-    /// `{ totalRows, totalCa, totalMarge, tauxMargeGlobal }`.
+    /// `{ totalRows, totalCa, totalMarge, tauxMargeGlobal }`, plus `totalCaTtc` (facultatif, depuis le 05/11/2026).
     pub summary: Option<Value>,
 }
 
@@ -230,6 +230,10 @@ pub fn parse_save_snapshot(raw: &Value) -> Result<SaveSnapshotInput, Issues> {
                             }
                             None => complet = false,
                         }
+                    }
+                    // CA TTC affiché : facultatif (absent des clients d'avant le 05/11/2026).
+                    if s.get("totalCaTtc").is_some_and(|v| v.as_f64().is_some_and(f64::is_finite)) {
+                        out.insert("totalCaTtc".to_string(), s["totalCaTtc"].clone());
                     }
                     complet.then_some(Some(Value::Object(out)))
                 }

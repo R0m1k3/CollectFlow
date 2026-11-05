@@ -272,7 +272,10 @@ fn last12_periods() -> Vec<String> {
 #[derive(Default, Clone, Copy)]
 struct PeriodData {
     qty: f64,
+    /// CA HT net : base du taux de marge.
     ca: f64,
+    /// CA TTC net : CA affiché.
+    ca_ttc: f64,
     marge: f64,
     stock: f64,
     receptions: f64,
@@ -407,6 +410,7 @@ async fn build_product_rows(input: &GetProductRowsInput) -> anyhow::Result<Vec<P
         p.stock += stock;
         p.qty += or0(row.qte_vendue);
         p.ca += or0(row.ca_ht);
+        p.ca_ttc += or0(row.ca_ttc);
         p.marge += or0(row.marge);
         p.receptions += or0(row.qte_recue);
 
@@ -414,6 +418,7 @@ async fn build_product_rows(input: &GetProductRowsInput) -> anyhow::Result<Vec<P
         let sp = mensuel_by_site.entry(row.codein.clone()).or_default().entry(row.site.clone()).or_default().entry(periode).or_default();
         sp.qty += or0(row.qte_vendue);
         sp.ca += or0(row.ca_ht);
+        sp.ca_ttc += or0(row.ca_ttc);
         sp.marge += or0(row.marge);
         sp.stock = stock; // SQL donne déjà le dernier mouvement
         sp.receptions += or0(row.qte_recue);
@@ -438,6 +443,7 @@ async fn build_product_rows(input: &GetProductRowsInput) -> anyhow::Result<Vec<P
                     product.receptions12m.insert(periode.clone(), p.receptions);
                     product.total_quantite += p.qty;
                     product.total_ca += p.ca;
+                    product.total_ca_ttc += p.ca_ttc;
                     product.total_marge += p.marge;
                     last_stock = p.stock;
                 }
@@ -457,11 +463,12 @@ async fn build_product_rows(input: &GetProductRowsInput) -> anyhow::Result<Vec<P
             let mut stock_by_store = BTreeMap::new();
             let mut receptions_by_store = BTreeMap::new();
             let mut ca_by_store = BTreeMap::new();
+            let mut ca_ttc_by_store = BTreeMap::new();
             let mut quantite_by_store = BTreeMap::new();
             let mut marge_by_store = BTreeMap::new();
             for (site, site_by_period) in site_map {
                 let (mut sales, mut stock, mut receptions) = (BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
-                let (mut s_qty, mut s_ca, mut s_marge) = (0.0, 0.0, 0.0);
+                let (mut s_qty, mut s_ca, mut s_ca_ttc, mut s_marge) = (0.0, 0.0, 0.0, 0.0);
                 let mut last_site_stock = 0.0;
                 for periode in &sorted_periods {
                     let sp = site_by_period.get(periode);
@@ -478,6 +485,7 @@ async fn build_product_rows(input: &GetProductRowsInput) -> anyhow::Result<Vec<P
                     }
                     s_qty += sp.map(|p| p.qty).unwrap_or(0.0);
                     s_ca += sp.map(|p| p.ca).unwrap_or(0.0);
+                    s_ca_ttc += sp.map(|p| p.ca_ttc).unwrap_or(0.0);
                     s_marge += sp.map(|p| p.marge).unwrap_or(0.0);
                 }
                 sales_by_store.insert(site.clone(), sales);
@@ -485,6 +493,7 @@ async fn build_product_rows(input: &GetProductRowsInput) -> anyhow::Result<Vec<P
                 receptions_by_store.insert(site.clone(), receptions);
                 quantite_by_store.insert(site.clone(), s_qty);
                 ca_by_store.insert(site.clone(), s_ca);
+                ca_ttc_by_store.insert(site.clone(), s_ca_ttc);
                 marge_by_store.insert(site.clone(), s_marge);
             }
 
@@ -505,6 +514,7 @@ async fn build_product_rows(input: &GetProductRowsInput) -> anyhow::Result<Vec<P
             product.stock12m_by_store = Some(stock_by_store);
             product.receptions12m_by_store = Some(receptions_by_store);
             product.ca_by_store = Some(ca_by_store);
+            product.ca_ttc_by_store = Some(ca_ttc_by_store);
             product.quantite_by_store = Some(quantite_by_store);
             product.marge_by_store = Some(marge_by_store);
         }

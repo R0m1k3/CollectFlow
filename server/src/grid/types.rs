@@ -76,10 +76,15 @@ pub struct ProductRow {
     pub receptions12m: Serie,
     #[serde(with = "js::num")]
     pub total_quantite: f64,
+    /// CA HT net des retours sur 12 mois : base du taux de marge (comme Qlik).
     #[serde(with = "js::num")]
     pub total_ca: f64,
+    /// CA TTC net des retours sur 12 mois : CA affiché (comme Qlik).
+    #[serde(with = "js::num")]
+    pub total_ca_ttc: f64,
     #[serde(with = "js::num")]
     pub total_marge: f64,
+    /// total_marge / total_ca (HT) × 100.
     #[serde(with = "js::num")]
     pub taux_marge: f64,
     pub working_stores: Vec<String>,
@@ -102,9 +107,12 @@ pub struct ProductRow {
     /// Per-store reception breakdown (site → YYYYMM → qté reçue)
     #[serde(skip_serializing_if = "Option::is_none", with = "js::opt_nested_map")]
     pub receptions12m_by_store: Option<SerieParMagasin>,
-    /// Per-store CA totals
+    /// Per-store CA HT totals (base du taux de marge)
     #[serde(skip_serializing_if = "Option::is_none", with = "js::opt_map")]
     pub ca_by_store: Option<Serie>,
+    /// Per-store CA TTC totals (CA affiché)
+    #[serde(skip_serializing_if = "Option::is_none", with = "js::opt_map")]
+    pub ca_ttc_by_store: Option<Serie>,
     /// Per-store quantity totals
     #[serde(skip_serializing_if = "Option::is_none", with = "js::opt_map")]
     pub quantite_by_store: Option<Serie>,
@@ -222,6 +230,8 @@ pub struct GridSummary {
     #[serde(with = "js::num")]
     pub total_ca: f64,
     #[serde(with = "js::num")]
+    pub total_ca_ttc: f64,
+    #[serde(with = "js::num")]
     pub total_marge: f64,
     #[serde(with = "js::num")]
     pub taux_marge_global: f64,
@@ -287,8 +297,12 @@ pub struct StorePatchEntry {
     pub receptions: Serie,
     #[serde(with = "js::num")]
     pub quantite: f64,
+    /// CA HT (base du taux de marge).
     #[serde(with = "js::num")]
     pub ca: f64,
+    /// CA TTC (affiché).
+    #[serde(with = "js::num")]
+    pub ca_ttc: f64,
     #[serde(with = "js::num")]
     pub marge: f64,
 }
@@ -314,7 +328,7 @@ mod tests {
             "code1": "32", "code2": "3202", "code3": "320211",
             "codein": "123456", "libelle1": "Bougie parfumée", "libelle3": "Bougies",
             "sales12m": { "202510": 3, "202511": 0 }, "stock12m": { "202510": 10, "202511": 10 },
-            "totalCa": 37.5, "caByStore": { "292": 37.5 }, "codeGamme": "A",
+            "totalCa": 37.5, "totalCaTtc": 45, "caByStore": { "292": 37.5 }, "codeGamme": "A",
             "reference": "REF-1", "tauxMarge": 41.2, "prixAchat": 2.5, "totalMarge": 15.45,
             "codeCentrale": "10000123456", "codeGammeInit": "B", "codeGammeDraft": null,
             "nomFournisseur": "FOURNISSEUR TEST", "receptions12m": { "202510": 0, "202511": 0 },

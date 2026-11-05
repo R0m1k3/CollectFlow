@@ -117,6 +117,8 @@ pub struct PgMensuelRow {
     pub qte_vendue: f64,
     /// CA HT net des retours : SUM(-mntmvtht). Base du taux de marge (comme Qlik).
     pub ca_ht: f64,
+    /// CA TTC net des retours : SUM(-mntmvtttc). CA affiché (comme Qlik).
+    pub ca_ttc: f64,
     pub marge: f64,
     /// qtestock du dernier mouvement du mois
     pub stock_fin_mois: Option<f64>,
@@ -274,6 +276,7 @@ fn mensuel_row(r: &PgRow) -> PgMensuelRow {
         mois: s(r, "mois"),
         qte_vendue: f(r, "qte_vendue"),
         ca_ht: f(r, "ca_ht"),
+        ca_ttc: f(r, "ca_ttc"),
         marge: f(r, "marge"),
         stock_fin_mois: of(r, "stock_fin_mois"),
         qte_recue: f(r, "qte_recue"),
@@ -302,6 +305,7 @@ pub async fn pg_get_mensuel_by_fournisseur(codefou: &str, date_debut: &str, date
                 TO_CHAR(m.datmvt, 'YYYY-MM')  AS mois,
                 m.qtemvt,
                 m.mntmvtht,
+                m.mntmvtttc,
                 m.margemvt,
                 m.genremvt,
                 m.qtestock,
@@ -322,6 +326,7 @@ pub async fn pg_get_mensuel_by_fournisseur(codefou: &str, date_debut: &str, date
             mois,
             SUM(CASE WHEN genremvt = 3 THEN -qtemvt    ELSE 0 END)::float           AS qte_vendue,
             SUM(CASE WHEN genremvt = 3 THEN -mntmvtht  ELSE 0 END)::float           AS ca_ht,
+            SUM(CASE WHEN genremvt = 3 THEN -mntmvtttc ELSE 0 END)::float           AS ca_ttc,
             SUM(CASE WHEN genremvt = 3 THEN  margemvt  ELSE 0 END)::float           AS marge,
             MAX(CASE WHEN rn_last = 1 THEN qtestock ELSE NULL END)::float            AS stock_fin_mois,
             SUM(CASE WHEN genremvt IN (1, 2) THEN  qtemvt ELSE 0 END)::float        AS qte_recue
@@ -1581,7 +1586,7 @@ pub async fn pg_get_hit_parade(date_debut: &str, date_fin: &str) -> anyhow::Resu
         FROM ventes v
         LEFT JOIN attrs ar     ON ar.codein = v.codein
         LEFT JOIN stock_agg s  ON s.codein  = v.codein
-        ORDER BY v.ca_ht DESC
+        ORDER BY v.ca_ttc DESC
     "#,
     )
     .bind(date_debut)
@@ -3054,6 +3059,7 @@ pub async fn pg_get_mensuel_by_codein(codein: &str, date_debut: &str, date_fin: 
                     TO_CHAR(m.datmvt, 'YYYY-MM')  AS mois,
                     m.qtemvt,
                     m.mntmvtht,
+                    m.mntmvtttc,
                     m.margemvt,
                     m.genremvt,
                     m.qtestock,
@@ -3073,6 +3079,7 @@ pub async fn pg_get_mensuel_by_codein(codein: &str, date_debut: &str, date_fin: 
                 mois,
                 SUM(CASE WHEN genremvt = 3 THEN -qtemvt    ELSE 0 END)::float     AS qte_vendue,
                 SUM(CASE WHEN genremvt = 3 THEN -mntmvtht  ELSE 0 END)::float     AS ca_ht,
+                SUM(CASE WHEN genremvt = 3 THEN -mntmvtttc ELSE 0 END)::float     AS ca_ttc,
                 SUM(CASE WHEN genremvt = 3 THEN  margemvt  ELSE 0 END)::float     AS marge,
                 MAX(CASE WHEN rn_last = 1 THEN qtestock ELSE NULL END)::float     AS stock_fin_mois,
                 SUM(CASE WHEN genremvt IN (1, 2) THEN qtemvt ELSE 0 END)::float   AS qte_recue

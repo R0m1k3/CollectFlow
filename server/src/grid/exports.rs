@@ -95,7 +95,10 @@ pub struct ExportRow {
     pub libelle3: String,
     pub code_gamme: Option<String>,
     pub total_quantite: f64,
+    /// CA HT : base de `taux_marge`.
     pub total_ca: f64,
+    /// CA TTC affiché (facultatif : clients d'avant le 05/11/2026).
+    pub total_ca_ttc: Option<f64>,
     pub taux_marge: f64,
     /// Before gamme for delta
     pub gamme_avant: Option<String>,
@@ -123,6 +126,7 @@ pub fn parse_export(body: &Value) -> Result<(String, Vec<ExportRow>), Issues> {
                 let total_quantite = n("totalQuantite", &mut issues);
                 let total_ca = n("totalCa", &mut issues);
                 let taux_marge = n("tauxMarge", &mut issues);
+                let total_ca_ttc = r.get("totalCaTtc").and_then(Value::as_f64).filter(|v| v.is_finite());
                 let gamme_avant = match r.get("gammeAvant") {
                     None => Some(None),
                     v => zod::nullable_string(v, &child(&ci, "gammeAvant"), &mut issues),
@@ -147,6 +151,7 @@ pub fn parse_export(body: &Value) -> Result<(String, Vec<ExportRow>), Issues> {
                         code_gamme,
                         total_quantite,
                         total_ca,
+                        total_ca_ttc,
                         taux_marge,
                         gamme_avant,
                     });
@@ -189,7 +194,7 @@ pub fn classeur_assortiment(rows: &[ExportRow]) -> Result<Vec<u8>, XlsxError> {
         ("Gamme Après", 14),
         ("Delta", 10),
         ("Vol. 12m", 12),
-        ("CA HT 12m (€)", 14),
+        ("CA TTC 12m (€)", 14),
         ("Marge (%)", 12),
     ];
     for (i, (titre, w)) in colonnes.iter().enumerate() {
@@ -239,7 +244,7 @@ pub fn classeur_assortiment(rows: &[ExportRow]) -> Result<Vec<u8>, XlsxError> {
 
         sheet.write_number(r, 6, js::js_round(row.total_quantite))?;
         // Format numbers
-        sheet.write_number_with_format(r, 7, js::js_to_fixed2(row.total_ca), &fmt_ca)?;
+        sheet.write_number_with_format(r, 7, js::js_to_fixed2(row.total_ca_ttc.unwrap_or(row.total_ca)), &fmt_ca)?;
         sheet.write_number_with_format(r, 8, js::js_to_fixed2(row.taux_marge), &fmt_marge)?;
     }
 

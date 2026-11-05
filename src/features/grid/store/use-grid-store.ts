@@ -134,6 +134,7 @@ function computeSummary(rows: ProductRow[], drafts: Record<string, GammeCode>, m
         return g !== "Z";
     });
     const getCa    = (r: ProductRow) => magasin === "TOTAL" ? (r.totalCa     ?? 0) : (r.caByStore?.[magasin]       ?? 0);
+    const getCaTtc = (r: ProductRow) => magasin === "TOTAL" ? (r.totalCaTtc  ?? 0) : (r.caTtcByStore?.[magasin]    ?? 0);
     const getQte   = (r: ProductRow) => magasin === "TOTAL" ? (r.totalQuantite ?? 0) : (r.quantiteByStore?.[magasin] ?? 0);
     const getMarge = (r: ProductRow) => magasin === "TOTAL" ? (r.totalMarge  ?? 0) : (r.margeByStore?.[magasin]    ?? 0);
     const totalCa    = active.reduce((s, r) => s + getCa(r),    0);
@@ -143,6 +144,7 @@ function computeSummary(rows: ProductRow[], drafts: Record<string, GammeCode>, m
         totalRows: active.length,
         totalQuantite: active.reduce((s, r) => s + getQte(r), 0),
         totalCa,
+        totalCaTtc: active.reduce((s, r) => s + getCaTtc(r), 0),
         totalMarge,
         tauxMargeGlobal: totalCa > 0 ? (totalMarge / totalCa) * 100 : 0,
     };
@@ -176,6 +178,7 @@ export const useGridStore = create<GridState>()(
                 totalRows: 0,
                 totalQuantite: 0,
                 totalCa: 0,
+                totalCaTtc: 0,
                 totalMarge: 0,
                 tauxMargeGlobal: 0,
             },

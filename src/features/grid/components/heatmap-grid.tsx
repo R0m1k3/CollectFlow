@@ -400,7 +400,7 @@ const LIBELLES_COLONNES: Record<string, string> = {
     caParMagasinReseau: "CA par magasin (réseau)",
     margePctReseau: "Marge % réseau",
     totalQuantite: "Total 12 mois",
-    totalCa: "Chiffre d'affaires HT",
+    totalCa: "Chiffre d'affaires TTC",
     totalMarge: "Marge",
     gammeInitial: "Gamme actuelle (FF)",
     gamme: "Gamme",
@@ -414,6 +414,11 @@ function libelleColonne(id: string, header: unknown): string {
 
 import { Cell, Column, Row, type Table } from "@tanstack/react-table";
 import { VirtualItem } from "@tanstack/react-virtual";
+
+/** CA TTC affiché (comme Qlik) ; le taux de marge reste calculé sur le CA HT (`totalCa`, `caByStore`). */
+function caTtcLigne(row: ProductRow, magasin: string): number {
+    return magasin === "TOTAL" ? (row.totalCaTtc ?? 0) : (row.caTtcByStore?.[magasin] ?? 0);
+}
 
 // 2. Composant isolé pour la Ligne Virtuelle 
 // (Gère l'état grisé "Z" localement sans faire re-render toute la grid)
@@ -1120,13 +1125,11 @@ function HeatmapGridInner({ codeFournisseur, onSelectionChange, isAdmin, nomFour
         },
         {
             id: "totalCa",
-            accessorFn: (row: ProductRow) => activeMagasin === "TOTAL" ? row.totalCa : (row.caByStore?.[activeMagasin] ?? 0),
-            header: () => <div className="text-center w-full" title="Chiffre d'affaires HT sur 12 mois, retours déduits">CA HT</div>,
+            accessorFn: (row: ProductRow) => caTtcLigne(row, activeMagasin),
+            header: () => <div className="text-center w-full" title="Chiffre d'affaires TTC sur 12 mois, retours déduits (le taux de marge est calculé sur le HT, comme Qlik)">CA TTC</div>,
             size: 105,
             cell: ({ row }: { row: { original: ProductRow } }) => {
-                const ca = activeMagasin === "TOTAL"
-                    ? row.original.totalCa
-                    : (row.original.caByStore?.[activeMagasin] ?? 0);
+                const ca = caTtcLigne(row.original, activeMagasin);
                 return (
                     <div className="text-center tabular-nums text-[13px] font-bold" style={{ color: "var(--text-primary)" }}>
                         {fmtEur2(ca)}
@@ -1137,7 +1140,7 @@ function HeatmapGridInner({ codeFournisseur, onSelectionChange, isAdmin, nomFour
         {
             id: "totalMarge",
             accessorFn: (row: ProductRow) => activeMagasin === "TOTAL" ? row.totalMarge : (row.margeByStore?.[activeMagasin] ?? 0),
-            header: () => <div className="text-center w-full" title="Marge en euros et taux de marge sur 12 mois">Marge</div>,
+            header: () => <div className="text-center w-full" title="Marge en euros et taux de marge sur 12 mois (marge / CA HT, comme Qlik)">Marge</div>,
             size: 115,
             cell: ({ row }: { row: { original: ProductRow } }) => {
                 const marge = activeMagasin === "TOTAL"

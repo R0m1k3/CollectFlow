@@ -315,6 +315,10 @@ pub fn build_spec(origin: &str) -> Value {
                                 ("type", Value::from("number")),
                                 ("description", Value::from("CA HT net des retours sur 12 mois, nos magasins (TTC avant le 05/11/2026).")),
                             ])),
+                            ("totalCaTtc", o([
+                                ("type", Value::from("number")),
+                                ("description", Value::from("CA TTC net des retours sur 12 mois, nos magasins (CA affiché, comme Qlik).")),
+                            ])),
                             ("totalQuantite", o([
                                 ("type", Value::from("number")),
                             ])),

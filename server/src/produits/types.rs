@@ -107,6 +107,9 @@ pub struct ProduitMois {
     /// CA HT net des retours (mntmvtht), base du taux de marge.
     #[serde(serialize_with = "jsnum::ser")]
     pub ca: f64,
+    /// CA TTC net des retours (mntmvtttc), affiché.
+    #[serde(serialize_with = "jsnum::ser")]
+    pub ca_ttc: f64,
     #[serde(serialize_with = "jsnum::ser")]
     pub marge: f64,
     #[serde(serialize_with = "jsnum::ser")]
@@ -120,11 +123,15 @@ pub struct ProduitMois {
 pub struct ProduitTotaux {
     #[serde(serialize_with = "jsnum::ser")]
     pub qte: f64,
+    /// CA HT net, base du taux de marge.
     #[serde(serialize_with = "jsnum::ser")]
     pub ca: f64,
+    /// CA TTC net, affiché.
+    #[serde(serialize_with = "jsnum::ser")]
+    pub ca_ttc: f64,
     #[serde(serialize_with = "jsnum::ser")]
     pub marge: f64,
-    /// Taux de marge en % (marge / CA × 100).
+    /// Taux de marge en % (marge / CA HT × 100).
     #[serde(serialize_with = "jsnum::ser")]
     pub taux_marge: f64,
 }
