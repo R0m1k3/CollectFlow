@@ -151,7 +151,7 @@ pub async fn pg_get_fournisseurs(search: Option<&str>) -> Vec<CodeNom> {
             "
             SELECT DISTINCT fi.code, fi.nom
             FROM fouident fi
-            INNER JOIN artfou1 af ON af.code = fi.code
+            INNER JOIN artfou1 af ON TRIM(af.code) = TRIM(fi.code)
             WHERE fi.nom IS NOT NULL
               AND fi.nom != ''
               ",
@@ -218,20 +218,20 @@ pub async fn pg_get_articles_by_fournisseur(codefou: &str) -> anyhow::Result<Vec
             last_fournisseur.nomfou_dernier  AS nomfou_principal
         FROM artfou1 af
         JOIN articles a ON a.no_id = af.art_no_id
-        LEFT JOIN fouident fi ON fi.code = af.code
+        LEFT JOIN fouident fi ON TRIM(fi.code) = TRIM(af.code)
         LEFT JOIN article_infosup ai ON ai.artnoid = a.no_id
         LEFT JOIN cube_pa pa ON pa.artnoid = a.no_id
         LEFT JOIN art_gtin ag ON ag.idarticle = a.no_id AND ag.preferentiel = 1
         LEFT JOIN LATERAL (
             SELECT af2.code AS codefou_dernier, fi2.nom AS nomfou_dernier
             FROM artfou1 af2
-            LEFT JOIN fouident fi2 ON fi2.code = af2.code
+            LEFT JOIN fouident fi2 ON TRIM(fi2.code) = TRIM(af2.code)
             WHERE af2.art_no_id = a.no_id
             -- preference = 1 d'abord, puis la ligne la plus récente : même règle que les autres pages
             ORDER BY (af2.preference = 1) DESC NULLS LAST, af2.no_id DESC
             LIMIT 1
         ) last_fournisseur ON true
-        WHERE af.code = $1
+        WHERE TRIM(af.code) = TRIM($1)
           AND a.codein IS NOT NULL
           AND (af.suspendu IS NULL OR af.suspendu::text NOT IN ('1', 'true', 't', 'yes', 'y', 'on'))
           AND (a.suspendu IS NULL OR a.suspendu::text NOT IN ('1', 'true', 't', 'yes', 'y', 'on'))
@@ -360,7 +360,7 @@ pub async fn pg_get_gammes_by_fournisseur(codefou: &str) -> anyhow::Result<HashM
             g.code AS gamme_code
         FROM art_gamme_saison ags
         JOIN articles a  ON a.no_id = ags.artnoid
-        JOIN artfou1 af  ON af.art_no_id = a.no_id AND af.code = $1
+        JOIN artfou1 af  ON af.art_no_id = a.no_id AND TRIM(af.code) = TRIM($1)
         JOIN gammes g    ON g.no_id = ags.idgamme
         JOIN saisons s   ON s.no_id = ags.idsaison
         ORDER BY a.codein, s.no_id DESC
@@ -528,7 +528,7 @@ pub async fn pg_get_nomenclature_by_fournisseur(codefou: &str) -> anyhow::Result
                 n1.code       AS code1,
                 n1.libelle    AS libelle1nom
             FROM artfou1 af
-            JOIN articles a      ON a.no_id = af.art_no_id AND af.code = $1
+            JOIN articles a      ON a.no_id = af.art_no_id AND TRIM(af.code) = TRIM($1)
             JOIN nomenclature n3 ON n3.no_id = a.nom_no_id
             LEFT JOIN nomenclature n2 ON n2.no_id = n3.{pc}
             LEFT JOIN nomenclature n1 ON n1.no_id = n2.{pc}
@@ -545,7 +545,7 @@ pub async fn pg_get_nomenclature_by_fournisseur(codefou: &str) -> anyhow::Result
                 n3.code       AS code3,
                 n3.libelle    AS libelle3
             FROM artfou1 af
-            JOIN articles a      ON a.no_id = af.art_no_id AND af.code = $1
+            JOIN articles a      ON a.no_id = af.art_no_id AND TRIM(af.code) = TRIM($1)
             JOIN nomenclature n3 ON n3.no_id = a.nom_no_id
             WHERE a.codein IS NOT NULL
         "#,
@@ -682,7 +682,7 @@ pub async fn pg_get_commandes_by_fournisseur(codefou: &str) -> anyhow::Result<Ha
             cv.articles_codein              AS codein,
             SUM(cv.cdefou_ligne_qtecde)::float AS qtecde
         FROM cdefou_vivant cv
-        JOIN artfou1 af ON af.no_id = cv.artfou1_no_id AND af.code = $1
+        JOIN artfou1 af ON af.no_id = cv.artfou1_no_id AND TRIM(af.code) = TRIM($1)
         WHERE cv.articles_codein IS NOT NULL
         GROUP BY cv.articles_codein
     "#,
@@ -728,7 +728,10 @@ pub struct DashboardTopItem {
     pub qte: f64,
     pub marge: f64,
     pub stock: f64,
+    /// Nom du fournisseur (son code s'il n'a pas de nom, « — » s'il est inconnu).
     pub fournisseur: String,
+    /// Code du fournisseur (vide s'il est inconnu).
+    pub codefou: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -806,7 +809,8 @@ struct StockSites {
 #[derive(Default)]
 struct EnrichissementDashboard {
     stock: Option<StockSites>,
-    fournisseur: Option<String>,
+    /// (code, nom) du fournisseur ; l'un des deux peut être vide, pas les deux.
+    fournisseur: Option<(String, String)>,
 }
 
 async fn enrichir_article_dashboard(base: &str, codein: &str, out: &mut EnrichissementDashboard) -> anyhow::Result<()> {
@@ -833,7 +837,7 @@ async fn enrichir_article_dashboard(base: &str, codein: &str, out: &mut Enrichis
     let ref_res = ref_res?;
 
     // Stock (toujours depuis referentiel)
-    let mut ref_fournisseur_fallback = String::new();
+    let mut ref_fournisseur_fallback: Option<(String, String)> = None;
     if ref_res.status().is_success() {
         let ref_data: Value = ref_res.json().await?;
         let mut st = StockSites::default();
@@ -864,7 +868,9 @@ async fn enrichir_article_dashboard(base: &str, codein: &str, out: &mut Enrichis
                 };
                 let nom = get(pick, "nom_fou").and_then(|v| v.as_str()).map(|s| s.trim()).unwrap_or("");
                 let code = get(pick, "codefou").and_then(|v| v.as_str()).map(|s| s.trim()).unwrap_or("");
-                ref_fournisseur_fallback = if !nom.is_empty() { nom.to_string() } else { code.to_string() };
+                if !nom.is_empty() || !code.is_empty() {
+                    ref_fournisseur_fallback = Some((code.to_string(), nom.to_string()));
+                }
             }
         }
     }
@@ -873,8 +879,7 @@ async fn enrichir_article_dashboard(base: &str, codein: &str, out: &mut Enrichis
     // sinon le fournisseur du référentiel.
     match dernier? {
         Some(f) => out.fournisseur = Some(f),
-        None if !ref_fournisseur_fallback.is_empty() => out.fournisseur = Some(ref_fournisseur_fallback),
-        None => {}
+        None => out.fournisseur = ref_fournisseur_fallback,
     }
     Ok(())
 }
@@ -885,10 +890,10 @@ async fn enrichir_article_dashboard(base: &str, codein: &str, out: &mut Enrichis
 /// Sans `?site=`, l'API ne renvoie pas toujours tous les magasins : pour le
 /// codein 503996, seule `?site=579` donne l'entrée (P024 PUCKATOR BV, reçue
 /// à Houdemont). On interroge donc aussi chaque magasin.
-async fn fournisseur_derniere_entree(url: &str) -> anyhow::Result<Option<String>> {
+async fn fournisseur_derniere_entree(url: &str) -> anyhow::Result<Option<(String, String)>> {
     let urls = [url.to_string(), format!("{url}?site=292"), format!("{url}?site=579")];
     let reponses = futures::future::join_all(urls.iter().map(|u| ff_get(u))).await;
-    let mut meilleur: Option<(String, String)> = None; // (date, fournisseur)
+    let mut meilleur: Option<(String, (String, String))> = None; // (date, (code, nom))
     for res in reponses {
         let res = res?;
         if !res.status().is_success() {
@@ -899,12 +904,13 @@ async fn fournisseur_derniere_entree(url: &str) -> anyhow::Result<Option<String>
         let entrees = arr(&data, "fournisseurs_par_site").iter().chain(std::iter::once(&data));
         for e in entrees {
             let nom = str_field(e, "nom_fournisseur").trim().to_string();
-            if nom.is_empty() {
+            let code = str_field(e, "codefou").trim().to_string();
+            if nom.is_empty() && code.is_empty() {
                 continue;
             }
             let date = str_field(e, "date_derniere_entree");
             if meilleur.as_ref().is_none_or(|(d, _)| date > *d) {
-                meilleur = Some((date, nom));
+                meilleur = Some((date, (code, nom)));
             }
         }
     }
@@ -924,7 +930,7 @@ const MAX_FOURNISSEURS_API: usize = 200;
 
 /// Réponses de l'API déjà obtenues, y compris « aucun fournisseur », pour ne
 /// pas réinterroger l'API à chaque page ni à chaque onglet.
-type MemoFournisseurs = HashMap<String, (std::time::Instant, Option<String>)>;
+type MemoFournisseurs = HashMap<String, (std::time::Instant, Option<(String, String)>)>;
 static FOURNISSEURS_API: LazyLock<parking_lot::Mutex<MemoFournisseurs>> = LazyLock::new(Default::default);
 
 /// Fournisseur d'articles que la base miroir ne rattache à aucun fournisseur :
@@ -932,8 +938,8 @@ static FOURNISSEURS_API: LazyLock<parking_lot::Mutex<MemoFournisseurs>> = LazyLo
 /// recopie de FF (codeins 503996, 504022…, sans référence ni fournisseur).
 /// L'API FF répond en direct : fournisseur de la dernière entrée en stock,
 /// sinon celui du référentiel (même règle que le tableau de bord).
-/// Les codeins sans réponse sont absents de la map.
-pub async fn ff_fournisseurs_par_codein(codeins: &[String]) -> HashMap<String, String> {
+/// Valeur : (code, nom) du fournisseur. Les codeins sans réponse sont absents de la map.
+pub async fn ff_fournisseurs_par_codein(codeins: &[String]) -> HashMap<String, (String, String)> {
     let ttl = crate::ff_cache::default_ttl();
     let mut out = HashMap::new();
     let mut a_lire = vec![];
@@ -951,7 +957,7 @@ pub async fn ff_fournisseurs_par_codein(codeins: &[String]) -> HashMap<String, S
         return out;
     }
     let base = get_ff_api_base().await;
-    let lus: Vec<(String, Option<String>)> = futures::stream::iter(a_lire)
+    let lus: Vec<(String, Option<(String, String)>)> = futures::stream::iter(a_lire)
         .map(|codein| {
             let base = base.clone();
             async move {
@@ -959,7 +965,7 @@ pub async fn ff_fournisseurs_par_codein(codeins: &[String]) -> HashMap<String, S
                 if let Err(err) = enrichir_article_dashboard(&base, &codein, &mut e).await {
                     tracing::error!("[pg-ff] fournisseur API pour {codein} : {}", message_erreur(&err));
                 }
-                (codein, e.fournisseur.filter(|f| !f.is_empty()))
+                (codein, e.fournisseur.filter(|(code, nom)| !code.is_empty() || !nom.is_empty()))
             }
         })
         .buffer_unordered(12)
@@ -982,14 +988,14 @@ pub async fn ff_fournisseurs_par_codein(codeins: &[String]) -> HashMap<String, S
 }
 
 /// Complète, via l'API FF, le fournisseur des lignes restées en
-/// « Sans fournisseur » après la requête SQL. `champs` donne le codein et le
-/// fournisseur d'une ligne.
-pub async fn completer_fournisseurs<T>(rows: &mut [T], champs: fn(&mut T) -> (&str, &mut String)) {
+/// « Sans fournisseur » après la requête SQL. `champs` donne le codein, le
+/// nom et le code du fournisseur d'une ligne.
+pub async fn completer_fournisseurs<T>(rows: &mut [T], champs: fn(&mut T) -> (&str, &mut String, &mut String)) {
     let mut vus = HashSet::new();
     let manquants: Vec<String> = rows
         .iter_mut()
         .filter_map(|r| {
-            let (codein, fou) = champs(r);
+            let (codein, fou, _) = champs(r);
             (fou == SANS_FOURNISSEUR && !codein.trim().is_empty()).then(|| codein.trim().to_string())
         })
         .filter(|c| vus.insert(c.clone()))
@@ -999,10 +1005,11 @@ pub async fn completer_fournisseurs<T>(rows: &mut [T], champs: fn(&mut T) -> (&s
     }
     let trouves = ff_fournisseurs_par_codein(&manquants).await;
     for r in rows.iter_mut() {
-        let (codein, fou) = champs(r);
-        if let Some(f) = trouves.get(codein.trim()) {
+        let (codein, fou, codefou) = champs(r);
+        if let Some((code, nom)) = trouves.get(codein.trim()) {
             if fou == SANS_FOURNISSEUR {
-                *fou = f.clone();
+                *fou = if nom.is_empty() { code.clone() } else { nom.clone() };
+                *codefou = code.clone();
             }
         }
     }
@@ -1110,7 +1117,7 @@ pub async fn pg_get_dashboard_data() -> anyhow::Result<DashboardData> {
     // Fournisseur réel : un seul appel sur les mouvements du jour (codefou_reel / nom_fournisseur_reel).
     // Enrichissement : fournisseur réel via /dernier-fournisseur (primaire) + /referentiel (stock + fallback fournisseur).
     // Les deux appels sont faits en parallèle par article.
-    let mut fou_map: HashMap<String, String> = HashMap::new(); // codein → nom_fournisseur résolu
+    let mut fou_map: HashMap<String, (String, String)> = HashMap::new(); // codein → (code, nom) du fournisseur résolu
     let mut stock_map: HashMap<String, StockSites> = HashMap::new();
 
     if !all_codeins.is_empty() {
@@ -1166,7 +1173,14 @@ pub async fn pg_get_dashboard_data() -> anyhow::Result<DashboardData> {
                     Some("579") => entry.map(|e| e.stock579).unwrap_or(0.0),
                     _ => entry.map(|e| e.stock_total).unwrap_or(0.0),
                 };
-                let fournisseur = fou_map.get(&codein).cloned().unwrap_or_else(|| "—".into());
+                let (codefou, nom) = fou_map.get(&codein).cloned().unwrap_or_default();
+                let fournisseur = if !nom.is_empty() {
+                    nom
+                } else if !codefou.is_empty() {
+                    codefou.clone()
+                } else {
+                    "—".into()
+                };
                 DashboardTopItem {
                     codein,
                     libelle1: str_field(i, "libelle1"),
@@ -1176,6 +1190,7 @@ pub async fn pg_get_dashboard_data() -> anyhow::Result<DashboardData> {
                     marge: num(i, "marge"),
                     stock,
                     fournisseur,
+                    codefou,
                 }
             })
             .collect();
@@ -1289,8 +1304,8 @@ pub async fn pg_get_ca_by_fournisseur(mois: &str, mois_n1: &str) -> anyhow::Resu
     let mut qb = QueryBuilder::<Postgres>::new(
         "
         SELECT
-            COALESCE(af.code, 'SANS_FOURNISSEUR')::text              AS code,
-            COALESCE(fi.nom, af.code, 'Sans fournisseur')::text       AS nom,
+            COALESCE(TRIM(af.code), 'SANS_FOURNISSEUR')::text        AS code,
+            COALESCE(fi.nom, TRIM(af.code), 'Sans fournisseur')::text       AS nom,
             m.site,
             TO_CHAR(m.datmvt, 'YYYY-MM')                             AS mois,
             SUM(-m.mntmvtttc)::float                                 AS ca_ttc
@@ -1301,7 +1316,7 @@ pub async fn pg_get_ca_by_fournisseur(mois: &str, mois_n1: &str) -> anyhow::Resu
             FROM artfou1
             ORDER BY art_no_id, (preference = 1) DESC NULLS LAST, no_id DESC
         ) af ON af.art_no_id = a.no_id
-        LEFT JOIN fouident fi ON fi.code     = af.code
+        LEFT JOIN fouident fi ON TRIM(fi.code) = TRIM(af.code)
         WHERE ",
     );
     push_filtre_deux_mois(&mut qb, mois, mois_n1);
@@ -1473,6 +1488,8 @@ pub struct HitParadeRow {
     /// Référence fournisseur de l'article (artfou1.reference du fournisseur principal).
     pub reference: String,
     pub fournisseur: String,
+    /// Code du fournisseur affiché (vide si l'article n'en a aucun).
+    pub codefou: String,
     pub nomenclature_code: String,
     pub nomenclature: String,
     pub site: String,
@@ -1546,12 +1563,13 @@ pub async fn pg_get_hit_parade(date_debut: &str, date_fin: &str) -> anyhow::Resu
                 TRIM(a.codein::text)                                    AS codein,
                 a.libelle1::text                                        AS libelle,
                 COALESCE(TRIM(af.reference::text), '')                  AS reference,
-                COALESCE(fi.nom, af.code, qn.fournisseur_reseau, 'Sans fournisseur')::text AS fournisseur,
+                COALESCE(fi.nom, TRIM(af.code), qn.fournisseur_reseau, 'Sans fournisseur')::text AS fournisseur,
+                COALESCE(TRIM(af.code::text), '')                       AS codefou,
                 COALESCE(n.code, '')::text                              AS nomenclature_code,
                 COALESCE(n.libelle, 'Sans nomenclature')::text          AS nomenclature
             FROM articles a
             LEFT JOIN fou af ON af.codein = TRIM(a.codein::text)
-            LEFT JOIN fouident fi ON fi.code = af.code
+            LEFT JOIN fouident fi ON TRIM(fi.code) = TRIM(af.code)
             LEFT JOIN qlik_network_metrics qn ON qn.code_centrale = TRIM(a.artcentrale::text)
             LEFT JOIN nomenclature n ON n.no_id = a.nom_no_id
             WHERE TRIM(a.codein::text) IN (SELECT codein FROM ventes)
@@ -1573,6 +1591,7 @@ pub async fn pg_get_hit_parade(date_debut: &str, date_fin: &str) -> anyhow::Resu
             COALESCE(ar.libelle, '')                          AS libelle,
             COALESCE(ar.reference, '')                        AS reference,
             COALESCE(ar.fournisseur, 'Sans fournisseur')      AS fournisseur,
+            COALESCE(ar.codefou, '')                          AS codefou,
             COALESCE(ar.nomenclature_code, '')                AS nomenclature_code,
             COALESCE(ar.nomenclature, 'Sans nomenclature')    AS nomenclature,
             v.site,
@@ -1602,6 +1621,7 @@ pub async fn pg_get_hit_parade(date_debut: &str, date_fin: &str) -> anyhow::Resu
             libelle: s(r, "libelle"),
             reference: s(r, "reference"),
             fournisseur: s(r, "fournisseur"),
+            codefou: s(r, "codefou"),
             nomenclature_code: s(r, "nomenclature_code"),
             nomenclature: s(r, "nomenclature"),
             site: s(r, "site"),
@@ -1747,7 +1767,7 @@ fn last_entry_join(link: Option<MvtartFouLink>, artnoid_expr: &str, site_expr: &
         Some(l) if l.target == "artfou1" => format!("LEFT JOIN artfou1 afe ON afe.no_id = me.{}", l.column),
         _ => String::new(),
     };
-    let flast = if link.is_some() { "LEFT JOIN fouident flast ON flast.code = lastentry.code" } else { "" };
+    let flast = if link.is_some() { "LEFT JOIN fouident flast ON TRIM(flast.code) = TRIM(lastentry.code)" } else { "" };
     format!(
         "
         LEFT JOIN LATERAL (
@@ -1776,16 +1796,25 @@ const FOURNISSEUR_ARTICLE_JOIN: &str = "LEFT JOIN (
             FROM artfou1
             ORDER BY art_no_id, (preference = 1) DESC NULLS LAST, no_id DESC
         ) af ON af.art_no_id = a.no_id
-        LEFT JOIN fouident f ON f.code = af.code
+        LEFT JOIN fouident f ON TRIM(f.code) = TRIM(af.code)
         LEFT JOIN qlik_network_metrics qn ON qn.code_centrale = TRIM(a.artcentrale::text)";
 
 /// Libellé fournisseur affiché : celui de la dernière entrée quand la base le
 /// permet, sinon celui de `FOURNISSEUR_ARTICLE_JOIN`.
 fn fournisseur_expr(link: Option<MvtartFouLink>) -> &'static str {
     if link.is_some() {
-        "COALESCE(flast.nom, lastentry.code, f.nom, af.code, qn.fournisseur_reseau, 'Sans fournisseur')"
+        "COALESCE(flast.nom, TRIM(lastentry.code::text), f.nom, TRIM(af.code), qn.fournisseur_reseau, 'Sans fournisseur')"
     } else {
-        "COALESCE(f.nom, af.code, qn.fournisseur_reseau, 'Sans fournisseur')"
+        "COALESCE(f.nom, TRIM(af.code), qn.fournisseur_reseau, 'Sans fournisseur')"
+    }
+}
+
+/// Code du fournisseur retenu par `fournisseur_expr` (vide s'il n'y en a pas).
+fn fournisseur_code_expr(link: Option<MvtartFouLink>) -> &'static str {
+    if link.is_some() {
+        "COALESCE(TRIM(lastentry.code::text), TRIM(af.code::text), '')"
+    } else {
+        "COALESCE(TRIM(af.code::text), '')"
     }
 }
 
@@ -1831,7 +1860,7 @@ pub async fn pg_diag_fournisseur_derniere_entree() -> anyhow::Result<DiagFournis
                 WHERE preference = 1
                 ORDER BY art_no_id, code
             ) af ON af.art_no_id = a.no_id
-            LEFT JOIN fouident f ON f.code = af.code
+            LEFT JOIN fouident f ON TRIM(f.code) = TRIM(af.code)
             {}
             WHERE cs.qte < 0
               AND cs.site IN ('292', '579')
@@ -1862,6 +1891,7 @@ pub struct PgStockNegatifRow {
     pub codein: String,
     pub libelle1: String,
     pub fournisseur: String,
+    pub codefou: String,
     pub site: String,
     pub stockdispo: f64,
     pub dernierevente: Option<String>,
@@ -1873,6 +1903,7 @@ pub struct PgStockSansVenteRow {
     pub codein: String,
     pub libelle1: String,
     pub fournisseur: String,
+    pub codefou: String,
     pub site: String,
     pub stock_actuel: f64,
     pub derniere_entree: Option<String>,
@@ -1884,12 +1915,14 @@ pub struct PgStockSansVenteRow {
 pub async fn pg_get_stock_sans_vente(site: Option<&str>) -> anyhow::Result<Vec<PgStockSansVenteRow>> {
     let link = get_mvtart_fou_link().await;
     let fexpr = fournisseur_expr(link);
+    let cexpr = fournisseur_code_expr(link);
     let mut qb = QueryBuilder::<Postgres>::new(format!(
         "
         SELECT
             a.codein,
             COALESCE(a.libelle1, '') AS libelle1,
             {fexpr} AS fournisseur,
+            {cexpr} AS codefou,
             m.site,
             COALESCE(cs.qte::float, 0) AS stock_actuel,
             MAX(m.datmvt)::text AS derniere_entree
@@ -1915,7 +1948,7 @@ pub async fn pg_get_stock_sans_vente(site: Option<&str>) -> anyhow::Result<Vec<P
                 AND mv2.site = m.site
                 AND mv2.genremvt = 3
           )
-        GROUP BY a.codein, a.libelle1, {fexpr}, m.site, cs.qte
+        GROUP BY a.codein, a.libelle1, {fexpr}, {cexpr}, m.site, cs.qte
         HAVING COALESCE(cs.qte::float, 0) <> 0
         ORDER BY MAX(m.datmvt) DESC
     "
@@ -1927,6 +1960,7 @@ pub async fn pg_get_stock_sans_vente(site: Option<&str>) -> anyhow::Result<Vec<P
             codein: s(r, "codein"),
             libelle1: s(r, "libelle1"),
             fournisseur: s(r, "fournisseur"),
+            codefou: s(r, "codefou"),
             site: s(r, "site"),
             stock_actuel: f(r, "stock_actuel"),
             derniere_entree: os(r, "derniere_entree"),
@@ -1942,6 +1976,7 @@ pub async fn pg_get_stock_negatif(site: Option<&str>) -> anyhow::Result<Vec<PgSt
             a.codein,
             COALESCE(a.libelle1, '') AS libelle1,
             {} AS fournisseur,
+            {} AS codefou,
             cs.site,
             cs.qte::float AS stockdispo,
             cs.dernierevente::text,
@@ -1954,6 +1989,7 @@ pub async fn pg_get_stock_negatif(site: Option<&str>) -> anyhow::Result<Vec<PgSt
           AND cs.site IN ('292', '579')
         ",
         fournisseur_expr(link),
+        fournisseur_code_expr(link),
         last_entry_join(link, "cs.artnoid", "cs.site")
     ));
     if let Some(site) = site.filter(|s| !s.is_empty()) {
@@ -1971,6 +2007,7 @@ pub async fn pg_get_stock_negatif(site: Option<&str>) -> anyhow::Result<Vec<PgSt
             codein: s(r, "codein"),
             libelle1: s(r, "libelle1"),
             fournisseur: s(r, "fournisseur"),
+            codefou: s(r, "codefou"),
             site: s(r, "site"),
             stockdispo: f(r, "stockdispo"),
             dernierevente: os(r, "dernierevente"),
@@ -1988,6 +2025,7 @@ pub struct PgSansVente6MoisRow {
     pub codein: String,
     pub libelle1: String,
     pub fournisseur: String,
+    pub codefou: String,
     pub site: String,
     pub stock_actuel: f64,
     pub derniere_vente: Option<String>,
@@ -2006,6 +2044,7 @@ pub async fn pg_get_sans_vente_6_mois(site: Option<&str>) -> anyhow::Result<Vec<
             a.codein,
             COALESCE(a.libelle1, '') AS libelle1,
             {} AS fournisseur,
+            {} AS codefou,
             cs.site,
             cs.qte::float AS stock_actuel,
             cs.dernierevente::text AS derniere_vente,
@@ -2033,6 +2072,7 @@ pub async fn pg_get_sans_vente_6_mois(site: Option<&str>) -> anyhow::Result<Vec<
           )
           ",
         fournisseur_expr(link),
+        fournisseur_code_expr(link),
         last_entry_join(link, "cs.artnoid", "cs.site")
     ));
     if let Some(site) = site.filter(|s| !s.is_empty()) {
@@ -2050,6 +2090,7 @@ pub async fn pg_get_sans_vente_6_mois(site: Option<&str>) -> anyhow::Result<Vec<
             codein: s(r, "codein"),
             libelle1: s(r, "libelle1"),
             fournisseur: s(r, "fournisseur"),
+            codefou: s(r, "codefou"),
             site: s(r, "site"),
             stock_actuel: f(r, "stock_actuel"),
             derniere_vente: os(r, "derniere_vente"),
@@ -2534,7 +2575,7 @@ pub async fn pg_search_produits(term: &str, limit: i64) -> Vec<PgProduitSearchRo
                 m.codein,
                 m.code_centrale,
                 m.libelle1,
-                COALESCE(fi.nom, af.code, q.fournisseur_reseau, 'Sans fournisseur')::text AS fournisseur,
+                COALESCE(fi.nom, TRIM(af.code), q.fournisseur_reseau, 'Sans fournisseur')::text AS fournisseur,
                 COALESCE(af.code, '')::text                         AS codefou,
                 COALESCE(n.code, '')::text                          AS nomenclature_code,
                 COALESCE(n.libelle, '')::text                       AS nomenclature,
@@ -2550,7 +2591,7 @@ pub async fn pg_search_produits(term: &str, limit: i64) -> Vec<PgProduitSearchRo
                 ORDER BY (af1.preference = 1) DESC NULLS LAST, af1.no_id DESC
                 LIMIT 1
             ) af ON TRUE
-            LEFT JOIN fouident fi ON fi.code = af.code
+            LEFT JOIN fouident fi ON TRIM(fi.code) = TRIM(af.code)
             LEFT JOIN nomenclature n ON n.no_id = m.nom_no_id
             LEFT JOIN LATERAL (
                 SELECT SUM(cs.qte)::float AS stock_total
@@ -2620,7 +2661,7 @@ pub async fn pg_get_produits_by_code_centrale(codes_centraux: &[String]) -> Hash
                 m.codein,
                 m.code_centrale,
                 m.libelle1,
-                COALESCE(fi.nom, af.code, q.fournisseur_reseau, 'Sans fournisseur')::text AS fournisseur,
+                COALESCE(fi.nom, TRIM(af.code), q.fournisseur_reseau, 'Sans fournisseur')::text AS fournisseur,
                 COALESCE(af.code, '')::text                         AS codefou,
                 COALESCE(n.code, '')::text                          AS nomenclature_code,
                 COALESCE(n.libelle, '')::text                       AS nomenclature,
@@ -2636,7 +2677,7 @@ pub async fn pg_get_produits_by_code_centrale(codes_centraux: &[String]) -> Hash
                 ORDER BY (af1.preference = 1) DESC NULLS LAST, af1.no_id DESC
                 LIMIT 1
             ) af ON TRUE
-            LEFT JOIN fouident fi ON fi.code = af.code
+            LEFT JOIN fouident fi ON TRIM(fi.code) = TRIM(af.code)
             LEFT JOIN nomenclature n ON n.no_id = m.nom_no_id
             LEFT JOIN LATERAL (
                 SELECT SUM(cs.qte)::float AS stock_total
@@ -2860,13 +2901,13 @@ pub async fn pg_get_fournisseurs_by_codein(codein: &str) -> Vec<PgProduitFournis
             r#"
             SELECT DISTINCT ON (af.code)
                 af.code::text                        AS codefou,
-                COALESCE(fi.nom, af.code)::text      AS nomfou,
+                COALESCE(fi.nom, TRIM(af.code))::text AS nomfou,
                 COALESCE(af.reference, '')::text     AS reference,
                 af.pcb::float                        AS pcb,
                 (af.preference = 1)                  AS principal
             FROM articles a
             JOIN artfou1 af ON af.art_no_id = a.no_id
-            LEFT JOIN fouident fi ON fi.code = af.code
+            LEFT JOIN fouident fi ON TRIM(fi.code) = TRIM(af.code)
             WHERE TRIM(a.codein::text) = $1
             ORDER BY af.code, af.preference DESC NULLS LAST, af.no_id DESC
         "#,
@@ -3115,6 +3156,7 @@ pub struct PgOpportuniteRow {
     pub libelle1: String,
     pub code_centrale: String,
     pub fournisseur: String,
+    pub codefou: String,
     pub qte_reseau: f64,
     pub nb_magasins_reseau: f64,
     pub ca_reseau: f64,
@@ -3186,7 +3228,8 @@ pub async fn pg_get_opportunites_famille(nom_no_id: i64, date_debut: &str, date_
                 r.codein,
                 r.libelle1,
                 r.code_centrale,
-                COALESCE(fi.nom, af.code, r.fournisseur_reseau, 'Sans fournisseur')::text AS fournisseur,
+                COALESCE(fi.nom, TRIM(af.code), r.fournisseur_reseau, 'Sans fournisseur')::text AS fournisseur,
+                COALESCE(TRIM(af.code::text), '')                   AS codefou,
                 r.qte_reseau,
                 r.nb_magasins_reseau,
                 r.ca_reseau,
@@ -3208,7 +3251,7 @@ pub async fn pg_get_opportunites_famille(nom_no_id: i64, date_debut: &str, date_
                 ORDER BY (af1.preference = 1) DESC NULLS LAST, af1.no_id DESC
                 LIMIT 1
             ) af ON TRUE
-            LEFT JOIN fouident fi ON fi.code = af.code
+            LEFT JOIN fouident fi ON TRIM(fi.code) = TRIM(af.code)
             ORDER BY ecart_par_magasin DESC
             LIMIT $4
         "#,
@@ -3226,6 +3269,7 @@ pub async fn pg_get_opportunites_famille(nom_no_id: i64, date_debut: &str, date_
                     libelle1: s(r, "libelle1"),
                     code_centrale: s(r, "code_centrale"),
                     fournisseur: s(r, "fournisseur"),
+                    codefou: s(r, "codefou"),
                     qte_reseau: f(r, "qte_reseau"),
                     nb_magasins_reseau: f(r, "nb_magasins_reseau"),
                     ca_reseau: f(r, "ca_reseau"),

@@ -14,6 +14,7 @@ export interface HitParadePivotRow {
     /** Référence fournisseur de l'article. */
     reference: string;
     fournisseur: string;
+    codefou: string;
     nomenclature_code: string;
     nomenclature: string;
     qte292: number;
@@ -44,6 +45,7 @@ function pivotHitParade(rows: HitParadeRow[]): HitParadePivotRow[] {
                 libelle: row.libelle,
                 reference: row.reference ?? "",
                 fournisseur: row.fournisseur,
+                codefou: row.codefou ?? "",
                 nomenclature_code: row.nomenclature_code,
                 nomenclature: row.nomenclature,
                 qte292: 0, ca292: 0, caTtc292: 0, marge292: 0,

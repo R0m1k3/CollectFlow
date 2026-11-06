@@ -510,6 +510,7 @@ async fn executer_recherche(term: &str, on_etape: impl Fn(&str)) -> ProduitReche
                     local.map_or("", |l| l.fournisseur.as_str()),
                 )
                 .to_string(),
+                code_fournisseur: local.map_or(String::new(), |l| l.codefou.trim().to_string()),
                 codein: local.map(|l| l.codein.clone()),
                 nomenclature: local.map(|l| l.nomenclature.clone()).unwrap_or_default(),
                 stock_local: local.map(|l| if l.stock_total.is_nan() { 0.0 } else { l.stock_total }),
@@ -588,6 +589,7 @@ fn row_depuis_catalogue_seul(r: &PgProduitSearchRow) -> ProduitRechercheRow {
         libelle: ou(&r.libelle1, &r.codein).to_string(),
         libelle_reseau: String::new(),
         fournisseur: r.fournisseur.clone(),
+        code_fournisseur: r.codefou.trim().to_string(),
         codein: Some(r.codein.clone()),
         nomenclature: r.nomenclature.clone(),
         stock_local: Some(if r.stock_total.is_nan() { 0.0 } else { r.stock_total }),
@@ -721,6 +723,7 @@ mod tests {
                 "libelle": "123",
                 "libelleReseau": "",
                 "fournisseur": "ACME",
+                "codeFournisseur": "",
                 "codein": "123",
                 "nomenclature": "Cuisine",
                 "stockLocal": 7,

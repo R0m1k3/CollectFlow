@@ -7,6 +7,8 @@ import { DataTable, type DataColumn } from "@/components/ui/data-table";
 import { EmptyState, ErrorState } from "@/components/ui/states";
 import { GLOSSAIRE } from "@/lib/glossaire";
 import { fmtDecimal1, fmtEntier } from "@/lib/format";
+import { Fournisseur } from "@/components/ui/fournisseur";
+import { libelleFournisseur } from "@/lib/fournisseur";
 
 const COLONNES: DataColumn<PgOpportuniteRow>[] = [
     {
@@ -25,8 +27,8 @@ const COLONNES: DataColumn<PgOpportuniteRow>[] = [
     {
         id: "fournisseur",
         header: "Fournisseur",
-        sortValue: (r) => r.fournisseur,
-        cell: (r) => <span className="text-[var(--text-secondary)]">{r.fournisseur}</span>,
+        sortValue: (r) => libelleFournisseur(r.fournisseur, r.codefou),
+        cell: (r) => <Fournisseur nom={r.fournisseur} code={r.codefou} className="text-[var(--text-secondary)]" />,
     },
     {
         id: "reseau",
@@ -75,7 +77,7 @@ const COLONNES: DataColumn<PgOpportuniteRow>[] = [
     },
 ];
 
-const rechercherDans = (r: PgOpportuniteRow) => [r.libelle1, r.fournisseur, r.codein, r.code_centrale];
+const rechercherDans = (r: PgOpportuniteRow) => [r.libelle1, r.fournisseur, r.codefou, r.codein, r.code_centrale];
 
 /**
  * Produits de la même famille que le produit affiché, classés par écart de

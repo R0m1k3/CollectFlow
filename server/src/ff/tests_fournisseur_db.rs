@@ -20,7 +20,9 @@ CREATE TABLE nomenclature (no_id bigint PRIMARY KEY, code text, libelle text);
 CREATE TABLE mvtart (no_id bigint PRIMARY KEY, artnoid bigint, site text, genremvt int, datmvt date, qtemvt numeric, mntmvtttc numeric, margemvt numeric, mntmvtht numeric, qtestock numeric);
 CREATE TABLE cube_stock (artnoid bigint, site text, qte numeric, dernierevente date);
 
-INSERT INTO fouident VALUES ('F1', 'ALPHA'), ('F2', 'BETA');
+-- Code de F2 complété d'espaces dans fouident (colonne CHAR côté FF) mais pas dans artfou1 :
+-- les jointures doivent quand même retrouver son nom.
+INSERT INTO fouident VALUES ('F1', 'ALPHA'), ('F2   ', 'BETA');
 -- 1 : aucune ligne artfou1, fournisseur connu du réseau (cas 504202)
 -- 2 : un seul fournisseur, non marqué principal
 -- 3 : un principal (F2) et un secondaire (F1)
@@ -44,6 +46,15 @@ INSERT INTO mvtart VALUES
 DELETE FROM qlik_network_metrics WHERE code_centrale LIKE 'CC%';
 INSERT INTO qlik_network_metrics (code_centrale, fournisseur_reseau) VALUES ('CC504202', 'FOURNISSEUR RESEAU');
 "#;
+
+/// Code fournisseur attendu pour chaque article (vide = aucun fournisseur FF).
+fn code_attendu(codein: &str) -> &'static str {
+    match codein {
+        "100001" => "F1",
+        "100002" => "F2",
+        _ => "",
+    }
+}
 
 fn attendu(codein: &str) -> &'static str {
     match codein {
@@ -76,15 +87,22 @@ async fn article_sans_fournisseur_principal() {
     assert_eq!(neg.len(), 4, "{neg:?}");
     for r in &neg {
         assert_eq!(r.fournisseur, attendu(r.codein.trim()), "stock négatif {}", r.codein);
+        assert_eq!(r.codefou, code_attendu(r.codein.trim()), "stock négatif (code) {}", r.codein);
     }
 
     let hp = pg_get_hit_parade("2026-03-01", "2026-03-31").await.unwrap();
     assert_eq!(hp.len(), 4, "{hp:?}");
     for r in &hp {
         assert_eq!(r.fournisseur, attendu(&r.codein), "hit parade {}", r.codein);
+        assert_eq!(r.codefou, code_attendu(&r.codein), "hit parade (code) {}", r.codein);
         // CA HT (base du taux de marge) et CA TTC sont distincts
         assert_eq!((r.ca_ht, r.ca_ttc, r.marge), (8.0, 10.0, 3.0), "hit parade CA {}", r.codein);
     }
+
+    // Référentiel des sélecteurs : F2 y figure avec son nom malgré les espaces.
+    let fous = pg_get_fournisseurs(None).await;
+    let noms: Vec<(&str, &str)> = fous.iter().map(|f| (f.code.trim(), f.nom.as_str())).collect();
+    assert_eq!(noms, vec![("F1", "ALPHA"), ("F2", "BETA")], "{fous:?}");
 
     // Grille : taux sur le CA HT net (mntmvtht), CA affiché en TTC net (mntmvtttc).
     let m = pg_get_mensuel_by_fournisseur("F2", "2026-03-01", "2026-03-31").await.unwrap();
@@ -127,7 +145,7 @@ async fn article_sans_fournisseur_principal() {
     std::env::set_var("FF_API_BASE_URL", fausse_api().await);
     super::api::reset_ff_api_base_cache();
     let mut hp = hp;
-    completer_fournisseurs(&mut hp, |r| (r.codein.as_str(), &mut r.fournisseur)).await;
+    completer_fournisseurs(&mut hp, |r| (r.codein.as_str(), &mut r.fournisseur, &mut r.codefou)).await;
     for r in &hp {
         let voulu = if r.codein == "100003" { "PUCKATOR BV" } else { attendu(&r.codein) };
         assert_eq!(r.fournisseur, voulu, "hit parade complété {}", r.codein);

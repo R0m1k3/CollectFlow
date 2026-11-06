@@ -22,6 +22,7 @@ import { LIBELLE_TOUS_MAGASINS, nomMagasin } from "@/lib/magasins";
 import { fmtDecimal1, fmtEntier, fmtEur2 } from "@/lib/format";
 import { couleurMarge } from "@/lib/marge";
 import { cn } from "@/lib/utils";
+import { Fournisseur } from "@/components/ui/fournisseur";
 
 // ---------------------------------------------------------------------------
 // Calculs
@@ -170,7 +171,7 @@ function ListeTop10({ items, critere }: { items: DashboardTopItem[]; critere: Cr
                                         </span>
                                     </div>
                                     <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
-                                        <span className="truncate">{item.fournisseur}</span>
+                                        <Fournisseur nom={item.fournisseur === "—" ? "" : item.fournisseur} code={item.codefou} className="truncate" />
                                         {critere !== "ca" && <span>CA TTC {fmtEur2(item.ca)}</span>}
                                         {critere !== "qte" && <span>{fmtEntier(item.qte)} vendus</span>}
                                         <span

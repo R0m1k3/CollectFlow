@@ -10,6 +10,8 @@ import { MAGASINS, LIBELLE_TOUS_MAGASINS, nomMagasin } from "@/lib/magasins";
 import { fmtDecimal1, fmtEntier } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { PgStockNegatifRow, PgStockSansVenteRow, PgSansVente6MoisRow } from "./page";
+import { Fournisseur } from "@/components/ui/fournisseur";
+import { libelleFournisseur } from "@/lib/fournisseur";
 
 /** Nombre de lignes rendues simultanément : au-delà, le navigateur fige. */
 const PAGE_SIZE = 50;
@@ -129,6 +131,7 @@ interface LigneStock {
     codein: string;
     libelle1: string;
     fournisseur: string;
+    codefou: string;
     site: string;
 }
 
@@ -152,8 +155,8 @@ function colonnesIdentite<T extends LigneStock>(): DataColumn<T>[] {
         {
             id: "fournisseur",
             header: "Fournisseur",
-            sortValue: r => r.fournisseur,
-            cell: r => <span className="text-[var(--text-secondary)]">{r.fournisseur}</span>,
+            sortValue: r => libelleFournisseur(r.fournisseur, r.codefou),
+            cell: r => <Fournisseur nom={r.fournisseur} code={r.codefou} className="text-[var(--text-secondary)]" />,
         },
         {
             id: "site",
@@ -179,10 +182,10 @@ const celluleDate = (v: string | null) => (
     <span className="whitespace-nowrap text-[13px] text-[var(--text-secondary)]">{fmtDate(v)}</span>
 );
 
-const rechercheStock = (r: LigneStock) => [r.codein, r.libelle1];
+const rechercheStock = (r: LigneStock) => [r.codein, r.libelle1, r.fournisseur, r.codefou];
 
 function filtreFournisseur<T extends LigneStock>(): DataFilter<T> {
-    return { id: "fournisseur", label: "Fournisseur", valueOf: r => r.fournisseur, allLabel: "Tous les fournisseurs" };
+    return { id: "fournisseur", label: "Fournisseur", valueOf: r => libelleFournisseur(r.fournisseur, r.codefou), allLabel: "Tous les fournisseurs" };
 }
 
 function filtreAnneeEntree<T>(anneeOf: (r: T) => string): DataFilter<T> {

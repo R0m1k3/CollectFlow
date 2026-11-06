@@ -29,6 +29,8 @@ pub struct ProduitRechercheRow {
     pub libelle_reseau: String,
     /// Fournisseur : catalogue Nancy prioritaire (nom réel), sinon champ Qlik.
     pub fournisseur: String,
+    /// Code du fournisseur du catalogue Nancy (vide si le libellé vient de Qlik).
+    pub code_fournisseur: String,
     /// `null` si le produit n'est pas au catalogue Nancy.
     pub codein: Option<String>,
     pub nomenclature: String,

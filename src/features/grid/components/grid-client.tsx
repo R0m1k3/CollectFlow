@@ -280,8 +280,9 @@ export function GridClient({ codeFournisseur, nomFournisseur, fournisseurs, maga
                 <div className="flex items-center gap-4 min-w-0">
                     <div className="min-w-0">
                         <p className="text-[13px] text-[var(--text-secondary)]">Révision d&apos;assortiment</p>
-                        <h1 className="text-xl font-bold tracking-tight truncate text-[var(--text-primary)]" title={nomFournisseur}>
-                            {nomFournisseur}
+                        <h1 className="text-xl font-bold tracking-tight truncate text-[var(--text-primary)]" title={`${nomFournisseur} (${codeFournisseur})`}>
+                            {nomFournisseur}{" "}
+                            <span className="font-mono text-base font-medium text-[var(--text-muted)]">{codeFournisseur}</span>
                         </h1>
                     </div>
                     <div className="hidden md:flex items-center gap-2 pl-4 shrink-0 border-l border-[var(--border)]">

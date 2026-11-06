@@ -12,6 +12,8 @@ import { Terme } from "@/components/ui/tooltip";
 import { GLOSSAIRE } from "@/lib/glossaire";
 import { fmtDecimal1, fmtEntier, fmtEur2 } from "@/lib/format";
 import { couleurMarge } from "@/lib/marge";
+import { Fournisseur } from "@/components/ui/fournisseur";
+import { libelleFournisseur } from "@/lib/fournisseur";
 
 /** Intervalle d'interrogation de l'état du job de recherche. */
 const POLL_MS = 2000;
@@ -298,7 +300,7 @@ export function ProduitResults({ query }: { query: string }) {
                                     {l.libelle1 || l.codein}
                                 </Link>
                                 <span className="text-[var(--text-muted)]">
-                                    {" · "}{l.fournisseur}{" · "}code article <span className="font-mono">{l.codein}</span>
+                                    {" · "}<Fournisseur nom={l.fournisseur} code={l.codefou} />{" · "}code article <span className="font-mono">{l.codein}</span>
                                 </span>
                             </li>
                         ))}
@@ -313,7 +315,7 @@ export function ProduitResults({ query }: { query: string }) {
 
 type Ligne = ProduitRechercheRow & { trend: NetworkTrend };
 
-const rechercherDans = (r: Ligne) => [r.libelle, r.fournisseur, r.codeCentrale, r.codein, r.nomenclature];
+const rechercherDans = (r: Ligne) => [r.libelle, r.fournisseur, r.codeFournisseur, r.codeCentrale, r.codein, r.nomenclature];
 
 function ResultTable({ rows, query }: { rows: ProduitRechercheRow[]; query: string }) {
     // Tendance calculée une fois par ligne (et non à chaque tri ou rendu).
@@ -347,8 +349,8 @@ function ResultTable({ rows, query }: { rows: ProduitRechercheRow[]; query: stri
         {
             id: "fournisseur",
             header: "Fournisseur",
-            sortValue: (r) => r.fournisseur,
-            cell: (r) => <span className="text-[var(--text-secondary)]">{r.fournisseur || "—"}</span>,
+            sortValue: (r) => libelleFournisseur(r.fournisseur, r.codeFournisseur),
+            cell: (r) => (r.fournisseur || r.codeFournisseur ? <Fournisseur nom={r.fournisseur} code={r.codeFournisseur} className="text-[var(--text-secondary)]" /> : "—"),
         },
         {
             id: "codeCentrale",
