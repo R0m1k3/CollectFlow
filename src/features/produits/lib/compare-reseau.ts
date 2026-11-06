@@ -4,10 +4,9 @@
  * Principe : rapporter les deux périmètres à un **magasin moyen**, sinon on
  * compare 2 magasins Nancy à ~270 magasins réseau et le chiffre ne veut rien dire.
  *
- * ⚠️ La comparaison de référence porte sur les **quantités**. Le CA local vient
- * de `mvtart.mntmvtttc` (TTC) alors que la base de la mesure Qlik « CA N » n'est
- * pas documentée : les montants sont donc affichés côte à côte à titre indicatif,
- * sans indice calculé.
+ * ⚠️ La comparaison de référence porte sur les **quantités**. Le CA local est HT
+ * net des retours (`mvtart.mntmvtht`), comme la mesure Qlik `Sum(ca_ht)` ; les
+ * montants restent affichés côte à côte à titre indicatif, sans indice calculé.
  */
 
 import { NB_MAGASINS_RESEAU } from "@/features/grid/lib/network-trend";
@@ -41,7 +40,7 @@ export interface ComparatifReseau {
      */
     indiceQte: number | null;
 
-    /** CA 12 mois par magasin — indicatif (bases de calcul non alignées). */
+    /** CA HT 12 mois par magasin — indicatif. */
     caLocalParMagasin: number;
     caReseauParMagasin: number | null;
 

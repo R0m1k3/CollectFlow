@@ -19,17 +19,18 @@ fn build_month_keys() -> Vec<String> {
 }
 
 fn empty_mois(mois: &str) -> ProduitMois {
-    ProduitMois { mois: mois.to_string(), qte: 0.0, ca: 0.0, marge: 0.0, stock_fin_mois: 0.0, qte_recue: 0.0 }
+    ProduitMois { mois: mois.to_string(), qte: 0.0, ca: 0.0, ca_ttc: 0.0, marge: 0.0, stock_fin_mois: 0.0, qte_recue: 0.0 }
 }
 
 fn totaux_from<'a>(rows: impl Iterator<Item = &'a ProduitMois>) -> ProduitTotaux {
-    let (mut qte, mut ca, mut marge) = (0.0, 0.0, 0.0);
+    let (mut qte, mut ca, mut ca_ttc, mut marge) = (0.0, 0.0, 0.0, 0.0);
     for r in rows {
         qte += r.qte;
         ca += r.ca;
+        ca_ttc += r.ca_ttc;
         marge += r.marge;
     }
-    ProduitTotaux { qte, ca, marge, taux_marge: if ca > 0.0 { (marge / ca) * 100.0 } else { 0.0 } }
+    ProduitTotaux { qte, ca, ca_ttc, marge, taux_marge: if ca > 0.0 { (marge / ca) * 100.0 } else { 0.0 } }
 }
 
 /// Totaux d'une série sur les mois de la fenêtre, dans l'ordre de `months`.
@@ -80,6 +81,7 @@ pub fn assembler_mensuel(months: &[String], mensuel_rows: &[PgMensuelRow]) -> Me
 
         let qte = ou_zero(row.qte_vendue);
         let ca = ou_zero(row.ca_ht);
+        let ca_ttc = ou_zero(row.ca_ttc);
         let marge = ou_zero(row.marge);
         let stock_fin_mois = ou_zero(row.stock_fin_mois.unwrap_or(0.0));
         let qte_recue = ou_zero(row.qte_recue);
@@ -88,6 +90,7 @@ pub fn assembler_mensuel(months: &[String], mensuel_rows: &[PgMensuelRow]) -> Me
         if let Some(tot) = mensuel_total.get_mut(&mois) {
             tot.qte += qte;
             tot.ca += ca;
+            tot.ca_ttc += ca_ttc;
             tot.marge += marge;
             tot.stock_fin_mois += stock_fin_mois;
             tot.qte_recue += qte_recue;
@@ -99,6 +102,7 @@ pub fn assembler_mensuel(months: &[String], mensuel_rows: &[PgMensuelRow]) -> Me
         if let Some(cell) = par_site.get_mut(&mois) {
             cell.qte += qte;
             cell.ca += ca;
+            cell.ca_ttc += ca_ttc;
             cell.marge += marge;
             // Le SQL donne déjà le stock du dernier mouvement du mois pour ce site.
             cell.stock_fin_mois = stock_fin_mois;
@@ -258,6 +262,7 @@ mod tests {
             mois: mois.into(),
             qte_vendue: qte,
             ca_ht: ca,
+            ca_ttc: ca * 1.2,
             marge,
             stock_fin_mois: stock,
             qte_recue: recu,
@@ -305,7 +310,7 @@ mod tests {
         assert_eq!(r.mensuel_par_site["292"]["202505"].stock_fin_mois, 10.0);
         assert_eq!(r.mensuel_par_site["292"]["202507"].stock_fin_mois, 0.0);
 
-        assert_eq!(r.totaux, ProduitTotaux { qte: 3.0, ca: 30.0, marge: 7.0, taux_marge: 7.0 / 30.0 * 100.0 });
+        assert_eq!(r.totaux, ProduitTotaux { qte: 3.0, ca: 30.0, ca_ttc: 36.0, marge: 7.0, taux_marge: 7.0 / 30.0 * 100.0 });
         assert_eq!(r.totaux_par_site["292"].qte, 2.0);
         assert_eq!(r.sites_actifs, vec!["292", "579"]);
     }
@@ -324,6 +329,6 @@ mod tests {
     #[test]
     fn mois_vide_serialise_comme_le_ts() {
         let v = serde_json::to_value(empty_mois("202501")).unwrap();
-        assert_eq!(v, serde_json::json!({ "mois": "202501", "qte": 0, "ca": 0, "marge": 0, "stockFinMois": 0, "qteRecue": 0 }));
+        assert_eq!(v, serde_json::json!({ "mois": "202501", "qte": 0, "ca": 0, "caTtc": 0, "marge": 0, "stockFinMois": 0, "qteRecue": 0 }));
     }
 }

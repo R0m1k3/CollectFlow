@@ -63,15 +63,21 @@ export interface ProductRow {
     receptions12mByStore?: Record<string, Record<string, number>>;
     /** Per-store last delivery/reception date (site → ISO date string) */
     derniereLivraisonByStore?: Record<string, string>;
-    /** Per-store CA totals */
+    /** Per-store CA HT totals (base du taux de marge) */
     caByStore?: Record<string, number>;
+    /** Per-store CA TTC totals (CA affiché, comme Qlik) */
+    caTtcByStore?: Record<string, number>;
     /** Per-store quantity totals */
     quantiteByStore?: Record<string, number>;
     /** Per-store margin totals */
     margeByStore?: Record<string, number>;
     totalQuantite: number;
+    /** CA HT net 12 mois : base du taux de marge. */
     totalCa: number;
+    /** CA TTC net 12 mois : CA affiché (absent des instantanés d'avant le 05/11/2026). */
+    totalCaTtc?: number;
     totalMarge: number;
+    /** totalMarge / totalCa (HT) × 100. */
     tauxMarge: number;
     workingStores: string[];
     /** Rotation normalisée : unités vendues / magasin / mois */
@@ -158,7 +164,10 @@ export interface GridSummary {
     totalProducts: number;
     totalRows: number;
     totalQuantite: number;
+    /** CA HT : base du taux de marge. */
     totalCa: number;
+    /** CA TTC : affiché. */
+    totalCaTtc: number;
     totalMarge: number;
     tauxMargeGlobal: number;
 }

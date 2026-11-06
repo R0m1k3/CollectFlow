@@ -156,6 +156,7 @@ function FloatingSummaryBarInner({ isAdmin, nomFournisseur }: { isAdmin: boolean
                 summary: {
                     totalRows: summary.totalRows,
                     totalCa: summary.totalCa,
+                    totalCaTtc: summary.totalCaTtc,
                     totalMarge: summary.totalMarge,
                     tauxMargeGlobal: summary.tauxMargeGlobal,
                 },
@@ -195,7 +196,7 @@ function FloatingSummaryBarInner({ isAdmin, nomFournisseur }: { isAdmin: boolean
             <div className="flex flex-wrap items-center gap-x-8 gap-y-1">
                 <Stat label="Produits actifs" value={fmtEntier(summary.totalRows)} sub={summary.totalProducts !== summary.totalRows ? `sur ${fmtEntier(summary.totalProducts)}` : undefined} subColor="var(--text-muted)" />
                 <Stat label="Quantités vendues (12 mois)" value={fmtEntier(summary.totalQuantite)} />
-                <Stat label="Chiffre d'affaires" value={fmtEur2(summary.totalCa)} />
+                <Stat label="Chiffre d'affaires TTC" value={fmtEur2(summary.totalCaTtc)} />
                 <Stat
                     label="Marge"
                     value={fmtEur2(summary.totalMarge)}

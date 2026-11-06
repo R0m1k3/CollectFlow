@@ -166,7 +166,7 @@ async function construireClasseur(
             { header: `CA ${nomMagasin(s, { court: true })}`, key: `ca_${s}`, width: 16 },
             { header: `Indice ${nomMagasin(s, { court: true })}`, key: `ind_${s}`, width: 14 },
         ]),
-        { header: "CA nos magasins", key: "caNous", width: 16 },
+        { header: "CA HT nos magasins", key: "caNous", width: 16 },
         { header: "Poids chez nous", key: "partNous", width: 15 },
         { header: "CA réseau", key: "caReseau", width: 16 },
         { header: "CA magasin moyen réseau", key: "caMoyen", width: 22 },
@@ -426,7 +426,7 @@ export function NomenclatureCaModal({ rows, mois, nomFournisseur, onClose }: {
                                     <EnTete key={s} label={`CA ${nomMagasin(s, { court: true })}`} cle={`site:${s}`} tri={tri} onTri={changerTri}
                                         title={`CA de ${nomMagasin(s)} sur la période, et son indice face au magasin moyen du réseau`} />
                                 ))}
-                                <EnTete label="CA nos magasins" cle="caNous" tri={tri} onTri={changerTri} />
+                                <EnTete label="CA HT nos magasins" cle="caNous" tri={tri} onTri={changerTri} />
                                 <EnTete label="Poids chez nous" cle="partNous" tri={tri} onTri={changerTri}
                                     title="Part de la nomenclature dans le CA de nos magasins sur le périmètre affiché" />
                                 <EnTete label="CA réseau" cle="caReseau" tri={tri} onTri={changerTri}

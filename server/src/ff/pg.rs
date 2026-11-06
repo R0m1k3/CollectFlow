@@ -102,7 +102,7 @@ pub struct PgArticle {
     pub pv_central: Option<f64>,
     /// cube_pa.pa
     pub pa: Option<f64>,
-    /// artfou1.code où preference=1
+    /// artfou1.code où preference = 1 ; à défaut, la ligne artfou1 la plus récente
     pub codefou_principal: Option<String>,
     /// nom du fournisseur principal
     pub nomfou_principal: Option<String>,
@@ -115,8 +115,10 @@ pub struct PgMensuelRow {
     /// "YYYY-MM"
     pub mois: String,
     pub qte_vendue: f64,
-    /// mntmvtttc (à vérifier si HT ou TTC)
+    /// CA HT net des retours : SUM(-mntmvtht). Base du taux de marge (comme Qlik).
     pub ca_ht: f64,
+    /// CA TTC net des retours : SUM(-mntmvtttc). CA affiché (comme Qlik).
+    pub ca_ttc: f64,
     pub marge: f64,
     /// qtestock du dernier mouvement du mois
     pub stock_fin_mois: Option<f64>,
@@ -225,7 +227,8 @@ pub async fn pg_get_articles_by_fournisseur(codefou: &str) -> anyhow::Result<Vec
             FROM artfou1 af2
             LEFT JOIN fouident fi2 ON fi2.code = af2.code
             WHERE af2.art_no_id = a.no_id
-            ORDER BY af2.no_id DESC
+            -- preference = 1 d'abord, puis la ligne la plus récente : même règle que les autres pages
+            ORDER BY (af2.preference = 1) DESC NULLS LAST, af2.no_id DESC
             LIMIT 1
         ) last_fournisseur ON true
         WHERE af.code = $1
@@ -273,6 +276,7 @@ fn mensuel_row(r: &PgRow) -> PgMensuelRow {
         mois: s(r, "mois"),
         qte_vendue: f(r, "qte_vendue"),
         ca_ht: f(r, "ca_ht"),
+        ca_ttc: f(r, "ca_ttc"),
         marge: f(r, "marge"),
         stock_fin_mois: of(r, "stock_fin_mois"),
         qte_recue: f(r, "qte_recue"),
@@ -300,6 +304,7 @@ pub async fn pg_get_mensuel_by_fournisseur(codefou: &str, date_debut: &str, date
                 m.site,
                 TO_CHAR(m.datmvt, 'YYYY-MM')  AS mois,
                 m.qtemvt,
+                m.mntmvtht,
                 m.mntmvtttc,
                 m.margemvt,
                 m.genremvt,
@@ -312,7 +317,7 @@ pub async fn pg_get_mensuel_by_fournisseur(codefou: &str, date_debut: &str, date
             JOIN articles a ON a.no_id = m.artnoid
             JOIN (SELECT DISTINCT art_no_id FROM artfou1 WHERE code = $1) af
                 ON af.art_no_id = a.no_id
-            WHERE m.datmvt BETWEEN $2::date AND $3::date
+            WHERE m.datmvt >= $2::date AND m.datmvt < $3::date + 1
               AND m.site IN ('292', '579')
         )
         SELECT
@@ -320,7 +325,8 @@ pub async fn pg_get_mensuel_by_fournisseur(codefou: &str, date_debut: &str, date
             site,
             mois,
             SUM(CASE WHEN genremvt = 3 THEN -qtemvt    ELSE 0 END)::float           AS qte_vendue,
-            SUM(CASE WHEN genremvt = 3 THEN -mntmvtttc ELSE 0 END)::float           AS ca_ht,
+            SUM(CASE WHEN genremvt = 3 THEN -mntmvtht  ELSE 0 END)::float           AS ca_ht,
+            SUM(CASE WHEN genremvt = 3 THEN -mntmvtttc ELSE 0 END)::float           AS ca_ttc,
             SUM(CASE WHEN genremvt = 3 THEN  margemvt  ELSE 0 END)::float           AS marge,
             MAX(CASE WHEN rn_last = 1 THEN qtestock ELSE NULL END)::float            AS stock_fin_mois,
             SUM(CASE WHEN genremvt IN (1, 2) THEN  qtemvt ELSE 0 END)::float        AS qte_recue
@@ -715,7 +721,10 @@ pub struct DashboardSiteStats {
 pub struct DashboardTopItem {
     pub codein: String,
     pub libelle1: String,
+    /// CA TTC net (caisses), affiché.
     pub ca: f64,
+    /// CA HT net : base du taux de marge. 0 tant que l'API ne le fournit pas (Apiflow < 05/11/2026).
+    pub ca_ht: f64,
     pub qte: f64,
     pub marge: f64,
     pub stock: f64,
@@ -1162,6 +1171,7 @@ pub async fn pg_get_dashboard_data() -> anyhow::Result<DashboardData> {
                     codein,
                     libelle1: str_field(i, "libelle1"),
                     ca: num(i, "ca_ttc"),
+                    ca_ht: num(i, "ca_ht"),
                     qte: num(i, "qte_vendue"),
                     marge: num(i, "marge"),
                     stock,
@@ -1467,6 +1477,8 @@ pub struct HitParadeRow {
     pub nomenclature: String,
     pub site: String,
     pub qte_vendue: f64,
+    /// CA HT net des retours : base du taux de marge (comme Qlik).
+    pub ca_ht: f64,
     pub ca_ttc: f64,
     pub marge: f64,
     pub stock292: f64,
@@ -1475,11 +1487,11 @@ pub struct HitParadeRow {
     pub stock_total: f64,
 }
 
-/// Retourne les ventes produit sur une période, avec fournisseur, qté, CA TTC, marge et stock par site.
+/// Retourne les ventes produit sur une période, avec fournisseur, qté, CA HT et TTC, marge et stock par site.
 ///
 /// L'agrégation des ventes se fait UNIQUEMENT sur mvtart × articles (jointure 1:1),
 /// exactement comme pg_get_mensuel_by_fournisseur (le calcul canonique de la Grille) :
-/// qte = SUM(-qtemvt), ca = SUM(-mntmvtttc), marge = SUM(margemvt) pour genremvt = 3
+/// qte = SUM(-qtemvt), ca_ht = SUM(-mntmvtht), ca_ttc = SUM(-mntmvtttc), marge = SUM(margemvt) pour genremvt = 3
 /// (ventes stockées en négatif — vérifié sur les mouvements réels de l'API).
 /// Les attributs (libellé, fournisseur préféré, nomenclature) et le stock sont
 /// joints APRÈS l'agrégation, par codein : aucune jointure ne peut dupliquer les
@@ -1505,11 +1517,12 @@ pub async fn pg_get_hit_parade(date_debut: &str, date_fin: &str) -> anyhow::Resu
                 TRIM(a.codein::text)                                           AS codein,
                 m.site,
                 SUM(-m.qtemvt)::float                                          AS qte_vendue,
+                SUM(-m.mntmvtht)::float                                        AS ca_ht,
                 SUM(-m.mntmvtttc)::float                                       AS ca_ttc,
                 SUM(m.margemvt)::float                                          AS marge
             FROM mvtart m
             JOIN articles a ON a.no_id = m.artnoid
-            WHERE m.datmvt BETWEEN $1::date AND $2::date
+            WHERE m.datmvt >= $1::date AND m.datmvt < $2::date + 1
               AND m.site IN ('292', '579')
               AND m.genremvt = 3
               AND a.codein IS NOT NULL
@@ -1564,6 +1577,7 @@ pub async fn pg_get_hit_parade(date_debut: &str, date_fin: &str) -> anyhow::Resu
             COALESCE(ar.nomenclature, 'Sans nomenclature')    AS nomenclature,
             v.site,
             v.qte_vendue,
+            v.ca_ht,
             v.ca_ttc,
             v.marge,
             COALESCE(s.stock292, 0)    AS stock292,
@@ -1592,6 +1606,7 @@ pub async fn pg_get_hit_parade(date_debut: &str, date_fin: &str) -> anyhow::Resu
             nomenclature: s(r, "nomenclature"),
             site: s(r, "site"),
             qte_vendue: f(r, "qte_vendue"),
+            ca_ht: f(r, "ca_ht"),
             ca_ttc: f(r, "ca_ttc"),
             marge: f(r, "marge"),
             stock292: f(r, "stock292"),
@@ -3043,6 +3058,7 @@ pub async fn pg_get_mensuel_by_codein(codein: &str, date_debut: &str, date_fin: 
                     m.site,
                     TO_CHAR(m.datmvt, 'YYYY-MM')  AS mois,
                     m.qtemvt,
+                    m.mntmvtht,
                     m.mntmvtttc,
                     m.margemvt,
                     m.genremvt,
@@ -3054,7 +3070,7 @@ pub async fn pg_get_mensuel_by_codein(codein: &str, date_debut: &str, date_fin: 
                 FROM mvtart m
                 JOIN articles a ON a.no_id = m.artnoid
                 WHERE TRIM(a.codein::text) = $1
-                  AND m.datmvt BETWEEN $2::date AND $3::date
+                  AND m.datmvt >= $2::date AND m.datmvt < $3::date + 1
                   AND m.site IN ('292', '579')
             )
             SELECT
@@ -3062,7 +3078,8 @@ pub async fn pg_get_mensuel_by_codein(codein: &str, date_debut: &str, date_fin: 
                 site,
                 mois,
                 SUM(CASE WHEN genremvt = 3 THEN -qtemvt    ELSE 0 END)::float     AS qte_vendue,
-                SUM(CASE WHEN genremvt = 3 THEN -mntmvtttc ELSE 0 END)::float     AS ca_ht,
+                SUM(CASE WHEN genremvt = 3 THEN -mntmvtht  ELSE 0 END)::float     AS ca_ht,
+                SUM(CASE WHEN genremvt = 3 THEN -mntmvtttc ELSE 0 END)::float     AS ca_ttc,
                 SUM(CASE WHEN genremvt = 3 THEN  margemvt  ELSE 0 END)::float     AS marge,
                 MAX(CASE WHEN rn_last = 1 THEN qtestock ELSE NULL END)::float     AS stock_fin_mois,
                 SUM(CASE WHEN genremvt IN (1, 2) THEN qtemvt ELSE 0 END)::float   AS qte_recue
@@ -3161,7 +3178,7 @@ pub async fn pg_get_opportunites_famille(nom_no_id: i64, date_debut: &str, date_
                 JOIN articles a ON a.no_id = m.artnoid
                 WHERE m.genremvt = 3
                   AND m.site IN ('292', '579')
-                  AND m.datmvt BETWEEN $2::date AND $3::date
+                  AND m.datmvt >= $2::date AND m.datmvt < $3::date + 1
                   AND TRIM(a.codein::text) IN (SELECT codein FROM avec_reseau)
                 GROUP BY TRIM(a.codein::text)
             )

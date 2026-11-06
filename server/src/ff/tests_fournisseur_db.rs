@@ -17,7 +17,7 @@ CREATE TABLE articles (no_id bigint PRIMARY KEY, codein char(10), artcentrale ch
 CREATE TABLE artfou1 (no_id bigint PRIMARY KEY, art_no_id bigint, code text, preference int, reference text, pcb numeric);
 CREATE TABLE fouident (code text PRIMARY KEY, nom text);
 CREATE TABLE nomenclature (no_id bigint PRIMARY KEY, code text, libelle text);
-CREATE TABLE mvtart (no_id bigint PRIMARY KEY, artnoid bigint, site text, genremvt int, datmvt date, qtemvt numeric, mntmvtttc numeric, margemvt numeric);
+CREATE TABLE mvtart (no_id bigint PRIMARY KEY, artnoid bigint, site text, genremvt int, datmvt date, qtemvt numeric, mntmvtttc numeric, margemvt numeric, mntmvtht numeric, qtestock numeric);
 CREATE TABLE cube_stock (artnoid bigint, site text, qte numeric, dernierevente date);
 
 INSERT INTO fouident VALUES ('F1', 'ALPHA'), ('F2', 'BETA');
@@ -33,14 +33,14 @@ INSERT INTO articles VALUES
 INSERT INTO artfou1 VALUES (10, 2, 'F1', 0, 'R2', 1), (11, 3, 'F1', 0, 'R3a', 1), (12, 3, 'F2', 1, 'R3b', 1);
 INSERT INTO cube_stock VALUES (1, '292', -2, NULL), (2, '292', -3, NULL), (3, '292', -4, NULL), (4, '292', -5, NULL);
 INSERT INTO mvtart VALUES
-    (100, 1, '292', 1, DATE '2020-01-10', 10, 0, 0),
-    (101, 2, '292', 1, DATE '2020-01-10', 10, 0, 0),
-    (102, 3, '292', 1, DATE '2020-01-10', 10, 0, 0),
-    (103, 4, '292', 1, DATE '2020-01-10', 10, 0, 0),
-    (110, 1, '292', 3, DATE '2026-03-05', -1, -10, 3),
-    (111, 2, '292', 3, DATE '2026-03-05', -1, -10, 3),
-    (112, 3, '292', 3, DATE '2026-03-05', -1, -10, 3),
-    (113, 4, '292', 3, DATE '2026-03-05', -1, -10, 3);
+    (100, 1, '292', 1, DATE '2020-01-10', 10, 0, 0, 0),
+    (101, 2, '292', 1, DATE '2020-01-10', 10, 0, 0, 0),
+    (102, 3, '292', 1, DATE '2020-01-10', 10, 0, 0, 0),
+    (103, 4, '292', 1, DATE '2020-01-10', 10, 0, 0, 0),
+    (110, 1, '292', 3, DATE '2026-03-05', -1, -10, 3, -8),
+    (111, 2, '292', 3, DATE '2026-03-05', -1, -10, 3, -8),
+    (112, 3, '292', 3, DATE '2026-03-05', -1, -10, 3, -8),
+    (113, 4, '292', 3, DATE '2026-03-05', -1, -10, 3, -8);
 DELETE FROM qlik_network_metrics WHERE code_centrale LIKE 'CC%';
 INSERT INTO qlik_network_metrics (code_centrale, fournisseur_reseau) VALUES ('CC504202', 'FOURNISSEUR RESEAU');
 "#;
@@ -82,7 +82,14 @@ async fn article_sans_fournisseur_principal() {
     assert_eq!(hp.len(), 4, "{hp:?}");
     for r in &hp {
         assert_eq!(r.fournisseur, attendu(&r.codein), "hit parade {}", r.codein);
+        // CA HT (base du taux de marge) et CA TTC sont distincts
+        assert_eq!((r.ca_ht, r.ca_ttc, r.marge), (8.0, 10.0, 3.0), "hit parade CA {}", r.codein);
     }
+
+    // Grille : taux sur le CA HT net (mntmvtht), CA affiché en TTC net (mntmvtttc).
+    let m = pg_get_mensuel_by_fournisseur("F2", "2026-03-01", "2026-03-31").await.unwrap();
+    assert_eq!(m.len(), 1, "{m:?}");
+    assert_eq!((m[0].codein.trim(), m[0].ca_ht, m[0].ca_ttc, m[0].marge), ("100002", 8.0, 10.0, 3.0));
 
     let ca = pg_get_ca_by_fournisseur("2026-03", "2025-03").await.unwrap();
     let nom = |code: &str| ca.iter().find(|r| r.code == code).map(|r| r.nom.clone());
@@ -130,7 +137,7 @@ async fn article_sans_fournisseur_principal() {
     // sont pas toutes enregistrées à minuit.
     sqlx::raw_sql(
         "ALTER TABLE mvtart ALTER COLUMN datmvt TYPE timestamp;
-         INSERT INTO mvtart VALUES (120, 2, '579', 3, TIMESTAMP '2026-03-05 14:30', -1, -25, 3);",
+         INSERT INTO mvtart VALUES (120, 2, '579', 3, TIMESTAMP '2026-03-05 14:30', -1, -25, 3, -20);",
     )
     .execute(&pool)
     .await
@@ -138,6 +145,11 @@ async fn article_sans_fournisseur_principal() {
     let top = pg_get_top_nomenclatures_jour("2026-03-05", 10).await.unwrap();
     let ca: Vec<(&str, f64)> = top.lignes.iter().map(|l| (l.site.as_str(), l.ca)).collect();
     assert_eq!(ca, vec![("292", 40.0), ("579", 25.0)], "{top:?}");
+
+    // Dernier jour de la période inclus en entier (ancien BETWEEN : vente de 14 h 30 perdue).
+    let m = pg_get_mensuel_by_fournisseur("F1", "2026-03-01", "2026-03-05").await.unwrap();
+    let ht_579: f64 = m.iter().filter(|r| r.site == "579").map(|r| r.ca_ht).sum();
+    assert_eq!(ht_579, 20.0, "{m:?}");
 }
 
 /// Fausse API FF : seul l'article 4 (codein 100003) y a un fournisseur.

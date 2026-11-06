@@ -99,6 +99,7 @@ export async function exporterTousProduits(nomFournisseur: string): Promise<bool
                 codeGamme: gammeEffective(r, draftChanges),
                 totalQuantite: r.totalQuantite,
                 totalCa: r.totalCa,
+                totalCaTtc: r.totalCaTtc ?? 0,
                 tauxMarge: r.tauxMarge,
                 gammeAvant: r.codeGammeInit ?? null,
             })),
@@ -163,7 +164,7 @@ export async function imprimerPdf(nomFournisseur: string): Promise<boolean> {
     doc.text(`Export généré le : ${new Date().toLocaleDateString("fr-FR")}`, 14, 30);
 
     const eur = (v: number) => v.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const head = [["Code-barres", "Code article", "Réf.", "Libellé", "Magasins réseau", "Qté", "CA", "Marge", "Gamme"]];
+    const head = [["Code-barres", "Code article", "Réf.", "Libellé", "Magasins réseau", "Qté", "CA TTC", "Marge", "Gamme"]];
     const body = rows.map((r) => [
         r.gtin || r.codein,
         r.codein,
@@ -171,7 +172,7 @@ export async function imprimerPdf(nomFournisseur: string): Promise<boolean> {
         r.libelle1 ? r.libelle1.substring(0, 60) + (r.libelle1.length > 60 ? "..." : "") : "",
         r.nbMagasinsReseau != null ? r.nbMagasinsReseau.toString() : "-",
         Math.round(r.totalQuantite).toLocaleString("fr-FR"),
-        `${eur(r.totalCa)} €`,
+        `${eur(r.totalCaTtc ?? 0)} €`,
         `${eur(r.totalMarge)} €\n(${r.tauxMarge.toFixed(1)}%)`,
         gammeEffective(r, draftChanges) || "-",
     ]);

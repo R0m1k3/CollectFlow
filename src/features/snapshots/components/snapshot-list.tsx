@@ -24,7 +24,8 @@ import { isStaleServerActionError, STALE_ACTION_MESSAGE } from "@/lib/stale-acti
 type Snapshot = Awaited<ReturnType<typeof getSnapshots>>[number];
 /** Modifications enregistrées : codein → gamme avant / après. */
 type Changements = Record<string, { before?: string | null; after: string }>;
-interface Resume { totalCa?: number; tauxMargeGlobal?: number }
+/** totalCa : CA HT depuis le 05/11/2026 (TTC avant) ; totalCaTtc : CA TTC, présent depuis cette date. */
+interface Resume { totalCa?: number; totalCaTtc?: number; tauxMargeGlobal?: number }
 
 const fmtDateLongue = new Intl.DateTimeFormat("fr-FR", {
     day: "numeric",
@@ -224,9 +225,9 @@ export function SnapshotList({ type }: SnapshotListProps) {
                         {resume && (
                             <dl className="flex items-center gap-6 md:border-l md:border-[var(--border)] md:pl-6">
                                 <div>
-                                    <dt className="text-xs font-medium text-[var(--text-muted)]">Chiffre d&apos;affaires</dt>
+                                    <dt className="text-xs font-medium text-[var(--text-muted)]">Chiffre d&apos;affaires TTC</dt>
                                     <dd className="text-sm font-semibold tabular-nums text-[var(--text-primary)]">
-                                        {fmtEur2(resume.totalCa ?? 0)}
+                                        {fmtEur2(resume.totalCaTtc ?? resume.totalCa ?? 0)}
                                     </dd>
                                 </div>
                                 {taux != null && Number.isFinite(taux) && (

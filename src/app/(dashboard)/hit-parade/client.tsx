@@ -23,15 +23,18 @@ interface Groupe {
     /** Nom complet, pour les infobulles et l'export. */
     nom: string;
     qte: Champ;
+    /** CA HT : base du taux de marge. */
     ca: Champ;
+    /** CA TTC : affiché, comme dans Qlik. */
+    caTtc: Champ;
     marge: Champ;
     stock: Champ;
 }
 
 /** Champs de la ligne pivotée pour chaque magasin (la requête en fournit un jeu par magasin). */
-const CHAMPS_MAGASIN: Record<string, Pick<Groupe, "qte" | "ca" | "marge" | "stock">> = {
-    "292": { qte: "qte292", ca: "ca292", marge: "marge292", stock: "stock292" },
-    "579": { qte: "qte579", ca: "ca579", marge: "marge579", stock: "stock579" },
+const CHAMPS_MAGASIN: Record<string, Pick<Groupe, "qte" | "ca" | "caTtc" | "marge" | "stock">> = {
+    "292": { qte: "qte292", ca: "ca292", caTtc: "caTtc292", marge: "marge292", stock: "stock292" },
+    "579": { qte: "qte579", ca: "ca579", caTtc: "caTtc579", marge: "marge579", stock: "stock579" },
 };
 
 const GROUPES: Groupe[] = [
@@ -41,7 +44,7 @@ const GROUPES: Groupe[] = [
         nom: nomMagasin(m.code),
         ...CHAMPS_MAGASIN[m.code],
     })),
-    { id: "total", titre: "Total nos magasins", nom: "nos magasins", qte: "qteTotal", ca: "caTotal", marge: "margeTotal", stock: "stockTotal" },
+    { id: "total", titre: "Total nos magasins", nom: "nos magasins", qte: "qteTotal", ca: "caTotal", caTtc: "caTtcTotal", marge: "margeTotal", stock: "stockTotal" },
 ];
 
 const somme = (rows: readonly Ligne[], champ: Champ) => rows.reduce((acc, r) => acc + r[champ], 0);
@@ -86,16 +89,16 @@ function colonnesGroupe(g: Groupe): DataColumn<Ligne>[] {
             id: `${g.id}-ca`,
             header: "CA TTC",
             hint: `Chiffre d'affaires TTC (${g.nom}) sur la période, retours déduits`,
-            sortValue: r => r[g.ca],
-            cell: r => (r[g.ca] !== 0 ? fmtEur2(r[g.ca]) : vide),
-            footer: rows => fmtEur2(somme(rows, g.ca)),
+            sortValue: r => r[g.caTtc],
+            cell: r => (r[g.caTtc] !== 0 ? fmtEur2(r[g.caTtc]) : vide),
+            footer: rows => fmtEur2(somme(rows, g.caTtc)),
             className: cn(total && "font-semibold"),
         },
         {
             ...commun,
             id: `${g.id}-marge`,
             header: "% marge",
-            hint: `Taux de marge (${g.nom}) : marge divisée par le chiffre d'affaires TTC`,
+            hint: `Taux de marge (${g.nom}) : marge divisée par le chiffre d'affaires HT, comme Qlik`,
             sortValue: r => tauxMarge(r[g.ca], r[g.marge]),
             cell: r => <CelluleMarge taux={tauxMarge(r[g.ca], r[g.marge])} />,
             footer: rows => <CelluleMarge taux={tauxMarge(somme(rows, g.ca), somme(rows, g.marge))} />,
@@ -195,7 +198,10 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
     }
 
     async function exportToExcel(rows: readonly Ligne[]) {
-        const pct = (ca: number, marge: number) => ca === 0 ? 0 : Math.round((marge / ca) * 1000) / 10;
+        const pct = (ca: number, marge: number) => {
+            const t = tauxMarge(ca, marge);
+            return t === null ? 0 : Math.round(t * 10) / 10;
+        };
         const nomExport = (g: Groupe) => (g.id === "total" ? "Total" : g.nom);
 
         await telechargerExcel({
@@ -214,13 +220,13 @@ export function HitParadeClient({ dateDebut, dateFin, pivotted }: Props) {
                 r.reference,
                 r.fournisseur,
                 r.nomenclature_code ? `${r.nomenclature_code} — ${r.nomenclature}` : "",
-                ...GROUPES.flatMap(g => [r[g.qte], r[g.ca], pct(r[g.ca], r[g.marge]), r[g.stock]]),
+                ...GROUPES.flatMap(g => [r[g.qte], r[g.caTtc], pct(r[g.ca], r[g.marge]), r[g.stock]]),
             ]),
             totaux: [
                 `TOTAL — ${rows.length} articles`, "", "", "", "",
                 ...GROUPES.flatMap(g => {
                     const ca = somme(rows, g.ca);
-                    return [somme(rows, g.qte), ca, pct(ca, somme(rows, g.marge)), somme(rows, g.stock)];
+                    return [somme(rows, g.qte), somme(rows, g.caTtc), pct(ca, somme(rows, g.marge)), somme(rows, g.stock)];
                 }),
             ],
         });

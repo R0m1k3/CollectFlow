@@ -30,7 +30,7 @@ async fn fausse_api() -> String {
                 { "site": "579", "ca_ttc": 900, "ca_ttc_n1": 0, "trafic": 40, "trafic_n1": 35 }
             ],
             "top10_ca": [
-                { "codein": "100001", "libelle1": "TAPIS", "site": "292", "ca_ttc": "45.5", "qte_vendue": 3, "marge": 12 },
+                { "codein": "100001", "libelle1": "TAPIS", "site": "292", "ca_ht": "37.92", "ca_ttc": "45.5", "qte_vendue": 3, "marge": 12 },
                 { "codein": "100002", "libelle1": "CREME", "site": "292", "ca_ttc": 60, "qte_vendue": 1, "marge": 2 },
                 { "codein": "100003", "libelle1": "BOUGIE", "site": "579", "ca_ttc": 10, "qte_vendue": 1, "marge": 1 }
             ],
@@ -239,6 +239,11 @@ async fn module_ff_sur_base_de_test() {
     let dv = montrer("pg_get_dashboard_data", &dash);
     assert_eq!(dv["top10BySite"][0]["ca"][1]["fournisseur"], json!("Dernier Fou"));
     assert_eq!(dv["top10BySite"][0]["ca"][0]["fournisseur"], json!("F002"));
+    // CA HT (base du taux) lu quand l'API le fournit, 0 sinon (API antérieure au 05/11/2026)
+    let top_ca = dv["top10BySite"][0]["ca"].as_array().unwrap();
+    let par_code = |c: &str| top_ca.iter().find(|i| i["codein"] == json!(c)).unwrap().clone();
+    assert_eq!(par_code("100001")["ca_ht"], json!(37.92));
+    assert_eq!(par_code("100002")["ca_ht"], json!(0.0));
     let ca = montrer("pg_get_commandes_auto", pg::pg_get_commandes_auto().await);
     assert_eq!(ca[1]["franco"], json!(300.0));
     assert_eq!(ca[2]["franco"], json!(75.0));
