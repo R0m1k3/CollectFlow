@@ -31,6 +31,8 @@ export interface DashboardTopItem {
     marge: number;
     stock: number;
     fournisseur: string;
+    /** Code du fournisseur (vide s'il est inconnu). */
+    codefou: string;
 }
 
 export interface DashboardSiteTop10 {
@@ -89,6 +91,8 @@ export interface HitParadeRow {
     /** Référence fournisseur de l'article (artfou1.reference du fournisseur principal). */
     reference: string;
     fournisseur: string;
+    /** Code du fournisseur (vide s'il est inconnu). */
+    codefou: string;
     nomenclature_code: string;
     nomenclature: string;
     site: string;
@@ -106,6 +110,8 @@ export interface PgStockNegatifRow {
     codein: string;
     libelle1: string;
     fournisseur: string;
+    /** Code du fournisseur (vide s'il est inconnu). */
+    codefou: string;
     site: string;
     stockdispo: number;
     dernierevente: string | null;
@@ -116,6 +122,8 @@ export interface PgStockSansVenteRow {
     codein: string;
     libelle1: string;
     fournisseur: string;
+    /** Code du fournisseur (vide s'il est inconnu). */
+    codefou: string;
     site: string;
     stock_actuel: number;
     derniere_entree: string | null;
@@ -125,6 +133,8 @@ export interface PgSansVente6MoisRow {
     codein: string;
     libelle1: string;
     fournisseur: string;
+    /** Code du fournisseur (vide s'il est inconnu). */
+    codefou: string;
     site: string;
     stock_actuel: number;
     derniere_vente: string | null;
@@ -223,6 +233,8 @@ export interface PgOpportuniteRow {
     libelle1: string;
     code_centrale: string;
     fournisseur: string;
+    /** Code du fournisseur (vide s'il est inconnu). */
+    codefou: string;
     qte_reseau: number;
     nb_magasins_reseau: number;
     ca_reseau: number;

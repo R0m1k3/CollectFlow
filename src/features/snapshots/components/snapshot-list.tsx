@@ -20,6 +20,7 @@ import { confirmer, toast } from "@/components/ui/feedback";
 import { fmtDecimal1, fmtEntier, fmtEur2 } from "@/lib/format";
 import { couleurMarge } from "@/lib/marge";
 import { isStaleServerActionError, STALE_ACTION_MESSAGE } from "@/lib/stale-action";
+import { libelleFournisseur } from "@/lib/fournisseur";
 
 type Snapshot = Awaited<ReturnType<typeof getSnapshots>>[number];
 /** Modifications enregistrées : codein → gamme avant / après. */
@@ -44,7 +45,7 @@ function resumeDe(s: Snapshot): Resume | null {
 }
 
 function titreDe(s: Snapshot): string {
-    return s.label ?? s.nomFournisseur ?? s.codeFournisseur;
+    return s.label ?? libelleFournisseur(s.nomFournisseur, s.codeFournisseur);
 }
 
 /**

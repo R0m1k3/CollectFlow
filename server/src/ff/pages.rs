@@ -116,7 +116,7 @@ pub async fn page_hit_parade(ctx: Ctx) -> AppResult<Value> {
     let (d, f) = (date_debut.clone(), date_fin.clone());
     match cached(&format!("hit-parade:{date_debut}:{date_fin}"), CacheOpts::default(), move || async move {
         let mut rows = pg_get_hit_parade(&d, &f).await?;
-        completer_fournisseurs(&mut rows, |r| (r.codein.as_str(), &mut r.fournisseur)).await;
+        completer_fournisseurs(&mut rows, |r| (r.codein.as_str(), &mut r.fournisseur, &mut r.codefou)).await;
         anyhow::Ok(rows)
     })
     .await
@@ -146,17 +146,17 @@ pub async fn page_stock_negatif(ctx: Ctx) -> AppResult<Value> {
     let res = tokio::try_join!(
         cached(&k1, CacheOpts::default(), move || async move {
             let mut rows = pg_get_stock_negatif(s1.as_deref()).await?;
-            completer_fournisseurs(&mut rows, |r| (r.codein.as_str(), &mut r.fournisseur)).await;
+            completer_fournisseurs(&mut rows, |r| (r.codein.as_str(), &mut r.fournisseur, &mut r.codefou)).await;
             anyhow::Ok(rows)
         }),
         cached(&k2, CacheOpts::default(), move || async move {
             let mut rows = pg_get_stock_sans_vente(s2.as_deref()).await?;
-            completer_fournisseurs(&mut rows, |r| (r.codein.as_str(), &mut r.fournisseur)).await;
+            completer_fournisseurs(&mut rows, |r| (r.codein.as_str(), &mut r.fournisseur, &mut r.codefou)).await;
             anyhow::Ok(rows)
         }),
         cached(&k3, CacheOpts::default(), move || async move {
             let mut rows = pg_get_sans_vente_6_mois(s3.as_deref()).await?;
-            completer_fournisseurs(&mut rows, |r| (r.codein.as_str(), &mut r.fournisseur)).await;
+            completer_fournisseurs(&mut rows, |r| (r.codein.as_str(), &mut r.fournisseur, &mut r.codefou)).await;
             anyhow::Ok(rows)
         }),
     );

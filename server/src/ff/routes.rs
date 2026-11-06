@@ -81,7 +81,7 @@ pub async fn test_db(_admin: AdminUser, Query(q): Query<HashMap<String, String>>
                 ORDER BY (af1.preference = 1) DESC NULLS LAST, af1.no_id DESC
                 LIMIT 1
             ) af ON TRUE
-            LEFT JOIN fouident fi ON fi.code = af.code
+            LEFT JOIN fouident fi ON TRIM(fi.code) = TRIM(af.code)
             LEFT JOIN qlik_network_metrics q ON q.code_centrale = TRIM(a.artcentrale::text)
             WHERE TRIM(a.codein::text) = $1
         "#,

@@ -56,7 +56,13 @@ export function SupplierCombobox({ fournisseurs, selectedCode, onSelect, classNa
                 className="flex h-9 w-full items-center justify-between rounded-lg border px-3 text-sm shadow-sm bg-[var(--bg-surface)] border-[var(--border-strong)] hover:border-[var(--accent)]"
             >
                 <span className={cn("truncate", selectedSupplier ? "font-medium text-[var(--text-primary)]" : "text-[var(--text-muted)]")}>
-                    {selectedSupplier ? selectedSupplier.nom : placeholder}
+                    {selectedSupplier ? (
+                        <>
+                            {selectedSupplier.nom} <span className="font-mono font-normal text-[var(--text-muted)]">{selectedSupplier.code}</span>
+                        </>
+                    ) : (
+                        placeholder
+                    )}
                 </span>
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-[var(--text-muted)]" />
             </button>

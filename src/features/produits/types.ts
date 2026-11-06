@@ -28,6 +28,8 @@ export interface ProduitRechercheRow {
     libelleReseau: string;
     /** Fournisseur : catalogue Nancy prioritaire (nom réel), sinon champ Qlik. */
     fournisseur: string;
+    /** Code du fournisseur du catalogue Nancy (vide si le libellé vient de Qlik). */
+    codeFournisseur: string;
     /** `null` si le produit n'est pas au catalogue Nancy. */
     codein: string | null;
     nomenclature: string;

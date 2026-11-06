@@ -10,6 +10,8 @@ import { couleurMarge } from "@/lib/marge";
 import { telechargerExcel } from "@/lib/export-excel";
 import { cn } from "@/lib/utils";
 import type { HitParadePivotRow } from "./page";
+import { Fournisseur } from "@/components/ui/fournisseur";
+import { libelleFournisseur } from "@/lib/fournisseur";
 
 type Ligne = HitParadePivotRow;
 
@@ -146,8 +148,8 @@ const COLONNES: DataColumn<Ligne>[] = [
     {
         id: "fournisseur",
         header: "Fournisseur",
-        sortValue: r => r.fournisseur,
-        cell: r => <span className="text-[13px] text-[var(--text-secondary)]">{r.fournisseur}</span>,
+        sortValue: r => libelleFournisseur(r.fournisseur, r.codefou),
+        cell: r => <Fournisseur nom={r.fournisseur} code={r.codefou} className="text-[13px] text-[var(--text-secondary)]" />,
         className: "whitespace-nowrap",
     },
     {
@@ -167,7 +169,7 @@ const COLONNES: DataColumn<Ligne>[] = [
 ];
 
 const FILTRES: DataFilter<Ligne>[] = [
-    { id: "fournisseur", label: "Fournisseur", valueOf: r => r.fournisseur, allLabel: "Tous les fournisseurs" },
+    { id: "fournisseur", label: "Fournisseur", valueOf: r => libelleFournisseur(r.fournisseur, r.codefou), allLabel: "Tous les fournisseurs" },
     { id: "famille", label: "Famille", valueOf: famille, allLabel: "Toutes les familles" },
 ];
 
