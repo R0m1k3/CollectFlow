@@ -177,20 +177,20 @@ mod tests {
     fn complement_reporte_sur_les_totaux() {
         let periods = vec!["202601".to_string(), "202602".to_string()];
         let mut row = ProductRow { codein: "A1".into(), noid: Some(7.0), ..Default::default() };
-        row.sales12m.insert("202601".into(), 4.0);
+        row.sales12m.insert("202601", 4.0);
         row.total_quantite = 4.0;
         row.total_ca = 40.0;
         row.total_marge = 10.0;
         row.working_stores = vec!["292".into()];
         let mut q = std::collections::BTreeMap::new();
         q.insert("292".to_string(), 4.0);
-        row.quantite_by_store = Some(q);
+        row.quantite_by_store = Some(q.into());
         assert_eq!(store_patch_candidates(std::slice::from_ref(&row), "579").len(), 1);
         assert_eq!(store_patch_candidates(std::slice::from_ref(&row), "292").len(), 0);
 
         let mut e = StorePatchEntry { codein: "A1".into(), quantite: 3.0, ca: 30.0, marge: 6.0, ..Default::default() };
-        e.sales.insert("202602".into(), 3.0);
-        e.stock.insert("202601".into(), 5.0);
+        e.sales.insert("202602", 3.0);
+        e.stock.insert("202601", 5.0);
         let mut rows = vec![row];
         assert_eq!(apply_store_patch_in_place(&mut rows, "579", &periods, &[e]), 1);
         let r = &rows[0];

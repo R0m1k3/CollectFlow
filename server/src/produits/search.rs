@@ -83,6 +83,11 @@ const MAX_RECHERCHES_SIMULTANEES: usize = 1;
 /// ou un rafraîchissement relancerait toute l'extraction.
 static CACHE: LazyLock<Mutex<HashMap<String, EntreeCache>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Recherches en cache (diagnostic mémoire).
+pub fn cache_len() -> usize {
+    CACHE.lock().len()
+}
+
 /// Résultat en cache et instant de sa mise en cache.
 type EntreeCache = (Instant, Arc<ProduitRechercheResultat>);
 

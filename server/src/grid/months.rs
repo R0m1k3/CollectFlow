@@ -34,7 +34,7 @@ pub fn get_last12_months(now: NaiveDate) -> Vec<String> {
 /// complète (l'appelant retombe alors sur [`get_last12_months`]).
 pub fn get_months_from_rows(rows: &[ProductRow]) -> Option<Vec<String>> {
     for r in rows {
-        let mut keys: Vec<&String> = r.sales12m.keys().filter(|k| k.len() == 6 && k.bytes().all(|b| b.is_ascii_digit())).collect();
+        let mut keys: Vec<&super::compact::Cle> = r.sales12m.keys().filter(|k| k.len() == 6 && k.bytes().all(|b| b.is_ascii_digit())).collect();
         if keys.len() < 12 {
             continue;
         }
@@ -89,7 +89,7 @@ mod tests {
         for k in get_last12_months(NaiveDate::from_ymd_opt(2026, 10, 1).unwrap()) {
             r.sales12m.insert(k, 1.0);
         }
-        r.sales12m.insert("202409".into(), 0.0);
+        r.sales12m.insert("202409", 0.0);
         let m = get_months_from_rows(&[ProductRow::default(), r]).unwrap();
         assert_eq!(m.first().unwrap(), "202510");
         assert_eq!(m.last().unwrap(), "202609");

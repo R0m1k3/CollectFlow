@@ -95,6 +95,8 @@ where
                         } else if keep {
                             store.seq += 1;
                             let inserted = store.seq;
+                            let now = Instant::now();
+                            store.map.retain(|_, e| !matches!(e, Entry::Ready { expires_at, .. } if *expires_at <= now));
                             store.map.insert(
                                 key_owned,
                                 Entry::Ready { value: any.clone(), expires_at: Instant::now() + ttl, inserted },
@@ -127,6 +129,20 @@ where
             .ok_or_else(|| anyhow::anyhow!("ff_cache: type inattendu pour la clé {key}")),
         Err(msg) => Err(anyhow::anyhow!("{msg}")),
     }
+}
+
+/// Supprime les entrées expirées (tâche périodique) : une lecture lourde restait
+/// sinon en mémoire tant que le cache n'atteignait pas `MAX_ENTRIES`.
+pub fn purger_expirees() {
+    let now = Instant::now();
+    STORE.lock().map.retain(|_, e| !matches!(e, Entry::Ready { expires_at, .. } if *expires_at <= now));
+}
+
+/// Nombre d'entrées (prêtes, en cours de chargement), pour le diagnostic mémoire.
+pub fn stats() -> (usize, usize) {
+    let store = STORE.lock();
+    let prets = store.map.values().filter(|e| matches!(e, Entry::Ready { .. })).count();
+    (prets, store.map.len() - prets)
 }
 
 fn evict(store: &mut Store) {

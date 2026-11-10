@@ -12,15 +12,14 @@
 use super::js;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::collections::BTreeMap;
 
 /// A/B/C/Z status codes for product categories, but can be any string from DB (like 'Aucune')
 pub type GammeCode = String;
 
 /// Série mensuelle `{ "YYYYMM": valeur }` (ou `"YYYY-MM"` pour le réseau Qlik).
-pub type Serie = BTreeMap<String, f64>;
+pub type Serie = super::compact::CompactMap<f64>;
 /// Ventilation par magasin puis par mois.
-pub type SerieParMagasin = BTreeMap<String, Serie>;
+pub type SerieParMagasin = super::compact::CompactMap<Serie>;
 
 /// A product row with its 12-month sales history and computed KPIs.
 ///
@@ -145,7 +144,7 @@ pub struct ProductRow {
     pub derniere_livraison: Option<String>,
     /// Per-store last delivery/reception date (site → ISO date string)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub derniere_livraison_by_store: Option<BTreeMap<String, String>>,
+    pub derniere_livraison_by_store: Option<super::compact::CompactMap<String>>,
     /// Prix de vente par magasin (site → PV) — `cube_pv`.
     #[serde(skip_serializing_if = "Option::is_none", with = "js::opt_map")]
     pub prix_vente_by_store: Option<Serie>,
@@ -215,6 +214,29 @@ pub struct ProductRow {
     /// et réécrits tels quels.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
+}
+
+impl ProductRow {
+    /// Libère la capacité inutilisée des séries (remplies mois par mois pendant le calcul).
+    pub fn compacter(&mut self) {
+        for s in [&mut self.sales12m, &mut self.stock12m, &mut self.receptions12m] {
+            s.shrink_to_fit();
+        }
+        for par_mag in [&mut self.sales12m_by_store, &mut self.stock12m_by_store, &mut self.receptions12m_by_store].into_iter().flatten() {
+            par_mag.shrink_to_fit();
+            par_mag.values_mut().for_each(|s| s.shrink_to_fit());
+        }
+        for s in [&mut self.ca_by_store, &mut self.ca_ttc_by_store, &mut self.quantite_by_store, &mut self.marge_by_store, &mut self.prix_vente_by_store]
+            .into_iter()
+            .flatten()
+        {
+            s.shrink_to_fit();
+        }
+        for s in [&mut self.qte_reseau_by_month, &mut self.nb_mag_reseau_by_month].into_iter().flatten().flatten() {
+            s.shrink_to_fit();
+        }
+        self.working_stores.shrink_to_fit();
+    }
 }
 
 /// Summary bar totals for the currently visible/filtered rows

@@ -21,7 +21,7 @@ use chromiumoxide::{Browser, Page};
 use futures::StreamExt;
 use serde_json::Value;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tokio::sync::{mpsc, watch, Mutex};
@@ -65,6 +65,12 @@ async fn lancer() -> anyhow::Result<Navigateur> {
         .no_sandbox()
         .arg("disable-dev-shm-usage")
         .arg("ignore-certificate-errors")
+        // Allègement (extensions et services d'arrière-plan sont déjà coupés par
+        // chromiumoxide) : pas de GPU sur un serveur sans écran, pas de mise à jour
+        // de composants, au plus deux processus de rendu.
+        .arg("disable-gpu")
+        .arg("disable-component-update")
+        .arg(("renderer-process-limit", "2"))
         .user_data_dir(&profil)
         .launch_timeout(Duration::from_secs(60))
         // Délai des commandes internes du gestionnaire CDP. Il ne couvre PAS
@@ -116,6 +122,73 @@ pub async fn get_qlik_browser() -> anyhow::Result<Arc<Browser>> {
     Ok(b)
 }
 
+/// Délai d'inactivité avant d'arrêter Chromium (`QLIK_BROWSER_IDLE_S`, 120 s par
+/// défaut, 0 = jamais). Resté lancé, il occupait ~0,9 Go en permanence alors
+/// qu'il ne sert qu'aux extractions Qlik et aux recherches produit.
+fn delai_inactivite() -> Option<Duration> {
+    let s = std::env::var("QLIK_BROWSER_IDLE_S").ok().and_then(|v| v.trim().parse::<u64>().ok()).unwrap_or(120);
+    (s > 0).then(|| Duration::from_secs(s))
+}
+
+/// Fin de la dernière tâche Qlik (millisecondes depuis [`ORIGINE`]).
+static DERNIERE_TACHE_MS: AtomicU64 = AtomicU64::new(0);
+static ORIGINE: LazyLock<std::time::Instant> = LazyLock::new(std::time::Instant::now);
+static SURVEILLANCE: AtomicBool = AtomicBool::new(false);
+
+fn maintenant_ms() -> u64 {
+    ORIGINE.elapsed().as_millis() as u64
+}
+
+/// Chromium est-il lancé (diagnostic) ?
+pub fn chromium_actif() -> bool {
+    NAVIGATEUR.try_lock().map(|g| g.as_ref().map(|n| n.connecte.load(Ordering::SeqCst)).unwrap_or(false)).unwrap_or(true)
+}
+
+/// Arrête Chromium s'il est lancé et qu'aucune tâche Qlik n'est en cours ni en
+/// attente. Il sera relancé par [`get_qlik_browser`] à la prochaine tâche.
+/// Renvoie `true` si un navigateur a été arrêté.
+pub async fn arreter_si_inactif() -> bool {
+    // Le verrou de la file garantit qu'aucune tâche n'utilise le navigateur.
+    let Ok(_tour) = FILE_EXTRACTIONS.try_lock() else { return false };
+    if EXTRACTIONS_EN_ATTENTE.load(Ordering::SeqCst) > 0 {
+        return false;
+    }
+    let Some(n) = NAVIGATEUR.lock().await.take() else { return false };
+    match Arc::try_unwrap(n.browser) {
+        Ok(mut b) => {
+            let _ = tokio::time::timeout(Duration::from_secs(10), b.close()).await;
+            let _ = tokio::time::timeout(Duration::from_secs(10), b.kill()).await;
+        }
+        // Une référence traîne encore (page non refermée) : la dernière à partir
+        // tue le processus (`kill_on_drop`).
+        Err(_) => tracing::warn!("[qlik] Chromium encore référencé : arrêt différé"),
+    }
+    tracing::info!("[qlik] Chromium arrêté après inactivité");
+    true
+}
+
+/// Lance (une seule fois) la surveillance qui arrête Chromium inactif.
+fn surveiller_inactivite() {
+    let Some(delai) = delai_inactivite() else { return };
+    if SURVEILLANCE.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    tokio::spawn(async move {
+        let mut tic = tokio::time::interval(Duration::from_secs(15));
+        loop {
+            tic.tick().await;
+            let lance = NAVIGATEUR.lock().await.is_some();
+            if !lance {
+                continue;
+            }
+            let inactif = maintenant_ms().saturating_sub(DERNIERE_TACHE_MS.load(Ordering::SeqCst));
+            if inactif >= delai.as_millis() as u64 {
+                arreter_si_inactif().await;
+            }
+        }
+    });
+}
+
 /// Tests : pilote un Chromium déjà lancé (`--remote-debugging-port`), par
 /// exemple celui de l'image Docker de production, au lieu d'en lancer un.
 #[cfg(test)]
@@ -162,7 +235,11 @@ where
         tracing::info!("[qlik] {libelle} : en attente de {en_attente} extraction(s) en cours");
     }
     let _tour = FILE_EXTRACTIONS.lock().await;
-    tache().await
+    surveiller_inactivite();
+    DERNIERE_TACHE_MS.store(maintenant_ms(), Ordering::SeqCst);
+    let resultat = tache().await;
+    DERNIERE_TACHE_MS.store(maintenant_ms(), Ordering::SeqCst);
+    resultat
 }
 
 // ---------------------------------------------------------------------------

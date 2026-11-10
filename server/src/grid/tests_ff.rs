@@ -153,7 +153,7 @@ async fn calcul_de_la_grille_et_routes() {
 
     // Vue d'un magasin : rattrapage appliqué aux lignes.
     let vue_579 =
-        get_product_rows(GetProductRowsInput { code_fournisseur: "F001".into(), magasin: Some("579".into()), force_refresh: false })
+        get_product_rows(GetProductRowsInput { code_fournisseur: "F001".into(), magasin: Some("579".into()), force_refresh: false, pour_synchro: false })
             .await
             .unwrap();
     assert!(vue_579.snapshot().iter().any(|r| r.quantite_by_store.as_ref().and_then(|q| q.get("579")).copied() == Some(3.0)));

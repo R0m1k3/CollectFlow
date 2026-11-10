@@ -124,6 +124,7 @@ async fn run_warmup(stale_hours: f64) {
             if let Some(j) = JOB.lock().as_ref() {
                 tracing::info!("[grid-warmup] terminé — {} calculés, {} à jour, {} en échec", j.done, j.skipped, j.failed);
             }
+            tracing::info!("[memoire] après préchauffage : {}", super::memory::etat());
         }
         Err(e) => {
             let msg = format!("{e:#}");

@@ -3,6 +3,7 @@
 pub mod api_keys;
 pub mod grid_warmup;
 pub mod logs;
+pub mod memory;
 mod qlik_bridge;
 pub mod settings;
 pub mod sync_fournisseurs;
@@ -23,6 +24,7 @@ pub fn router() -> Router {
     Router::new()
         .route("/api/logs", get(logs::get_logs))
         .route("/api/admin/sync", get(sync_routes::get).patch(sync_routes::patch).post(sync_routes::post))
+        .route("/api/admin/memory", get(memory::get))
         .route("/api/admin/grid-warmup", get(grid_warmup::get).post(grid_warmup::post))
         .route("/api/admin/sync/fournisseurs", get(sync_fournisseurs::get).patch(sync_fournisseurs::patch))
 }
@@ -69,4 +71,5 @@ pub fn pages() -> Vec<(&'static str, Handler)> {
 /// Tâches de fond lancées au démarrage (minuteur de la synchro nocturne).
 pub fn start_background_tasks() {
     sync_scheduler::start_sync_timer();
+    memory::demarrer_purge();
 }

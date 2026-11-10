@@ -30,10 +30,12 @@ use std::time::{Duration, Instant};
 
 pub const GRID_ROWS_CACHE_TTL: Duration = Duration::from_secs(10 * 60);
 
-/// Bornes du cache mémoire. La synchro nocturne et le préchauffage passent par
-/// `getProductRows()` pour CHAQUE fournisseur : sans plafond, le processus finissait
-/// par garder toutes les grilles en mémoire (plusieurs centaines de Mo). Ordre
-/// d'insertion = ordre d'usage : on évince les entrées les moins récemment servies.
+/// Bornes du cache mémoire. Ordre d'insertion = ordre d'usage : on évince les
+/// entrées les moins récemment servies. La synchro nocturne et le préchauffage
+/// ne remplissent plus ce cache (cf. [`cache_grid_rows_si_present`]) ; les bornes
+/// ont été abaissées (30 → 10 grilles, 150 000 → 30 000 lignes) : le processus
+/// dépassait 2,5 Go en production. Une grille sortie du cache est relue depuis
+/// l'instantané `grid_rows` (une lecture), pas recalculée.
 ///
 /// `Number(process.env.X ?? défaut)` : une valeur illisible donne `NaN`, et toute
 /// comparaison avec `NaN` est fausse — comportement conservé.
@@ -44,10 +46,10 @@ fn borne(nom: &str, defaut: f64) -> f64 {
     }
 }
 fn max_entries() -> f64 {
-    borne("GRID_ROWS_CACHE_MAX_ENTRIES", 30.0)
+    borne("GRID_ROWS_CACHE_MAX_ENTRIES", 10.0)
 }
 fn max_rows() -> f64 {
-    borne("GRID_ROWS_CACHE_MAX_ROWS", 150_000.0)
+    borne("GRID_ROWS_CACHE_MAX_ROWS", 30_000.0)
 }
 
 /// Complément par magasin en cours de calcul ou calculé (partagé entre appelants).
@@ -113,7 +115,7 @@ fn prefixe(code_fournisseur: &str) -> String {
 pub fn cache_grid_rows(key: &str, rows: SharedRows) {
     let (max_e, max_r) = (max_entries(), max_rows());
     let mut etat = ETAT.lock();
-    etat.cache.retain(|(k, _)| k != key);
+    etat.cache.retain(|(k, e)| k != key && e.created_at.elapsed() < GRID_ROWS_CACHE_TTL);
     etat.cache.push((key.to_string(), Entree { rows, created_at: Instant::now() }));
     let mut total_rows: f64 = etat.cache.iter().map(|(_, e)| e.rows.len() as f64).sum();
     while etat.cache.len() > 1 {
@@ -124,6 +126,29 @@ pub fn cache_grid_rows(key: &str, rows: SharedRows) {
         let (_, e) = etat.cache.remove(0);
         total_rows -= e.rows.len() as f64;
     }
+}
+
+/// Calcul de synchro (nuit, préchauffage) : remplace l'entrée si la grille est
+/// déjà en cache (sinon elle serait servie périmée), mais n'en ajoute pas. Garder
+/// chaque fournisseur recalculé la nuit faisait grimper la mémoire pour rien :
+/// à l'ouverture, la grille est relue depuis l'instantané qui vient d'être écrit.
+pub fn cache_grid_rows_si_present(key: &str, rows: SharedRows) {
+    let present = ETAT.lock().cache.iter().any(|(k, _)| k == key);
+    if present {
+        cache_grid_rows(key, rows);
+    }
+}
+
+/// Supprime les entrées expirées (tâche périodique) : sans cela, une grille
+/// restait en mémoire après ses 10 minutes jusqu'à la prochaine insertion.
+pub fn purger_expirees() {
+    ETAT.lock().cache.retain(|(_, e)| e.created_at.elapsed() < GRID_ROWS_CACHE_TTL);
+}
+
+/// État du cache pour le diagnostic mémoire : (grilles, lignes, calculs en cours).
+pub fn stats() -> (usize, usize, usize) {
+    let etat = ETAT.lock();
+    (etat.cache.len(), etat.cache.iter().map(|(_, e)| e.rows.len()).sum(), etat.pending.len())
 }
 
 /// Entrée de moins de 10 min, remontée en tête de l'ordre d'usage (hit de
