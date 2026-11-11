@@ -419,6 +419,7 @@ pub async fn lancer_round(origine: &'static str, forcer_hors_fenetre: bool) {
 
             ETAT.lock().tour_termine = true;
             tracing::info!("[sync-nuit] plus rien en attente — tour terminé");
+            tracing::info!("[memoire] après synchro : {}", super::memory::etat());
             break;
         }
         Ok(())

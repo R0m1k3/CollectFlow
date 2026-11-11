@@ -27,6 +27,14 @@ services:
     volumes:
       - collectflow-data:/app/data
     restart: unless-stopped
+    # Petit init (tini) en PID 1 : récupère les processus Chromium arrêtés
+    # (sinon ils restent à l'état zombie sous le serveur).
+    init: true
+    # Plafond mémoire : en cas de fuite, le conteneur redémarre au lieu
+    # d'étouffer la machine. Volontairement large au départ (la synchro de nuit
+    # d'un gros fournisseur et Chromium s'additionnent) ; à abaisser d'après les
+    # lignes `[memoire]` des journaux.
+    mem_limit: 3g
     networks:
       - nginx_default
 

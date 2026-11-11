@@ -11,6 +11,9 @@ use serde::de::Deserializer;
 use serde::ser::{SerializeMap, Serializer};
 use serde::Deserialize;
 use serde_json::{Map, Value};
+use super::compact::CompactMap;
+use super::types::Serie;
+#[allow(unused_imports)]
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
@@ -300,7 +303,7 @@ pub mod opt_num {
     }
 }
 
-fn ser_map<S: Serializer>(m: &BTreeMap<String, f64>, s: S) -> Result<S::Ok, S::Error> {
+fn ser_map<S: Serializer>(m: &Serie, s: S) -> Result<S::Ok, S::Error> {
     let mut out = s.serialize_map(Some(m.len()))?;
     for (k, v) in m {
         out.serialize_entry(k, &JsNum(*v))?;
@@ -308,18 +311,18 @@ fn ser_map<S: Serializer>(m: &BTreeMap<String, f64>, s: S) -> Result<S::Ok, S::E
     out.end()
 }
 
-fn de_map<'de, D: Deserializer<'de>>(d: D) -> Result<BTreeMap<String, f64>, D::Error> {
-    let brut = Option::<BTreeMap<String, Option<f64>>>::deserialize(d)?.unwrap_or_default();
-    Ok(brut.into_iter().map(|(k, v)| (k, v.unwrap_or(f64::NAN))).collect())
+fn de_map<'de, D: Deserializer<'de>>(d: D) -> Result<Serie, D::Error> {
+    let brut = Option::<CompactMap<Option<f64>>>::deserialize(d)?.unwrap_or_default();
+    Ok(brut.map_values(|v| v.unwrap_or(f64::NAN)))
 }
 
 /// `Record<string, number>` obligatoire.
 pub mod map {
     use super::*;
-    pub fn serialize<S: Serializer>(m: &BTreeMap<String, f64>, s: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(m: &Serie, s: S) -> Result<S::Ok, S::Error> {
         ser_map(m, s)
     }
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<BTreeMap<String, f64>, D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Serie, D::Error> {
         de_map(d)
     }
 }
@@ -327,15 +330,15 @@ pub mod map {
 /// `Record<string, number>` facultatif.
 pub mod opt_map {
     use super::*;
-    pub fn serialize<S: Serializer>(m: &Option<BTreeMap<String, f64>>, s: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(m: &Option<Serie>, s: S) -> Result<S::Ok, S::Error> {
         match m {
             Some(m) => ser_map(m, s),
             None => s.serialize_none(),
         }
     }
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<BTreeMap<String, f64>>, D::Error> {
-        let brut = Option::<BTreeMap<String, Option<f64>>>::deserialize(d)?;
-        Ok(brut.map(|m| m.into_iter().map(|(k, v)| (k, v.unwrap_or(f64::NAN))).collect()))
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Serie>, D::Error> {
+        let brut = Option::<CompactMap<Option<f64>>>::deserialize(d)?;
+        Ok(brut.map(|m| m.map_values(|v| v.unwrap_or(f64::NAN))))
     }
 }
 
@@ -343,24 +346,24 @@ pub mod opt_map {
 /// (`Some(None)`) ou renseigné.
 pub mod opt_null_map {
     use super::*;
-    pub fn serialize<S: Serializer>(m: &Option<Option<BTreeMap<String, f64>>>, s: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(m: &Option<Option<Serie>>, s: S) -> Result<S::Ok, S::Error> {
         match m {
             Some(Some(m)) => ser_map(m, s),
             _ => s.serialize_none(),
         }
     }
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Option<BTreeMap<String, f64>>>, D::Error> {
-        let brut = Option::<BTreeMap<String, Option<f64>>>::deserialize(d)?;
-        Ok(Some(brut.map(|m| m.into_iter().map(|(k, v)| (k, v.unwrap_or(f64::NAN))).collect())))
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Option<Serie>>, D::Error> {
+        let brut = Option::<CompactMap<Option<f64>>>::deserialize(d)?;
+        Ok(Some(brut.map(|m| m.map_values(|v| v.unwrap_or(f64::NAN)))))
     }
 }
 
 /// `Record<string, Record<string, number>>` facultatif (ventilations par magasin).
 pub mod opt_nested_map {
     use super::*;
-    pub type Nested = BTreeMap<String, BTreeMap<String, f64>>;
+    pub type Nested = CompactMap<Serie>;
 
-    struct Interne<'a>(&'a BTreeMap<String, f64>);
+    struct Interne<'a>(&'a Serie);
     impl serde::Serialize for Interne<'_> {
         fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
             ser_map(self.0, s)
@@ -380,10 +383,8 @@ pub mod opt_nested_map {
         }
     }
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Nested>, D::Error> {
-        let brut = Option::<BTreeMap<String, Option<BTreeMap<String, Option<f64>>>>>::deserialize(d)?;
-        Ok(brut.map(|m| {
-            m.into_iter().map(|(k, v)| (k, v.unwrap_or_default().into_iter().map(|(p, x)| (p, x.unwrap_or(f64::NAN))).collect())).collect()
-        }))
+        let brut = Option::<CompactMap<Option<CompactMap<Option<f64>>>>>::deserialize(d)?;
+        Ok(brut.map(|m| m.map_values(|v| v.unwrap_or_default().map_values(|x| x.unwrap_or(f64::NAN)))))
     }
 }
 

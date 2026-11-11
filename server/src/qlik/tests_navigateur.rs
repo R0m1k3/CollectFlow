@@ -213,3 +213,40 @@ async fn extraction_faux_qlik() {
         assert_eq!(v.qte_by_month.as_ref().unwrap().len(), 12, "{}", v.code_centrale);
     }
 }
+
+/// Chromium inactif : arrêté (processus terminé), puis relancé à la tâche suivante.
+#[tokio::test]
+#[ignore]
+async fn arret_apres_inactivite_et_relance() {
+    if std::env::var("PLAYWRIGHT_CHROMIUM_PATH").is_err() {
+        std::env::set_var("PLAYWRIGHT_CHROMIUM_PATH", "/opt/pw-browsers/chromium-1194/chrome-linux/chrome");
+    }
+    let pid = dans_la_file_qlik("lancement", || async {
+        let b = get_qlik_browser().await.expect("lancement de Chromium");
+        let page = PageQlik::ouvrir(b, Box::new(|_| None), None).await.expect("page");
+        page.fermer().await;
+        // Processus enfant lancé par ce test.
+        std::fs::read_to_string(format!("/proc/{}/task/{}/children", std::process::id(), std::process::id())).unwrap_or_default()
+    })
+    .await;
+    assert!(super::browser::chromium_actif());
+    assert!(super::browser::arreter_si_inactif().await, "Chromium aurait dû être arrêté");
+    assert!(!super::browser::chromium_actif());
+    for p in pid.split_whitespace() {
+        // Laisse au système le temps de terminer le processus.
+        for _ in 0..50 {
+            let etat = std::fs::read_to_string(format!("/proc/{p}/stat")).unwrap_or_default();
+            if etat.is_empty() || etat.contains(") Z ") {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        let etat = std::fs::read_to_string(format!("/proc/{p}/stat")).unwrap_or_default();
+        assert!(etat.is_empty() || etat.contains(") Z "), "processus Chromium {p} toujours vivant : {etat}");
+    }
+    // Relance transparente.
+    let relance = dans_la_file_qlik("relance", || async { get_qlik_browser().await.is_ok() }).await;
+    assert!(relance);
+    assert!(super::browser::chromium_actif());
+    super::browser::arreter_si_inactif().await;
+}

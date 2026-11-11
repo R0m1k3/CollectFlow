@@ -26,6 +26,18 @@ mod routes;
 mod rpc;
 mod spa;
 
+/// Allocateur jemalloc : l'allocateur glibc gardait la mémoire libérée par les
+/// gros calculs de grille (une zone par thread), le processus montait à plusieurs
+/// Go sans jamais redescendre. jemalloc la rend au système en arrière-plan.
+#[global_allocator]
+static ALLOCATEUR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
+/// Réglages jemalloc : un thread de fond purge la mémoire inutilisée après 1 s
+/// (même quand le serveur est au repos). `_RJEM_MALLOC_CONF` les remplace.
+#[allow(non_upper_case_globals)]
+#[export_name = "_rjem_malloc_conf"]
+pub static malloc_conf: &[u8] = b"background_thread:true,dirty_decay_ms:1000,muzzy_decay_ms:1000\0";
+
 use axum::extract::DefaultBodyLimit;
 use axum::Router;
 use rpc::Handler;
@@ -97,6 +109,7 @@ async fn main() -> anyhow::Result<()> {
         auth::ensure_admin_exists().await;
     });
     admin::start_background_tasks();
+    tracing::info!("[memoire] au démarrage : {}", admin::memory::etat());
 
     let port: u16 = std::env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(5643);
     let host = std::env::var("HOSTNAME").ok().filter(|h| !h.is_empty()).unwrap_or_else(|| "0.0.0.0".into());

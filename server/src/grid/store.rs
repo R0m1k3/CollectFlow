@@ -199,14 +199,21 @@ async fn upsert_lots(code_fournisseur: &str, nb: usize, lot: impl Fn(std::ops::R
              total_marge, taux_marge, stock_actuel, ca_reseau, qte_reseau, nb_magasins_reseau, \
              ca_par_magasin_reseau, marge_pct_reseau, payload, computed_at) ",
         );
+        // Payload sérialisé une seule fois, directement en texte (plus d'arbre
+        // `serde_json::Value` intermédiaire par ligne).
         let mut erreur_payload = None;
-        qb.push_values(batch.iter(), |mut b, r| {
-            let mut payload = r.clone();
-            payload.payload_version = Some(GRID_PAYLOAD_VERSION);
-            let payload = serde_json::to_value(&payload).unwrap_or_else(|e| {
-                erreur_payload = Some(e.to_string());
-                Value::Null
-            });
+        let payloads: Vec<String> = batch
+            .iter()
+            .map(|r| {
+                let mut payload = r.clone();
+                payload.payload_version = Some(GRID_PAYLOAD_VERSION);
+                serde_json::to_string(&payload).unwrap_or_else(|e| {
+                    erreur_payload = Some(e.to_string());
+                    "null".to_string()
+                })
+            })
+            .collect();
+        qb.push_values(batch.iter().zip(payloads), |mut b, (r, payload)| {
             b.push_bind(code_fournisseur.to_string())
                 .push_bind(r.codein.clone())
                 .push_bind(r.nom_fournisseur.clone())
@@ -232,7 +239,9 @@ async fn upsert_lots(code_fournisseur: &str, nb: usize, lot: impl Fn(std::ops::R
             b.push_unseparated(" AS integer)");
             push_numeric(&mut b, r.ca_par_magasin_reseau);
             push_numeric(&mut b, r.marge_pct_reseau);
-            b.push_bind(payload).push_bind(computed_at);
+            b.push_bind(payload);
+            b.push_unseparated("::jsonb");
+            b.push_bind(computed_at);
         });
         if let Some(e) = erreur_payload {
             return Err(AppError::internal(e));
@@ -277,34 +286,48 @@ pub struct GridSnapshot {
 /// en cours : la fenêtre des 12 mois glissants aurait changé entre-temps.
 /// Les lignes sont rendues dans l'ordre du calcul en direct (identifiant article).
 pub async fn read_grid_snapshot(code_fournisseur: &str) -> AppResult<Option<GridSnapshot>> {
+    use futures::TryStreamExt;
     let pool = db::pool()?;
-    let found = sqlx::query("select payload, computed_at from grid_rows where code_fournisseur = $1")
+    // Lecture en flux, payload en texte désérialisé directement en `ProductRow` :
+    // l'ancien `fetch_all` + `serde_json::Value` gardait en mémoire tout le
+    // fournisseur deux fois (lignes brutes + arbres JSON), soit plusieurs
+    // centaines de Mo pour un gros fournisseur.
+    let mut flux = sqlx::query("select payload::text as payload, computed_at from grid_rows where code_fournisseur = $1")
         .bind(code_fournisseur)
-        .fetch_all(&pool)
-        .await?;
-    if found.is_empty() {
-        return Ok(None);
+        .fetch(&pool);
+
+    #[derive(serde::Deserialize)]
+    struct Version {
+        #[serde(rename = "payloadVersion")]
+        payload_version: Option<f64>,
     }
 
     let mut oldest: Option<NaiveDateTime> = None;
-    let mut rows = Vec::with_capacity(found.len());
-    for r in &found {
-        let payload: Value = r.try_get("payload")?;
-        if payload.get("payloadVersion").and_then(Value::as_f64) != Some(GRID_PAYLOAD_VERSION) {
-            return Ok(None);
-        }
-        let row: ProductRow = match serde_json::from_value(payload) {
+    let mut rows = Vec::new();
+    while let Some(r) = flux.try_next().await? {
+        let payload: &str = r.try_get("payload")?;
+        let row: ProductRow = match serde_json::from_str(payload) {
             Ok(row) => row,
             Err(e) => {
-                tracing::warn!("[grid-store] payload illisible pour {code_fournisseur} : {}", crate::error::short(&e, 200));
+                // Ligne d'un format antérieur : recalcul, sans alerte (comme avant).
+                let version = serde_json::from_str::<Version>(payload).ok().and_then(|v| v.payload_version);
+                if version == Some(GRID_PAYLOAD_VERSION) {
+                    tracing::warn!("[grid-store] payload illisible pour {code_fournisseur} : {}", crate::error::short(&e, 200));
+                }
                 return Ok(None);
             }
         };
+        if row.payload_version != Some(GRID_PAYLOAD_VERSION) {
+            return Ok(None);
+        }
         let computed_at: NaiveDateTime = r.try_get("computed_at")?;
         if oldest.map(|o| computed_at < o).unwrap_or(true) {
             oldest = Some(computed_at);
         }
         rows.push(row);
+    }
+    if rows.is_empty() {
+        return Ok(None);
     }
     let Some(oldest) = oldest else { return Ok(None) };
     // Comparaison en heure locale, comme `getFullYear()` / `getMonth()`.

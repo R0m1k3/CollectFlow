@@ -7,7 +7,6 @@
 use super::js;
 use chrono::{Datelike, NaiveDate};
 use serde::Serialize;
-use std::collections::BTreeMap;
 
 /// Nombre de magasins du réseau La Foir'Fouille servant de dénominateur au taux
 /// de présence. Constante métier : source unique pour la Grille et la fiche produit.
@@ -120,7 +119,7 @@ pub fn build_rolling12_qlik_months(now: NaiveDate) -> Vec<String> {
 }
 
 /// Les 12 clés de la fenêtre sont-elles explicitement présentes et chiffrées ?
-fn fenetre_complete(serie: &BTreeMap<String, f64>, labels: &[String]) -> bool {
+fn fenetre_complete(serie: &super::types::Serie, labels: &[String]) -> bool {
     labels.iter().all(|l| serie.get(l).map(|v| v.is_finite()).unwrap_or(false))
 }
 
@@ -133,7 +132,7 @@ fn fenetre_complete(serie: &BTreeMap<String, f64>, labels: &[String]) -> bool {
 /// coup le 1er du mois. Ce sont toujours 12 mois complets et extraits — aucun
 /// mois n'est inventé — simplement décalés d'un cran. `None` si aucune des deux
 /// fenêtres n'est complète.
-pub fn fenetre_disponible(serie: Option<&BTreeMap<String, f64>>, now: NaiveDate) -> Option<(Vec<String>, bool)> {
+pub fn fenetre_disponible(serie: Option<&super::types::Serie>, now: NaiveDate) -> Option<(Vec<String>, bool)> {
     let serie = serie?;
     let labels = build_rolling12_qlik_months(now);
     if fenetre_complete(serie, &labels) {
@@ -159,8 +158,8 @@ pub fn fenetre_disponible(serie: Option<&BTreeMap<String, f64>>, now: NaiveDate)
 ///
 /// Direction : forte hausse >+25%, hausse >+8%, stable, baisse <−8%, forte baisse <−25%.
 pub fn compute_network_trend(
-    qte_by_month: Option<&BTreeMap<String, f64>>,
-    nb_mag_by_month: Option<&BTreeMap<String, f64>>,
+    qte_by_month: Option<&super::types::Serie>,
+    nb_mag_by_month: Option<&super::types::Serie>,
     now: NaiveDate,
 ) -> NetworkTrend {
     let empty = NetworkTrend {
@@ -229,7 +228,7 @@ pub fn compute_network_trend(
 /// se lire comme « zéro magasin », ce qui simulerait un arrêt de diffusion.
 /// Renvoie `(values, labels)`.
 pub fn compute_stores_series(
-    nb_mag_by_month: Option<&BTreeMap<String, f64>>,
+    nb_mag_by_month: Option<&super::types::Serie>,
     labels: Option<&[String]>,
 ) -> Option<(Vec<f64>, Vec<String>)> {
     let serie = nb_mag_by_month?;
@@ -268,7 +267,7 @@ mod tests {
         NaiveDate::from_ymd_opt(y, m, j).unwrap()
     }
 
-    fn serie(labels: &[String], f: impl Fn(usize) -> f64) -> BTreeMap<String, f64> {
+    fn serie(labels: &[String], f: impl Fn(usize) -> f64) -> super::super::types::Serie {
         labels.iter().enumerate().map(|(i, l)| (l.clone(), f(i))).collect()
     }
 

@@ -44,7 +44,9 @@ Le volume `collectflow-data` (`/app/data`) conserve les réglages saisis dans **
 - **Comptes de secours** (`data/users.json`) : utilisables seulement à la première installation, tant que la base n'a jamais répondu. Dès qu'elle répond (`data/.db-initialisee`), ils sont désactivés ; une panne de la base ne rouvre plus d'accès. L'ancien mot de passe `admin` de ces comptes est remplacé (nouveau mot de passe dans les journaux). Pour les réactiver (changement de serveur de base), supprimer `data/.db-initialisee`.
 - **Connexion** : les échecs sont limités (10 par adresse IP et identifiant, 50 par adresse IP, sur 15 minutes).
 
-Variables d'environnement utiles : `DATABASE_URL`, `AUTH_SECRET`, `ADMIN_PASSWORD`, `FF_API_BASE_URL`, `QLIK_HOST` / `QLIK_USER` / `QLIK_PWD` (et les réglages fins `QLIK_*`), `PG_STATEMENT_TIMEOUT_MS`, `FF_CACHE_TTL_S`, `RUST_LOG` (niveau de journalisation ; par défaut `info`, avec sqlx et Chromium limités aux avertissements).
+Variables d'environnement utiles : `DATABASE_URL`, `AUTH_SECRET`, `ADMIN_PASSWORD`, `FF_API_BASE_URL`, `QLIK_HOST` / `QLIK_USER` / `QLIK_PWD` (et les réglages fins `QLIK_*`), `PG_STATEMENT_TIMEOUT_MS`, `FF_CACHE_TTL_S`, `GRID_ROWS_CACHE_MAX_ENTRIES` / `GRID_ROWS_CACHE_MAX_ROWS` (cache mémoire des grilles, 10 grilles / 30 000 lignes par défaut), `QLIK_BROWSER_IDLE_S` (arrêt de Chromium après inactivité, 120 s par défaut, 0 = jamais), `RUST_LOG` (niveau de journalisation ; par défaut `info`, avec sqlx et Chromium limités aux avertissements).
+
+Mémoire : `GET /api/admin/memory` (administrateur) donne la mémoire du processus, celle de l'allocateur (jemalloc) et le remplissage des caches ; le même état est journalisé (`[memoire]`) au démarrage, après la synchro de nuit et après le préchauffage.
 
 ## Développement local
 

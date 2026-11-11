@@ -74,7 +74,7 @@ pub async fn get_grid_rows(SessionUser(_utilisateur): SessionUser, Query(params)
         if tx.send(Ok(ndjson(&json!({ "type": "start", "loaded": 0, "total": null })))).await.is_err() {
             return;
         }
-        let input = GetProductRowsInput { code_fournisseur, magasin: Some(magasin), force_refresh };
+        let input = GetProductRowsInput { code_fournisseur, magasin: Some(magasin), force_refresh, pour_synchro: false };
         match get_product_rows(input).await {
             Ok(shared) => {
                 let total = shared.len();

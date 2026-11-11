@@ -148,3 +148,17 @@ CREATE TABLE IF NOT EXISTS "gammes_a_valider" (
     "created_at" timestamp DEFAULT now() NOT NULL,
     PRIMARY KEY ("code_fournisseur", "codein")
 );
+
+-- Index sur les codes fournisseur rognés des tables FF (miroir) : les jointures et
+-- filtres comparent TRIM(code) (codes complétés d'espaces différemment selon la
+-- table), ce qui rendait inutilisables les index sur `code` → lecture complète
+-- d'artfou1 / fouident à chaque calcul de grille. Tables absentes : ignoré.
+DO $$
+BEGIN
+    IF to_regclass('public.artfou1') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS "idx_cf_artfou1_code_trim" ON artfou1 ((TRIM(code)));
+    END IF;
+    IF to_regclass('public.fouident') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS "idx_cf_fouident_code_trim" ON fouident ((TRIM(code)));
+    END IF;
+END $$;

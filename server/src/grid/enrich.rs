@@ -22,7 +22,7 @@ use super::types::ProductRow;
 use crate::ff::pg::pg_get_gammes_by_codeins;
 use crate::qlik::network_cache::{get_network_metrics_by_code_centrale, NetworkMetricCached};
 use serde::Serialize;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 
 /// Tendance réseau 12 mois, telle qu'affichée dans la colonne « Tendance » de la Grille.
 #[derive(Debug, Clone, Serialize)]
@@ -121,14 +121,14 @@ pub async fn enrich_rows(rows: Vec<ProductRow>) -> Vec<EnrichedProductRow> {
                 row.nb_magasins_reseau = Some(m.nb_magasins_reseau);
                 row.ca_par_magasin_reseau = Some(m.ca_par_magasin_reseau);
                 row.marge_pct_reseau = Some(m.marge_pct_reseau);
-                row.qte_reseau_by_month = Some(m.qte_by_month.clone());
+                row.qte_reseau_by_month = Some(m.qte_by_month.clone().map(Into::into));
                 row.network_fetched_at = m.fetched_at.clone();
             }
 
             // Tendance : mêmes entrées que la colonne « Tendance » de la Grille — la
             // série des quantités **et** celle du nombre de magasins vendeurs.
             let serie = row.qte_reseau_by_month.clone().flatten();
-            let nb_mag_by_month: Option<BTreeMap<String, f64>> = metrics
+            let nb_mag_by_month: Option<super::types::Serie> = metrics
                 .as_ref()
                 .and_then(|m| m.metrics_by_month.as_ref())
                 .map(|d| d.iter().map(|(mois, v)| (mois.clone(), v.nb_mag.filter(|n| !n.is_nan()).unwrap_or(0.0))).collect());

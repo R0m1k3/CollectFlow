@@ -10,6 +10,7 @@
 //! - API publique : [`api_schemas`], [`enrich`], [`api_gammes`], [`api_v1`],
 //!   [`api_v1_grid`], [`openapi`].
 
+pub mod compact;
 pub mod api_gammes;
 pub mod api_schemas;
 pub mod api_v1;
@@ -69,3 +70,5 @@ pub fn actions() -> Vec<(&'static str, Handler)> {
 pub fn pages() -> Vec<(&'static str, Handler)> {
     vec![]
 }
+#[cfg(test)]
+mod tests_memoire;

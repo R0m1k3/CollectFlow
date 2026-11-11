@@ -30,11 +30,14 @@ pub struct GetProductRowsInput {
     /// `None` = « TOTAL ».
     pub magasin: Option<String>,
     pub force_refresh: bool,
+    /// Calcul de synchro (nuit, préchauffage, rafraîchissement d'instantané) :
+    /// le résultat est persisté mais n'entre pas dans le cache mémoire.
+    pub pour_synchro: bool,
 }
 
 impl GetProductRowsInput {
     pub fn total(code_fournisseur: &str, force_refresh: bool) -> Self {
-        Self { code_fournisseur: code_fournisseur.to_string(), magasin: Some("TOTAL".into()), force_refresh }
+        Self { code_fournisseur: code_fournisseur.to_string(), magasin: Some("TOTAL".into()), force_refresh, pour_synchro: false }
     }
     fn magasin(&self) -> &str {
         self.magasin.as_deref().unwrap_or("TOTAL")
@@ -141,7 +144,11 @@ pub fn get_product_rows(input: GetProductRowsInput) -> BoxFuture<'static, anyhow
                     apply_snapshot_changes(&mut rows, load_latest_snapshot_changes(&entree.code_fournisseur).await.as_ref());
                 }
                 let shared = GridRows::new(rows);
-                rows_cache::cache_grid_rows(&cle, shared.clone());
+                if entree.pour_synchro {
+                    rows_cache::cache_grid_rows_si_present(&cle, shared.clone());
+                } else {
+                    rows_cache::cache_grid_rows(&cle, shared.clone());
+                }
                 rows_cache::pending_remove(&cle);
                 // Persiste l'instantané pour /api/v1 : le calcul vient d'avoir lieu, on
                 // arrête simplement de jeter le résultat. Volontairement NON bloquant —
@@ -193,7 +200,7 @@ pub async fn attendre_persistance(code_fournisseur: &str) {
 /// `getProductRows({ codeFournisseur, magasin: "TOTAL", forceRefresh: true })` :
 /// recalcul complet (synchro nocturne, préchauffage). Renvoie le nombre de lignes.
 pub async fn get_product_rows_for_sync(code_fournisseur: &str) -> anyhow::Result<usize> {
-    let rows = get_product_rows(GetProductRowsInput::total(code_fournisseur, true)).await?;
+    let rows = get_product_rows(GetProductRowsInput { pour_synchro: true, ..GetProductRowsInput::total(code_fournisseur, true) }).await?;
     Ok(rows.len())
 }
 
@@ -256,7 +263,7 @@ async fn serve_from_snapshot(input: &GetProductRowsInput, cache_key: &str) -> Op
     {
         let code = code.to_string();
         tokio::spawn(async move {
-            if let Err(e) = get_product_rows(GetProductRowsInput::total(&code, true)).await {
+            if let Err(e) = get_product_rows(GetProductRowsInput { pour_synchro: true, ..GetProductRowsInput::total(&code, true) }).await {
                 tracing::error!("[getProductRows] rafraîchissement en arrière-plan KO: {}", court(&e));
             }
         });
@@ -510,13 +517,13 @@ async fn build_product_rows(input: &GetProductRowsInput) -> anyhow::Result<Vec<P
                     product.stock12m.insert(periode.clone(), total);
                 }
             }
-            product.sales12m_by_store = Some(sales_by_store);
-            product.stock12m_by_store = Some(stock_by_store);
-            product.receptions12m_by_store = Some(receptions_by_store);
-            product.ca_by_store = Some(ca_by_store);
-            product.ca_ttc_by_store = Some(ca_ttc_by_store);
-            product.quantite_by_store = Some(quantite_by_store);
-            product.marge_by_store = Some(marge_by_store);
+            product.sales12m_by_store = Some(super::compact::par_magasin(sales_by_store));
+            product.stock12m_by_store = Some(super::compact::par_magasin(stock_by_store));
+            product.receptions12m_by_store = Some(super::compact::par_magasin(receptions_by_store));
+            product.ca_by_store = Some(ca_by_store.into());
+            product.ca_ttc_by_store = Some(ca_ttc_by_store.into());
+            product.quantite_by_store = Some(quantite_by_store.into());
+            product.marge_by_store = Some(marge_by_store.into());
         }
 
         // workingStores : sites avec au moins 1 vente sur les 12 derniers mois
@@ -584,7 +591,7 @@ async fn build_product_rows(input: &GetProductRowsInput) -> anyhow::Result<Vec<P
                 par_site.insert(r.site.clone(), d.clone());
             }
         }
-        product.derniere_livraison_by_store = Some(par_site);
+        product.derniere_livraison_by_store = Some(par_site.into());
     }
 
     // ─── Phase 7b : Prix de vente (cube_pv, sinon le PV du cube de stock) ─
@@ -594,7 +601,7 @@ async fn build_product_rows(input: &GetProductRowsInput) -> anyhow::Result<Vec<P
     // et l'afficher vaut mieux que le moyenner.
     for product in products.iter_mut() {
         match prix_vente_map.get(&product.codein).filter(|m| !m.is_empty()) {
-            Some(par_site) => product.prix_vente_by_store = Some(par_site.clone()),
+            Some(par_site) => product.prix_vente_by_store = Some(par_site.clone().into()),
             None => {
                 // Filet de secours : le cube de stock porte le même PV, mais
                 // seulement pour les articles qui ont une ligne de stock.
@@ -607,7 +614,7 @@ async fn build_product_rows(input: &GetProductRowsInput) -> anyhow::Result<Vec<P
                     }
                 }
                 if !depuis_stock.is_empty() {
-                    product.prix_vente_by_store = Some(depuis_stock);
+                    product.prix_vente_by_store = Some(depuis_stock.into());
                 }
             }
         }
@@ -632,6 +639,11 @@ async fn build_product_rows(input: &GetProductRowsInput) -> anyhow::Result<Vec<P
     let mut rows: Vec<ProductRow> =
         products.into_iter().filter(|p| p.code_gamme.as_deref() != Some("Y") || p.total_quantite > 0.0).collect();
     reconcile_selected_store_from_mensuel_api(&mut rows, magasin, date_debut, date_fin, &sorted_periods).await;
+    // Lignes gardées en cache : capacité inutilisée des séries libérée.
+    for r in rows.iter_mut() {
+        r.compacter();
+    }
+    rows.shrink_to_fit();
     let exclus_y = tous - rows.len();
     tracing::info!(
         "[getProductRows] {} produits ({exclus_y} gamme Y sans ventes exclus), {} avec ventes",
@@ -854,8 +866,8 @@ pub fn enrich_with_network_metrics(products: &mut [ProductRow], metrics: Option<
         product.ca_par_magasin_reseau = Some(m.ca_par_magasin_reseau);
         product.marge_pct_reseau = Some(m.marge_pct_reseau);
         product.taux_presence_reseau = Some(m.nb_magasins_reseau / NB_MAGASINS_RESEAU);
-        product.qte_reseau_by_month = Some(m.qte_by_month.clone());
-        product.nb_mag_reseau_by_month = Some(nb_mag_par_mois(m));
+        product.qte_reseau_by_month = Some(m.qte_by_month.clone().map(Into::into));
+        product.nb_mag_reseau_by_month = Some(nb_mag_par_mois(m).map(Into::into));
         product.network_fetched_at = m.fetched_at.clone();
     }
 }
